@@ -28,7 +28,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -488,6 +488,9 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
   // Phase 20.0: the effect played from the entity.
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
+  // Phase 23.4: the camera framework.
+  virtualCamera: VIRTUAL_CAMERA_FIELDS,
+  cameraPath: CAMERA_PATH_FIELDS,
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -516,6 +519,8 @@ const OWNED: readonly OwnedComponent[] = [
   'faceMovement',
   'materialParams',
   'effect',
+  'virtualCamera',
+  'cameraPath',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -545,6 +550,8 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'faceMovement',
   'materialParams',
   'effect',
+  'virtualCamera',
+  'cameraPath',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -717,6 +724,8 @@ export function validateSetComponentArgs(
     component === 'materials' ||
     component === 'materialParams' ||
     component === 'effect' ||
+    component === 'virtualCamera' ||
+    component === 'cameraPath' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||

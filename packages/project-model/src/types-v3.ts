@@ -214,6 +214,10 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   fogVolume?: FogVolumeComponent;
   /** Phase 20.0, v4 only: a visual effect played from the entity. */
   effect?: import('./effects').EffectComponent;
+  /** Phase 23.4, v4 only: a virtual camera shot the camera brain can cut or blend to. */
+  virtualCamera?: import('./cameras').VirtualCameraComponent;
+  /** Phase 23.4, v4 only: a path rail cameras ride (offsets from the entity). */
+  cameraPath?: import('./cameras').CameraPathComponent;
   /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */
   animator?: AnimatorComponent;
   /** Phase 9.9, v4 only: gameplay building blocks. */

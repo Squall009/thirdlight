@@ -47,6 +47,7 @@ import {
   type RendererPreferenceSource,
 } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
+import { CameraBrain, type CameraPose } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -611,6 +612,72 @@ export class Viewport {
     }
   }
 
+  /**
+   * Phase 23.4: every virtual camera's preview, rebuilt from the authored data
+   * on each sync with the runtime's own rig maths (the camera brain) — the
+   * pose Play starts it at, before input moves it.
+   */
+  private readonly vcamPreviews = new THREE.Group();
+  private syncVirtualCameraPreviews(entities: readonly ProjectedEntity[]): void {
+    for (const c of [...this.vcamPreviews.children]) {
+      this.vcamPreviews.remove(c);
+      (c as THREE.LineSegments).geometry.dispose();
+      ((c as THREE.LineSegments).material as THREE.Material).dispose();
+    }
+    const cams = entities.filter((e) => e.components['virtualCamera'] !== undefined);
+    if (cams.length > 0) {
+      if (this.vcamPreviews.parent === null) {
+        this.vcamPreviews.name = 'virtual-camera-previews';
+        this.scene.add(this.vcamPreviews);
+      }
+      const sceneCam = entities.find((e) => e.kind === 'camera')?.components['camera'] as { fovY?: number; near?: number; far?: number } | undefined;
+      const brain = new CameraBrain(120, { fovY: sceneCam?.fovY ?? 60, near: sceneCam?.near ?? 0.1, far: sceneCam?.far ?? 100 });
+      brain.add(entities.map((e) => ({ id: e.id, components: e.components })));
+      const byId = new Map(entities.map((e) => [e.id, e]));
+      const world = {
+        worldOf: (id: string, p: number[], r: number[]): boolean => {
+          const e = byId.get(id);
+          if (e === undefined) return false;
+          const m = new THREE.Matrix4();
+          for (let cur: ProjectedEntity | undefined = e, depth = 0; cur !== undefined && depth < 64; cur = cur.parentId !== null ? byId.get(cur.parentId) : undefined, depth += 1) {
+            const local = new THREE.Matrix4().compose(new THREE.Vector3(N(cur.position[0]), N(cur.position[1]), N(cur.position[2])), new THREE.Quaternion(N(cur.rotation[0]), N(cur.rotation[1]), N(cur.rotation[2]), cur.rotation[3] ?? 1), new THREE.Vector3(cur.scale[0] ?? 1, cur.scale[1] ?? 1, cur.scale[2] ?? 1));
+            m.premultiply(local);
+          }
+          const pos = new THREE.Vector3();
+          const rot = new THREE.Quaternion();
+          m.decompose(pos, rot, new THREE.Vector3());
+          p[0] = pos.x;
+          p[1] = pos.y;
+          p[2] = pos.z;
+          r[0] = rot.x;
+          r[1] = rot.y;
+          r[2] = rot.z;
+          r[3] = rot.w;
+          return true;
+        },
+      };
+      for (const e of cams) {
+        const pose = brain.previewPose(e.id, world);
+        if (pose === null) continue;
+        const vc = e.components['virtualCamera'] as { rig?: string; distance?: number };
+        const reach = vc.rig === 'follow' || vc.rig === 'orbitPoint' || vc.rig === 'topDown' ? (vc.distance ?? 5) : 3;
+        const lines = virtualCameraFrustum(e.id, pose, this.gameAspect, reach);
+        lines.visible = this.selectedId === e.id;
+        this.vcamPreviews.add(lines);
+      }
+    }
+    this.showVirtualCameraPreview();
+  }
+  private showVirtualCameraPreview(): void {
+    let shown: unknown = null;
+    for (const c of this.vcamPreviews.children) {
+      const on = c.userData['virtualCameraFrustum']?.id === this.selectedId;
+      c.visible = on;
+      if (on) shown = c.userData['virtualCameraFrustum'];
+    }
+    this.root.setAttribute('data-virtual-camera', shown === null ? '' : JSON.stringify(shown));
+  }
+
   /** Phase 9.4: project materials on boxes (models get theirs through ModelInstances). */
   private materialLibrary: MaterialLibrary | null = null;
   private readonly boxMaterials = new Map<string, { key: string; undo: () => void }>();
@@ -1098,6 +1165,7 @@ export class Viewport {
     }
     this.models?.sync(entities, full ? undefined : { changed: new Set(changed.map((e) => e.id)), removed });
     this.syncSceneLights(entities);
+    this.syncVirtualCameraPreviews(entities);
     // M3 (packet 56): the zone overlay syncs from the SAME projection pass
     // (phase 12: an inactive zone is hidden like any inactive object).
     // The selected entity's handles come from any of its sized components: its change re-syncs the overlay too.
@@ -1378,6 +1446,8 @@ export class Viewport {
     this.applyLightmaps();
     const frustum = id === null ? undefined : this.meshes.get(id)?.children.find((c) => c.userData['cameraFrustum'] !== undefined);
     this.root.setAttribute('data-camera-frustum', frustum === undefined ? '' : JSON.stringify(frustum.userData['cameraFrustum']));
+    // Phase 23.4: a virtual camera's preview (where its rig puts it) shows while it is selected.
+    this.showVirtualCameraPreview();
     // Phase 15.2: a selected copy of an instance set takes the gizmo.
     this.syncCopyProxy();
     // Phase 12: no gizmo on a folder (no transform) or a locked entity.
@@ -2040,6 +2110,32 @@ function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
       return dl;
     }
   }
+}
+
+/**
+ * Phase 23.4: a virtual camera's preview in world space — the frustum where
+ * its rig puts it (drawn out to the pivot it looks at, at most its far plane)
+ * and a line to that pivot.
+ */
+function virtualCameraFrustum(id: string, pose: CameraPose, aspect: number, reach: number): THREE.LineSegments {
+  const fov = (pose.fovY * Math.PI) / 180;
+  const q = new THREE.Quaternion(pose.rotation[0], pose.rotation[1], pose.rotation[2], pose.rotation[3]);
+  const eye = new THREE.Vector3(pose.position[0], pose.position[1], pose.position[2]);
+  const d = Math.max(0.5, Math.min(pose.far, reach));
+  const h = Math.tan(fov / 2) * d;
+  const w = h * aspect;
+  const corner = (x: number, y: number): THREE.Vector3 => new THREE.Vector3(x, y, -d).applyQuaternion(q).add(eye);
+  const c = [corner(-w, -h), corner(w, -h), corner(w, h), corner(-w, h)];
+  const centre = new THREE.Vector3(0, 0, -d).applyQuaternion(q).add(eye);
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < 4; i++) pts.push(eye, c[i]!, c[i]!, c[(i + 1) % 4]!);
+  pts.push(eye, centre);
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x4cc9f0, transparent: true, opacity: 0.85, depthTest: false }));
+  lines.name = `virtual-camera-frustum:${id}`;
+  lines.userData['virtualCameraFrustum'] = { id, position: [...pose.position], rotation: [...pose.rotation], fovY: pose.fovY, aspect };
+  lines.renderOrder = 10;
+  lines.raycast = () => undefined;
+  return lines;
 }
 
 /**

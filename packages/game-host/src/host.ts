@@ -46,6 +46,7 @@ import {
   registerSimulationModule,
   type ActionFrame,
   type ActionSource,
+  type CameraViewInfo,
   type SimulationModuleSpec,
   type GameEvent,
   type GameView,
@@ -153,6 +154,8 @@ export interface GameHostObservation {
    * follows the player (the title scene's framing plus the pan).
    */
   readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
+  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
+  readonly camera?: CameraViewInfo;
 }
 
 /**
@@ -169,6 +172,8 @@ export interface GameHostSceneObservation {
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
+  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
+  readonly camera?: CameraViewInfo;
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -641,6 +646,43 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return true;
   };
 
+  /**
+   * Phase 23.4: the letterbox bars — two black bars over the top and bottom of
+   * the view, each the live camera's share of the view height (interpolated
+   * like the camera; blended between cameras). Made the first time a camera
+   * asks for one; a game without virtual cameras never has them.
+   */
+  let letterbox: { readonly top: HostDomNode; readonly bottom: HostDomNode; shown: string } | null = null;
+  let hostDom: HostDom | null = null;
+  const lbPos: number[] = [0, 0, 0];
+  const lbRot: number[] = [0, 0, 0, 1];
+  const serviceLetterbox = (rt: Runtime): void => {
+    const lens = rt.readCameraView?.(lbPos, lbRot) ?? null;
+    const amount = lens === null || !Number.isFinite(lens.letterbox) ? 0 : Math.max(0, Math.min(0.5, lens.letterbox));
+    if (letterbox === null) {
+      if (amount <= 0 || hostDom === null) return;
+      const top = hostDom.createElement('div');
+      const bottom = hostDom.createElement('div');
+      top.setAttribute?.('data-tl-letterbox', 'top');
+      bottom.setAttribute?.('data-tl-letterbox', 'bottom');
+      config.container.appendChild(top);
+      config.container.appendChild(bottom);
+      letterbox = { top, bottom, shown: '' };
+    }
+    const pct = String(Math.round(amount * 10000) / 100);
+    if (letterbox.shown === pct) return;
+    letterbox.shown = pct;
+    const bar = (edge: 'top' | 'bottom'): string => `position:fixed;left:0;right:0;${edge}:0;height:${pct}%;background:#000;pointer-events:none;z-index:4;${amount > 0 ? '' : 'display:none;'}`;
+    // Through the CSSOM (a page's content security policy may refuse style attributes).
+    const apply = (node: HostDomNode, css: string): void => {
+      const styled = node as HostDomNode & { style?: { cssText?: string } };
+      if (styled.style !== undefined) styled.style.cssText = css;
+      else node.setAttribute?.('style', css);
+    };
+    apply(letterbox.top, bar('top'));
+    apply(letterbox.bottom, bar('bottom'));
+  };
+
   /** Phase 9.10: the loaded audio sources (recomputed when the scene set changes). */
   let sourcesRevision = -1;
   let sources: { id: string; assetId: string; volume: number; range: number }[] = [];
@@ -823,6 +865,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // (2) The committed view → cues, HUD, adapter. Committed-view-only:
     // no runtime internals, no scene-graph mutation (C41-1). Scene mode has
     // no game view: it only renders.
+    // Phase 23.4: the live camera's letterbox (an overlay the host draws over the view).
+    serviceLetterbox(runtime);
     // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
     const view = gameViewOf(runtime);
     if (view === null) {
@@ -932,6 +976,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       adapter = null; // a malformed factory result degrades to headless (the game keeps playing)
     }
 
+    // Phase 23.4: the document the letterbox bars are made in (a scene-mode game has them too).
+    hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
     if (sceneMode) {
       mounted = true;
       return { ok: true };
@@ -1108,8 +1154,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
         ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
+        ...cameraObservation(runtime),
       },
     };
+  };
+
+  /** Phase 23.4: the resolved camera, while the game has virtual cameras. */
+  const cameraObservation = (rt: Runtime): { camera?: CameraViewInfo } => {
+    const c = rt.cameraView?.() ?? null;
+    return c === null ? {} : { camera: c };
   };
 
   const observeScene = ():
@@ -1134,6 +1187,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         inputMode: 'physical',
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
         ...scenesObservation(runtime),
+        ...cameraObservation(runtime),
       },
     };
   };
@@ -1202,6 +1256,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
       flowCtl = null;
       hud.dispose(); // the host-owned HUD DOM + listeners
       hud = null;
+    }
+    if (letterbox !== null) {
+      letterbox.top.remove();
+      letterbox.bottom.remove();
+      letterbox = null;
     }
     if (adapter !== null) {
       try {

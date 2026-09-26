@@ -126,6 +126,25 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
   'camera:far': (o, v) => {
     o['near'] = Math.min(o['near'] as number, v / 2);
   },
+  // Phase 23.4: the virtual camera's paired limits.
+  'virtualCamera:pitchMin': (o, v) => {
+    if (typeof o['pitchMax'] === 'number') o['pitchMax'] = Math.max(o['pitchMax'] as number, v);
+  },
+  'virtualCamera:pitchMax': (o, v) => {
+    if (typeof o['pitchMin'] === 'number') o['pitchMin'] = Math.min(o['pitchMin'] as number, v);
+  },
+  'virtualCamera:minDistance': (o, v) => {
+    if (typeof o['maxDistance'] === 'number') o['maxDistance'] = Math.max(o['maxDistance'] as number, v);
+  },
+  'virtualCamera:maxDistance': (o, v) => {
+    if (typeof o['minDistance'] === 'number') o['minDistance'] = Math.min(o['minDistance'] as number, v);
+  },
+  'virtualCamera:near': (o, v) => {
+    if (typeof o['far'] === 'number') o['far'] = Math.max(o['far'] as number, v * 2);
+  },
+  'virtualCamera:far': (o, v) => {
+    if (typeof o['near'] === 'number') o['near'] = Math.min(o['near'] as number, v / 2);
+  },
   'behaviors:*.declaration.properties.*.min': (o, v) => {
     o['max'] = Math.max(o['max'] as number, v);
   },
@@ -434,6 +453,14 @@ const COMPONENT_BASES: Record<string, J[]> = {
   collider: [{ shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true }, { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } }, { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } }],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
+  virtualCamera: [
+    { rig: 'follow', priority: 5, enabled: false, target: 'spawn-0001', targetOffset: [0, 1.5, 0], distance: 6, minDistance: 1, maxDistance: 20, yaw: 30, pitch: 25, pitchMin: -20, pitchMax: 60, yawAction: 'look', pitchAction: 'tilt', rotateSpeed: 90, zoomAction: 'zoom', zoomSpeed: 5, collision: false, collisionRadius: 0.3, damping: 0.2, fovY: 50, near: 0.2, far: 500, blend: 'linear', blendTime: 1, letterbox: 0.1, shakeAmplitude: 0.05, shakeFrequency: 6, shakeRotation: 1 },
+    { rig: 'orbitPoint', distance: 15, minDistance: 5, maxDistance: 40, yaw: 45, pitch: 45, pitchMin: 20, pitchMax: 70, pitchAction: 'tilt', rotateSpeed: 60, zoomAction: 'zoom', zoomSpeed: 10, turnLeftAction: 'left', turnRightAction: 'right', yawStep: 90, turnTime: 0.3, point: [1, 0, 2], damping: 0.1, blend: 'cut' },
+    { rig: 'topDown', target: 'spawn-0001', distance: 12, yaw: 90, damping: 0 },
+    { rig: 'fixed', target: 'spawn-0001', blend: 'eased', blendTime: 2 },
+    { rig: 'rail', path: 'path-0001', progress: 0.25, railSpeed: 3, railMode: 'pingpong', target: 'spawn-0001' },
+  ],
+  cameraPath: [{ points: [[0, 0, 0], [4, 1, 0], [8, 0, 2]], closed: true, smooth: false }],
   cameraFollow: [{ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 }, distance: 10, maxSpeed: 100 }],
   light: LIGHTS,
   gameZone: [
@@ -646,7 +673,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, depth_buffer: 2 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, clipsFor: MODEL_ASSET['assetId'] };

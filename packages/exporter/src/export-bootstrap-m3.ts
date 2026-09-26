@@ -39,7 +39,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
+import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -402,7 +402,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
         runtime,
         snapshot,
         // Phase 17.1: the page's ?renderer= flag, else the project's render_backend setting.
-        renderer: resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }),
+        renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings) },
         // Phase 21.3: repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
         batching: batchingFromUrl(pageSearch()),
         ...(models !== null

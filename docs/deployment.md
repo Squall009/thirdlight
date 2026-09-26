@@ -2060,7 +2060,7 @@ In a 3D project:
 - in Play and the export the player capsule falls under the project's
   gravity (`gravity_y`, capped at the max fall speed) and rests on what it
   lands on. Walking, jumping and the 3D character settings are phase 23.2;
-  cameras 23.4. A 3D project plays its scenes without a game block for now
+  cameras: see *Cameras* below. A 3D project plays its scenes without a game block for now
   (the platformer game set is 2D-plane only until 3D game modes, 23.10);
 - `tl_game_observe` reports such a scene play with `state: "scene"`, its
   step and `player: { x, y, z }`; an exported page has the same observation
@@ -2071,6 +2071,83 @@ it: Play loads `/physics-3d.js` from the preview origin, a 3D export ships
 `js/physics-3d.js` (about 2.9 MB, 1.1 MB gzipped, the WebAssembly inside —
 no fetch, no URL) and lists the `@dimforge/rapier3d-compat` license. It loads
 in the simulation worker or, single-threaded, in the page.
+
+## Cameras (virtual cameras)
+
+Since phase 23.4 a scene can hold **virtual cameras**: shots the game cuts or
+blends to. Add one to any object with **+ Add component → Virtual camera**
+(Camera group; presets: follow/orbit, orbit a point, top-down, fixed). The
+scene camera (the object with the Camera component) still draws the game;
+with an enabled virtual camera it shows that camera's view instead. A
+project without virtual cameras draws exactly what it drew before — its
+`cameraFollow` and framing are untouched.
+
+**Which camera is live.** The enabled virtual camera with the highest
+**Priority** (on a tie the one activated last, then the first in the scene).
+**Enabled at start** off keeps a camera waiting for a script. Without an
+enabled virtual camera the view is the scene camera's own (its follow, or
+where it is placed).
+
+**Rigs** (the **Rig** field; the Inspector shows the fields each uses):
+
+- **Follow / orbit** — circles its **Target** at **Distance**, **Yaw** and
+  **Pitch** (limits **Pitch min/max**), plus a **Target offset** (e.g. head
+  height). The player turns it with the **Turn action** (an axis; a 2D axis
+  turns with x and tilts with y), tilts it with the **Tilt action** and zooms
+  with the **Zoom action** (between **Min/Max distance**). In a 3D project it
+  is pulled in front of colliders between it and the target (**Collision**,
+  **Collision radius**; never closer than Min distance). **Damping** lets it
+  lag behind a moving target.
+- **Orbit a point** — circles the **Point** (a world point with a Scene
+  handle; absent: the target, else where it is placed). Each press of the
+  **Turn left/right action** turns one **Turn step** (90° by default), eased
+  over **Turn time**; tilt and zoom as above.
+- **Top-down** — straight down onto its target from **Distance**, turned by
+  **Yaw**.
+- **Fixed / look-at** — where it is placed; with a target it looks at it.
+- **Rail (path)** — rides a **Camera path** (another component: points as
+  offsets from its object, drawn and dragged with the path handle; **Closed**,
+  **Smooth**). **Progress** (0–1) is where it starts, **Rail speed** (m/s)
+  how fast it rides, **At the end** stop, loop or back and forth. It looks at
+  its target, or along the path.
+
+**Blends.** When the live camera changes, the view moves from what is on
+screen to the new camera: **Blend in** cut, linear or eased over **Blend
+time** (back to the scene camera: the camera being left sets it). A change
+during a blend continues from the blended view.
+
+**Lens and effects.** **Field of view**, **Near** and **Far** (absent: the
+scene camera's — a camera with a far plane of kilometres draws distant
+scenery), **Letterbox** (black bars over the top and bottom, each that share
+of the view height, blended with the camera) and a constant **Shake**
+(amplitude, frequency, rotation).
+
+**Depth precision.** Project settings → Rendering → **Depth precision**
+(`depth_buffer`): Standard (the default), Logarithmic or Reversed Z. The last
+two keep close objects sharp while scenery kilometres away still sorts
+correctly; reversed Z needs WebGPU or a WebGL 2 browser with
+`EXT_clip_control` and falls back to standard otherwise. The game canvas
+reports the mode in `data-tl-depth`.
+
+**Scripts** (`ctx.camera`, and the Camera nodes of visual scripts):
+`activate(id, {blend?, time?})`, `deactivate(id, …)`, `setPriority`,
+`setTarget`, `set(id, {distance, yaw, pitch, progress, railSpeed, fovY,
+letterbox, point, targetOffset})`, `turn(id, steps)`, `shake(amplitude,
+seconds, frequency?, rotation?, seed?)`, `live()`, `blending()`, `get(id)`,
+`worldToScreen(position)` and `screenToRay(x, y)` (screen coordinates 0–1
+from the top left, with the aspect of the view the game is drawn in).
+Changes take effect at the end of the step; the camera is resolved in the
+simulation step, so replays, the simulation worker and the export give the
+same camera (and the same screen rays) bit for bit.
+
+**Editor.** A selected virtual camera shows its frustum where its rig puts
+it (the same maths as Play) and a line to what it looks at; the orbit point
+and camera path points are Scene handles (one undo step per drag).
+
+**Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
+export) reports `camera: { live, blend: {from, progress, style} | null,
+position, rotation, fovY, near, far, letterbox, shake }` while the game has
+virtual cameras.
 
 ## Performance
 

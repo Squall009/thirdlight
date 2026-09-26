@@ -254,6 +254,8 @@ export interface NodeRendererParams {
   context?: unknown;
   /** Phase 20.3: GPU timestamp queries (where the device offers them). */
   trackTimestamp?: boolean;
+  /** Phase 23.4: a logarithmic or reversed-Z depth buffer (absent: standard). */
+  depthBuffer?: 'logarithmic' | 'reversed';
 }
 
 /** The parts of a WebGPURenderer the handle drives. */
@@ -304,6 +306,8 @@ export interface CreateRendererOptions {
    * default false (queries cost a little on every pass).
    */
   trackTimestamp?: boolean;
+  /** Phase 23.4: the depth buffer (the `depth_buffer` setting): standard (absent), logarithmic or reversed Z. */
+  depthBuffer?: 'standard' | 'logarithmic' | 'reversed';
   /** Tests inject stubs; the browser uses three and `navigator.gpu`. */
   deps?: Partial<RendererFactoryDeps>;
 }
@@ -319,6 +323,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
       powerPreference: p.powerPreference,
       forceWebGL: p.forceWebGL,
       ...(p.trackTimestamp === true ? { trackTimestamp: true } : {}),
+      // Phase 23.4: the depth precision (three falls back to standard where reversed Z is unsupported).
+      ...(p.depthBuffer === 'logarithmic' ? { logarithmicDepthBuffer: true } : p.depthBuffer === 'reversed' ? { reversedDepthBuffer: true } : {}),
       // The probed device (WebGPUBackend takes it instead of requesting its own).
       ...(p.device !== undefined ? { device: p.device } : {}),
       // The factory's WebGL 2 context (WebGLBackend takes it instead of asking the canvas).
@@ -469,7 +475,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
     }
     let r: NodeRendererLike;
     try {
-      r = deps.createNode({ canvas: o.canvas, antialias, alpha, powerPreference, forceWebGL: device === null, ...(device !== null ? { device } : {}), ...(context !== undefined ? { context } : {}), ...(o.trackTimestamp === true ? { trackTimestamp: true } : {}) });
+      r = deps.createNode({ canvas: o.canvas, antialias, alpha, powerPreference, forceWebGL: device === null, ...(device !== null ? { device } : {}), ...(context !== undefined ? { context } : {}), ...(o.trackTimestamp === true ? { trackTimestamp: true } : {}), ...(o.depthBuffer === 'logarithmic' || o.depthBuffer === 'reversed' ? { depthBuffer: o.depthBuffer } : {}) });
       r.setClearColor(o.clearColor, o.clearAlpha);
     } catch (e) {
       destroyDevice(device, undefined);

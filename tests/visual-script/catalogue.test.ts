@@ -94,6 +94,21 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     destroy: rec('destroy', true),
     emit: rec('emit'),
     log: rec('log'),
+    // Phase 23.4: the virtual cameras.
+    camera: {
+      activate: rec('camera.activate', true),
+      deactivate: rec('camera.deactivate', true),
+      setPriority: rec('camera.setPriority', true),
+      setTarget: rec('camera.setTarget', true),
+      set: rec('camera.set', true),
+      turn: rec('camera.turn', true),
+      shake: rec('camera.shake'),
+      live: rec('camera.live', 'cam-1'),
+      blending: rec('camera.blending', false),
+      get: rec('camera.get', () => ({ rig: 'follow', enabled: true, priority: 0, live: true, target: 'box-1', distance: 5, yaw: 0, pitch: 20, progress: 0, railSpeed: 0, fovY: 60, letterbox: 0 })),
+      worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
+      screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
+    },
   };
 }
 

@@ -1527,6 +1527,14 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // default fitted to any genre, so the neutral default keeps existing data valid.
   { key: 'physics_dimension', type: 'number', default: 2, values: [2, 3], valueLabels: ['2D plane', '3D'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Physics', tooltip: 'The simulation\'s dimension: a 2D plane (movement and collision in X and Y, colliders rotate about Z) or full 3D (colliders with depth and any rotation). A 3D project needs every box collider to have a depth.' },
   { key: 'sim_thread', type: 'number', default: 1, values: [1, 2], valueLabels: ['Worker (off the main thread)', 'Main thread'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Simulation thread', tooltip: 'Where the game simulation (physics, gameplay, scripts) runs in Play and the export: a worker (the page thread only draws and reads input) or the page\'s main thread. Results are identical. A page URL flag ?threads=off|on overrides it.' },
+  // Phase 23.4: the depth buffer's precision (three-adapter DEPTH_BUFFER_SETTING_VALUES).
+  // 1, standard: what every project drew with before; a level of any genre at
+  // the usual near/far planes needs nothing else. Logarithmic or reversed-Z keep
+  // near geometry sharp while far vistas (kilometres out) still sort — a
+  // choice of the game (they cost a little: logarithmic writes depth per pixel,
+  // reversed-Z needs WebGPU or WebGL 2's EXT_clip_control and falls back to
+  // standard without it).
+  { key: 'depth_buffer', type: 'number', default: 1, values: [1, 2, 3], valueLabels: ['Standard', 'Logarithmic (far vistas)', 'Reversed Z (far vistas)'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Depth precision', tooltip: 'How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard).' },
 ];
 
 /** Phase 23.0: the simulation's dimension (the `physics_dimension` setting's values). */
@@ -1538,6 +1546,12 @@ export const PHYSICS_DIMENSIONS: readonly PhysicsDimension[] = [2, 3];
  * the project sets `physics_dimension` to 3, else 2 (the 2D plane every
  * project had before the setting existed).
  */
+/** Phase 23.4: the depth buffer the renderer uses (the `depth_buffer` setting; absent or unknown: standard). */
+export function depthBufferOf(settings: unknown): 'standard' | 'logarithmic' | 'reversed' {
+  const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['depth_buffer'] : undefined;
+  return v === 2 ? 'logarithmic' : v === 3 ? 'reversed' : 'standard';
+}
+
 export function physicsDimensionOf(settings: unknown): PhysicsDimension {
   return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['physics_dimension'] === 3 ? 3 : 2;
 }

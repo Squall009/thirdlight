@@ -284,7 +284,10 @@ export type V3OwnedComponent =
   /** Phase 18.0, v4 scenes only: overrides of graph-material parameters. */
   | 'materialParams'
   /** Phase 20.0, v4 scenes only: a visual effect played from the entity. */
-  | 'effect';
+  | 'effect'
+  /** Phase 23.4, v4 scenes only: a virtual camera shot and a camera path. */
+  | 'virtualCamera'
+  | 'cameraPath';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

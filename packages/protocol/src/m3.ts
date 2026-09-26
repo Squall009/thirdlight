@@ -763,6 +763,14 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
       return fieldError('field_type', '/behaviors', 'behaviors is { entityId, scripts: [{ behaviorId, properties: [{ key, label, type, visibility, value }] }] } (at most 8 scripts)');
     }
   }
+  // Phase 23.4: the optional resolved camera (virtual cameras).
+  if (value.camera !== undefined) {
+    const c = value.camera;
+    const nums = (v: unknown, n: number): boolean => Array.isArray(v) && v.length === n && v.every((x) => typeof x === 'number' && Number.isFinite(x));
+    if (!isPlainObject(c) || !(c['live'] === null || typeof c['live'] === 'string') || !nums(c['position'], 3) || !nums(c['rotation'], 4) || typeof c['fovY'] !== 'number' || typeof c['letterbox'] !== 'number') {
+      return fieldError('field_type', '/camera', 'camera is { live: id|null, blend: {from, progress, style}|null, position: [x,y,z], rotation: [x,y,z,w], fovY, near, far, letterbox, shake }');
+    }
+  }
   // Phase 9.10: the optional game-flow block.
   if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
     return fieldError('field_type', '/flow', 'flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality, save?, score? }');

@@ -46,6 +46,7 @@ import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
 import { MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
+import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
 import { GAME_ZONE_ROLES_V4, MAX_INSTANCES, MAX_TAGS } from './types-v3';
 
@@ -474,6 +475,7 @@ const camera: ComponentDescriptor = {
     { component: 'model', reason: 'an object shows one model, box or camera' },
     { component: 'box', reason: 'an object shows one model, box or camera' },
     { component: 'instances', reason: 'an instance set is scenery, not a camera' },
+    { component: 'virtualCamera', reason: 'a virtual camera is a shot; the scene camera draws whichever shot is live' },
   ],
   prefab: false,
 };
@@ -679,6 +681,88 @@ const cameraFollow: ComponentDescriptor = {
   add: { kind: 'menu', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } },
   handles: [{ kind: 'box2', label: 'Bounds', bind: { minX: 'bounds/minX', maxX: 'bounds/maxX', minY: 'bounds/minY', maxY: 'bounds/maxY' }, space: 'world' }],
   requiresAnyOf: { components: ['camera'], reason: 'the follow settings belong to the camera' },
+  excludes: [{ component: 'virtualCamera', reason: 'the follow settings belong to the scene camera' }],
+  prefab: false,
+};
+
+// Phase 23.4: the camera framework (defaults and their reasons: project-model VIRTUAL_CAMERA_DEFAULTS).
+const ORBITING = when('rig', 'follow', 'orbitPoint');
+const TRACKING = when('rig', 'follow', 'orbitPoint', 'topDown');
+const ACTION_NAME = { format: 'identifier' as const, minLength: 1, maxLength: 32 };
+const virtualCamera: ComponentDescriptor = {
+  name: 'virtualCamera',
+  label: 'Virtual camera',
+  tooltip: 'A camera shot the game cuts or blends to: follow/orbit a target, orbit a point in snapped turns, top-down, fixed/look-at or along a rail. The live one is the enabled camera with the highest priority (on a tie the one activated last); without one the scene camera keeps its own view.',
+  category: 'Camera',
+  value: obj('virtualCamera', 'Virtual camera', 'One camera shot and how the view blends to it.', [
+    enm('rig', 'Rig', 'How the camera moves: follow/orbit a target, orbit a point, straight down onto the target, fixed where it is placed, or along a camera path.', VIRTUAL_CAMERA_RIGS, { required: true, default: 'follow', labels: { follow: 'Follow / orbit', orbitPoint: 'Orbit a point', topDown: 'Top-down', fixed: 'Fixed / look-at', rail: 'Rail (path)' } }),
+    int('priority', 'Priority', 'The enabled camera with the highest priority is live (on a tie: the one activated last, then the first in the scene).', { min: VCL.priority.min, max: VCL.priority.max, default: VCD.priority }),
+    bool('enabled', 'Enabled at start', 'Takes part from the start; scripts activate and deactivate cameras (ctx.camera).', { default: VCD.enabled }),
+    entity('target', 'Target', 'The object it follows, circles or looks at (none: the rig centres on where the camera is placed; fixed and rail cameras look ahead).', { anyScene: true }),
+    vec3('targetOffset', 'Target offset', 'Added to the target\'s position (e.g. a character\'s head height).', { min: VCL.offset.min, max: VCL.offset.max, step: 0.1, unit: 'm', default: [...VCD.targetOffset] }),
+    num('distance', 'Distance', 'How far from the target (or point) it sits; top-down: the height above it.', { when: TRACKING, min: VCL.distance.min, max: VCL.distance.max, step: 0.5, unit: 'm', default: VCD.distance }),
+    num('minDistance', 'Min distance', 'The closest it zooms, and the closest a wall pulls it in.', { when: ORBITING, min: VCL.minDistance.min, max: VCL.minDistance.max, step: 0.1, unit: 'm', default: VCD.minDistance }),
+    num('maxDistance', 'Max distance', 'The farthest it zooms out.', { when: ORBITING, min: VCL.maxDistance.min, max: VCL.maxDistance.max, step: 1, unit: 'm', default: VCD.maxDistance }),
+    num('yaw', 'Yaw', 'The heading around the target (0: on its +Z side looking toward −Z).', { when: TRACKING, min: VCL.yaw.min, max: VCL.yaw.max, step: 5, unit: 'deg', default: VCD.yaw }),
+    num('pitch', 'Pitch', 'How far above the target it looks down (negative: from below).', { when: ORBITING, min: VCL.pitch.min, max: VCL.pitch.max, step: 1, unit: 'deg', default: VCD.pitch }),
+    num('pitchMin', 'Pitch min', 'The lowest a player tilts it.', { when: ORBITING, min: VCL.pitch.min, max: VCL.pitch.max, step: 1, unit: 'deg', default: VCD.pitchMin }),
+    num('pitchMax', 'Pitch max', 'The highest a player tilts it.', { when: ORBITING, min: VCL.pitch.min, max: VCL.pitch.max, step: 1, unit: 'deg', default: VCD.pitchMax }),
+    str('yawAction', 'Turn action', 'An input action (axis) that turns it around the target (a 2D axis: x turns, y tilts).', { ...ACTION_NAME, when: when('rig', 'follow'), group: 'Input' }),
+    str('pitchAction', 'Tilt action', 'An input action (axis) that tilts it.', { ...ACTION_NAME, when: ORBITING, group: 'Input' }),
+    num('rotateSpeed', 'Turn speed', 'Turning and tilting speed at full input (degrees per second).', { when: ORBITING, min: VCL.rotateSpeed.min, max: VCL.rotateSpeed.max, step: 10, unit: 'deg', default: VCD.rotateSpeed, group: 'Input' }),
+    str('zoomAction', 'Zoom action', 'An input action (axis) that moves it closer (negative) or farther (positive).', { ...ACTION_NAME, when: ORBITING, group: 'Input' }),
+    num('zoomSpeed', 'Zoom speed', 'Zoom speed at full input.', { when: ORBITING, min: VCL.zoomSpeed.min, max: VCL.zoomSpeed.max, step: 1, unit: 'm/s', default: VCD.zoomSpeed, group: 'Input' }),
+    str('turnLeftAction', 'Turn left action', 'An input action (button): each press turns one step to the left.', { ...ACTION_NAME, when: when('rig', 'orbitPoint'), group: 'Input' }),
+    str('turnRightAction', 'Turn right action', 'An input action (button): each press turns one step to the right.', { ...ACTION_NAME, when: when('rig', 'orbitPoint'), group: 'Input' }),
+    num('yawStep', 'Turn step', 'How far one press turns (the yaw snaps to whole steps).', { when: when('rig', 'orbitPoint'), min: VCL.yawStep.min, max: VCL.yawStep.max, step: 5, unit: 'deg', default: VCD.yawStep }),
+    num('turnTime', 'Turn time', 'How long a snapped turn takes (0: at once).', { when: when('rig', 'orbitPoint'), min: VCL.turnTime.min, max: VCL.turnTime.max, step: 0.05, unit: 's', default: VCD.turnTime }),
+    vec3('point', 'Point', 'The world point it circles (absent: the target, else where the camera is placed).', { when: when('rig', 'orbitPoint'), min: VCL.point.min, max: VCL.point.max, step: 0.5, unit: 'm', handle: 'point' }),
+    bool('collision', 'Collision', 'Pulled in front of colliders between it and the target (3D projects).', { when: when('rig', 'follow'), default: VCD.collision }),
+    num('collisionRadius', 'Collision radius', 'The clearance it keeps from what it is pulled in by.', { when: when('rig', 'follow'), min: VCL.collisionRadius.min, max: VCL.collisionRadius.max, step: 0.05, unit: 'm', default: VCD.collisionRadius }),
+    num('damping', 'Damping', 'How long it lags behind a moving target (0: rigid).', { when: TRACKING, min: VCL.damping.min, max: VCL.damping.max, step: 0.05, unit: 's', default: VCD.damping }),
+    entity('path', 'Path', 'The object carrying the camera path it rides (none: it stays where it is placed).', { when: when('rig', 'rail'), component: 'cameraPath', anyScene: true }),
+    num('progress', 'Progress', 'Where along the path it starts (0: the first point, 1: the end).', { when: when('rig', 'rail'), min: VCL.progress.min, max: VCL.progress.max, step: 0.01, default: VCD.progress }),
+    num('railSpeed', 'Rail speed', 'How fast it rides the path (negative: backwards; 0: stays until a script moves it).', { when: when('rig', 'rail'), min: VCL.railSpeed.min, max: VCL.railSpeed.max, step: 0.5, unit: 'm/s', default: VCD.railSpeed }),
+    enm('railMode', 'At the end', 'Stop at the end, loop to the start, or ride back and forth.', CAMERA_RAIL_MODES, { when: when('rig', 'rail'), default: VCD.railMode, labels: { once: 'Stop', loop: 'Loop', pingpong: 'Back and forth' } }),
+    num('fovY', 'Field of view', 'Vertical field of view (absent: the scene camera\'s).', { min: VCL.fovY.min, max: VCL.fovY.max, step: 1, unit: 'deg', group: 'Lens' }),
+    num('near', 'Near', 'The near clipping plane (absent: the scene camera\'s).', { min: VCL.near.min, max: VCL.near.max, step: 0.01, unit: 'm', group: 'Lens' }),
+    num('far', 'Far', 'The far clipping plane (absent: the scene camera\'s).', { min: VCL.far.min, max: VCL.far.max, step: 10, unit: 'm', group: 'Lens' }),
+    enm('blend', 'Blend in', 'How the view moves to this camera when it goes live: a cut, a constant-speed move or an eased move.', CAMERA_BLENDS, { default: VCD.blend, group: 'Blend' }),
+    num('blendTime', 'Blend time', 'How long the move to this camera takes.', { when: when('blend', 'linear', 'eased'), min: VCL.blendTime.min, max: VCL.blendTime.max, step: 0.1, unit: 's', default: VCD.blendTime, group: 'Blend' }),
+    num('letterbox', 'Letterbox', 'Black bars over the top and bottom while it is live (each a share of the view height).', { min: VCL.letterbox.min, max: VCL.letterbox.max, step: 0.01, default: VCD.letterbox, group: 'Effects' }),
+    num('shakeAmplitude', 'Shake', 'A constant shake while it is live (0: none).', { min: VCL.shakeAmplitude.min, max: VCL.shakeAmplitude.max, step: 0.01, unit: 'm', default: VCD.shakeAmplitude, group: 'Effects' }),
+    num('shakeFrequency', 'Shake frequency', 'How fast it shakes.', { min: VCL.shakeFrequency.min, max: VCL.shakeFrequency.max, step: 0.5, unit: 'Hz', default: VCD.shakeFrequency, group: 'Effects' }),
+    num('shakeRotation', 'Shake rotation', 'How much the shake also turns it.', { min: VCL.shakeRotation.min, max: VCL.shakeRotation.max, step: 0.5, unit: 'deg', default: VCD.shakeRotation, group: 'Effects' }),
+  ], { rules: ['pitchMin ≤ pitchMax, minDistance ≤ maxDistance and near < far when both are set'] }),
+  // A new camera follows at the defaults (5 m away, 20° above); its target is picked next.
+  add: { kind: 'menu', value: { rig: 'follow' } },
+  presets: [
+    { label: 'Follow / orbit', value: { rig: 'follow' } },
+    { label: 'Orbit a point (snapped turns)', value: { rig: 'orbitPoint', distance: 15, pitch: 45 } },
+    { label: 'Top-down', value: { rig: 'topDown', distance: 15 } },
+    { label: 'Fixed / look-at', value: { rig: 'fixed' } },
+  ],
+  handles: [{ kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') }],
+  excludes: [
+    { component: 'camera', reason: 'a virtual camera is a shot; the scene camera draws whichever shot is live' },
+    { component: 'cameraFollow', reason: 'the follow settings belong to the scene camera' },
+  ],
+  prefab: false,
+};
+
+const cameraPath: ComponentDescriptor = {
+  name: 'cameraPath',
+  label: 'Camera path',
+  tooltip: 'A path rail cameras ride (points as offsets from where this object is placed).',
+  category: 'Camera',
+  value: obj('cameraPath', 'Camera path', 'Points a rail camera rides through.', [
+    list('points', 'Points', `${CAMERA_PATH_LIMITS.minPoints}–${CAMERA_PATH_LIMITS.maxPoints} points, as offsets from where the object is placed.`, vec3('*', 'Point', 'An offset [x, y, z].', { min: -CAMERA_PATH_LIMITS.coordinate, max: CAMERA_PATH_LIMITS.coordinate, step: 0.1, unit: 'm' }), { required: true, minItems: CAMERA_PATH_LIMITS.minPoints, maxItems: CAMERA_PATH_LIMITS.maxPoints, handle: 'path', default: [[0, 0, 0], [6, 0, 0]] }),
+    bool('closed', 'Closed', 'The path runs back from the last point to the first.', { default: false }),
+    bool('smooth', 'Smooth', 'A smooth curve through the points (off: straight segments).', { default: true }),
+  ]),
+  // A new path is a 6 m straight run sideways (a dolly move across a small set).
+  add: { kind: 'menu', value: { points: [[0, 0, 0], [6, 0, 0]] } },
+  handles: [{ kind: 'path', label: 'Path', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
   excludes: [],
   prefab: false,
 };
@@ -1576,6 +1660,8 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   controller,
   camera,
   cameraFollow,
+  virtualCamera,
+  cameraPath,
   light,
   gameZone,
   playerSpawn,

@@ -2,7 +2,8 @@
  * Phase 22.0: a digest of the committed simulation state after one step —
  * the committed game view, every entity's transform (exact float bits), the
  * counters, the hidden and fading entities, the animator poses, the scene
- * set's revision and spawned entities, and the run's save state. Two runs
+ * set's revision and spawned entities, the run's save state and (phase 23.4)
+ * the resolved camera. Two runs
  * with the same inputs produce the same digest at every step: the check that
  * the simulation worker computes exactly what the page computes.
  */
@@ -70,5 +71,19 @@ export function stepDigest(rt: Runtime): string {
   }
   const save = rt.runState?.();
   if (save !== undefined) h.text(JSON.stringify(save));
+  // Phase 23.4: the resolved camera (only a game with a virtual camera has one, so every other digest is unchanged).
+  const cam = rt.cameraView?.() ?? null;
+  if (cam !== null) {
+    h.text(cam.live ?? '');
+    h.text(cam.blend === null ? '' : `${cam.blend.from ?? ''}|${cam.blend.style}`);
+    if (cam.blend !== null) h.num(cam.blend.progress);
+    for (let k = 0; k < 3; k += 1) h.num(cam.position[k]!);
+    for (let k = 0; k < 4; k += 1) h.num(cam.rotation[k]!);
+    h.num(cam.fovY);
+    h.num(cam.near);
+    h.num(cam.far);
+    h.num(cam.letterbox);
+    h.num(cam.shake);
+  }
   return h.hex();
 }

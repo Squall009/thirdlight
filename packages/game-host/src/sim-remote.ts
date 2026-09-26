@@ -228,6 +228,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   // ---- the mirror runtime ------------------------------------------------------
 
   const position: number[] = [0, 0, 0];
+  const camLens = { fovY: 60, near: 0.1, far: 100, letterbox: 0 };
   const rotation: number[] = [0, 0, 0, 1];
   const scale: number[] = [1, 1, 1];
   const readAt = (i: number): void => {
@@ -313,6 +314,26 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return out as ReturnType<NonNullable<Runtime['takeEffectRequests']>>;
     },
     gameCounters: () => mirror.counters,
+    // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).
+    readCameraView: (p: number[], r: number[]) => {
+      const c = mirror.cam;
+      if (gone() || c === null) return null;
+      for (let k = 0; k < 3; k += 1) p[k] = c.pose[k]!;
+      for (let k = 0; k < 4; k += 1) r[k] = c.pose[3 + k]!;
+      camLens.fovY = c.pose[7]!;
+      camLens.near = c.pose[8]!;
+      camLens.far = c.pose[9]!;
+      camLens.letterbox = c.pose[10]!;
+      return camLens;
+    },
+    cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
+    setCameraViewport: (width: number, height: number): boolean => {
+      if (gone()) return false;
+      const valid = typeof width === 'number' && typeof height === 'number' && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384;
+      if (!valid) return false;
+      command({ op: 'setCameraViewport', width, height });
+      return true;
+    },
     tick: () => ({ ok: false, error: rtError('tick_not_allowed', 'the simulation runs in a worker: drive it with the remote simulation (tick is asynchronous there)') }),
     getDiagnostics: () => ({ ok: true, diagnostics: diagnostics() }),
     getInterpolatedState: (): { ok: true; state: InterpolatedState } | { ok: false; error: RuntimeError } => {

@@ -17,6 +17,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
+import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
   validateCameraFollowComponent,
@@ -67,6 +68,9 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   materialParams: [],
   // Phase 20.0: the effect and its parameter overrides (`params` is replaced whole).
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
+  // Phase 23.4: the camera framework (project-model cameras.ts field order).
+  virtualCamera: VIRTUAL_CAMERA_FIELDS,
+  cameraPath: CAMERA_PATH_FIELDS,
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -122,6 +126,9 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'materialParams',
   // Phase 20.0: v4 scenes only.
   'effect',
+  // Phase 23.4: v4 scenes only.
+  'virtualCamera',
+  'cameraPath',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -206,6 +213,12 @@ export function validateV3ComponentValue(
       break;
     case 'effect':
       validateEffectComponent(value, path, errors as unknown as Parameters<typeof validateEffectComponent>[2]);
+      break;
+    case 'virtualCamera':
+      validateVirtualCameraComponent(value, path, errors as unknown as Parameters<typeof validateVirtualCameraComponent>[2]);
+      break;
+    case 'cameraPath':
+      validateCameraPathComponent(value, path, errors as unknown as Parameters<typeof validateCameraPathComponent>[2]);
       break;
     case 'fogVolume':
       validateFogVolumeComponent(value, path, errors as unknown as Parameters<typeof validateFogVolumeComponent>[2]);

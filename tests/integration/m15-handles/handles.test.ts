@@ -75,10 +75,9 @@ function dragAndStore(s: State, id: string, component: string, kind: string, gri
 }
 
 describe('the Scene-view handles over the real registry and commands', () => {
-  it('every descriptor handle binds fields that exist; `point` is defined but no field uses it yet', () => {
+  it('every descriptor handle kind is used (phase 23.4: `point` by a virtual camera\'s orbit point)', () => {
     const used = new Set(DESCRIPTORS.components.flatMap((c) => c.handles.map((h) => h.kind)));
-    for (const k of HANDLE_KINDS) if (k !== 'point') expect(used, k).toContain(k);
-    expect(used.has('point')).toBe(false);
+    for (const k of HANDLE_KINDS) expect(used, k).toContain(k);
   });
 
   it('box3 (a box mesh), box2 (areas; an enemy stands on its feet; a collider\'s half extents) and bounds', () => {
@@ -168,6 +167,21 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(del.ok).toBe(true);
     expect((commitValue((del as Any).shape) as Any).value.waypoints).toEqual([[3, 2, 0]]);
     expect(deletePoint((del as Any).shape, 'p0')).toEqual({ ok: false, message: 'Waypoints keeps at least 1 point' });
+  });
+
+  it('point and path (phase 23.4): a virtual camera\'s orbit point and a camera path\'s points drag on the grid', () => {
+    let s = fresh();
+    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Shot', transform: { position: [0, 2, 6] }, components: {} }, 'shot');
+    const shot = s.scene.entities.at(-1).id;
+    s = must(s, 'setComponent', { entityId: shot, component: 'virtualCamera', value: { rig: 'orbitPoint', point: [1, 0, 0] } }, 'virtual camera');
+    // The orbit point is a world-space point handle (only for the orbit-a-point rig).
+    s = dragAndStore(s, shot, 'virtualCamera', 'point', 'point', p3(2.1, 0.9), true, (v) => expect(v.point).toEqual([2, 1, 0]));
+    s = must(s, 'setComponent', { entityId: shot, component: 'virtualCamera', value: { rig: 'follow' } }, 'follow rig');
+    expect(handleShapesOf(projected(s, shot), DESCRIPTORS).some((x) => x.component === 'virtualCamera')).toBe(false);
+    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Track', transform: { position: [-3, 3, 4] }, components: {} }, 'track');
+    const track = s.scene.entities.at(-1).id;
+    s = must(s, 'setComponent', { entityId: track, component: 'cameraPath', value: { points: [[0, 0, 0], [6, 0, 0]] } }, 'camera path');
+    s = dragAndStore(s, track, 'cameraPath', 'path', 'p1', p3(5.9, 1.1), true, (v) => expect(v.points).toEqual([[0, 0, 0], [6, 1, 0]]));
   });
 
   it('polygon: corners drag, add on an edge, delete; a concave or inside-out shape is refused before any command', () => {

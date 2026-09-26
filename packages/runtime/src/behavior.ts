@@ -55,6 +55,7 @@ import type {
   AnimatorEventRecord,
   BehaviorAnimatorHandle,
   BehaviorAudio,
+  BehaviorCamera,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -169,6 +170,8 @@ export interface BehaviorContext {
    * @graphNode skip the Log node (debug.log) writes any value as text
    */
   log(level: BehaviorLogLevel, message: string): void;
+  /** Phase 23.4: the virtual cameras — activate, priorities, rig values, shake, screen↔world (present when a scene carries a virtual camera). */
+  readonly camera?: BehaviorCamera;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -851,6 +854,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.effects !== undefined) fields['effects'] = { value: src.effects, enumerable: true };
         // Phase 9.11: values kept in the player's save.
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
+        // Phase 23.4: the virtual cameras (resolved by the camera brain at the end of the step).
+        if (src.camera !== undefined) fields['camera'] = { value: src.camera, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

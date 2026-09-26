@@ -282,6 +282,8 @@ describe('gameplay settings resolution (§21.5)', () => {
       'physics_dimension',
       // Phase 22.0: where the simulation runs (1 a worker, 2 the main thread).
       'sim_thread',
+      // Phase 23.4: the depth buffer (1 standard, 2 logarithmic, 3 reversed Z).
+      'depth_buffer',
     ]);
     // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
     const engine = resolveGameplaySettings({ settings: { audio_voices: 4, fixed_step_hz: 60 } });

@@ -15,7 +15,7 @@
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
-import type { AnimatorPose, GameView, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
+import type { AnimatorPose, CameraViewInfo, GameView, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -41,6 +41,10 @@ export class FrameEncoder {
   private opacityKey = '';
   private posesKey = '';
   private countersKey = '';
+  /** Phase 23.4: the camera pose scratch and whether a camera went out last frame. */
+  private readonly camPos: number[] = [0, 0, 0];
+  private readonly camRot: number[] = [0, 0, 0, 1];
+  private camSent = false;
   private runSaveKey = '';
   private runSaveStep = -1;
   private sceneSetRef: SceneSetView | null = null;
@@ -261,6 +265,13 @@ export class FrameEncoder {
     if (audio.length > 0) out.audio = audio;
     const effects = rt.takeEffectRequests?.() ?? [];
     if (effects.length > 0) out.effects = effects;
+    // Phase 23.4: the resolved camera (only while the game has a virtual camera).
+    const camView = rt.cameraView?.() ?? null;
+    if (camView !== null) {
+      const lens = rt.readCameraView?.(this.camPos, this.camRot) ?? null;
+      if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
+    } else if (this.camSent) out.cam = null;
+    this.camSent = camView !== null;
     // Diagnostics: on a change of state or error count, on request, and now and then.
     this.framesSinceDiag += 1;
     if (diag !== null && (this.diagWanted || diag.state !== this.diagState || diag.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
@@ -330,6 +341,8 @@ export class FrameMirror {
   private spawnedByToken = new Map<number, SceneEntities[number]>();
   audio: { assetId: string; volume: number; stepIndex: number }[] = [];
   effects: unknown[] = [];
+  /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
+  cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   private sharedSab: SharedArrayBuffer | null = null;
@@ -394,6 +407,7 @@ export class FrameMirror {
       for (const e of s.effects) this.effects.push(e);
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
+    if (s.cam !== undefined) this.cam = s.cam;
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
   }

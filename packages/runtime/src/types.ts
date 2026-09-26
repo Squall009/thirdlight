@@ -598,6 +598,8 @@ export interface StepContext {
   readonly triggerEvents?: readonly TriggerEventRecord[];
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
+  /** Phase 23.4: the virtual cameras (present when the scene carries one). */
+  readonly camera?: BehaviorCamera;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -807,6 +809,141 @@ export interface BehaviorEffects {
    * @graphNode Stop effect
    */
   stop(target: number | string): void;
+}
+
+/** Phase 23.4: a blend a script names for the camera change it makes (absent: the camera's own). */
+export interface CameraBlendOptions {
+  /** `cut`, `linear` or `eased`. */
+  blend?: 'cut' | 'linear' | 'eased';
+  /** Seconds (0–30). */
+  time?: number;
+}
+
+/** Phase 23.4: a virtual camera's live rig values (`ctx.camera.get`). */
+export interface BehaviorCameraState {
+  readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail';
+  readonly enabled: boolean;
+  readonly priority: number;
+  /** It is the live camera. */
+  readonly live: boolean;
+  /** The target entity ('' for none). */
+  readonly target: string;
+  readonly distance: number;
+  /** Degrees (a snapped rig: the step it turns to). */
+  readonly yaw: number;
+  readonly pitch: number;
+  /** A rail camera's place along its path (0–1). */
+  readonly progress: number;
+  readonly railSpeed: number;
+  readonly fovY: number;
+  readonly letterbox: number;
+}
+
+/**
+ * Phase 23.4: `ctx.camera` — the virtual cameras (the `virtualCamera`
+ * component): which is live, their rig values, shake and screen↔world
+ * projection. Changes take effect at the end of the step (the camera brain
+ * resolves the live camera after every script has run); reads and the
+ * projection use the camera as resolved at the end of the previous step.
+ * The projection uses normalized screen coordinates — x 0 (left) to 1
+ * (right), y 0 (top) to 1 (bottom) — and the viewport aspect the host
+ * reports.
+ */
+export interface BehaviorCamera {
+  /**
+   * Enable a virtual camera and bring it in front of the cameras of its priority (it goes live unless a higher priority is enabled). `false` when there is no such camera.
+   * @graphNode Activate camera
+   * @graphLabel cameraId camera
+   */
+  activate(cameraId: string, options?: CameraBlendOptions): boolean;
+  /**
+   * Disable a virtual camera (the view blends to the next one, or back to the scene camera).
+   * @graphNode Deactivate camera
+   * @graphLabel cameraId camera
+   */
+  deactivate(cameraId: string, options?: CameraBlendOptions): boolean;
+  /**
+   * Set a camera's priority (−1000–1000; the enabled camera with the highest is live).
+   * @graphNode Set camera priority
+   * @graphLabel cameraId camera
+   */
+  setPriority(cameraId: string, priority: number): boolean;
+  /**
+   * Point a camera at another target entity ('' for none).
+   * @graphNode Set camera target
+   * @graphLabel cameraId camera
+   * @graphLabel entityId target
+   */
+  setTarget(cameraId: string, entityId: string): boolean;
+  /**
+   * Set a camera's rig values (each optional): distance, yaw, pitch (kept within its pitch limits), progress and railSpeed of a rail camera, field of view, letterbox, the orbit point, the target offset.
+   * @graphNode Set camera rig
+   * @graphLabel cameraId camera
+   */
+  set(
+    cameraId: string,
+    params: {
+      distance?: number;
+      yaw?: number;
+      pitch?: number;
+      progress?: number;
+      railSpeed?: number;
+      fovY?: number;
+      letterbox?: number;
+      point?: readonly number[];
+      targetOffset?: readonly number[];
+    },
+  ): boolean;
+  /**
+   * Turn a camera by whole steps (an orbit-a-point camera: its turn step; positive turns left).
+   * @graphNode Turn camera
+   * @graphLabel cameraId camera
+   * @graphDefault steps 1
+   */
+  turn(cameraId: string, steps: number): boolean;
+  /**
+   * Shake the view: up to `amplitude` metres (and `rotation` degrees), `frequency` times a second (default 8), fading out over `seconds`. Seeded: the same run shakes the same way (`seed` picks another pattern).
+   * @graphNode Shake camera
+   * @graphDefault amplitude 0.2
+   * @graphDefault seconds 0.5
+   * @graphDefault frequency 8
+   * @graphDefault rotation 0
+   * @graphDefault seed 0
+   */
+  shake(amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void;
+  /**
+   * The live virtual camera, or null while the scene camera shows its own view.
+   * @graphPure
+   * @graphNode Live camera
+   */
+  live(): string | null;
+  /**
+   * A blend between two cameras is in progress.
+   * @graphPure
+   * @graphNode Camera blending
+   */
+  blending(): boolean;
+  /**
+   * A virtual camera's live rig values, or null when there is no such camera.
+   * @graphPure
+   * @graphNode Camera state
+   * @graphLabel cameraId camera
+   */
+  get(cameraId: string): BehaviorCameraState | null;
+  /**
+   * Where a world point appears on screen (x, y 0–1 from the top left), how far in front of the camera it is, and whether it is in view.
+   * @graphPure
+   * @graphNode World to screen
+   */
+  worldToScreen(position: readonly number[]): { x: number; y: number; depth: number; onScreen: boolean };
+  /**
+   * The ray from the camera through a screen point (x, y 0–1 from the top left): its origin and unit direction.
+   * @graphPure
+   * @graphNode Screen to ray
+   * @graphDefault x 0.5
+   * @graphDefault y 0.5
+   */
+  screenToRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] };
 }
 
 /** Phase 9.9: `ctx.signals`. */
@@ -1019,6 +1156,15 @@ export interface Runtime {
   forEachInterpolated?(visit: InterpolatedVisitor): boolean;
   /** Phase 21.2: one entity's interpolated transform into the caller's arrays; false when disposed or unknown. */
   readInterpolated?(id: string, position: number[], rotation: number[], scale: number[]): boolean;
+  /**
+   * Phase 23.4: the view the camera brain resolved (virtual cameras), interpolated like the transforms —
+   * `position`/`rotation` written, its lens returned; null without a virtual camera (draw the camera entity).
+   */
+  readCameraView?(position: number[], rotation: number[]): { fovY: number; near: number; far: number; letterbox: number } | null;
+  /** Phase 23.4: the committed camera view (live camera, blend, pose, lens), or null without a virtual camera. */
+  cameraView?(): import('./camera-brain').CameraViewInfo | null;
+  /** Phase 23.4: the viewport the view is drawn in (screen↔world projection uses its aspect). */
+  setCameraViewport?(width: number, height: number): boolean;
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };

@@ -62,7 +62,7 @@
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
+import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
@@ -571,7 +571,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
           runtime,
           snapshot,
           // Phase 17.1: the play page's ?renderer= flag (the editor passes its own on), else the project's render_backend setting.
-          renderer: resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }),
+          renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings) },
           // Phase 21.3: repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
           ...(models !== null
@@ -895,6 +895,7 @@ export function bootstrapPreviewM3(): void {
         events: [],
         ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
         ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
+        ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
         ...rendererObservation(h),
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
@@ -941,6 +942,8 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
       // Phase 14.5: the title background and the camera's offset behind the title menu.
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
+      // Phase 23.4: the resolved camera (virtual cameras: the live one, a blend, the pose and lens).
+      ...(obs.observation.camera !== undefined ? { camera: structuredClone(obs.observation.camera) } : {}),
       // Phase 17.1: the renderer backend that draws this play, and why.
       ...rendererObservation(h),
       ...effectsObservation(h),

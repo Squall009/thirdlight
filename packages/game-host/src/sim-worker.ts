@@ -225,6 +225,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'setViewport':
         r = rt.setViewport(c.width, c.height);
         break;
+      case 'setCameraViewport':
+        rt.setCameraViewport?.(c.width, c.height);
+        break;
       case 'stop':
         rt.stop();
         break;

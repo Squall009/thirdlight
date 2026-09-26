@@ -95,6 +95,7 @@ export {
   M2_SETTINGS_KEYS,
   AUDIO_VOICE_CAP,
   PHYSICS_DIMENSIONS,
+  depthBufferOf,
   physicsDimensionOf,
   type PhysicsDimension,
   MAX_SOURCE_PATH_LENGTH,
@@ -486,6 +487,26 @@ export {
   type EffectParameterType,
   type EffectSystem,
 } from './effects';
+// Phase 23.4: the camera framework's data (virtual cameras and camera paths).
+export {
+  CAMERA_BLENDS,
+  CAMERA_PATH_FIELDS,
+  CAMERA_PATH_LIMITS,
+  CAMERA_RAIL_MODES,
+  VIRTUAL_CAMERA_DEFAULTS,
+  VIRTUAL_CAMERA_FIELDS,
+  VIRTUAL_CAMERA_LIMITS,
+  VIRTUAL_CAMERA_RIGS,
+  canonicalCameraPath,
+  canonicalVirtualCamera,
+  validateCameraPathComponent,
+  validateVirtualCameraComponent,
+  type CameraBlendStyle,
+  type CameraPathComponent,
+  type CameraRailMode,
+  type VirtualCameraComponent,
+  type VirtualCameraRig,
+} from './cameras';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).

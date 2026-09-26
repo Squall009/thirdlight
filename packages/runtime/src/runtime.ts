@@ -58,6 +58,7 @@ import { lerpVec3, lerpVec3Into, quatEqual, slerpQuat, slerpQuatInto, vec3Equal 
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { MotionSegments, TransformMirror } from './step-buffers';
@@ -1353,6 +1354,9 @@ class RuntimeInstance implements Runtime {
   private animatorEvents: readonly AnimatorEventRecord[] = Object.freeze([]);
   private animatorWasGrounded = true;
   private readonly animatorControl: BehaviorAnimatorControl;
+  // ---- Phase 23.4: the camera brain (virtual cameras; inert without one) ----
+  private readonly cameras: CameraBrain;
+  private readonly cameraControl: import('./types').BehaviorCamera;
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
   private stepBounce: number | null = null;
@@ -1575,6 +1579,10 @@ class RuntimeInstance implements Runtime {
     this.spawnControl = this.buildSpawnControl();
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
+    // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
+    this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
+    this.cameras.add(args.initialEntities);
+    this.cameraControl = this.buildCameraControl();
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
     const rt = this;
     this.blocks = new GameplayBlocks(
@@ -2008,6 +2016,125 @@ class RuntimeInstance implements Runtime {
   private readonly interpRotation: number[] = [0, 0, 0, 1];
   private readonly interpScale: number[] = [1, 1, 1];
 
+  // ---- Phase 23.4: the resolved camera (virtual cameras) ------------------------
+
+  /**
+   * The view the camera brain resolved, interpolated like the transforms
+   * (`position`, `rotation` written; its lens returned), or null when the
+   * game has no virtual camera (the renderer then draws the camera entity
+   * as before) or the brain has not stepped yet.
+   */
+  readCameraView(position: number[], rotation: number[]): { fovY: number; near: number; far: number; letterbox: number } | null {
+    if (this.stateName === 'disposed' || !this.cameras.active || !this.cameras.hasView()) return null;
+    return this.cameras.readInterpolated(this.stateName === 'failed' ? 1 : this.lastAlpha, position, rotation);
+  }
+
+  /** The committed camera view (the live camera, a blend in progress, the pose and lens), or null without a virtual camera. */
+  cameraView(): CameraViewInfo | null {
+    if (this.stateName === 'disposed' || !this.cameras.active || !this.cameras.hasView()) return null;
+    return this.cameras.view();
+  }
+
+  /**
+   * The viewport the view is drawn in (the renderer reports it): screen↔world
+   * projection (`ctx.camera`) uses its aspect (16:9 until reported). Unlike
+   * `setViewport` it never feeds the platformer follow camera, so games
+   * without virtual cameras keep their exact framing.
+   */
+  setCameraViewport(width: number, height: number): boolean {
+    if (this.stateName === 'disposed') return false;
+    return this.cameras.setViewport(width, height);
+  }
+
+  /** Phase 23.4: one camera-brain step on the step's committed transforms. */
+  private stepCameras(action: ActionFrame | null): void {
+    if (!this.cameras.active) return;
+    const base = this.curr.get(this.cameraInfo.id);
+    const pos = this.cameraWorldPos;
+    const rot = this.cameraWorldRot;
+    if (base === undefined || !this.worldTransformOf(this.cameraInfo.id, pos, rot)) {
+      pos[0] = 0;
+      pos[1] = 0;
+      pos[2] = 0;
+      rot[0] = 0;
+      rot[1] = 0;
+      rot[2] = 0;
+      rot[3] = 1;
+    }
+    this.cameras.step({ position: pos, rotation: rot }, action, this.cameraWorld);
+  }
+
+  private readonly cameraWorldPos: number[] = [0, 0, 0];
+  private readonly cameraWorldRot: number[] = [0, 0, 0, 1];
+  private readonly cameraWorld = {
+    worldOf: (id: string, position: number[], rotation: number[]): boolean => this.worldTransformOf(id, position, rotation),
+    raycast: (origin: [number, number, number], direction: [number, number, number], maxDistance: number): { distance: number } | null => {
+      // 3D projects only: a 2D plane's colliders lie in the plane a camera looks at, never between it and the target.
+      const port = this.physics3d;
+      if (port === undefined || typeof port.raycast !== 'function') return null;
+      const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
+      return hit === null ? null : { distance: hit.distance };
+    },
+  };
+
+  /** An entity's world position and rotation, composed up its parents from the step's transforms (false: not loaded). */
+  private worldTransformOf(id: string, position: number[], rotation: number[]): boolean {
+    const t = this.curr.get(id);
+    if (t === undefined) return false;
+    let px = t.position[0], py = t.position[1], pz = t.position[2];
+    let qx = t.rotation[0], qy = t.rotation[1], qz = t.rotation[2], qw = t.rotation[3];
+    let parent = this.entities.get(id)?.parentId ?? null;
+    for (let depth = 0; parent !== null && depth < 64; depth += 1) {
+      const pt = this.curr.get(parent);
+      if (pt === undefined) break;
+      // p := parentPos + parentRot · (parentScale ⊙ p); q := parentRot · q
+      const sx = px * pt.scale[0], sy = py * pt.scale[1], sz = pz * pt.scale[2];
+      const [ax, ay, az, aw] = pt.rotation;
+      const tx = 2 * (ay * sz - az * sy), ty = 2 * (az * sx - ax * sz), tz = 2 * (ax * sy - ay * sx);
+      px = pt.position[0] + sx + aw * tx + (ay * tz - az * ty);
+      py = pt.position[1] + sy + aw * ty + (az * tx - ax * tz);
+      pz = pt.position[2] + sz + aw * tz + (ax * ty - ay * tx);
+      const nx = aw * qx + ax * qw + ay * qz - az * qy;
+      const ny = aw * qy - ax * qz + ay * qw + az * qx;
+      const nz = aw * qz + ax * qy - ay * qx + az * qw;
+      const nw = aw * qw - ax * qx - ay * qy - az * qz;
+      qx = nx;
+      qy = ny;
+      qz = nz;
+      qw = nw;
+      parent = this.entities.get(parent)?.parentId ?? null;
+    }
+    position[0] = px;
+    position[1] = py;
+    position[2] = pz;
+    const len = Math.hypot(qx, qy, qz, qw) || 1;
+    rotation[0] = qx / len;
+    rotation[1] = qy / len;
+    rotation[2] = qz / len;
+    rotation[3] = qw / len;
+    return true;
+  }
+
+  /** Phase 23.4: `ctx.camera` (arguments checked here; the brain applies them in order). */
+  private buildCameraControl(): import('./types').BehaviorCamera {
+    const brain = this.cameras;
+    const blendOf = (o: unknown): unknown => (typeof o === 'object' && o !== null ? o : undefined);
+    return Object.freeze({
+      activate: (cameraId: string, options?: unknown): boolean => brain.activate(String(cameraId), blendOf(options)),
+      deactivate: (cameraId: string, options?: unknown): boolean => brain.deactivate(String(cameraId), blendOf(options)),
+      setPriority: (cameraId: string, priority: number): boolean => brain.setPriority(String(cameraId), Number(priority)),
+      setTarget: (cameraId: string, entityId: string): boolean => brain.setTarget(String(cameraId), typeof entityId === 'string' ? entityId : null),
+      set: (cameraId: string, params: unknown): boolean => brain.set(String(cameraId), params),
+      turn: (cameraId: string, steps: number): boolean => brain.turn(String(cameraId), Number(steps)),
+      shake: (amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void => brain.shake(Number(amplitude), Number(seconds), frequency, rotation, seed),
+      live: (): string | null => brain.live(),
+      blending: (): boolean => brain.blending(),
+      get: (cameraId: string) => brain.get(String(cameraId)),
+      worldToScreen: (position: readonly number[]) => brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]),
+      screenToRay: (x: number, y: number) => brain.screenToRay(Number(x), Number(y)),
+    }) as import('./types').BehaviorCamera;
+  }
+
   /** The §6 rule for one entity into the reused arrays (see `getInterpolatedState`). */
   private interpolateInto(id: string, prev: ReadonlyMap<string, TransformState>, curr: ReadonlyMap<string, TransformState>, alpha: number): boolean {
     const p = prev.get(id);
@@ -2416,6 +2543,8 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
+    // Phase 23.4: the camera brain resolves the view on the step's transforms.
+    this.stepCameras(null);
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
@@ -2518,6 +2647,9 @@ class RuntimeInstance implements Runtime {
       this.failStopFromError(e, stepIndex);
       return false;
     }
+    // Phase 23.4: the camera brain, after every phase (the camera phase included):
+    // the view is resolved in the step, so replays and the worker resolve it alike.
+    this.stepCameras(action);
     // The accepted step-end promotion (runtime.md §12.1.1) runs unchanged
     // for M3 sets too (gameplay.md §3.5 invariance; segment-source.json pins
     // `state.prev` during step n at the end of step n−2): `prev := backup`
@@ -2590,6 +2722,8 @@ class RuntimeInstance implements Runtime {
     const outcome = session.boundary(ordinal);
     // Phase 14.1: a new run starts without spawned entities.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
+    // Phase 23.4: and with its cameras as authored.
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
     // Phase 12 (c): a replay starts from the start scenes again.
     if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
     if (outcome.reset !== null) {
@@ -3131,6 +3265,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
     this.addAnimators(frozen);
     this.blocks?.add(frozen);
+    this.cameras.add(frozen);
   }
 
   /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
@@ -3225,6 +3360,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags?.remove(ids);
     this.removeAnimators(ids);
     this.blocks?.remove(ids);
+    this.cameras.remove(ids);
   }
 
   /** Remove one scene and release what belongs to it. */
@@ -3629,6 +3765,8 @@ class RuntimeInstance implements Runtime {
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
+      // Phase 23.4: the virtual cameras (ctx.camera).
+      fields['camera'] = { value: this.cameraControl, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
