@@ -103,7 +103,7 @@ import {
   type StageRequest,
   type StageResult,
 } from './content-store';
-import { prepareBehaviorSource, preparedFactsOf, type PrepareBehaviorSourceRequest } from './behavior';
+import { checkScriptLibraryDraft, prepareBehaviorSource, prepareScriptLibraryDependents, preparedFactsOf, projectScriptLibraryInputs, type PrepareBehaviorSourceRequest } from './behavior';
 import {
   externalChangeUnreadable,
   externalChangeUnresolved,
@@ -1254,6 +1254,9 @@ function buildService(core: Core): WorkspaceService {
 
   const prepareBehaviorSourceOp = (projectId: string, request: PrepareBehaviorSourceRequest) =>
     prepareBehaviorSource(core, projectId, request);
+  // Phase 23.7: compile a library's dependents for the set a setScriptLibrary will commit.
+  const prepareScriptLibraryDependentsOp = (projectId: string, patch: import('@thirdlight/project-model').ScriptLibraryPatch) =>
+    prepareScriptLibraryDependents(core, projectId, patch);
 
   return {
     backendId: self.backendId,
@@ -1277,6 +1280,9 @@ function buildService(core: Core): WorkspaceService {
     contentIntegrity: contentIntegrityOp,
     readCapturedV3: readCapturedV3Op,
     prepareBehaviorSource: prepareBehaviorSourceOp,
+    prepareScriptLibraryDependents: prepareScriptLibraryDependentsOp,
+    checkScriptLibraryDraft: (projectId: string, draft: { libraryId: string; files: { path: string; text: string }[] }) => checkScriptLibraryDraft(core, projectId, draft),
+    scriptLibraryInputs: (projectId: string) => projectScriptLibraryInputs(core, projectId),
     scan,
     dispose,
     close,

@@ -71,7 +71,18 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
     },
     tags: { mask: rec('tags.mask', 1), of: rec('tags.of', 1), has: rec('tags.has', true), query: rec('tags.query', () => ['box-1']) },
-    world: { transform: rec('world.transform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }) },
+    world: { transform: rec('world.transform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }), find: rec('world.find', 'box-2'), findAll: rec('world.findAll', () => ['box-2']), withComponent: rec('world.withComponent', () => ['box-2']) },
+    random: {
+      next: rec('random.next', 0.25),
+      range: rec('random.range', 1.5),
+      int: rec('random.int', 3),
+      chance: rec('random.chance', true),
+      pick: rec('random.pick', 'a'),
+      stream: (name: string) => {
+        calls.push('random.stream');
+        return { name, next: rec('random.stream.next', 0.5), range: rec('random.stream.range', 2.5), int: rec('random.stream.int', 4), chance: rec('random.stream.chance', false), pick: rec('random.stream.pick', 'b') };
+      },
+    },
     scenes: { load: rec('scenes.load'), unload: rec('scenes.unload'), status: rec('scenes.status', 'loaded'), loaded: rec('scenes.loaded', () => ['scene-main']) },
     input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true) },
     animator: (id: string) => {
@@ -216,10 +227,24 @@ const CATALOGUE = [...BEHAVIOR_GRAPH_KIND.nodes.filter((d) => !d.type.startsWith
 describe('the visual-script catalogue (every node type compiles and runs)', () => {
   it('covers every ctx member of the runtime typings (generated), except the documented skips', () => {
     const members = new Set(BEHAVIOR_API_NODES.map(memberOf));
-    for (const m of ['game.add', 'game.counter', 'game.health', 'game.setVisible', 'signals.emit', 'signals.on', 'messages.send', 'messages.received', 'timers.after', 'timers.every', 'timers.fired', 'timers.cancel', 'physics.raycast', 'physics.overlapBox', 'physics.overlapCircle', 'physics.characterResult', 'tags.mask', 'tags.has', 'tags.query', 'tags.of', 'world.transform', 'scenes.load', 'scenes.unload', 'scenes.status', 'scenes.loaded', 'input.pressed', 'input.released', 'input.held', 'input.value', 'input.vector', 'animator.set', 'animator.trigger', 'animator.get', 'animator.state', 'audio.play', 'save.get', 'save.set', 'save.remove', 'save.keys', 'spawn', 'destroy', 'emit', 'entityId', 'stepIndex']) {
+    for (const m of ['game.add', 'game.counter', 'game.health', 'game.setVisible', 'signals.emit', 'signals.on', 'messages.send', 'messages.received', 'timers.after', 'timers.every', 'timers.fired', 'timers.cancel', 'physics.raycast', 'physics.overlapBox', 'physics.overlapCircle', 'physics.characterResult', 'tags.mask', 'tags.has', 'tags.query', 'tags.of', 'world.transform', 'world.find', 'world.findAll', 'world.withComponent', 'random.next', 'random.range', 'random.int', 'random.chance', 'random.stream.next', 'random.stream.range', 'random.stream.int', 'random.stream.chance', 'scenes.load', 'scenes.unload', 'scenes.status', 'scenes.loaded', 'input.pressed', 'input.released', 'input.held', 'input.value', 'input.vector', 'animator.set', 'animator.trigger', 'animator.get', 'animator.state', 'audio.play', 'save.get', 'save.set', 'save.remove', 'save.keys', 'spawn', 'destroy', 'emit', 'entityId', 'stepIndex']) {
       expect(members, m).toContain(m);
     }
-    expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual(['events', 'log', 'physics.stageCharacterMove']);
+    // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
+    // script-only rotation forms of the intents (the nodes keep their inputs).
+    expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
+      'emit(pose).facing',
+      'emit(pose).quaternion',
+      'emit(pose).up',
+      'emit(transform).facing',
+      'emit(transform).quaternion',
+      'emit(transform).up',
+      'events',
+      'log',
+      'physics.stageCharacterMove',
+      'random.pick',
+      'random.stream().pick',
+    ]);
     // Intents: one node per kind, with its phase.
     const emit = BEHAVIOR_API_NODES.filter((s) => s.type.startsWith('api.emit.'));
     expect(emit.map((s) => [s.type, s.phase])).toEqual([

@@ -46,6 +46,11 @@ export type MutationResponse =
       limit?: string;
       current?: number;
       max?: number;
+      /** Phase 23.7: `behavior_trust_unacknowledged` — the digest to acknowledge. */
+      sourceDigest?: string;
+      /** Phase 23.7: a script library change a dependent script does not compile against. */
+      behaviorId?: string;
+      diagnostics?: import('./behavior-publication').CompileDiagnosticView[];
     };
 
 /** A transport-level outcome for a command the browser sent. */

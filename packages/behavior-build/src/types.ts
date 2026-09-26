@@ -57,6 +57,24 @@ export interface CompileDiagnostic {
   message: string;
   /** Phase 19.0: the visual-script node the diagnostic is about (graph sources only). */
   nodeId?: string;
+  /** Phase 23.7: the script library whose file `path` names (absent: the behavior's own file). */
+  library?: string;
+}
+
+/**
+ * Phase 23.7: one script library the compiler may link (`@lib/<libraryId>`):
+ * its canonical source-graph container bytes (project-model
+ * `scriptLibraryContainerText`, same format and bounds as a behavior source).
+ */
+export interface ScriptLibraryInput {
+  readonly libraryId: string;
+  readonly containerBytes: Uint8Array;
+}
+
+/** Phase 23.7: one library version an output was compiled against. */
+export interface LibraryPin {
+  libraryId: string;
+  sourceDigest: string;
 }
 
 /** The `compileBehavior` input (behaviors.md §5.1). */
@@ -81,6 +99,13 @@ export interface BehaviorCompileInput {
    * the pure compiler default (export.md §5.4 owns those host strings).
    */
   readonly forbiddenStrings?: readonly string[];
+  /**
+   * Phase 23.7: the project's script libraries (`@lib/<id>` imports resolve
+   * only against these). Absent = none: an `@lib/` import then fails as a
+   * missing library. Only the libraries the source reaches are compiled in
+   * and pinned.
+   */
+  readonly libraries?: readonly ScriptLibraryInput[];
 }
 
 /** The canonical, digest-bound compile result (behaviors.md §5.2). */
@@ -99,6 +124,8 @@ export interface BehaviorManifest {
   declaredInCode?: true;
   /** Phase 19.0: `'graph'` when src/index.ts was generated from a visual-script graph (absent otherwise). */
   sourceKind?: 'graph';
+  /** Phase 23.7: the script libraries linked in, ascending by id (absent when none). */
+  libraries?: LibraryPin[];
   apiVersion: number;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
   outputDigest: string;
@@ -165,6 +192,8 @@ export interface SourceGraphAnalysis {
   importDepth: number;
   typeOnlyImports: number;
   acceptedImports: number;
+  /** Phase 23.7: the script libraries imported (`@lib/<id>`), ascending (absent when none). */
+  libraryImports?: string[];
 }
 
 export type SourceGraphParseResult =
@@ -194,6 +223,8 @@ export interface PreparedBehaviorSource {
   declaredInCode?: true;
   /** Phase 19.0: generated from a visual-script graph (absent otherwise). */
   sourceKind?: 'graph';
+  /** Phase 23.7: the script library versions linked in (absent when none). */
+  libraries?: LibraryPin[];
   declarationDigest: string;
   recipeDigest: string;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
@@ -204,7 +235,25 @@ export interface BehaviorCompiler {
   /** The host's pinned module table (a fact the preparer copies into the input). */
   readonly pinnedModules: readonly PinnedModuleRef[];
   compile(input: BehaviorCompileInput): Promise<BehaviorCompileResult>;
+  /**
+   * Phase 23.7: check one script library on its own (parse, imports, cycles,
+   * syntax, bounds) against the given library set; nothing is produced.
+   */
+  checkLibrary?(input: ScriptLibraryCheckInput): Promise<ScriptLibraryCheckResult>;
 }
+
+/** Phase 23.7: `checkScriptLibrary` input. */
+export interface ScriptLibraryCheckInput {
+  readonly libraryId: string;
+  /** Every library of the (proposed) project state, the checked one included. */
+  readonly libraries: readonly ScriptLibraryInput[];
+  readonly pinnedModules?: readonly PinnedModuleRef[];
+  readonly limits?: Partial<BehaviorCompilerLimits>;
+}
+
+export type ScriptLibraryCheckResult =
+  | { ok: true; libraryId: string; sourceDigest: string; imports: string[]; outputByteLength: number; diagnostics: readonly CompileDiagnostic[] }
+  | BehaviorCompileFailure;
 
 /** Host seams for `compileBehavior` (clock for the cooperative bound, build impl). */
 export interface BehaviorCompileOptions {
@@ -218,4 +267,16 @@ export interface BehaviorCompileOptions {
    * test seam only: content never supplies a plugin/hook (behaviors.md §5.4).
    */
   build?: (options: unknown) => Promise<{ outputFiles?: { contents: Uint8Array }[] }>;
+  /**
+   * Phase 23.7: a cache of compiled script libraries shared by the compiles
+   * of one compiler instance, so a library is parsed, checked and transpiled
+   * once per build however many behaviors import it (keyed by its digest).
+   */
+  libraryCache?: LibraryCache;
+}
+
+/** Phase 23.7: the compiled-library cache (opaque; `createLibraryCache`). */
+export interface LibraryCache {
+  readonly entries: Map<string, unknown>;
+  readonly max: number;
 }

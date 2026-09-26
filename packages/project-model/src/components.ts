@@ -48,6 +48,22 @@ const KNOWN_PREFAB_FIELDS = new Set(['prefabId', 'localId']);
 const KNOWN_COLLIDER_FIELDS = new Set(['shape']);
 const KNOWN_BOX_SHAPE_FIELDS = new Set(['type', 'hx', 'hy', 'hz']);
 const KNOWN_POLYGON_SHAPE_FIELDS = new Set(['type', 'vertices']);
+const KNOWN_SPHERE_SHAPE_FIELDS = new Set(['type', 'radius']);
+const KNOWN_CAPSULE_SHAPE_FIELDS = new Set(['type', 'radius', 'height']);
+const KNOWN_CONVEX_SHAPE_FIELDS = new Set(['type', 'points']);
+const KNOWN_MESH_SHAPE_FIELDS = new Set(['type', 'vertices', 'triangles']);
+
+/**
+ * Phase 23.1: the limits of the 3D collider shapes. A hull of 64 points and
+ * a mesh of 1,024 vertices / 2,048 triangles are far beyond a collision
+ * proxy (a `_COL` node is a handful of boxes' worth of triangles) and keep
+ * one collider inside a command request (64 KiB); a scene holds at most
+ * 32,768 hull/mesh points in all. Every coordinate lies within the 64 m
+ * collider extent, like a polygon's.
+ */
+export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 32768 });
+/** Phase 23.1: the 3D collider shape types (a 3D project only; a 2D plane uses box and polygon). */
+export const COLLIDER_3D_SHAPES = ['sphere', 'capsule', 'convex', 'mesh'] as const;
 const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
 const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow']);
 const KNOWN_MATERIAL_FIELDS = new Set(['color']);
@@ -326,14 +342,122 @@ function validateColliderShape(shape: unknown, path: string, errors: ModelErrorV
     }
     return;
   }
+  if (type === 'sphere' || type === 'capsule') {
+    // Phase 23.1: 3D shapes (the project's physics dimension is checked with the content).
+    if (shape['radius'] === undefined) errors.push(fieldMissing(`${path}/radius`, 'radius'));
+    else checkFiniteNumber(shape['radius'], `${path}/radius`, { positive: true, absMax: MAX_COLLIDER_EXTENT }, `0 < radius <= ${MAX_COLLIDER_EXTENT}`, errors);
+    if (type === 'capsule') {
+      const h = shape['height'];
+      if (h === undefined) errors.push(fieldMissing(`${path}/height`, 'height'));
+      else {
+        const before = errors.length;
+        checkFiniteNumber(h, `${path}/height`, { positive: true, absMax: 2 * MAX_COLLIDER_EXTENT }, `0 < height <= ${2 * MAX_COLLIDER_EXTENT}`, errors);
+        const r = shape['radius'];
+        if (errors.length === before && typeof r === 'number' && Number.isFinite(r) && (h as number) < 2 * r) {
+          bad('a capsule\'s height (end caps included) must be at least twice its radius', h);
+        }
+      }
+    }
+    const known = type === 'sphere' ? KNOWN_SPHERE_SHAPE_FIELDS : KNOWN_CAPSULE_SHAPE_FIELDS;
+    for (const k of Object.keys(shape)) {
+      if (!known.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, type === 'sphere' ? 'type, radius' : 'type, radius, height'));
+    }
+    return;
+  }
+  if (type === 'convex' || type === 'mesh') {
+    const L = COLLIDER_3D_LIMITS;
+    const key = type === 'convex' ? 'points' : 'vertices';
+    const max = type === 'convex' ? L.convexPoints : L.meshVertices;
+    const min = type === 'convex' ? 4 : 3;
+    const list = shape[key];
+    const pts = point3List(list, `${path}/${key}`, min, max, errors);
+    if (pts !== null && type === 'convex' && !hasVolume(pts)) bad('the hull points must not all lie in one plane (a convex hull needs volume)', list);
+    if (type === 'mesh') {
+      const tris = shape['triangles'];
+      if (tris === undefined) errors.push(fieldMissing(`${path}/triangles`, 'triangles'));
+      else if (!Array.isArray(tris)) errors.push(fieldType(`${path}/triangles`, tris, 'array of [a, b, c] vertex indices'));
+      else if (tris.length < 1 || tris.length > L.meshTriangles) {
+        errors.push(limitsError(`${path}/triangles`, 'collider_vertices', tris.length, L.meshTriangles, `a mesh collider has 1-${L.meshTriangles} triangles`));
+      } else {
+        const n = Array.isArray(list) ? list.length : 0;
+        for (let i = 0; i < tris.length; i++) {
+          const t = tris[i];
+          const ok = Array.isArray(t) && t.length === 3 && t.every((x) => Number.isInteger(x) && (x as number) >= 0 && (x as number) < n) && t[0] !== t[1] && t[1] !== t[2] && t[0] !== t[2];
+          if (!ok) {
+            errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/triangles/${i}`, message: 'each triangle is three different vertex indices [a, b, c]', expected: `integers 0-${Math.max(0, n - 1)}` }, t));
+            break;
+          }
+        }
+      }
+    }
+    const known = type === 'convex' ? KNOWN_CONVEX_SHAPE_FIELDS : KNOWN_MESH_SHAPE_FIELDS;
+    for (const k of Object.keys(shape)) {
+      if (!known.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, type === 'convex' ? 'type, points' : 'type, vertices, triangles'));
+    }
+    return;
+  }
   errors.push(
     fieldValue(
       `${path}/type`,
       type,
-      '"box" | "polygon"',
-      'collider shape type must be "box" or "polygon"',
+      '"box" | "polygon" | "sphere" | "capsule" | "convex" | "mesh"',
+      'collider shape type must be "box" or "polygon" (a 3D project also "sphere", "capsule", "convex" or "mesh")',
     ),
   );
+}
+
+/** Phase 23.1: a list of [x, y, z] points (each within the collider extent), or null after recording why not. */
+function point3List(list: unknown, path: string, min: number, max: number, errors: ModelErrorV2[]): [number, number, number][] | null {
+  if (list === undefined) {
+    errors.push(fieldMissing(path, path.slice(path.lastIndexOf('/') + 1)));
+    return null;
+  }
+  if (!Array.isArray(list)) {
+    errors.push(fieldType(path, list, 'array of [x, y, z] points'));
+    return null;
+  }
+  if (list.length < min || list.length > max) {
+    errors.push(limitsError(path, 'collider_vertices', list.length, max, `this collider has ${min}-${max} points`));
+    return null;
+  }
+  const out: [number, number, number][] = [];
+  for (let i = 0; i < list.length; i++) {
+    const q = list[i];
+    const ok = Array.isArray(q) && q.length === 3 && q.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= MAX_COLLIDER_EXTENT);
+    if (!ok) {
+      errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/${i}`, message: `each point is [x, y, z] in metres within ${MAX_COLLIDER_EXTENT} m of the entity`, expected: `[x, y, z], |v| <= ${MAX_COLLIDER_EXTENT}` }, q));
+      return null;
+    }
+    out.push([q[0] as number, q[1] as number, q[2] as number]);
+  }
+  return out;
+}
+
+/** Phase 23.1: whether points span a volume (not all on one plane, within 1 mm³ of tolerance). */
+function hasVolume(pts: readonly (readonly [number, number, number])[]): boolean {
+  const a = pts[0]!;
+  let b = a;
+  let best = 0;
+  for (const p of pts) {
+    const d = Math.hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2]);
+    if (d > best) [best, b] = [d, p];
+  }
+  if (best < 1e-6) return false;
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  let c = a;
+  let area = 0;
+  for (const p of pts) {
+    const ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    const cr = [ab[1]! * ap[2]! - ab[2]! * ap[1]!, ab[2]! * ap[0]! - ab[0]! * ap[2]!, ab[0]! * ap[1]! - ab[1]! * ap[0]!];
+    const m = Math.hypot(cr[0]!, cr[1]!, cr[2]!);
+    if (m > area) [area, c] = [m, p];
+  }
+  if (area < 1e-9) return false;
+  const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const n = [ab[1]! * ac[2]! - ab[2]! * ac[1]!, ab[2]! * ac[0]! - ab[0]! * ac[2]!, ab[0]! * ac[1]! - ab[1]! * ac[0]!];
+  let vol = 0;
+  for (const p of pts) vol = Math.max(vol, Math.abs(n[0]! * (p[0] - a[0]) + n[1]! * (p[1] - a[1]) + n[2]! * (p[2] - a[2])));
+  return vol > 1e-9;
 }
 
 export function validateColliderComponent(c: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -553,6 +677,12 @@ export function validatePhysicsTransform(
    * only) keep the rules here.
    */
   checkRotation = true,
+  /**
+   * Phase 23.1: `false` defers the scale rule to the project level too
+   * (`physicsScaleErrors`): a 3D collider may be scaled where its shape can
+   * take it. Defaults to `checkRotation` (v4 defers both).
+   */
+  checkScale = checkRotation,
 ): void {
   const t = effectiveTransform(comps);
   if (typeof parentId === 'string') {
@@ -569,21 +699,53 @@ export function validatePhysicsTransform(
       ),
     );
   }
-  if (!(t.scale[0] === 1 && t.scale[1] === 1 && t.scale[2] === 1)) {
+  if (checkScale) physicsScaleErrors(comps, path, hasController, 2, errors);
+  if (checkRotation) physicsRotationErrors(comps, path, hasController, 2, errors);
+}
+
+/**
+ * Phase 23.1: the scale rule of a physics-bearing entity for the project's
+ * physics dimension. A 2D plane (and every controller): unit scale, as
+ * before. 3D: a box, hull or mesh collider takes any positive scale per axis
+ * (applied to its shape along the entity's axes), a sphere or capsule a
+ * positive uniform one (a non-uniformly scaled sphere is no sphere).
+ */
+export function physicsScaleErrors(comps: Record<string, unknown>, path: string, hasController: boolean, dimension: 2 | 3, errors: ModelErrorV2[]): void {
+  const t = effectiveTransform(comps);
+  const [sx, sy, sz] = t.scale;
+  if (sx === 1 && sy === 1 && sz === 1) return;
+  const shape = isPlainObject(comps['collider']) ? (comps['collider'] as Record<string, unknown>)['shape'] : undefined;
+  const type = isPlainObject(shape) ? shape['type'] : undefined;
+  if (dimension === 3 && !hasController) {
+    const round = type === 'sphere' || type === 'capsule';
+    const positive = sx > 0 && sy > 0 && sz > 0;
+    if (positive && (!round || (sx === sy && sy === sz))) return;
     errors.push(
       withFound(
         {
           code: 'physics_transform_unsupported',
           path: `${path}/transform/scale`,
-          message: 'a physics-bearing entity must be at unit scale [1, 1, 1]',
+          message: round ? `a ${String(type)} collider takes a positive uniform scale [s, s, s]` : 'a collider takes a positive scale on every axis',
           reason: 'scale',
-          expected: '[1, 1, 1]',
+          expected: round ? '[s, s, s], s > 0' : '[x, y, z], each > 0',
         },
         t.scale,
       ),
     );
+    return;
   }
-  if (checkRotation) physicsRotationErrors(comps, path, hasController, 2, errors);
+  errors.push(
+    withFound(
+      {
+        code: 'physics_transform_unsupported',
+        path: `${path}/transform/scale`,
+        message: 'a physics-bearing entity must be at unit scale [1, 1, 1]',
+        reason: 'scale',
+        expected: '[1, 1, 1]',
+      },
+      t.scale,
+    ),
+  );
 }
 
 /**
@@ -721,6 +883,17 @@ export function canonicalCollider(c: unknown): ColliderShape {
   const shape = o['shape'] as Record<string, unknown>;
   if (shape['type'] === 'box') {
     return { type: 'box', hx: canonNum(shape['hx']), hy: canonNum(shape['hy']), ...(shape['hz'] !== undefined ? { hz: canonNum(shape['hz']) } : {}) };
+  }
+  // Phase 23.1: the 3D shapes.
+  const p3 = (q: unknown): [number, number, number] => {
+    const a = q as unknown[];
+    return [canonNum(a[0]), canonNum(a[1]), canonNum(a[2])];
+  };
+  if (shape['type'] === 'sphere') return { type: 'sphere', radius: canonNum(shape['radius']) };
+  if (shape['type'] === 'capsule') return { type: 'capsule', radius: canonNum(shape['radius']), height: canonNum(shape['height']) };
+  if (shape['type'] === 'convex') return { type: 'convex', points: (shape['points'] as unknown[]).map(p3) };
+  if (shape['type'] === 'mesh') {
+    return { type: 'mesh', vertices: (shape['vertices'] as unknown[]).map(p3), triangles: (shape['triangles'] as unknown[]).map((t) => [...(t as number[])] as [number, number, number]) };
   }
   const verts = shape['vertices'] as unknown[];
   return {

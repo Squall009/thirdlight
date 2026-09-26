@@ -550,6 +550,11 @@ function applyPublishBehaviorSource(
   }
   const acknowledged = catalog.behaviorTrust.entries.some((e) => e.sourceDigest === src.sourceDigest);
   if (!acknowledged) return { ok: false, error: behaviorTrustUnacknowledged(src.sourceDigest) };
+  // Phase 23.7: every script library version the output links is acknowledged too
+  // (the resulting-state check refuses a pin that is not the library's current digest).
+  for (const pin of prepared.libraries ?? []) {
+    if (!catalog.behaviorTrust.entries.some((e) => e.sourceDigest === pin.sourceDigest)) return { ok: false, error: behaviorTrustUnacknowledged(pin.sourceDigest) };
+  }
   if (args.displayName.length < 1 || args.displayName.length > 128 || !isControlFree(args.displayName)) {
     return {
       ok: false,
@@ -580,6 +585,8 @@ function applyPublishBehaviorSource(
       ...(prepared.declaredInCode === true ? { declaredInCode: true as const } : {}),
       // Phase 19.0: generated from the behavior's visual-script graph.
       ...(prepared.sourceKind === 'graph' ? { kind: 'graph' as const } : {}),
+      // Phase 23.7: the script library versions it links.
+      ...(prepared.libraries !== undefined && prepared.libraries.length > 0 ? { libraries: prepared.libraries.map((p) => ({ ...p })) } : {}),
       publishedRevision: input.revision,
     },
     publishedRevision: input.revision,

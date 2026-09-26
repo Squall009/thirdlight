@@ -17,7 +17,7 @@
  */
 
 import { applyGraphOpsLocal } from '../graph/model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -301,6 +301,8 @@ export class SessionClient {
   private graphKinds: Record<string, GraphKindDef> = {};
   /** Phase 20.0: the visual effects (from queryGameConfig, then setEffect / graphEdit changes). */
   private effects: EffectDef[] = [];
+  /** Phase 23.7: the shared script libraries (from queryGameConfig, then setScriptLibrary changes). */
+  private scriptLibraries: ScriptLibrary[] = [];
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   private inputDefaults: InputConfig = { actions: [] };
@@ -535,6 +537,8 @@ export class SessionClient {
         this.graphs = Array.isArray(graphs) ? structuredClone(graphs) : [];
         const effects = (g as { effects?: EffectDef[] }).effects;
         this.effects = Array.isArray(effects) ? structuredClone(effects) : [];
+        const libraries = (g as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries;
+        this.scriptLibraries = Array.isArray(libraries) ? structuredClone(libraries) : [];
         const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;
         if (kinds !== undefined) this.graphKinds = structuredClone(kinds);
       }
@@ -740,6 +744,10 @@ export class SessionClient {
       } else if (change.type === 'setGraph') {
         const rest = this.graphs.filter((g) => g.graphId !== change.graphId);
         this.graphs = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.graphId < b.graphId ? -1 : 1));
+      } else if (change.type === 'setScriptLibrary') {
+        // Phase 23.7: one library before/after (null = none); its dependents' records travel in the same change.
+        const rest = this.scriptLibraries.filter((l) => l.libraryId !== change.libraryId);
+        this.scriptLibraries = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1));
       } else if (change.type === 'setEffect') {
         // Phase 20.0: one effect before/after (null = none).
         const rest = this.effects.filter((e) => e.effectId !== change.effectId);
@@ -969,7 +977,7 @@ export class SessionClient {
         // `limits_exceeded` carries the declared bound (limit/current/max,
         // commands.md §5.4) so the UI can surface the exact rejected limit
         // instead of a generic message.
-        const details = body.error as { limit?: string; current?: number; max?: number };
+        const details = body.error as { limit?: string; current?: number; max?: number; sourceDigest?: string; behaviorId?: string; diagnostics?: CompileDiagnosticView[] };
         return {
           status: 'response',
           response: {
@@ -979,6 +987,10 @@ export class SessionClient {
             ...(details.limit !== undefined ? { limit: details.limit } : {}),
             ...(details.current !== undefined ? { current: details.current } : {}),
             ...(details.max !== undefined ? { max: details.max } : {}),
+            // Phase 23.7: the digest to acknowledge / the dependent script that failed and why.
+            ...(typeof details.sourceDigest === 'string' ? { sourceDigest: details.sourceDigest } : {}),
+            ...(typeof details.behaviorId === 'string' ? { behaviorId: details.behaviorId } : {}),
+            ...(Array.isArray(details.diagnostics) ? { diagnostics: details.diagnostics } : {}),
           },
         };
       }
@@ -1209,6 +1221,36 @@ export class SessionClient {
   /** Phase 20.0: the visual effects (the editor treats them as read-only values). */
   getEffects(): readonly EffectDef[] {
     return this.effects;
+  }
+
+  /** Phase 23.7: the shared script libraries (the editor treats them as read-only values). */
+  getScriptLibraries(): readonly ScriptLibrary[] {
+    return this.scriptLibraries;
+  }
+
+  /**
+   * Phase 23.7: compile a script library draft without saving it (`POST
+   * content/libraries/check`; nothing is written). Also names the published
+   * scripts that import it.
+   */
+  async checkScriptLibrary(
+    libraryId: string,
+    files: readonly { path: string; text: string }[],
+  ): Promise<
+    | { ok: true; compiled: true; sourceDigest: string; imports: string[]; outputByteLength: number; dependents: string[] }
+    | { ok: true; compiled: false; code: string; reason: string; diagnostics: CompileDiagnosticView[]; dependents: string[] }
+    | { ok: false; error: { code: string; message: string } }
+  > {
+    try {
+      const r = await this.request<{ ok: true; compiled: boolean; sourceDigest?: string; imports?: string[]; outputByteLength?: number; dependents?: string[]; code?: string; reason?: string; diagnostics?: CompileDiagnosticView[] }>(
+        `/projects/${this.cfg.projectId}/content/libraries/check`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ libraryId, files: files.map((f) => ({ path: f.path, text: f.text })) }) },
+      );
+      if (r.compiled) return { ok: true, compiled: true, sourceDigest: r.sourceDigest ?? '', imports: r.imports ?? [], outputByteLength: r.outputByteLength ?? 0, dependents: r.dependents ?? [] };
+      return { ok: true, compiled: false, code: r.code ?? 'behavior_compile_failed', reason: r.reason ?? '', diagnostics: r.diagnostics ?? [], dependents: r.dependents ?? [] };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
   }
 
   /** Phase 16.1: the registered graph kinds (node catalogues, port types, rules), by kind id. */

@@ -46,6 +46,8 @@ import type {
 import type {
   PrepareBehaviorSourceRequest,
   PrepareBehaviorSourceResult,
+  PrepareLibraryDependentsResult,
+  ScriptLibraryDraftCheckResult,
 } from './behavior';
 
 // ---- configuration -----------------------------------------------------------
@@ -401,6 +403,16 @@ export interface WorkspaceService {
    * derived cache. No lock, repeatable, changes no authoritative state.
    */
   prepareBehaviorSource(projectId: string, request: PrepareBehaviorSourceRequest): Promise<PrepareBehaviorSourceResult>;
+  /**
+   * Phase 23.7: compile every published behavior that imports a script
+   * library against the library set a `setScriptLibrary` patch will commit
+   * and file the prepared facts the command reads (no authoritative change).
+   */
+  prepareScriptLibraryDependents(projectId: string, patch: import('@thirdlight/project-model').ScriptLibraryPatch): Promise<PrepareLibraryDependentsResult>;
+  /** Phase 23.7: compile one script library draft on its own (nothing is written). */
+  checkScriptLibraryDraft(projectId: string, draft: { libraryId: string; files: { path: string; text: string }[] }): Promise<ScriptLibraryDraftCheckResult>;
+  /** Phase 23.7: the compiler inputs of the project's script libraries as stored now. */
+  scriptLibraryInputs(projectId: string): import('@thirdlight/behavior-build').ScriptLibraryInput[];
   /**
    * The startup scan (workspace.md §10) — re-runs it. The initial scan ran
    * at `openWorkspaceService` (the report is also in `lastScan`).

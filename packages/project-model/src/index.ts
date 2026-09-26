@@ -59,6 +59,10 @@ export type {
   ColliderBoxShape,
   ColliderComponent,
   ColliderPolygonShape,
+  ColliderSphereShape,
+  ColliderCapsuleShape,
+  ColliderConvexShape,
+  ColliderMeshShape,
   ColliderShape,
   ContentCatalog,
   ControllerCapsule,
@@ -85,7 +89,7 @@ export type {
 } from './types-v2';
 
 // Phase 14.0: the character capsule (default, limits, resolved form).
-export { CAPSULE_LIMITS, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf } from './components';
+export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
@@ -312,6 +316,7 @@ export {
   TRIGGER_MODES,
   TRIGGER_RADIUS,
   TRIGGER_SHAPES,
+  TRIGGER_HEIGHT,
   type BlockComponentName,
   type EnemyComponent,
   type AudioSourceComponent,
@@ -442,6 +447,24 @@ export {
 } from './behavior-graph';
 export { BEHAVIOR_API_SKIPPED } from './behavior-api.generated';
 export type { BehaviorApiArg, BehaviorApiNodeSpec, BehaviorApiOutput, BehaviorApiStep, BehaviorApiValue, BehaviorDataType } from './behavior-api';
+// Phase 23.7: shared script libraries (content.scriptLibraries) and behavior library pins.
+export {
+  SCRIPT_LIBRARY_ENTRY,
+  SCRIPT_LIBRARY_IMPORT_PREFIX,
+  SCRIPT_LIBRARY_LIMITS,
+  applyScriptLibraryPatch,
+  canonicalScriptLibraries,
+  canonicalScriptLibrary,
+  scriptLibraryContainerText,
+  scriptLibraryDependents,
+  scriptLibraryDigest,
+  scriptLibraryPathProblem,
+  scriptLibrarySetKey,
+  validateLibraryPins,
+  validateScriptLibraries,
+  validateScriptLibrary,
+} from './script-libraries';
+export type { BehaviorLibraryPin, ScriptLibrary, ScriptLibraryFile, ScriptLibraryPatch } from './script-libraries';
 // Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
 export {
   EFFECT_ATTRIBUTES,

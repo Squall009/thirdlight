@@ -23,7 +23,7 @@
  * bytes are linked into the bundle by the caller.
  */
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected packet-33 compiler port (structural; no behavior-build edge). */
@@ -35,6 +35,8 @@ export interface ContentClosureCompilerPort {
     declaration: unknown;
     containerBytes: Uint8Array;
     pinnedModules: unknown;
+    /** Phase 23.7: the script libraries the source's `@lib/<id>` imports link. */
+    libraries?: readonly { libraryId: string; containerBytes: Uint8Array }[];
   }): Promise<
     | { ok: true; outputBytes: Uint8Array; outputDigest: string }
     | { ok: false; reason: string; diagnostics?: readonly unknown[] }
@@ -178,6 +180,7 @@ async function compileReachableBehaviors(
   service: WorkspaceService,
   compiler: ContentClosureCompilerPort,
   projectId: string,
+  scriptLibraries: readonly ScriptLibrary[] = [],
 ): Promise<
   | { ok: true; behaviorArtifacts: ClosureArtifact[]; behaviorInputs: ManifestBehaviorInput[]; behaviors: ClosureBehavior[] }
   | { ok: false; error: ContentClosureError }
@@ -188,11 +191,29 @@ async function compileReachableBehaviors(
   const behaviorArtifacts: ClosureArtifact[] = [];
   const behaviorInputs: ManifestBehaviorInput[] = [];
   const behaviors: ClosureBehavior[] = [];
+  // Phase 23.7: the script libraries (canonical containers), built once for every behavior of the build.
+  const libraryInputs = scriptLibraries.map((l) => ({ libraryId: l.libraryId, containerBytes: new TextEncoder().encode(scriptLibraryContainerText(l)) }));
+  const libraryDigests = new Map(scriptLibraries.map((l) => [l.libraryId, scriptLibraryDigest(l)] as const));
   for (const row of behaviorRows) {
     const source = row['source'] as Record<string, unknown> | null | undefined;
     if (source === null || source === undefined) continue;
     const behaviorId = String(row['behaviorId']);
     const sourceDigest = String(source['sourceDigest']);
+    // Phase 23.7: a behavior compiled against another version of a library than the project's is stale.
+    const pins = (source['libraries'] as { libraryId: string; sourceDigest: string }[] | undefined) ?? [];
+    const stale = pins.find((p) => libraryDigests.get(p.libraryId) !== p.sourceDigest);
+    if (stale !== undefined) {
+      return {
+        ok: false,
+        error: {
+          code: 'export_build_unavailable',
+          cls: 'unavailable',
+          reason: 'behavior_library_stale',
+          message: `behavior ${behaviorId} was published against another version of the script library "${stale.libraryId}" (republish it)`.slice(0, 256),
+          sourceDigest,
+        },
+      };
+    }
     const sourceRead = service.readSourceBlob(projectId, { digest: sourceDigest });
     if (!sourceRead.ok) {
       return { ok: false, error: fromCommandError(sourceRead.error) };
@@ -204,6 +225,7 @@ async function compileReachableBehaviors(
         declaration: row['declaration'],
         containerBytes: sourceRead.bytes,
         pinnedModules: compiler.pinnedModules,
+        ...(pins.length > 0 ? { libraries: libraryInputs } : {}),
       });
     } catch (e) {
       return {
@@ -354,7 +376,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   // 4. The reachable source-bearing behaviors (compiled like the M2 closure);
   //    the game host links them as runtime modules.
-  const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId);
+  const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId, ((input.content as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries ?? []) as ScriptLibrary[]);
   if (!compiledBehaviors.ok) return compiledBehaviors;
   const { behaviorArtifacts, behaviorInputs, behaviors } = compiledBehaviors;
 

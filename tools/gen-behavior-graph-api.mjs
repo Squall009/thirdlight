@@ -337,7 +337,10 @@ class Builder {
         if (isHandle) {
           // A handle factory (ctx.animator(id)): one node per handle method.
           const { args: prefix, values } = this.params(sig, tags, pathText);
-          const handleCat = capital(name);
+          // Phase 23.7: a handle inside a namespace (ctx.random.stream(name)) stays in the
+          // namespace's category, its labels naming the factory ("Seeded random (stream)").
+          const nested = pathNames.length > 0;
+          const handleCat = nested ? cat : capital(name);
           for (const hm of retProps) {
             const hdecl = hm.valueDeclaration ?? hm.declarations[0];
             const htags = graphTags(hdecl);
@@ -350,7 +353,7 @@ class Builder {
             const own = this.params(hsig, htags, hpath, prefix);
             this.push({
               type: `api.${[...pathNames, name, hm.getName()].join('.')}`,
-              label: htags.node || capital(words(hm.getName())),
+              label: `${htags.node || capital(words(hm.getName()))}${nested ? ` (${words(name)})` : ''}`,
               category: handleCat,
               description: docOf(checker, hm) || doc,
               exec: !htags.pure,
@@ -426,7 +429,14 @@ class Builder {
         }
         const pd = prop.valueDeclaration ?? prop.declarations?.[0];
         const opt = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-        const arg = this.arg(prop.getName(), describe(checker, checker.getTypeOfSymbolAtLocation(prop, pd), graphTags(pd)), opt, tags, pathText);
+        // Phase 23.7: an optional field tagged `@graphNode skip` is not an input of the node
+        // (the node's inputs, and so the code of existing graphs, stay as they were).
+        const ptags = graphTags(pd);
+        if (opt && ptags.skip !== null) {
+          this.skip(`${pathText}.${prop.getName()}`, ptags.skip);
+          continue;
+        }
+        const arg = this.arg(prop.getName(), describe(checker, checker.getTypeOfSymbolAtLocation(prop, pd), ptags), opt, tags, pathText);
         args.push(arg);
         entries.push([prop.getName(), { arg: arg.id, ...(arg.axes !== undefined ? { as: 'axes' } : {}) }]);
       }

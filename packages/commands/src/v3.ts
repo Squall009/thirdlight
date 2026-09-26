@@ -59,7 +59,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
   audioSource: ['assetId', 'volume', 'range'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
-  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'],
+  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'],
   switch: ['mode', 'signal', 'size', 'once'],
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],

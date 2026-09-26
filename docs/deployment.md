@@ -1494,6 +1494,69 @@ level wiring (camera, lights, zones, spawn markers) never go into a prefab.
 `tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
 and the export carry the project's prefabs with the game.
 
+### Script libraries and JSON data (phase 23.7)
+
+- **Libraries** are shared TypeScript (and JSON) every script of the
+  project can use: the **Libraries** tab (bottom dock) creates one from a
+  name (its id is the name in lower case, e.g. "Scoring" → `scoring`),
+  renames, deletes and opens it. Its tab is the code editor: `src/index.ts`
+  is what scripts import — `import { points } from '@lib/scoring';` — and
+  **+ File** adds more modules or `.json` data (`import table from
+  './table.json'`). The draft compiles after a short pause (or Ctrl+S);
+  problems are marked in the code. **Save** stores the changed files (one
+  undo step) and recompiles every published script that imports the
+  library in the same step; the first save that changes a library such
+  scripts use asks for the trust acknowledgment of the new version (like
+  publishing a script). If a script no longer compiles against the change,
+  the save is refused and the message names the script. A library a
+  published script imports cannot be deleted.
+- A library may import other libraries (`@lib/<id>`); a cycle between
+  libraries or an import of a library that does not exist is a compile
+  error. Bounds: 32 libraries, 16 files and 256 KiB per library, 64 KiB per
+  file (one save sends at most ~64 KiB of changed text).
+- Scripts may also keep `.json` files in their own source and import them
+  the same way.
+- MCP: `tl_command` `setScriptLibrary {libraryId, name?, files?: [{path,
+  text|null}]}` (text null removes a file; other files are kept) and
+  `deleteScriptLibrary {libraryId}`; the libraries are in
+  `tl_content_query target="game"` (`scriptLibraries`).
+
+### Random numbers, finding objects and facing (phase 23.7)
+
+- `ctx.random` gives each object's script its own seeded random numbers:
+  `next()` (0 up to 1), `range(min, max)`, `int(min, max)` (both ends
+  included), `chance(p)` and `pick(list)` (`undefined` for an empty list).
+  `ctx.random.stream(name)` is an independent stream of that object (same
+  API, without `stream`; names like timer names, at most 64 per object):
+  draws from one never shift another, so adding a loot roll does not change
+  how an enemy moves. The numbers come from the project setting **Random
+  seed** (Project settings → Engine, `random_seed`, 0–4294967295, default 0)
+  mixed with the script, the object and the stream name, so every run,
+  replay, Play in the worker or on the main thread, and the export draw the
+  same numbers; change the seed to reshuffle every choice of the game at
+  once. A new run (start, replay) starts every stream over. Never use
+  `Math.random` in a script — a replay could not repeat it. Visual scripts
+  have the same numbers as the **Seeded random / range / integer / chance**
+  nodes (with a "(stream)" variant taking a stream name); the older Random
+  nodes keep their per-object numbers unchanged.
+- `ctx.world.find(name)` is the id of the first loaded object with exactly
+  that name (or `undefined`), `ctx.world.findAll(name)` all of them and
+  `ctx.world.withComponent(kind)` every object carrying a component of that
+  kind (`"light"`, `"collider"`, `"behavior"`, …) — in load order (the start
+  scene as authored, then loaded scenes and spawned copies as they came).
+  Nodes: Find object by name, Find objects by name, Find objects with
+  component.
+- Transform and pose intents take a rotation as a quaternion or a direction
+  besides angles: `{ kind: "pose", entityId, quaternion: [x, y, z, w] }`
+  (normalized for you), or `facing: [x, y, z]` — the object's forward (+Z,
+  the glTF forward) points that way, its top towards `up` (default
+  `[0, 1, 0]`; straight up or down leans the top away from / towards +Z).
+  A `transform` intent may carry the same `quaternion` or `facing`/`up`
+  after its `position` to move and turn in one intent. One rotation form per
+  intent (angles, quaternion or facing); an all-zero vector or an `up`
+  parallel to `facing` stops the game with the script error. These fields
+  are for code scripts; the Pose object and Move object nodes are unchanged.
+
 ### Script properties: public and private
 
 A script declares the properties objects give it (`ctx.properties.<key>`):
@@ -2053,8 +2116,32 @@ In a 3D project:
 - every box collider needs a **depth**: the collider's **Half depth** field
   (`hz`, metres; its Scene handle becomes a 3-axis box that turns with the
   object once the depth is set). Switching a project to 3D is refused while a
-  box has none; polygon colliders are 2D-plane shapes and are refused too
-  (more 3D shapes come with phase 23.1);
+  box has none; polygon colliders are 2D-plane shapes and are refused too;
+- phase 23.1: a collider's **Shape** may also be a **sphere** (radius), a
+  **capsule** (radius and total height, standing along the object's Y), a
+  **convex hull** (up to 64 points) or a **triangle mesh** (up to 1,024
+  vertices and 2,048 triangles; static level geometry — never on a mover).
+  Hulls and meshes are made from a model: dragging a model with a `_COL`
+  node into a 3D project gives it a mesh collider from that node (a convex
+  hull when it is too big for a mesh), and the Inspector's **Box / Convex
+  hull / Mesh from model** buttons make one from the object's model (its
+  `_COL` node(s), else its LOD0 geometry). A 3D collider takes its object's
+  scale (any positive scale for a box, hull or mesh; uniform for a sphere or
+  capsule). The Scene view draws every 3D collider as a wire outline; a
+  sphere has a radius handle, a capsule a height and a radius handle.
+  "+ Add component" offers the 3D presets (Box (3D), Sphere, Capsule, Convex
+  hull, Mesh) in a 3D project and the 2D ones in a 2D plane;
+- **triggers** are 3D volumes: a **box** with a depth (`size` [w, h, d]),
+  a **sphere** or a **capsule** (radius and height), turned with their
+  object and tested exactly against the player's capsule — enter and exit
+  signals, `mode: stay`, `once` and scripts' trigger events work as in 2D.
+  Switches, pickups and enemies are 2D-plane blocks and are refused in a 3D
+  project (their 3D forms come with game modes, 23.10); one-way colliders
+  too;
+- **movers** move 3D colliders (box, sphere, capsule, hull) along their
+  waypoints and carry the player standing on them; a script may drive a
+  collider no mover moves through its transform intents (the runtime turns
+  it into a moving body; the player standing on it rides along);
 - colliders may be rotated about any axis; the player controller stays
   upright; the capsule's **Offset** may have a z component;
 - in Play and the export the player capsule falls under the project's

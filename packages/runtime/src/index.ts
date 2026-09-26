@@ -71,6 +71,11 @@ export {
   type RaycastHit3D,
   type StaticColliderSpec3D,
   type PhysicsVec3,
+  // Phase 23.1: 3D shapes, kinematic poses, overlap queries and clearance.
+  type CharacterClearanceResult3D,
+  type ColliderShape3D,
+  type KinematicPose3D,
+  type OverlapShape3D,
 } from './ports';
 export { DuplicateMoveError, PhaseViolationError } from './guard';
 export {
@@ -169,6 +174,8 @@ export {
   BehaviorIntentError,
   INTENT_LIMITS,
   emptyIntentSet,
+  facingQuaternion,
+  normalizedQuaternion,
   quantizeIntentMove,
   validateIntentPhase,
   validateIntentShape,
@@ -190,7 +197,7 @@ export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags 
 // Phase 14.0: the character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D } from './scene-set';
+export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf } from './scene-set';
 // Phase 15.3: the tuning defaults hosts and editors read (the values are project-model's).
 export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
@@ -203,6 +210,9 @@ export type { BehaviorSpawnControl } from './types';
 // Phase 14.2: ctx.timers and the trigger events in ctx.events.
 export { MAX_TIMERS_PER_INSTANCE, MAX_TIMER_SECONDS } from './timers';
 export type { BehaviorMessage, BehaviorMessageControl, BehaviorMessages, BehaviorTimers, TriggerEventRecord } from './types';
+// Phase 23.7: ctx.random (seeded, replay-safe) and ctx.world queries.
+export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random';
+export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';
 // Phase 23.4: the camera framework — the script API, the brain and its pure rig maths (the editor's frustum previews use it).

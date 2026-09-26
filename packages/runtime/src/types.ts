@@ -147,6 +147,76 @@ export interface BehaviorWorldView {
    * @graphNode Transform of
    */
   transform(entityId: string): Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number] }> | undefined;
+  /**
+   * Phase 23.7: the first loaded entity whose name is exactly `name` (case-sensitive), or `undefined`.
+   * Entities are searched in load order: the start scene in document order, then later scenes and spawned copies as they arrived.
+   * @graphPure
+   * @graphNode Find object by name
+   */
+  find(name: string): string | undefined;
+  /**
+   * Phase 23.7: every loaded entity whose name is exactly `name` (case-sensitive), in load order (spawned copies included).
+   * @graphPure
+   * @graphNode Find objects by name
+   */
+  findAll(name: string): readonly string[];
+  /**
+   * Phase 23.7: every loaded entity carrying a component of this kind (as stored on the entity, e.g. `'collider'`, `'light'`, `'behavior'`), in load order (spawned copies included).
+   * @graphPure
+   * @graphNode Find objects with component
+   */
+  withComponent(kind: string): readonly string[];
+}
+
+/**
+ * Phase 23.7: one seeded random number stream (`ctx.random`, `ctx.random.stream(name)`).
+ * Replay-safe: the numbers come from the project's `random_seed` setting mixed with the
+ * script id, the object's id and the stream name, and advance only when drawn — a replay,
+ * the simulation worker and the page all draw the same numbers. Each new run starts over.
+ */
+export interface BehaviorRandomStream {
+  /**
+   * A number in [0, 1) (a multiple of 2^-32).
+   * @graphNode Seeded random
+   */
+  next(): number;
+  /**
+   * A number in [min, max).
+   * @graphNode Seeded random range
+   * @graphDefault max 1
+   */
+  range(min: number, max: number): number;
+  /**
+   * A whole number from `min` to `max`, both included (the bounds are rounded inward).
+   * @graphNode Seeded random integer
+   * @graphDefault max 6
+   */
+  int(min: number, max: number): number;
+  /**
+   * True with probability `p` (0: never, 1: always).
+   * @graphNode Seeded chance
+   * @graphDefault p 0.5
+   */
+  chance(p: number): boolean;
+  /**
+   * One item of `list` chosen evenly, or `undefined` when it is empty.
+   * @graphNode skip a list's random item is Seeded random integer with the list's Get item
+   */
+  pick<T>(list: readonly T[]): T | undefined;
+}
+
+/**
+ * Phase 23.7: `ctx.random` — the instance's main seeded stream, plus named sub-streams.
+ */
+export interface BehaviorRandom extends BehaviorRandomStream {
+  /**
+   * An independent named stream of this object (the same name gives the same stream):
+   * draws from one never shift the numbers of another, so adding a draw for loot does
+   * not change the numbers used for movement. Names: 1–64 characters of letters, digits,
+   * `_ . : -`; at most 64 streams per object.
+   * @graphLabel name stream
+   */
+  stream(name: string): BehaviorRandomStream;
 }
 
 /** Phase 12 (c): one loaded scene as the runtime holds it (renderer/host view). */
@@ -228,6 +298,8 @@ export interface SimEntityData {
   hasCollider?: true;
   /** v2 marker: the entity carries `components.controller`. */
   hasController?: true;
+  /** Phase 23.7: the kinds of the entity's components, as stored (`ctx.world.withComponent`). */
+  componentKinds?: readonly string[];
 }
 
 export interface SimState {
@@ -267,6 +339,8 @@ export interface ModuleConfig {
   behaviorLog?: (level: BehaviorLogLevel, message: string) => void;
   /** Phase 12 (c): the runtime's live tag index (follows scene loads/unloads). */
   tags?: BehaviorTagQuery;
+  /** Phase 23.1: 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
+  physicsDimension?: 3;
 }
 
 /**
@@ -598,7 +672,7 @@ export interface StepContext {
   readonly triggerEvents?: readonly TriggerEventRecord[];
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
-  /** Phase 23.4: the virtual cameras (present when the scene carries one). */
+  /** Phase 23.4: the virtual cameras (`ctx.camera`; a scene without one answers false/null). */
   readonly camera?: BehaviorCamera;
 }
 

@@ -58,6 +58,7 @@ import {
   MAX_COLLIDERS,
   MAX_ENTITIES_V2,
   MAX_POLYGON_VERTICES_TOTAL,
+  COLLIDER_3D_LIMITS,
   validateBehaviorComponent,
   validateBoxV2,
   validateCameraV2,
@@ -721,6 +722,8 @@ interface EntityV3Counts {
   controllers: number;
   colliders: number;
   polygonVertices: number;
+  /** Phase 23.1: convex-hull points and mesh vertices (3D colliders). */
+  points3d: number;
 }
 
 const EMPTY_COUNTS: EntityV3Counts = {
@@ -736,6 +739,7 @@ const EMPTY_COUNTS: EntityV3Counts = {
   controllers: 0,
   colliders: 0,
   polygonVertices: 0,
+  points3d: 0,
 };
 
 /** §23.3.1/§23.3.2 zone and spawn transform rules (distinct codes). */
@@ -1024,11 +1028,15 @@ function validateEntityComponentsV3(
   }
 
   let polygonVertices = 0;
+  let points3d = 0;
   if (comps['collider'] !== undefined) {
     const shape = isPlainObject(comps['collider']) ? comps['collider']['shape'] : undefined;
     if (isPlainObject(shape) && shape['type'] === 'polygon' && Array.isArray(shape['vertices'])) {
       polygonVertices = shape['vertices'].length;
     }
+    // Phase 23.1: a hull's points and a mesh's vertices count toward the scene's 3D point budget.
+    if (isPlainObject(shape) && shape['type'] === 'convex' && Array.isArray(shape['points'])) points3d = shape['points'].length;
+    if (isPlainObject(shape) && shape['type'] === 'mesh' && Array.isArray(shape['vertices'])) points3d = shape['vertices'].length;
   }
   const light = comps['light'];
   const lightType = isPlainObject(light) ? light['type'] : undefined;
@@ -1045,6 +1053,7 @@ function validateEntityComponentsV3(
     controllers: comps['controller'] !== undefined ? 1 : 0,
     colliders: comps['collider'] !== undefined ? 1 : 0,
     polygonVertices,
+    points3d,
   };
 }
 
@@ -1342,6 +1351,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.controllers += c.controllers;
         counts.colliders += c.colliders;
         counts.polygonVertices += c.polygonVertices;
+        counts.points3d += c.points3d;
         if (c.checkpointZoneIds.length > 0) counts.checkpointZoneIds.push(entityId);
       }
       for (const k of Object.keys(e)) {
@@ -1408,6 +1418,9 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
       errors.push(
         limitsError('/entities', 'collider_vertices_total', counts.polygonVertices, MAX_POLYGON_VERTICES_TOTAL, `scene exceeds the total polygon-vertex limit of ${MAX_POLYGON_VERTICES_TOTAL}`),
       );
+    }
+    if (!merged && counts.points3d > COLLIDER_3D_LIMITS.pointsTotal) {
+      errors.push(limitsError('/entities', 'collider_vertices_total', counts.points3d, COLLIDER_3D_LIMITS.pointsTotal, `scene exceeds the total 3D collider point limit of ${COLLIDER_3D_LIMITS.pointsTotal} (hull points and mesh vertices)`));
     }
     // §23.10 v3 scene limits (per scene: a merged runtime scene holds several)
     if (!merged && counts.zones > GAME_ZONE_LIMITS.zones) {

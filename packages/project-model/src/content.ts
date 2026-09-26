@@ -19,6 +19,7 @@ import { canonicalGraphData, canonicalGraphDocuments, graphAssetRefs, graphDocum
 import { GRAPH_KINDS } from './graph-kinds';
 import { BEHAVIOR_FUNCTION_ID_RE, BEHAVIOR_GRAPH_LIMITS, behaviorGraphContext } from './behavior-graph';
 import { canonicalEffectComponent, canonicalEffects, validateEffectComponent, validateEffects } from './effects';
+import { canonicalScriptLibraries, scriptLibraryDigest, validateLibraryPins, validateScriptLibraries, type ScriptLibrary } from './script-libraries';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
 import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
@@ -267,6 +268,7 @@ const KNOWN_SOURCE_FIELDS = new Set([
   'ownedTransforms',
   'declaredInCode',
   'kind',
+  'libraries',
   'publishedRevision',
 ]);
 const KNOWN_TRUST_FIELDS = new Set(['entries']);
@@ -1345,6 +1347,8 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
   if (s['kind'] !== undefined && s['kind'] !== 'graph') {
     errors.push(fieldValue(`${path}/kind`, s['kind'], '"graph" or absent', 'a source kind is "graph" or absent (TypeScript)'));
   }
+  // Phase 23.7: the script library versions the source was compiled against (absent = none).
+  if (s['libraries'] !== undefined) validateLibraryPins(s['libraries'], `${path}/libraries`, errors);
   const published = s['publishedRevision'];
   if (published === undefined) errors.push(fieldMissing(`${path}/publishedRevision`, 'publishedRevision'));
   else if (typeof published !== 'number' || !Number.isInteger(published) || published < 0) {
@@ -1527,6 +1531,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // default fitted to any genre, so the neutral default keeps existing data valid.
   { key: 'physics_dimension', type: 'number', default: 2, values: [2, 3], valueLabels: ['2D plane', '3D'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Physics', tooltip: 'The simulation\'s dimension: a 2D plane (movement and collision in X and Y, colliders rotate about Z) or full 3D (colliders with depth and any rotation). A 3D project needs every box collider to have a depth.' },
   { key: 'sim_thread', type: 'number', default: 1, values: [1, 2], valueLabels: ['Worker (off the main thread)', 'Main thread'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Simulation thread', tooltip: 'Where the game simulation (physics, gameplay, scripts) runs in Play and the export: a worker (the page thread only draws and reads input) or the page\'s main thread. Results are identical. A page URL flag ?threads=off|on overrides it.' },
+  // Phase 23.7: the seed of the scripts' ctx.random (every stream mixes it with the
+  // script, object and stream name). 0: any fixed value keeps runs and replays
+  // repeatable; a game changes it to reshuffle every random choice at once.
+  { key: 'random_seed', type: 'number', default: 0, min: 0, max: 4294967295, integer: true, unit: '', optional: true, group: 'Engine', label: 'Random seed', tooltip: 'The seed of the scripts\' random numbers (ctx.random): the same seed gives the same numbers in every run, replay and export; change it to get a different, still repeatable, sequence (0 to 4294967295).' },
   // Phase 23.4: the depth buffer's precision (three-adapter DEPTH_BUFFER_SETTING_VALUES).
   // 1, standard: what every project drew with before; a level of any genre at
   // the usual near/far planes needs nothing else. Logarithmic or reversed-Z keep
@@ -1837,6 +1845,8 @@ function canonicalBehavior(b: BehaviorRecord): BehaviorRecord {
             ...(b.source.ownedTransforms !== undefined && b.source.ownedTransforms.length > 0 ? { ownedTransforms: [...b.source.ownedTransforms] } : {}),
             ...(b.source.declaredInCode === true ? { declaredInCode: true as const } : {}),
             ...(b.source.kind === 'graph' ? { kind: 'graph' as const } : {}),
+            // Phase 23.7: present only for a source that imports script libraries.
+            ...(b.source.libraries !== undefined && b.source.libraries.length > 0 ? { libraries: b.source.libraries.map((p) => ({ libraryId: p.libraryId, sourceDigest: p.sourceDigest })) } : {}),
             publishedRevision: b.source.publishedRevision,
           },
     publishedRevision: b.publishedRevision,
@@ -2094,8 +2104,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2243,6 +2253,9 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
   // Phase 20.0: visual effects.
   if (doc['effects'] !== undefined) validateEffects(doc['effects'], '/effects', errors);
+  // Phase 23.7: shared script libraries (v4) and the behavior pins that name them.
+  if (version === 4 && doc['scriptLibraries'] !== undefined) validateScriptLibraries(doc['scriptLibraries'], '/scriptLibraries', errors);
+  validateLibraryPinReferences(doc, errors);
   if (version === 4) validateMaterialReferences(doc, errors);
   else if (Array.isArray(doc['assets'])) {
     // Phase 14.6: clips-only assets are v4 data (v3 projects upgrade on open).
@@ -2376,6 +2389,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).graphs !== undefined && (c as ContentCatalogV4).graphs!.length > 0 ? { graphs: canonicalGraphDocuments((c as ContentCatalogV4).graphs!) } : {}),
     // Phase 20.0: present only when there are effects.
     ...((c as ContentCatalogV4).effects !== undefined && (c as ContentCatalogV4).effects!.length > 0 ? { effects: canonicalEffects((c as ContentCatalogV4).effects!) } : {}),
+    // Phase 23.7: present only when there are script libraries.
+    ...((c as ContentCatalogV4).scriptLibraries !== undefined && (c as ContentCatalogV4).scriptLibraries!.length > 0 ? { scriptLibraries: canonicalScriptLibraries((c as ContentCatalogV4).scriptLibraries!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };
@@ -2386,6 +2401,49 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
  * default material mapping (and only a model asset has one) names existing
  * materials.
  */
+/**
+ * Phase 23.7: every library a published behavior pins exists with exactly the
+ * pinned digest (a library change republishes its dependents in the same
+ * command, so a stale or dangling pin never reaches a document; deleting a
+ * library a behavior still imports is refused here).
+ */
+function validateLibraryPinReferences(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
+  if (!Array.isArray(doc['behaviors'])) return;
+  const libs = new Map<string, ScriptLibrary>();
+  if (Array.isArray(doc['scriptLibraries'])) {
+    for (const l of doc['scriptLibraries'] as unknown[]) {
+      if (isPlainObject(l) && typeof l['libraryId'] === 'string' && Array.isArray(l['files'])) libs.set(l['libraryId'], l as unknown as ScriptLibrary);
+    }
+  }
+  const digests = new Map<string, string | null>();
+  (doc['behaviors'] as unknown[]).forEach((b, i) => {
+    if (!isPlainObject(b) || !isPlainObject(b['source']) || !Array.isArray(b['source']['libraries'])) return;
+    (b['source']['libraries'] as unknown[]).forEach((p, j) => {
+      if (!isPlainObject(p) || typeof p['libraryId'] !== 'string') return;
+      const id = p['libraryId'];
+      const lib = libs.get(id);
+      const path = `/behaviors/${i}/source/libraries/${j}`;
+      if (lib === undefined) {
+        errors.push(withFound({ code: 'reference_missing', path: `${path}/libraryId`, message: `behavior ${String(b['behaviorId'])} imports the script library "${id}", which is not in this project`, expected: 'a libraryId of content.scriptLibraries' }, id));
+        return;
+      }
+      if (!digests.has(id)) {
+        let d: string | null = null;
+        try {
+          d = (lib.files as unknown[]).every((f) => isPlainObject(f) && typeof f['path'] === 'string' && typeof f['text'] === 'string') ? scriptLibraryDigest(lib) : null;
+        } catch {
+          d = null;
+        }
+        digests.set(id, d);
+      }
+      const current = digests.get(id);
+      if (current !== null && current !== undefined && p['sourceDigest'] !== current) {
+        errors.push(withFound({ code: 'reference_missing', path: `${path}/sourceDigest`, message: `behavior ${String(b['behaviorId'])} was compiled against another version of the script library "${id}" (republish it)`, expected: current }, p['sourceDigest']));
+      }
+    });
+  });
+}
+
 function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
   const assets = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]).filter(isPlainObject) : [];
   const kindOf = new Map(assets.map((a) => [a['assetId'], a['kind']]));

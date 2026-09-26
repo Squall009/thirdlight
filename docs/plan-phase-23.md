@@ -279,13 +279,13 @@ for editor items, commit/push/restart, decision log).
 | Item | Status |
 |---|---|
 | 23.0 Dimensional model | done 2026-09-26 — two backends (rapier2d untouched for plane2d, rapier3d 0.20.0 for 3d), `physics_dimension`, box `hz`, PhysicsPort3D; 2D rotated-collider bug fixed (no pinned values moved) |
-| 23.1 3D physics world, colliders, triggers | next |
+| 23.1 3D physics world, colliders, triggers | in progress |
 | 23.2 3D character controller | planned |
 | 23.3 Pointer input and 3D queries | planned |
-| 23.4 Camera framework | planned |
+| 23.4 Camera framework | in progress |
 | 23.5 Block layers — core | planned |
 | 23.6 Block layers — editor | planned |
-| 23.7 Scripting conveniences | planned |
+| 23.7 Scripting conveniences | in progress |
 | 23.8 Test and debug entry points | planned |
 | 23.9a Project UI — runtime | planned |
 | 23.9b Project UI — editor | planned |
@@ -304,6 +304,8 @@ for editor items, commit/push/restart, decision log).
 ## 6. Results and decision log
 
 ### Decision log
+
+- 2026-09-26 (owner): finish all of phase 23 in one autonomous run. Worktree agents in parallel waves of about three (host load); one `tools/gate.sh full` may cover a batch of merged items before they are ticked.
 
 - 2026-09-26 (owner): phase 23 approved from the Skyforge gap list; one
   phase in tranches A–F. Charter scope widened from "2.5D platformer proving
@@ -397,3 +399,210 @@ for editor items, commit/push/restart, decision log).
 - 2026-09-26 (23.4): **script API and nodes.** `ctx.camera` is present on every phased step context (scene loads may bring cameras later); it is the last member of `BehaviorContext`, so the generated script typings and the visual-script catalogue only gain entries (the 12 Camera nodes are generated from the doc tags; existing node types and codegen are unchanged). Script changes apply to the brain immediately and are resolved at the end of the step; reads use the last resolved step.
 - 2026-09-26 (23.4): **view distance (E2).** Per-camera `fovY`, `near`, `far` (absent: the scene camera's), blended like the pose. Depth precision, which E2 asked to confirm: three r186's WebGPURenderer offers `logarithmicDepthBuffer` and `reversedDepthBuffer` (reversed needs WebGPU or WebGL 2 `EXT_clip_control`, else three falls back to standard); Thirdlight used standard depth everywhere. New optional engine setting `depth_buffer` (1 Standard — absent, every existing project — 2 Logarithmic, 3 Reversed Z), appended last in the settings registry and `M3_OPTIONAL_SETTINGS_KEYS`, applied by Play and the export when the renderer is made; the canvas reports the mode actually in use (`data-tl-depth`). Not added to `GameplaySettings` (typings unchanged). The Scene view keeps standard depth.
 - 2026-09-26 (23.4): **editor.** Inspector sections come from the descriptors; the orbit point is the first user of the `point` handle kind (world space, orbitPoint only), the camera path uses the `path` handle. A selected virtual camera shows a world-space frustum at the pose its rig gives from the authored transforms, computed by the runtime's own brain (`CameraBrain.previewPose`, no input or damping), and the view element reports it (`data-virtual-camera`).
+- 2026-09-26 (23.1): **3D collider shapes.** `collider.shape` gains
+  `sphere {radius}`, `capsule {radius, height}` (total height, end caps
+  included, along the object's Y — the controller capsule's convention),
+  `convex {points}` (4–64 `[x, y, z]`, must span a volume) and
+  `mesh {vertices, triangles}` (≤ 1,024 / ≤ 2,048, three distinct in-range
+  indices), all coordinates within the 64 m collider extent; a scene holds at
+  most 32,768 hull points and mesh vertices (`COLLIDER_3D_LIMITS`). Limits
+  keep one collider inside a 64 KiB command request. They are 3D-only (a 2D
+  plane refuses them in the project composition, as 3D refuses polygons); a
+  mesh is static (refused on a mover or controller), a one-way collider is a
+  2D-plane platform (refused in 3D). The runtime resolves a shape for the
+  port (`colliderShape3DOf`: scale applied, capsule height → centre-segment
+  half height, flat point lists); the port keeps its own validation.
+- 2026-09-26 (23.1): **colliders from model geometry are baked data**, like
+  the 2D plane's `_COL` outline polygon: the editor computes a mesh or hull
+  from the model's `_COL` node(s) (else its LOD0 geometry, `pieceCollider3D`
+  in three-adapter; 1 mm grid, merged vertices, a hull reduced to the six
+  axis extremes plus 58 evenly spread directions) and stores it in the
+  collider. Why: the runtime never loads models (worker, export), the
+  collider stays editable data, one mutation path, replays hold. A drop in a
+  3D project makes a mesh from `_COL` (a hull when too big); "Box / Convex
+  hull / Mesh from model" in the Inspector, the add menu, the palette and the
+  context menu make one on demand (a box from the bounds, an 8-corner hull
+  when the model is off-centre). The asset importer is unchanged.
+- 2026-09-26 (23.1): **scale.** In 3D the unit-scale rule moved to the
+  project composition (`physicsScaleErrors`, like 23.0's rotation rule): a
+  box, hull or mesh collider takes any positive scale per axis, a sphere or
+  capsule a positive uniform one (a non-uniformly scaled sphere is no
+  sphere); controllers and every 2D-plane body keep unit scale with the same
+  error as before. Physics bodies stay roots. A pose intent's scale stays
+  visual (as documented).
+- 2026-09-26 (23.1): **3D triggers** feed the existing trigger/signal system
+  in `GameplayBlocks`: `shape` gains `sphere` and `capsule` (`radius`,
+  `height`), a box's `size` an optional depth (`[w, h, d]`, required in 3D; a
+  2D plane ignores it; `circle` is refused in 3D). The player's capsule
+  (a segment swept by its radius) is tested exactly: segment–point for a
+  sphere, segment–segment for a capsule, segment–box in the box's frame for a
+  box (a fixed 80-round golden-section search of the convex distance:
+  deterministic). A trigger turns with its entity's own rotation and sits at
+  its world position (parents' offsets summed, as in 2D); scale is ignored
+  (sizes are world metres, as in 2D). Signals, exit signals, `stay`, `once`
+  and `ctx.triggerEvents` are the 2D code path (`updateTrigger`). A 3D scene
+  plays without a game session, so triggers always run there. `gameZone`
+  (checkpoint, goal, hazard, exit) needs the game session — it stays 2D
+  until game modes (23.10); switches, pickups and enemies test on the plane
+  only, so a 3D project refuses them (`blockDimensionErrors`) rather than
+  ignoring depth.
+- 2026-09-26 (23.1): **3D movers.** Movers advance in the runtime as before;
+  in 3D they are kinematic bodies on the 3D port (`setKinematicPoses`,
+  position and the entity's fixed rotation, applied after the character's
+  sweep like the 2D port's), the player standing on one is carried
+  (`carryDelta3`, added to a staged move and to the runtime's fall), and a
+  mover moving into the player pushes it out along the axis of least overlap
+  of the boxes (the 2D rule in 3D, including "a rising mover pushes a player
+  beside it sideways, never up"). The port reports `kinematicSlack` (the
+  3D validator accepts it, as in 2D). Measured: Rapier's 3D sweep sometimes
+  takes a kinematic support's numerically tilted normal inside its skin for
+  a block (a character riding a sliding lift stalled — no motion, 20
+  iterations — about one step in three); the port then re-sweeps only the
+  horizontal part without that one support body (walls still block), and
+  keeps every kinematic body at rest during the sweep (the runtime carries
+  and pushes). Static worlds never take that path.
+- 2026-09-26 (23.1): **port methods for 23.3 and 23.10**: `overlap(shape,
+  center, rotation?)` (box, sphere, capsule; sorted, ≤ 64, character
+  excluded), `characterClearance` / `placeCharacter` (the 2D probe's rules:
+  blocked by the deepest overlap, else supported straight below, else
+  `no_support`) and the existing `raycast`. Scripts' queries are wired in
+  23.3; respawn/spawn clearance in 3D needs the game session (23.10).
+- 2026-09-26 (23.1): **the behavior ownership rule is lifted in 3D only.**
+  A script (any transform-phase module) may own a collider no mover moves;
+  the runtime re-adds it to the 3D port as a kinematic body at the first
+  step boundary after it is owned and poses it every step from its
+  committed transform (one step behind the transform intent, like a mover's
+  pose), and a player standing on it rides along. The controller and movers
+  stay off limits. The 2D plane keeps the rule exactly: lifting it there
+  would need the host-built 2D init config to know script owners and a
+  change in the untouched rapier2d adapter path, so no existing 2D result
+  could move only by keeping it. `ModuleConfig.physicsDimension` (3, else
+  absent) tells the behavior host.
+- 2026-09-26 (23.1): **editor.** Collider and trigger descriptors carry the
+  new fields (hull and mesh lists read-only: they come from a model); the
+  radius handle edits a sphere, the capsule handle (new role set without an
+  offset: a centred capsule grows both ways) a capsule; a trigger box with a
+  depth is a 3-axis box turning with its object; a collider box with `hz`
+  now follows the object's whole transform (it scales in 3D). The Scene
+  view draws 3D colliders (box, sphere, capsule, hull edges, mesh edges) in
+  the merged collider outlines and 3D trigger areas as dashed wires. Presets
+  carry an optional `dimension`, so "+ Add component" offers the project's
+  (`addEntries(..., { dimension })`, absent = 2 — the 2D lists are
+  unchanged). A vec3 field with `optionalLast` no longer writes a made-up
+  last component when x or y of a two-component value is edited.
+- 2026-09-26 (23.7): **`ctx.random`.** Per script instance a main stream
+  and named sub-streams (`stream(name)`, 1–64 timer-name characters, at most
+  64 per instance — an engine limit), each seeded by cyrb128 of
+  `random_seed`, behavior id, entity id and stream name, drawn with sfc32
+  (32-bit integer maths only, so the page, the worker and Node agree; 12
+  warm-up draws). Members `next`, `range`, `int` (inclusive, bounds rounded
+  inward), `chance`, `pick`; a bad argument is a script error
+  (`behavior_random_invalid` / `behavior_random_limit`) and never advances a
+  stream. Streams are made on first use and reseeded in place at every new
+  run (start, replay — when the host re-instantiates the state), so a replay
+  draws the same numbers and a handle a script kept stays valid. The runtime
+  has no mid-run checkpoint of script state (worker handoff, rewind or save
+  of behavior state), so there is no RNG state to round-trip; the numbers
+  are pinned by a unit test so the generator never drifts.
+- 2026-09-26 (23.7): **seed setting.** `random_seed` is an optional engine
+  setting (0–4294967295 integer, absent = 0, group Engine, label "Random
+  seed") appended after `sim_thread` in the registry and in
+  `M3_OPTIONAL_SETTINGS_KEYS`, so unset projects keep their settings bytes,
+  manifests and digests; read with `randomSeedOf` from the resolved
+  settings the behavior host already receives (no new plumbing to the
+  worker or the export). Not added to the `GameplaySettings` interface
+  (like `physics_dimension`).
+- 2026-09-26 (23.7): **entity queries.** `ctx.world.find(name)`,
+  `findAll(name)` and `withComponent(kind)` read the runtime's live entity
+  list (`state.order`: the start scenes in document order, then loaded
+  scenes and spawned copies as attached) — exact, case-sensitive names;
+  component kinds as stored (`Object.keys(components)`, kept on the entity
+  data as `componentKinds` when it is attached). Results are frozen and
+  cached per entity list (the runtime replaces `order` on every change),
+  at most 256 remembered queries per kind; a non-text argument is a script
+  error (`behavior_query_invalid`).
+- 2026-09-26 (23.7): **rotation forms.** New optional fields `quaternion`
+  ([x, y, z, w], normalized when applied) and `facing` (+Z forward, the
+  glTF forward; optional `up`, default +Y; a vertical facing without `up`
+  leans the top away from/towards +Z, as pitching would) on the `pose`
+  intent (order kind, entityId, rotation, quaternion, facing, up, scale) and
+  on the `transform` intent after `position` — separate fields rather than a
+  union on `rotation`, so the existing declarations, their graph nodes and
+  the public `.d.ts` stay as they were. Exactly one rotation form per
+  intent (shape error), all-zero vectors and an `up` parallel to `facing`
+  are value errors; a quaternion/facing writes the rotation channel (bit 8),
+  so a pose rotation and a transform facing in one step conflict. The old
+  shapes take the exact old code paths (a legacy transform still parses
+  through the strict three-key check; the Euler maths is untouched).
+  `facingQuaternion` / `normalizedQuaternion` are exported pure helpers.
+- 2026-09-26 (23.7): **graph nodes.** The generated node table gains
+  Seeded random / range / integer / chance (main stream, category Random),
+  their "(stream)" variants (a handle inside a namespace now keeps the
+  namespace's category and names its factory in the label — no existing
+  node is a nested handle) and Find object(s) by name / with component.
+  `pick` is skipped (Seeded random integer + Get item does it). The
+  rotation fields are skipped per field (new generator rule: an optional
+  union-member field tagged `@graphNode skip` is not an input), because a
+  new input would add a local to every existing Pose/Move object node's
+  code and move pinned output digests. The older Random nodes keep their
+  per-object seed. Sprout's pinned outputs and the catalogue suite are
+  unchanged/green.
+- 2026-09-26 (23.7): **script libraries are project data stored inline.**
+  `content.scriptLibraries[] {libraryId, name, files[{path, text}]}` (v4,
+  absent = none, so existing content bytes stay the same), imported as
+  `@lib/<libraryId>` (its `src/index.ts`). Stored inline rather than as
+  source blobs so MCP creates and edits them with plain commands
+  (`setScriptLibrary` / `deleteScriptLibrary`) and undo covers them. A
+  library's digest is the sha256 of its canonical source-graph container
+  (the behavior container format, no required modules/owned transforms) and
+  goes through the same per-digest trust entries as a behavior source;
+  each library has a behavior source's bounds (16 files, 64 KiB per file,
+  256 KiB per container), a project at most 32 libraries and 1 MiB of
+  library text. `setScriptLibrary` is a patch (`files: [{path,
+  text|null}]`, unmentioned files kept) because the command request cap is
+  64 KiB — an edit sends only the changed files.
+- 2026-09-26 (23.7): **pins, and dependents move with the library.** A
+  published behavior that imports libraries records the versions it was
+  compiled against (`BehaviorSourceRecord.libraries` `[{libraryId,
+  sourceDigest}]`, direct and transitive, absent when none — older records
+  and every existing output digest are unchanged, pinned by a test that a
+  library-free source compiles to the same manifest whatever libraries
+  exist). The content validation requires every pin to name an existing
+  library at its current digest, so a library change must republish its
+  dependents in the same command: the backend's command route, before
+  `setScriptLibrary`, compiles each dependent against the library set the
+  command will commit (`prepareScriptLibraryDependents`) and files the
+  prepared facts under `<sourceDigest>|<librarySetKey>`; the command builds
+  the new records only from those facts. One change record carries the
+  library and the dependents' records, so undo/redo move them together
+  and the closure always recompiles to the recorded digests. The patched
+  digest must be acknowledged first when there are dependents (trust
+  precedes the compile); a dependent that no longer compiles refuses the
+  save with its id and diagnostics and records a Problem. Deleting a library
+  a published script imports is refused (`reference_in_use`).
+- 2026-09-26 (23.7): **compiled once.** Each behavior output stays a
+  self-contained module (the runtime loads one module per behavior; a
+  shared runtime module would need an import map in the worker and the
+  export), so a library's code is linked into each dependent's bundle. What
+  is shared is the library compile: the compiler instance keeps a bounded
+  cache (64) of parsed, checked and transpiled libraries keyed by digest
+  (esbuild `transform` once, then linked as JS), so a Play/export build that
+  recompiles N dependents compiles each library once. Missing libraries and
+  library cycles are compile failures naming the chain (a cycle between
+  libraries is refused even when the file-level graph would be acyclic);
+  the library chain is bounded by the import-depth limit. The import scan
+  stays textual, so an import written in a comment counts (the new-library
+  template avoids one).
+- 2026-09-26 (23.7): **`.json` data modules.** A behavior or library
+  container may hold `.json` files (the entry stays `.ts`), imported with a
+  relative path as their parsed value (esbuild's json loader); the file must
+  parse (`behavior_source_invalid` `json`, naming it). Containers without
+  `.json` files are unaffected (a `.tsx` is still refused).
+- 2026-09-26 (23.7): **editor.** A Libraries bottom tab (create → id from
+  the name, rename, delete — disabled while imported, open) and a
+  "Library: <name>" centre tab reusing the code editor: file list (+ File for
+  `.ts`/`.json`, rename, delete; the entry stays), an idle/Ctrl+S check
+  through `POST content/libraries/check` (the draft compiled alone against
+  the project's other libraries, nothing written; answers the scripts that
+  import it) and Save (one patch command; the trust prompt when a dependent
+  will link the new digest; "Recompiled …" on success).

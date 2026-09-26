@@ -22,12 +22,14 @@
 import {
   GAME_TIMING_DEFAULTS,
   controllerTuningOf,
+  controllerCapsuleOffsetZ,
   resolveGameplaySettings,
   type CheckpointActivationAppearance,
   type EntityV3,
   type GameConfig,
   type GameZoneRole,
   type PrefabDefinition,
+  type Quat,
 } from '@thirdlight/project-model';
 import {
   NEUTRAL_ACTION_SOURCE,
@@ -44,6 +46,8 @@ import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContri
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
+  facingQuaternion,
+  normalizedQuaternion,
   quantizeIntentMove,
   validateIntentPhase,
   validateIntentShape,
@@ -404,6 +408,17 @@ function isPhysicsPort(v: unknown): v is PhysicsPort {
     typeof v['step'] === 'function' &&
     typeof v['dispose'] === 'function'
   );
+}
+
+/**
+ * Phase 23.1: whether a script may drive this entity's collider (a 3D
+ * project): it has a collider, and neither a controller (the character is
+ * the controller's) nor a mover (which moves it itself). The runtime turns
+ * such a collider into a kinematic body posed from the entity's transform.
+ */
+function scriptDrivableCollider(components: unknown): boolean {
+  if (!isPlainObject(components)) return false;
+  return components['collider'] !== undefined && components['controller'] === undefined && components['mover'] === undefined;
 }
 
 /** Phase 23.0: a 3D port carries `dimension: 3` (the 2D port has no such field). */
@@ -793,6 +808,7 @@ export function instantiateRuntime(
     const components = e.components;
     const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
     if (e.name !== undefined) data.name = e.name;
+    data.componentKinds = Object.freeze(Object.keys(components));
     const box = components.box;
     if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
     const cam = components.camera;
@@ -903,6 +919,8 @@ export function instantiateRuntime(
     game,
     behaviorLog: (level: BehaviorLogLevel, message: string) => logSink.handler?.(specId, level, message),
     ...(liveTags !== null ? { tags: liveTags } : {}),
+    // Phase 23.1: a 3D project (scripts may drive colliders through intents there).
+    ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
   });
   const entries: ModuleEntry[] = [];
   const disposeCreated = (): void => {
@@ -1026,7 +1044,10 @@ export function instantiateRuntime(
             }),
           };
         }
-        if ((colliderEntityIds.has(entityId) || controllerEntityIds.includes(entityId)) && !isController) {
+        // Phase 23.1: in a 3D project a transform-phase module (a script) may drive a collider
+        // that no mover moves — the runtime poses it as a kinematic body (scriptDrivableCollider).
+        const drivable = physics3d !== undefined && scriptDrivableCollider(scene.entities.find((x) => x.id === entityId)?.components);
+        if ((colliderEntityIds.has(entityId) || controllerEntityIds.includes(entityId)) && !isController && !drivable) {
           disposeCreated();
           return {
             ok: false,
@@ -1106,6 +1127,19 @@ export function instantiateRuntime(
     modelBounds: snap.modelBounds,
   });
   return { ok: true, runtime: rt };
+}
+
+/**
+ * Phase 23.7: write an intent's quaternion (normalized) or facing rotation
+ * (validated before: finite, not all zero, up not parallel) into `rotation`.
+ */
+function writeRotationForm(rotation: Quat, intent: { quaternion?: readonly number[]; facing?: readonly number[]; up?: readonly number[] }): void {
+  const q = intent.quaternion !== undefined ? normalizedQuaternion(intent.quaternion) : facingQuaternion(intent.facing!, intent.up);
+  if (q === null) return;
+  rotation[0] = q[0];
+  rotation[1] = q[1];
+  rotation[2] = q[2];
+  rotation[3] = q[3];
 }
 
 function resolveSettings(input: unknown): { settings: GameplaySettings } | { error: RuntimeError } {
@@ -1238,6 +1272,15 @@ class RuntimeInstance implements Runtime {
   /** Phase 23.0: the character's vertical speed under gravity (m/s; 3D, no movement input yet). */
   private fallSpeed3d = 0;
   private lastCharacterResult3D?: CharacterMoveResult3D;
+  /**
+   * Phase 23.1: the collider-bearing entities of a 3D world (their authored
+   * components, to re-add a collider as kinematic), the colliders scripts
+   * drive (posed each step from their transforms), and whether that set must
+   * be brought up to date with the modules' owners before the next step.
+   */
+  private readonly colliderComponents3D = new Map<string, Readonly<Record<string, unknown>>>();
+  private readonly scriptColliders3D = new Set<string>();
+  private scriptCollidersDirty = true;
   private readonly settings: GameplaySettings;
   private readonly controllerEntityId?: string;
   private order: readonly string[];
@@ -1536,7 +1579,13 @@ class RuntimeInstance implements Runtime {
     }
     this.actions = args.actions;
     this.physics = args.physics;
-    if (args.physics3d !== undefined) this.physics3d = args.physics3d;
+    if (args.physics3d !== undefined) {
+      this.physics3d = args.physics3d;
+      for (const e of args.initialEntities) {
+        const c = e.components as unknown as Record<string, unknown>;
+        if (c['collider'] !== undefined && c['controller'] === undefined) this.colliderComponents3D.set(e.id, c);
+      }
+    }
     this.settings = args.settings;
     this.controllerEntityId = args.controllerEntityId;
     this.order = args.order;
@@ -1590,9 +1639,10 @@ class RuntimeInstance implements Runtime {
         hz: this.hz,
         physics: this.physics,
         curr: this.curr,
-        playerId: this.playerEntityId,
-        // Phase 14.0: the player's own capsule (the default without game content).
-        playerCapsule: args.gameContent?.player.capsule ?? playerCapsuleOf(undefined),
+        playerId: this.playerEntityId !== '' || args.physics3d === undefined ? this.playerEntityId : (args.controllerEntityId ?? ''),
+        // Phase 14.0: the player's own capsule (the default without game content);
+        // phase 23.1: a 3D scene's player is the controller entity, with its capsule.
+        playerCapsule: args.gameContent?.player.capsule ?? playerCapsuleOf(args.physics3d !== undefined ? args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller : undefined),
         // Phase 15.3: the player's skin (a pushing mover keeps it) and the models' recorded bounds.
         playerSkin: controllerTuningOf(args.initialEntities.find((e) => e.id === (args.gameContent?.player.entityId ?? args.controllerEntityId))?.components.controller).skin,
         modelBounds: (assetId: string) => args.modelBounds[assetId] ?? null,
@@ -1604,7 +1654,19 @@ class RuntimeInstance implements Runtime {
           const seg = rt.lastSegments.raw(rt.playerEntityId);
           return seg === undefined ? { x: 0, y: 0 } : { x: seg[2]! - seg[0]!, y: seg[3]! - seg[1]! };
         },
-        groundEntityId: () => rt.lastCharacterResult?.groundEntityId ?? null,
+        groundEntityId: () => (rt.physics3d !== undefined ? (rt.lastCharacterResult3D?.groundEntityId ?? null) : (rt.lastCharacterResult?.groundEntityId ?? null)),
+        // Phase 23.1: the 3D world (movers posed on it, triggers in 3D).
+        ...(args.physics3d !== undefined
+          ? {
+              physics3d: args.physics3d,
+              playerOffsetZ: controllerCapsuleOffsetZ(args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller),
+              player3: () => {
+                const t = rt.controllerEntityId !== undefined ? rt.curr.get(rt.controllerEntityId) : undefined;
+                return t === undefined ? null : [t.position[0], t.position[1], t.position[2]];
+              },
+              scriptColliders3D: () => rt.scriptColliderPoses3D(),
+            }
+          : {}),
         kill: () => {
           if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
         },
@@ -2535,8 +2597,17 @@ class RuntimeInstance implements Runtime {
       // too — its character falls and rests under the runtime's 3D phase (no
       // controller module drives it before phase 23.2). The 2D plane keeps
       // its scene mode exactly as before (no physics step).
+      // Phase 23.1: movers advance and are posed (script-driven colliders too), then after physics
+      // the triggers test the player (a scene has no run state: always "playing").
+      if (this.scriptCollidersDirty && !this.syncScriptColliders3D()) {
+        this.curr = cloneCurr(backup);
+        return false;
+      }
       try {
+        this.raycastsThisStep = 0;
+        this.blocks?.beforeStep(stepOrdinal);
         this.runPhysicsPhase3D(this.physics3d);
+        this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1), true);
       } catch (e) {
         this.curr = cloneCurr(backup);
         this.failStopFromError(e, stepOrdinal);
@@ -2604,6 +2675,8 @@ class RuntimeInstance implements Runtime {
     // Phase 9.9: movers advance (and are posed for physics), a pending bounce
     // reaches the controller; down + jump on a one-way platform drops through.
     this.raycastsThisStep = 0;
+    // Phase 23.1: the colliders scripts drive become kinematic bodies before they are first posed.
+    if (this.physics3d !== undefined && this.scriptCollidersDirty && !this.syncScriptColliders3D()) return false;
     this.blocks?.beforeStep(ordinal);
     this.stepBounce = this.blocks?.takeBounce() ?? null;
     if (
@@ -2630,6 +2703,8 @@ class RuntimeInstance implements Runtime {
       this.runPhase('controller', action);
       this.runPhysicsPhase();
       this.runPhase('transform', action);
+      // Phase 23.1: a 3D scene (no game block) tests its triggers after the transform phase.
+      if (!this.isM3 && this.physics3d !== undefined) this.blocks?.afterPhysics(action, true);
       if (this.isM3) {
         // M3 phases 6/7: the gameplay phase (the session module's zone
         // decisions through `ctx.gameplay`) and the camera phase, in the
@@ -3251,9 +3326,11 @@ class RuntimeInstance implements Runtime {
       const t = e.components.transform;
       const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
       if (e.name !== undefined) data.name = e.name;
+      data.componentKinds = Object.freeze(Object.keys(e.components));
       const box = e.components.box;
       if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
       if ((e.components as { collider?: unknown }).collider !== undefined) data.hasCollider = true;
+      if (this.physics3d !== undefined && data.hasCollider === true && (e.components as { controller?: unknown }).controller === undefined) this.colliderComponents3D.set(e.id, e.components as unknown as Record<string, unknown>);
       this.entities.set(e.id, data);
       this.prev.set(e.id, cloneTransform(t));
       this.curr.set(e.id, cloneTransform(t));
@@ -3306,7 +3383,9 @@ class RuntimeInstance implements Runtime {
         return false;
       }
       const data = this.entities.get(id);
-      const physicsBody = data?.hasCollider === true || id === this.controllerEntityId;
+      // Phase 23.1: in 3D a script may drive a collider no mover moves (posed as a kinematic body).
+      const drivable = this.physics3d !== undefined && scriptDrivableCollider(this.colliderComponents3D.get(id));
+      const physicsBody = (data?.hasCollider === true && !drivable) || id === this.controllerEntityId;
       if (id === this.cameraInfo.id || (physicsBody && !entry.phases.includes('controller'))) {
         const what = id === this.cameraInfo.id ? 'camera' : 'physics_entity';
         this.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims ${what === 'camera' ? 'the camera' : 'physics'} entity "${id}"`, this.stepIndex, entry.id, undefined, what);
@@ -3314,11 +3393,16 @@ class RuntimeInstance implements Runtime {
       }
     }
     entry.owners = [...next];
+    this.scriptCollidersDirty = true;
     return true;
   }
 
   /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
   private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
+    for (const id of ids) {
+      this.colliderComponents3D.delete(id);
+      this.scriptColliders3D.delete(id);
+    }
     for (const entry of this.entries) {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;
@@ -3849,8 +3933,10 @@ class RuntimeInstance implements Runtime {
     const tag = this.intents.axesTag * 64;
     const stored = axes.get(intent.entityId);
     const have = stored !== undefined && stored >= tag && stored < tag + 64 ? stored - tag : 0;
+    // Phase 23.7: a quaternion or a facing is a rotation write too (one form per intent).
+    const turns = intent.quaternion !== undefined || intent.facing !== undefined;
     if (intent.kind === 'pose') {
-      if (intent.rotation !== undefined && (have & 8) !== 0) {
+      if ((intent.rotation !== undefined || turns) && (have & 8) !== 0) {
         throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a rotation write to "${intent.entityId}" in this step`);
       }
       if (intent.scale !== undefined && (have & 16) !== 0) {
@@ -3880,6 +3966,9 @@ class RuntimeInstance implements Runtime {
         transform.rotation[2] = qw * sz + qz * cz;
         transform.rotation[3] = qw * cz - qz * sz;
         bits |= 8;
+      } else if (turns) {
+        writeRotationForm(transform.rotation, intent);
+        bits |= 8;
       }
       if (intent.scale !== undefined) {
         const sc = intent.scale;
@@ -3907,10 +3996,17 @@ class RuntimeInstance implements Runtime {
       }
       bits |= bit;
     }
+    if (turns) {
+      if ((have & 8) !== 0) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a rotation write to "${intent.entityId}" in this step`);
+      }
+      bits |= 8;
+    }
     this.bumpIntentCount();
     if ((bits & 1) !== 0) transform.position[0] = position.x as number;
     if ((bits & 2) !== 0) transform.position[1] = position.y as number;
     if ((bits & 4) !== 0) transform.position[2] = position.z as number;
+    if (turns) writeRotationForm(transform.rotation, intent);
     axes.set(intent.entityId, tag + (have | bits));
     // Frozen once here; every `ctx.intents` view shares it.
     this.intents.transformWrites.push(Object.freeze({
@@ -4012,7 +4108,9 @@ class RuntimeInstance implements Runtime {
     if (this.physics3d !== undefined) {
       // Phase 23.0: a 3D move (z optional: a module written for the plane moves in it).
       const z = (delta as { z?: unknown }).z;
-      const moved3 = { x: delta.x, y: delta.y, z: typeof z === 'number' && Number.isFinite(z) ? z : 0 };
+      // Phase 23.1: the player moves with what it stands on (and a mover's push).
+      const c3 = entityId === this.controllerEntityId ? (this.blocks?.carryDelta3() ?? [0, 0, 0]) : [0, 0, 0];
+      const moved3 = { x: delta.x + c3[0]!, y: delta.y + c3[1]!, z: (typeof z === 'number' && Number.isFinite(z) ? z : 0) + c3[2]! };
       this.staged.set(entityId, { x: moved3.x, y: moved3.y });
       this.staged3d.set(entityId, moved3);
       this.physics3d.stageCharacterMove(moved3);
@@ -4081,7 +4179,9 @@ class RuntimeInstance implements Runtime {
     if (requested === undefined) {
       const grounded = this.lastCharacterResult3D?.grounded === true;
       this.fallSpeed3d = grounded ? 0 : Math.max(this.settings.max_fall_speed, this.fallSpeed3d + this.settings.gravity_y * dt);
-      requested = { x: 0, y: this.fallSpeed3d * dt, z: 0 };
+      // Phase 23.1: plus the platform it stands on (a mover's or script-driven collider's motion) and a mover's push.
+      const c3 = this.blocks?.carryDelta3() ?? [0, 0, 0];
+      requested = { x: c3[0]!, y: this.fallSpeed3d * dt + c3[1]!, z: c3[2]! };
       port.stageCharacterMove(requested);
     }
     let raw: unknown;
@@ -4103,6 +4203,54 @@ class RuntimeInstance implements Runtime {
     }
     if (this.staged.size > 0) this.staged.clear();
     if (this.staged3d.size > 0) this.staged3d.clear();
+  }
+
+  /**
+   * Phase 23.1: bring the colliders scripts drive up to date with the
+   * modules' transform owners (at a step boundary): an owned collider that is
+   * still a fixed body is re-added to the 3D port as a kinematic one at its
+   * current transform (posed from then on with the movers). False after a
+   * fail-stop.
+   */
+  private syncScriptColliders3D(): boolean {
+    this.scriptCollidersDirty = false;
+    const port = this.physics3d;
+    if (port === undefined) return true;
+    const owned = new Set<string>();
+    for (const entry of this.entries) for (const id of entry.owners) if (scriptDrivableCollider(this.colliderComponents3D.get(id))) owned.add(id);
+    const add: StaticColliderSpec3D[] = [];
+    for (const id of [...owned].sort()) {
+      if (this.scriptColliders3D.has(id)) continue;
+      const comps = this.colliderComponents3D.get(id)!;
+      const t = this.curr.get(id);
+      const spec = staticColliderOf3D(id, t !== undefined ? { ...comps, transform: { position: [...t.position], rotation: [...t.rotation], scale: [...t.scale] } } : comps, true);
+      if (spec !== null) add.push(spec);
+    }
+    if (add.length === 0) return true;
+    if (typeof port.addStaticColliders !== 'function' || typeof port.removeStaticColliders !== 'function' || typeof port.setKinematicPoses !== 'function') {
+      this.failStop('physics_port_error', 'script_colliders', 'the 3D physics port cannot pose colliders scripts drive', this.stepIndex);
+      return false;
+    }
+    try {
+      port.removeStaticColliders(add.map((sp) => sp.entityId));
+      port.addStaticColliders(add);
+    } catch (e) {
+      this.failStop('physics_port_error', 'script_colliders', `making the colliders scripts drive kinematic failed: ${messageOf(e)}`, this.stepIndex);
+      return false;
+    }
+    for (const sp of add) this.scriptColliders3D.add(sp.entityId);
+    return true;
+  }
+
+  /** Phase 23.1: where the colliders scripts drive are now (their committed transforms), in id order. */
+  private scriptColliderPoses3D(): { entityId: string; position: [number, number, number]; rotation: readonly number[] }[] {
+    if (this.scriptColliders3D.size === 0) return [];
+    const out: { entityId: string; position: [number, number, number]; rotation: readonly number[] }[] = [];
+    for (const id of [...this.scriptColliders3D].sort()) {
+      const t = this.curr.get(id);
+      if (t !== undefined) out.push({ entityId: id, position: [t.position[0], t.position[1], t.position[2]], rotation: t.rotation });
+    }
+    return out;
   }
 
   /** Phase 23.0: add the 3D colliders of loaded / spawned entities (false after a fail-stop). */

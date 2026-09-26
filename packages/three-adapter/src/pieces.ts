@@ -285,6 +285,168 @@ function dedupe(poly: [number, number][]): [number, number][] {
   return convexHull(out);
 }
 
+// ---- phase 23.1: 3D colliders from `_COL` nodes or a model's geometry -----------
+
+/** Phase 23.1: the limits of a 3D collider made from a model (the project model's collider limits). */
+export const COLLIDER_3D_FROM_MODEL = Object.freeze({ meshVertices: 1024, meshTriangles: 2048, convexPoints: 64, extent: 64 });
+
+/** Phase 23.1: a 3D collider shape made from a model (the project model's `convex` / `mesh` shapes, 1 mm grid). */
+export type ModelCollider3D =
+  | { ok: true; shape: { type: 'mesh'; vertices: [number, number, number][]; triangles: [number, number, number][] } | { type: 'convex'; points: [number, number, number][] }; source: 'collision' | 'geometry' }
+  | { ok: false; message: string };
+
+/** Whether `o` or one of its ancestors below `root` is a render level above LOD0. */
+function underHigherLod(o: THREE.Object3D, root: THREE.Object3D): boolean {
+  for (let n: THREE.Object3D | null = o; n !== null && n !== root; n = n.parent) {
+    const lod = lodLevel(n.name);
+    if (lod !== null && lod > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Phase 23.1: the triangles of a piece's collision geometry in the file's
+ * root space (the placement's local space) — its `_COL` node(s) when it has
+ * any (the whole file's with `piece` null), else its render geometry at
+ * LOD0 (the `_COL` and higher levels skipped). Vertices are rounded to 1 mm
+ * and merged; degenerate triangles are dropped.
+ */
+function modelTriangles(root: THREE.Object3D, piece: string | null): { vertices: [number, number, number][]; triangles: [number, number, number][]; source: 'collision' | 'geometry' } {
+  root.updateMatrixWorld(true);
+  const inverseRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const found = piece === null ? null : modelPieces(root).find((p) => p.name === piece);
+  const cols: THREE.Object3D[] = [];
+  if (piece === null) root.traverse((o) => void (isCollisionNode(o) && cols.push(o)));
+  else if (found?.collider) cols.push(found.collider);
+  const source: 'collision' | 'geometry' = cols.length > 0 ? 'collision' : 'geometry';
+  const roots = source === 'collision' ? cols : piece === null ? [root] : (found?.nodes ?? []);
+  const vertices: [number, number, number][] = [];
+  const triangles: [number, number, number][] = [];
+  const index = new Map<string, number>();
+  const v = new THREE.Vector3();
+  const idOf = (x: number, y: number, z: number): number => {
+    const p: [number, number, number] = [round3(x), round3(y), round3(z)];
+    const key = `${p[0]},${p[1]},${p[2]}`;
+    let i = index.get(key);
+    if (i === undefined) {
+      i = vertices.length;
+      vertices.push(p);
+      index.set(key, i);
+    }
+    return i;
+  };
+  for (const r of roots) {
+    r.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || mesh.geometry === undefined) return;
+      if (source === 'geometry' && (isCollisionNode(o) || underHigherLod(o, root) || (() => { for (let n: THREE.Object3D | null = o; n !== null && n !== root; n = n.parent) if (isCollisionNode(n)) return true; return false; })())) return;
+      const pos = mesh.geometry.getAttribute('position');
+      if (pos === undefined) return;
+      const m = new THREE.Matrix4().multiplyMatrices(inverseRoot, mesh.matrixWorld);
+      const ids: number[] = [];
+      for (let i = 0; i < pos.count; i += 1) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m);
+        ids.push(idOf(v.x, v.y, v.z));
+      }
+      const idx = mesh.geometry.getIndex();
+      const count = idx !== null ? idx.count : pos.count;
+      for (let t = 0; t + 2 < count; t += 3) {
+        const a = ids[idx !== null ? idx.getX(t) : t]!;
+        const b = ids[idx !== null ? idx.getX(t + 1) : t + 1]!;
+        const c = ids[idx !== null ? idx.getX(t + 2) : t + 2]!;
+        if (a !== b && b !== c && a !== c) triangles.push([a, b, c]);
+      }
+    });
+  }
+  return { vertices, triangles, source };
+}
+
+/**
+ * Phase 23.1: a 3D collider for a piece (or the whole file) — a triangle
+ * mesh (static level geometry, exact) or a convex hull — from its `_COL`
+ * node(s), else from its LOD0 render geometry, in the placement's local
+ * space on a 1 mm grid. A mesh keeps every triangle up to the limits (a
+ * collision proxy is small; a detailed render mesh is refused with a hint);
+ * a hull keeps up to 64 extreme points (the six axis extremes and the
+ * furthest point toward each of 58 evenly spread directions). Refused, with
+ * a reason, when there is no geometry, it reaches beyond 64 m, it is too big
+ * for a mesh, or a hull would be flat.
+ */
+export function pieceCollider3D(root: THREE.Object3D, piece: string | null, kind: 'mesh' | 'convex'): ModelCollider3D {
+  const L = COLLIDER_3D_FROM_MODEL;
+  const { vertices, triangles, source } = modelTriangles(root, piece);
+  const what = source === 'collision' ? 'collision node' : 'geometry';
+  if (vertices.length === 0) return { ok: false, message: 'the model has no geometry to make a collider from' };
+  if (vertices.some((p) => p.some((c) => Math.abs(c) > L.extent))) return { ok: false, message: `the model's ${what} reaches beyond ${L.extent} m of its origin (a collider stays within ${L.extent} m)` };
+  if (kind === 'mesh') {
+    // Only the vertices triangles use.
+    const used = new Map<number, number>();
+    const verts: [number, number, number][] = [];
+    const tris = triangles.map((t) => t.map((i) => {
+      let j = used.get(i);
+      if (j === undefined) {
+        j = verts.length;
+        verts.push(vertices[i]!);
+        used.set(i, j);
+      }
+      return j;
+    }) as [number, number, number]);
+    if (tris.length === 0) return { ok: false, message: `the model's ${what} has no triangles` };
+    if (verts.length > L.meshVertices || tris.length > L.meshTriangles) {
+      return { ok: false, message: `the model's ${what} has ${tris.length} triangles and ${verts.length} vertices; a mesh collider takes at most ${L.meshTriangles} and ${L.meshVertices} — add a simpler _COL node, or use a convex hull` };
+    }
+    return { ok: true, shape: { type: 'mesh', vertices: verts, triangles: tris }, source };
+  }
+  let points = vertices;
+  if (points.length > L.convexPoints) {
+    const dirs: [number, number, number][] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+    const n = L.convexPoints - dirs.length;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < n; i += 1) {
+      const y = 1 - (2 * (i + 0.5)) / n;
+      const r = Math.sqrt(1 - y * y);
+      dirs.push([Math.cos(golden * i) * r, y, Math.sin(golden * i) * r]);
+    }
+    const pick = new Set<number>();
+    for (const d of dirs) {
+      let best = 0;
+      let bestDot = -Infinity;
+      points.forEach((p, i) => {
+        const dot = p[0] * d[0] + p[1] * d[1] + p[2] * d[2];
+        if (dot > bestDot) [bestDot, best] = [dot, i];
+      });
+      pick.add(best);
+    }
+    points = [...pick].sort((a, b) => a - b).map((i) => vertices[i]!);
+  }
+  if (points.length < 4 || !spansVolume(points)) return { ok: false, message: `the model's ${what} is flat: a convex hull needs volume (use a mesh collider, or a box)` };
+  return { ok: true, shape: { type: 'convex', points }, source };
+}
+
+/** Whether points span a volume (not all on one plane; the project model's rule). */
+function spansVolume(pts: readonly (readonly [number, number, number])[]): boolean {
+  const a = pts[0]!;
+  let b = a;
+  let best = 0;
+  for (const p of pts) {
+    const d = Math.hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2]);
+    if (d > best) [best, b] = [d, p];
+  }
+  if (best < 1e-6) return false;
+  const ab = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  let c = a;
+  let area = 0;
+  for (const p of pts) {
+    const m = new THREE.Vector3(p[0] - a[0], p[1] - a[1], p[2] - a[2]).cross(ab).length();
+    if (m > area) [area, c] = [m, p];
+  }
+  if (area < 1e-9) return false;
+  const n = new THREE.Vector3(c[0] - a[0], c[1] - a[1], c[2] - a[2]).cross(ab);
+  let vol = 0;
+  for (const p of pts) vol = Math.max(vol, Math.abs(n.x * (p[0] - a[0]) + n.y * (p[1] - a[1]) + n.z * (p[2] - a[2])));
+  return vol > 1e-9;
+}
+
 /** Bounds of a piece (or the whole file) in the file's root space. */
 export function pieceBounds(root: THREE.Object3D, piece: string | null): THREE.Box3 {
   root.updateMatrixWorld(true);

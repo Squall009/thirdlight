@@ -69,7 +69,7 @@ import { Gesture, type Transform } from '../session/gesture';
 import { ZoneGesture, type ZoneCommit } from '../session/zone-gesture';
 import { fitCapsule } from '../session/size-handles';
 import { maxPolygonCorners } from '../session/handles';
-import { boxFromOutline, polygonFromOutline } from '../session/outline';
+import { boxFromBounds3D, boxFromOutline, polygonFromOutline } from '../session/outline';
 import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../session/instance-copies';
 import {
   DEFAULT_ZONE_SIZE,
@@ -87,7 +87,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -118,6 +118,9 @@ import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
+import { LibrariesPanel } from './script/LibrariesPanel';
+import type { LibraryDraft, LibrarySaveOutcome } from './script/LibraryDocument';
+import { newLibraryFiles } from '../session/script-sources';
 import { effectPortContext, shownSystem, type EffectDocumentProps } from './effect/EffectDocument';
 import { newEffect, uniqueId } from '../session/effect-edit';
 import type { VisualScriptCheckResult, VisualScriptProblem } from './script/VisualScriptDocument';
@@ -559,6 +562,9 @@ function EditorApp(): JSX.Element {
   const [effects, setEffects] = useState<readonly EffectDef[]>([]);
   const [effectSystems, setEffectSystems] = useState<Readonly<Record<string, string | null>>>({});
   const [effectError, setEffectError] = useState<string | null>(null);
+  // Phase 23.7: the shared script libraries and the Libraries list's last refusal.
+  const [scriptLibraries, setScriptLibraries] = useState<readonly ScriptLibrary[]>([]);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   // Phase 15.1: the component and content descriptors the Inspector is built from.
   const [registry, setRegistry] = useState<DescriptorRegistry | null>(null);
   /** Phase 15.2: the selected copy of the selected instance set, and the copy brush. */
@@ -812,6 +818,7 @@ function EditorApp(): JSX.Element {
     applyEnvironmentView();
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
+    setScriptLibraries(c.getScriptLibraries());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
     // The graphs arrive with the game block (the same full-state query).
@@ -2506,13 +2513,24 @@ function EditorApp(): JSX.Element {
         const b = resource.bounds(piece);
         return b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] };
       };
-      const pieces: PieceFacts[] = resource.pieces().map((pc) => ({ name: pc.name, bounds: box(pc.name), collider: pc.hasCollider ? resource.collider2D(pc.name) : null, skinned: pc.skinned }));
+      // Phase 23.1: in a 3D project a `_COL` node becomes a triangle-mesh collider (exact static geometry),
+      // or a convex hull when it is too big for a mesh; the 2D plane keeps its outline polygon.
+      const threeD = (clientRef.current?.getSettings() ?? {})['physics_dimension'] === 3;
+      const collider3D = (piece: string | null): PieceFacts['collider'] => {
+        for (const kind of ['mesh', 'convex'] as const) {
+          const made = resource.collider3D(piece, kind);
+          if (made.ok && made.source === 'collision') return { shape: made.shape };
+          if (made.ok) return null;
+        }
+        return null;
+      };
+      const pieces: PieceFacts[] = resource.pieces().map((pc) => ({ name: pc.name, bounds: box(pc.name), collider: pc.hasCollider ? (threeD ? collider3D(pc.name) : resource.collider2D(pc.name)) : null, skinned: pc.skinned }));
       const { args } = planModelDrop({
         assetId: payload.assetId,
         displayName: asset.displayName,
         ...(payload.piece !== undefined ? { piece: payload.piece } : {}),
         pieces,
-        wholeCollider: pieces.length === 1 ? resource.collider2D(null) : null,
+        wholeCollider: pieces.length === 1 ? (threeD ? collider3D(null) : resource.collider2D(null)) : null,
         position,
         parentId,
       });
@@ -2923,6 +2941,44 @@ function EditorApp(): JSX.Element {
     [editComponent],
   );
 
+  /**
+   * Phase 23.1 (a 3D project): a collider from the object's own model — a
+   * box from its bounds (a convex hull of the corners when off-centre), a
+   * convex hull or a triangle mesh from its `_COL` node(s), else its LOD0
+   * geometry — in the object's frame (its scale applies in physics).
+   */
+  const colliderFromModel3D = useCallback(
+    async (entityId: string, kind: 'box' | 'convex' | 'mesh') => {
+      const model = clientRef.current?.projection.getEntity(entityId)?.components['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
+      const assetId = model?.asset?.assetId;
+      const resource = assetId !== undefined ? await modelInstancesRef.current?.prepared(assetId) : null;
+      if (resource === null || resource === undefined) {
+        setComponentError({ code: 'no_model', message: 'A 3D collider from the model needs a loaded model on this object.' });
+        return;
+      }
+      const piece = model?.piece ?? null;
+      let shape: Record<string, unknown>;
+      let note: string | undefined;
+      if (kind === 'box') {
+        const b = resource.bounds(piece);
+        const made = boxFromBounds3D(b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
+        if (!made.ok) return setComponentError({ code: 'no_outline', message: made.message });
+        shape = made.shape;
+        note = made.note;
+      } else {
+        const made = resource.collider3D(piece, kind);
+        if (!made.ok) return setComponentError({ code: 'no_outline', message: made.message });
+        shape = made.shape;
+        note = made.source === 'collision' ? `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's collision node` : `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's geometry (no _COL node)`;
+      }
+      if (note !== undefined) setNotice(`Collider: ${note}`);
+      const has = clientRef.current?.projection.getEntity(entityId)?.components['collider'] !== undefined;
+      if (has) await editComponent(entityId, 'collider', { shape });
+      else await addComponentTo(entityId, 'collider', { shape });
+    },
+    [editComponent, addComponentTo],
+  );
+
   /** Phase 15.2: a collider from the model's outline on the play plane (a box, or a polygon of at most 8 corners). */
   const colliderFromModel = useCallback(
     async (entityId: string, kind: 'box' | 'polygon') => {
@@ -3074,6 +3130,57 @@ function EditorApp(): JSX.Element {
       return { kind: 'published', revision: res.revision, digest: staged.digest };
     },
     [behaviorViews, refreshEntities],
+  );
+
+  // ---- phase 23.7: shared script libraries --------------------------------------
+
+  /** Unsaved library edits per library (survive tab switches; not project data). */
+  const libraryDrafts = useRef(new Map<string, LibraryDraft>()).current;
+  /** The published scripts that import a library (their source pins it). */
+  const libraryDependents = useCallback((libraryId: string): string[] => behaviorViews.filter((b) => b.source?.libraries?.some((p) => p.libraryId === libraryId) === true).map((b) => b.behaviorId), [behaviorViews]);
+  const libraryCommand = useCallback(async (op: 'setScriptLibrary' | 'deleteScriptLibrary', args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const err = refusal(await c.command(op, args, c.projection.revision));
+    setLibraryError(err);
+    return err === null;
+  }, []);
+  /**
+   * Save a library's changed files: one setScriptLibrary command (the backend
+   * recompiles the scripts that import it in the same command). A library
+   * digest those scripts would link that is not acknowledged yet asks first
+   * (`needs-ack`) or is acknowledged (the ordinary acknowledgeBehaviorTrust
+   * command) and the save retried.
+   */
+  const saveLibrary = useCallback(
+    async (libraryId: string, files: { path: string; text: string | null }[], acknowledge: boolean): Promise<LibrarySaveOutcome> => {
+      const c = clientRef.current;
+      if (!c) return { kind: 'failed', message: 'not connected' };
+      const recompiled = libraryDependents(libraryId);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const res = await c.command('setScriptLibrary', { libraryId, files }, c.projection.revision);
+        if (res.ok) {
+          refreshEntities();
+          return { kind: 'saved', revision: res.revision, recompiled };
+        }
+        const r = res.response;
+        if (r.ok) return { kind: 'failed', message: 'the library was not saved' };
+        if (r.code === 'behavior_trust_unacknowledged' && r.sourceDigest !== undefined) {
+          if (!acknowledge) return { kind: 'needs-ack', digest: r.sourceDigest };
+          const digest = r.sourceDigest;
+          const ack = await c.acknowledgeBehaviorTrust(digest, c.projection.revision);
+          if (!ack.ok) {
+            const a = ack.response;
+            return { kind: 'failed', message: a.ok ? 'the acknowledgment was not recorded' : `${a.code}: ${a.message ?? a.code}` };
+          }
+          setPublication((st) => trustObserved(st, [...c.prefabs.listTrust(), { sourceDigest: digest, acknowledgedRevision: ack.revision }]));
+          continue;
+        }
+        return { kind: 'failed', message: `${r.code}: ${r.message ?? r.code}`, ...(r.diagnostics !== undefined ? { diagnostics: r.diagnostics } : {}) };
+      }
+      return { kind: 'failed', message: 'the library was not saved (trust acknowledgments kept changing)' };
+    },
+    [libraryDependents, refreshEntities],
   );
 
   /** Phase 15.4: the declaration editor's save — one ordinary publishBehavior command. */
@@ -3293,6 +3400,13 @@ function EditorApp(): JSX.Element {
       check: checkScript,
       publish: publishScript,
     },
+    library: {
+      libraries: scriptLibraries,
+      drafts: libraryDrafts,
+      activePlay: behaviorProps.activePlay,
+      check: async (libraryId, files) => clientRef.current?.checkScriptLibrary(libraryId, files) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
+      save: saveLibrary,
+    },
     graph: {
       graphs,
       kinds: graphKinds,
@@ -3435,8 +3549,10 @@ function EditorApp(): JSX.Element {
       signals: registry === null ? [] : collectSignals(registry, allEntitiesMemo.map((e) => e.components)),
       // Phase 15.2: an animator's starting values are edited from its controller's parameters.
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
+      // Phase 23.1: the "+ Add component" presets follow the project's physics dimension.
+      physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
     }),
-    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry],
+    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings],
   );
   const selectedSceneId = selectedEntity?.sceneId;
   const fieldContextMemo: FieldContext = useMemo(
@@ -3575,7 +3691,7 @@ function EditorApp(): JSX.Element {
       // one item per component, presets as a submenu, and why an item cannot be added.
       items: (() => {
         if (registry === null) return [{ label: 'Loading components…', disabled: true, reason: 'the component descriptions are not loaded yet', onSelect: () => undefined }];
-        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder' });
+        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder', dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 });
         const out: MenuEntry[] = [];
         let category: string | null = null;
         for (const c of registry.components) {
@@ -3594,7 +3710,9 @@ function EditorApp(): JSX.Element {
             // Phase 15.2: a collider from the model's outline.
             if (c.name === 'collider' && selectedId !== null) {
               const id = selectedId;
-              items.push({ label: 'Box from model', onSelect: () => void colliderFromModel(id, 'box') }, { label: 'Polygon from model outline', onSelect: () => void colliderFromModel(id, 'polygon') });
+              // Phase 23.1: a 3D project makes 3D colliders from the model.
+              if (settings?.['physics_dimension'] === 3) items.push({ label: 'Box from model', onSelect: () => void colliderFromModel3D(id, 'box') }, { label: 'Convex hull from model', onSelect: () => void colliderFromModel3D(id, 'convex') }, { label: 'Mesh from model', onSelect: () => void colliderFromModel3D(id, 'mesh') });
+              else items.push({ label: 'Box from model', onSelect: () => void colliderFromModel(id, 'box') }, { label: 'Polygon from model outline', onSelect: () => void colliderFromModel(id, 'polygon') });
             }
             out.push({ label: c.label, disabled: blocked !== null, reason: blocked ?? '', items });
           } else {
@@ -3832,6 +3950,28 @@ function EditorApp(): JSX.Element {
               onDelete={(effectId) => {
                 void effectCommand('deleteEffect', { effectId }).then((ok) => {
                   if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'effect', id: effectId }) });
+                });
+              }}
+            />
+          )}
+          {bottomTab === 'libraries' && (
+            <LibrariesPanel
+              libraries={scriptLibraries}
+              dependents={libraryDependents}
+              openId={(() => {
+                const d = activeDoc(workspace);
+                return d !== null && d.kind === 'script-library' ? d.id : null;
+              })()}
+              error={libraryError}
+              onOpen={(id) => openDocument('script-library', id)}
+              onCreate={(name) => {
+                const libraryId = uniqueId(name, scriptLibraries.map((l) => l.libraryId), 'library');
+                void libraryCommand('setScriptLibrary', { libraryId, name: name.slice(0, 64), files: newLibraryFiles(libraryId) }).then((ok) => ok && openDocument('script-library', libraryId));
+              }}
+              onRename={(libraryId, name) => void libraryCommand('setScriptLibrary', { libraryId, name })}
+              onDelete={(libraryId) => {
+                void libraryCommand('deleteScriptLibrary', { libraryId }).then((ok) => {
+                  if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'script-library', id: libraryId }) });
                 });
               }}
             />
@@ -4202,12 +4342,21 @@ function EditorApp(): JSX.Element {
           addExtras={(() => {
             // Phase 15.2: "Add collider → box / polygon from model outline" (where a collider may be added).
             if (selected === null || registry === null || selected.components['collider'] !== undefined) return [];
-            const entry = addEntries(registry, new Set(Object.keys(selected.components))).find((x) => x.component === 'collider');
+            const entry = addEntries(registry, new Set(Object.keys(selected.components)), { dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 }).find((x) => x.component === 'collider');
             const enabled = entry?.enabled === true;
             const reason = entry?.reason ?? null;
             return [
-              { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'box') },
-              { id: 'collider-polygon-model', label: 'Collider: Polygon from model outline', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'polygon') },
+              ...(settings?.['physics_dimension'] === 3
+                ? [
+                    // Phase 23.1: a 3D project's colliders from the model.
+                    { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'box') },
+                    { id: 'collider-convex-model', label: 'Collider: Convex hull from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'convex') },
+                    { id: 'collider-mesh-model', label: 'Collider: Mesh from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'mesh') },
+                  ]
+                : [
+                    { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'box') },
+                    { id: 'collider-polygon-model', label: 'Collider: Polygon from model outline', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'polygon') },
+                  ]),
             ];
           })()}
           bodies={
@@ -4267,6 +4416,20 @@ function EditorApp(): JSX.Element {
                   // Phase 15.2: a collider from the model's outline; how to edit a polygon in the Scene view.
                   collider: (
                     <>
+                      {settings?.['physics_dimension'] === 3 ? (
+                        // Phase 23.1: a 3D project's colliders from the model (its _COL node, else its geometry).
+                        <div className="tl-inspector__modes">
+                          <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'box')}>
+                            Box from model
+                          </button>
+                          <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'convex')}>
+                            Convex hull from model
+                          </button>
+                          <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'mesh')}>
+                            Mesh from model
+                          </button>
+                        </div>
+                      ) : (
                       <div className="tl-inspector__modes">
                         <button className="tl-btn" onClick={() => void colliderFromModel(selected.id, 'box')}>
                           Box from model
@@ -4275,6 +4438,7 @@ function EditorApp(): JSX.Element {
                           Polygon from model outline
                         </button>
                       </div>
+                      )}
                       {(selected.components['collider'] as { shape?: { type?: string } } | undefined)?.shape?.type === 'polygon' && (
                         <p className="tl-inspector__hint">Scene view: drag a corner; drag a small grey point to add a corner there; Alt+click a corner to delete it.</p>
                       )}
@@ -4457,7 +4621,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -4475,6 +4639,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'graphs', label: 'Graphs' },
   // Phase 20.0: visual effects.
   { id: 'effects', label: 'Effects' },
+  // Phase 23.7: shared script libraries.
+  { id: 'libraries', label: 'Libraries' },
   { id: 'problems', label: 'Problems' },
 ];
 

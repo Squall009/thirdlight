@@ -6,7 +6,7 @@
  */
 import { controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
-import type { PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
+import type { ColliderShape3D, PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
 import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, ModelBounds, PlayerCapsule } from './types';
 
 /** What one scene adds to the running game. */
@@ -146,18 +146,69 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
 }
 
 /**
+ * Phase 23.1: the shape a 3D port builds from an authored collider shape and
+ * the entity's scale (the project model allows a positive scale per axis for
+ * a box, hull or mesh and a uniform one for a sphere or capsule): a box's
+ * half extents and a hull's or mesh's points scale along the entity's axes;
+ * a capsule's authored total `height` (end caps included) becomes the port's
+ * centre-segment `halfHeight`; point lists are flattened. Null for a shape a
+ * 3D port does not take (a polygon — the model refuses it in 3D).
+ */
+export function colliderShape3DOf(shape: unknown, scale: readonly number[] = [1, 1, 1]): ColliderShape3D | null {
+  if (typeof shape !== 'object' || shape === null) return null;
+  const s = shape as Record<string, unknown>;
+  const sx = scale[0] ?? 1;
+  const sy = scale[1] ?? 1;
+  const sz = scale[2] ?? 1;
+  const n = (v: unknown): number => (typeof v === 'number' ? v : Number.NaN);
+  const flat = (list: unknown): number[] => {
+    const out: number[] = [];
+    if (Array.isArray(list)) for (const q of list as unknown[][]) out.push(n(q[0]) * sx, n(q[1]) * sy, n(q[2]) * sz);
+    return out;
+  };
+  switch (s['type']) {
+    case 'box':
+      return { type: 'box', hx: n(s['hx']) * sx, hy: n(s['hy']) * sy, hz: n(s['hz']) * sz };
+    case 'sphere':
+      return { type: 'sphere', radius: n(s['radius']) * sx };
+    case 'capsule': {
+      const r = n(s['radius']);
+      return { type: 'capsule', radius: r * sx, halfHeight: Math.max(0, n(s['height']) / 2 - r) * sx };
+    }
+    case 'convex':
+      return { type: 'convex', points: flat(s['points']) };
+    case 'mesh': {
+      const indices: number[] = [];
+      if (Array.isArray(s['triangles'])) for (const t of s['triangles'] as unknown[][]) indices.push(n(t[0]), n(t[1]), n(t[2]));
+      return { type: 'mesh', vertices: flat(s['vertices']), indices };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * Phase 23.0: the 3D static collider spec of one entity's `collider` (null
  * without one): its world position and full rotation (a 3D collider turns on
- * any axis; the project model keeps it a root at unit scale), the shape as
- * authored (a box with `hz` — the model refuses one without in a 3D project).
+ * any axis; the project model keeps it a root), the shape resolved for the
+ * port (phase 23.1: the entity's scale applied, `colliderShape3DOf`); a
+ * mover's collider is kinematic (phase 23.1), as is a collider a script
+ * drives (`kinematic`).
  */
-export function staticColliderOf3D(entityId: string, components: Readonly<Record<string, unknown>>): StaticColliderSpec3D | null {
+export function staticColliderOf3D(entityId: string, components: Readonly<Record<string, unknown>>, kinematic = false): StaticColliderSpec3D | null {
   const collider = components['collider'] as { shape?: unknown } | undefined;
   if (collider === undefined) return null;
-  const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[] } | undefined;
+  const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[]; scale?: readonly number[] } | undefined;
   const p = t?.position ?? [0, 0, 0];
   const q = t?.rotation ?? [0, 0, 0, 1];
-  return { entityId, shape: collider.shape, position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }, rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 } };
+  const resolved = colliderShape3DOf(collider.shape, t?.scale ?? [1, 1, 1]);
+  return {
+    entityId,
+    shape: resolved ?? collider.shape,
+    position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
+    rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 },
+    ...(kinematic || components['mover'] !== undefined ? { kinematic: true } : {}),
+  };
 }
 
 /**

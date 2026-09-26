@@ -660,6 +660,8 @@ export class Projection {
       case 'setGraph':
       // Phase 20.0: effects are tracked by the client from the change data.
       case 'setEffect':
+      // Phase 23.7: script libraries too (their dependents' records by the prefab projection).
+      case 'setScriptLibrary':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

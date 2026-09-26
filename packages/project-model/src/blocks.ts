@@ -24,7 +24,9 @@ export const PICKUP_KINDS = ['coin', 'gem', 'heart', 'life', 'key', 'custom'] as
 export const PICKUP_RESPAWN = ['never', 'death'] as const;
 export const ENEMY_PATROLS = ['points', 'edges'] as const;
 /** Phase 14.2: a trigger's area (absent: box) and when it emits (absent: enter). */
-export const TRIGGER_SHAPES = ['box', 'circle'] as const;
+export const TRIGGER_SHAPES = ['box', 'circle', 'sphere', 'capsule'] as const;
+/** Phase 23.1: a capsule trigger's total height range (m, end caps included; at least twice its radius). */
+export const TRIGGER_HEIGHT = { min: 0.05, max: 500 } as const;
 export const TRIGGER_MODES = ['enter', 'stay'] as const;
 /** Phase 14.2: a circle trigger's radius range (m) — the same extent a box trigger may have (0.05–500 m across). */
 export const TRIGGER_RADIUS = { min: 0.025, max: 250 } as const;
@@ -91,16 +93,18 @@ export interface MoverComponent {
 }
 
 export interface TriggerComponent {
-  /** A box's [w, h] (required for a box, refused for a circle). */
-  size?: [number, number];
+  /** A box's [w, h] (required for a box, refused for the round shapes); phase 23.1: [w, h, d] in a 3D project. */
+  size?: [number, number] | [number, number, number];
   signal: string;
   once?: boolean;
   /** Emitted when the player leaves the area. */
   exitSignal?: string;
   /** Phase 14.2: the area's shape (absent: box). */
   shape?: (typeof TRIGGER_SHAPES)[number];
-  /** Phase 14.2: a circle's radius in meters (required for a circle, refused for a box). */
+  /** Phase 14.2: a circle's radius in meters (required for a circle, refused for a box); phase 23.1: a sphere's or capsule's too. */
   radius?: number;
+  /** Phase 23.1: a capsule's total height (m, end caps included), standing along the entity's local Y. */
+  height?: number;
   /** Phase 14.2: `enter` (absent) emits once per entry, `stay` every step while the player is inside. */
   mode?: (typeof TRIGGER_MODES)[number];
 }
@@ -188,6 +192,7 @@ function err(errors: ModelErrorV2[], code: string, path: string, message: string
 }
 const num = (v: unknown, lo: number, hi: number): boolean => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 const vec2 = (v: unknown, lo: number, hi: number): boolean => Array.isArray(v) && v.length === 2 && v.every((x) => num(x, lo, hi));
+const vec3 = (v: unknown, lo: number, hi: number): boolean => Array.isArray(v) && v.length === 3 && v.every((x) => num(x, lo, hi));
 
 function fields(v: Record<string, unknown>, allowed: readonly string[], required: readonly string[], path: string, errors: ModelErrorV2[]): void {
   for (const k of Object.keys(v)) if (!allowed.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, allowed.join(', '));
@@ -225,14 +230,24 @@ export function validateMoverComponent(value: unknown, path: string, errors: Mod
 
 export function validateTriggerComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'trigger is an object', value);
-  const circle = value['shape'] === 'circle';
-  fields(value, ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'], circle ? ['radius', 'signal'] : ['size', 'signal'], path, errors);
+  // Phase 23.1: sphere and capsule are round like a circle (a radius, no size); a capsule has a height.
+  const shape = value['shape'];
+  const round = shape === 'circle' || shape === 'sphere' || shape === 'capsule';
+  const capsule = shape === 'capsule';
+  const circle = round;
+  fields(value, ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'], round ? (capsule ? ['radius', 'height', 'signal'] : ['radius', 'signal']) : ['size', 'signal'], path, errors);
   if (value['exitSignal'] !== undefined && (typeof value['exitSignal'] !== 'string' || !NAME_RE.test(value['exitSignal']))) err(errors, 'field_value', `${path}/exitSignal`, 'exitSignal is a name', value['exitSignal']);
-  if (value['shape'] !== undefined && !(TRIGGER_SHAPES as readonly unknown[]).includes(value['shape'])) err(errors, 'field_value', `${path}/shape`, 'shape is box or circle', value['shape']);
-  if (circle && value['size'] !== undefined) err(errors, 'field_unexpected', `${path}/size`, 'a circle trigger has a radius, not a size', value['size']);
-  if (!circle && value['radius'] !== undefined) err(errors, 'field_unexpected', `${path}/radius`, 'only a circle trigger has a radius (set shape to circle)', value['radius']);
-  if (value['size'] !== undefined && !circle && !vec2(value['size'], 0.05, 500)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
+  if (shape !== undefined && !(TRIGGER_SHAPES as readonly unknown[]).includes(shape)) err(errors, 'field_value', `${path}/shape`, 'shape is box or circle (a 3D project: box, sphere or capsule)', shape);
+  if (circle && value['size'] !== undefined) err(errors, 'field_unexpected', `${path}/size`, `a ${String(shape)} trigger has a radius, not a size`, value['size']);
+  if (!circle && value['radius'] !== undefined) err(errors, 'field_unexpected', `${path}/radius`, 'only a round trigger (circle, sphere, capsule) has a radius (set its shape)', value['radius']);
+  if (!capsule && value['height'] !== undefined) err(errors, 'field_unexpected', `${path}/height`, 'only a capsule trigger has a height (set shape to capsule)', value['height']);
+  if (value['size'] !== undefined && !circle && !vec2(value['size'], 0.05, 500) && !vec3(value['size'], 0.05, 500)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] (or [w, h, d] in a 3D project) in meters', value['size']);
   if (value['radius'] !== undefined && circle && !num(value['radius'], TRIGGER_RADIUS.min, TRIGGER_RADIUS.max)) err(errors, 'field_value', `${path}/radius`, `radius is ${TRIGGER_RADIUS.min}–${TRIGGER_RADIUS.max} m`, value['radius']);
+  if (value['height'] !== undefined && capsule) {
+    const r = typeof value['radius'] === 'number' ? value['radius'] : 0;
+    if (!num(value['height'], TRIGGER_HEIGHT.min, TRIGGER_HEIGHT.max)) err(errors, 'field_value', `${path}/height`, `height is ${TRIGGER_HEIGHT.min}–${TRIGGER_HEIGHT.max} m`, value['height']);
+    else if ((value['height'] as number) < 2 * r) err(errors, 'field_value', `${path}/height`, 'a capsule trigger\'s height (end caps included) is at least twice its radius', value['height']);
+  }
   if (value['mode'] !== undefined && !(TRIGGER_MODES as readonly unknown[]).includes(value['mode'])) err(errors, 'field_value', `${path}/mode`, 'mode is enter or stay', value['mode']);
   if (value['signal'] !== undefined && (typeof value['signal'] !== 'string' || !NAME_RE.test(value['signal']))) err(errors, 'field_value', `${path}/signal`, 'signal is a name', value['signal']);
   if (value['once'] !== undefined && typeof value['once'] !== 'boolean') err(errors, 'field_type', `${path}/once`, 'once is true or false', value['once']);
@@ -303,13 +318,15 @@ export const canonicalMover = (c: MoverComponent): MoverComponent => ({
 });
 // Phase 14.2: the new fields come last (an existing trigger keeps its exact canonical bytes).
 export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
-  ...(c.size !== undefined ? { size: copy2(c.size) } : {}),
+  // Phase 23.1: a 3D box keeps its depth.
+  ...(c.size !== undefined ? { size: c.size.length === 3 ? [c.size[0], c.size[1], c.size[2]] : copy2(c.size as [number, number]) } : {}),
   signal: c.signal,
   ...(c.once !== undefined ? { once: c.once } : {}),
   ...(c.exitSignal !== undefined ? { exitSignal: c.exitSignal } : {}),
   ...(c.shape !== undefined ? { shape: c.shape } : {}),
   ...(c.radius !== undefined ? { radius: c.radius } : {}),
   ...(c.mode !== undefined ? { mode: c.mode } : {}),
+  ...(c.height !== undefined ? { height: c.height } : {}),
 });
 export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: copy2(c.size), ...(c.once !== undefined ? { once: c.once } : {}) });
 export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
@@ -394,7 +411,7 @@ export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementCom
 
 export const BLOCK_COMPONENTS = {
   mover: { validate: validateMoverComponent, canonical: canonicalMover, fields: MOVER_FIELDS },
-  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'] },
+  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'] },
   switch: { validate: validateSwitchComponent, canonical: canonicalSwitch, fields: ['mode', 'signal', 'size', 'once'] },
   health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: HEALTH_FIELDS },
   pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: PICKUP_FIELDS },

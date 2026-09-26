@@ -991,6 +991,8 @@ export function createBackend(
       return;
     }
     const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
+    // Phase 23.7: `@lib/<id>` imports link the project's script libraries.
+    const libraries = service.scriptLibraryInputs(projectId);
     let result;
     try {
       result = await behaviorCompiler.compile({
@@ -998,6 +1000,7 @@ export function createBackend(
         declaration: (declaration ?? { properties: [] }) as never,
         containerBytes: bytes,
         pinnedModules: behaviorCompiler.pinnedModules,
+        ...(libraries.length > 0 ? { libraries } : {}),
       });
     } catch (e) {
       result = { ok: false as const, code: 'behavior_compile_failed', reason: 'the compiler threw', diagnostics: [{ code: 'behavior_compile_failed', reason: 'throw', message: (e instanceof Error ? e.message : String(e)).slice(0, 256) }] };
@@ -1011,6 +1014,7 @@ export function createBackend(
         outputByteLength: result.manifest.outputByteLength,
         declaration: result.manifest.declaration,
         ...(result.manifest.declaredInCode === true ? { declaredInCode: true } : {}),
+        ...(result.manifest.libraries !== undefined ? { libraries: result.manifest.libraries } : {}),
         diagnostics: [],
       });
       return;
@@ -1023,6 +1027,56 @@ export function createBackend(
       reason: String(result.reason).slice(0, 256),
       diagnostics: result.diagnostics.slice(0, 32),
     });
+  };
+
+  /**
+   * Phase 23.7: `POST …/content/libraries/check {libraryId, files}` — compile
+   * one script library draft on its own (the script editor's idle check and
+   * Compile): its files replace the stored library of that id (or add one)
+   * and the other libraries are the project's. Nothing is written and no code
+   * runs. Answers the compiler's diagnostics (each with the library and file
+   * it names), the draft's digest, the libraries it reaches and the published
+   * scripts that import it (they are recompiled when it is saved).
+   */
+  const libraryCheckRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const value = strict.value as Record<string, unknown>;
+    for (const key of Object.keys(value)) {
+      if (key !== 'libraryId' && key !== 'files') {
+        sendError(res, sessionError('field_unexpected', 'validation', `a library check takes libraryId and files only ("${key}")`, { path: `/${key}` }));
+        return;
+      }
+    }
+    const libraryId = value.libraryId;
+    if (typeof libraryId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(libraryId)) {
+      sendError(res, sessionError('field_value', 'validation', 'libraryId must use the id syntax', { path: '/libraryId' }));
+      return;
+    }
+    const files = value.files;
+    if (!Array.isArray(files) || files.some((f) => typeof f !== 'object' || f === null || typeof (f as { path?: unknown }).path !== 'string' || typeof (f as { text?: unknown }).text !== 'string')) {
+      sendError(res, sessionError('field_value', 'validation', 'files must be a list of { path, text }', { path: '/files' }));
+      return;
+    }
+    const r = await service.checkScriptLibraryDraft(projectId, { libraryId, files: (files as { path: string; text: string }[]).map((f) => ({ path: f.path, text: f.text })) });
+    if (!r.ok) {
+      sendError(res, workspaceError(r.error));
+      return;
+    }
+    sendJson(res, 200, r);
   };
 
   /**
@@ -1097,6 +1151,15 @@ export function createBackend(
             return;
           }
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+          return;
+        }
+        // Phase 23.7: the script library check (compile only; nothing is written).
+        if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'libraries' && parts[6] === 'check') {
+          if (method === 'POST') {
+            await libraryCheckRoute(req, res, parts[3]!);
+            return;
+          }
+          sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
         // Packet 25 content routes (before the M1-length dispatch table).

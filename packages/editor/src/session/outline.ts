@@ -119,3 +119,24 @@ export function boxFromOutline(points: readonly XY[]): OutlineCollider {
     note: 'the model is not centred on the object origin, so the box is a 4-corner polygon (a box collider is always centred)',
   };
 }
+
+/**
+ * Phase 23.1 (a 3D project): a box collider from a model's bounds — centred
+ * on the object origin a box with its depth; otherwise (a box collider is
+ * always centred) the convex hull of the bounds' eight corners, the same box
+ * in place.
+ */
+export function boxFromBounds3D(bounds: { min: readonly number[]; max: readonly number[] } | null):
+  | { ok: true; shape: { type: 'box'; hx: number; hy: number; hz: number } | { type: 'convex'; points: [number, number, number][] }; note?: string }
+  | { ok: false; message: string } {
+  if (bounds === null) return { ok: false, message: 'the model has no geometry' };
+  const lo = bounds.min.map((v) => round3(v ?? 0));
+  const hi = bounds.max.map((v) => round3(v ?? 0));
+  if ([0, 1, 2].some((i) => hi[i]! - lo[i]! < 0.002)) return { ok: false, message: 'the model is flat: a box collider needs a size on every axis (use a mesh collider)' };
+  if ([0, 1, 2].some((i) => Math.abs(lo[i]!) > 64 || Math.abs(hi[i]!) > 64)) return { ok: false, message: 'the model reaches beyond 64 m of its origin (a collider stays within 64 m)' };
+  const centred = [0, 1, 2].every((i) => Math.abs(lo[i]! + hi[i]!) / 2 < 0.01);
+  if (centred) return { ok: true, shape: { type: 'box', hx: round3((hi[0]! - lo[0]!) / 2), hy: round3((hi[1]! - lo[1]!) / 2), hz: round3((hi[2]! - lo[2]!) / 2) } };
+  const points: [number, number, number][] = [];
+  for (const x of [lo[0]!, hi[0]!]) for (const y of [lo[1]!, hi[1]!]) for (const z of [lo[2]!, hi[2]!]) points.push([x, y, z]);
+  return { ok: true, shape: { type: 'convex', points }, note: 'the model is not centred on the object origin, so the box is an 8-corner convex hull (a box collider is always centred)' };
+}

@@ -32,12 +32,16 @@ export {
   compileBehavior,
   compileRecipe,
   compileRecipeDigest,
+  checkScriptLibrary,
   createBehaviorCompiler,
   declarationDigestOf,
   manifestBytesOf,
   scanOutput,
 } from './compile';
 export { prepareBehavior, preparedSourceFrom } from './prepare';
+// Phase 23.7: script libraries (`@lib/<id>` imports) and `.json` data modules.
+export { createLibraryCache } from './libraries';
+export { LIBRARY_SPECIFIER_RE } from './scan';
 // Phase 15.4: properties declared in code (`export const properties = { … }`).
 export { labelOfKey, readCodeDeclaration } from './declare';
 export type { CodeDeclarationResult } from './declare';
@@ -56,7 +60,12 @@ export type {
   BehaviorCompilerLimits,
   BehaviorManifest,
   CompileDiagnostic,
+  LibraryCache,
+  LibraryPin,
   PreparedBehaviorSource,
+  ScriptLibraryCheckInput,
+  ScriptLibraryCheckResult,
+  ScriptLibraryInput,
   SourceGraphAnalysis,
   SourceGraphContainer,
   SourceGraphFile,

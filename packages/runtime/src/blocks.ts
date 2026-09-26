@@ -22,12 +22,20 @@
  * against the player's capsule itself), may emit its signal every step while
  * the player is inside (`mode: "stay"`), and records `enter`/`exit` events
  * that the scripts owning it read in the next step (`ctx.events`).
+ *
+ * Phase 23.1 (a 3D project, `host.physics3d`): movers are posed on the 3D
+ * port (their full position and their entity's rotation) and carry and push
+ * the player in 3D; colliders scripts drive are posed with them; triggers are
+ * 3D volumes — a box (turned with its entity), a sphere or a capsule standing
+ * along its entity's Y — tested exactly against the player's capsule. The 2D
+ * plane's switches, pickups and enemies are refused in 3D by the project
+ * model (they come with game modes), so the 3D step runs movers and triggers.
  */
 import type { ActionFrame } from './actions';
-import type { PhysicsPort, Vec2 } from './ports';
+import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import { BLOCK_DEFAULTS, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, ModelBounds, PlayerCapsule, TransformState, TriggerEventRecord } from './types';
-import { capsuleHalfTotal, colliderRotationZ } from './scene-set';
+import { capsuleHalfTotal, colliderRotationZ, colliderShape3DOf } from './scene-set';
 
 /**
  * Phase 19.1: script messages per step (`ctx.messages.send`): far above what
@@ -69,6 +77,9 @@ interface Mover {
   pushStep: number;
   /** Phase 23.0: its collider's rotation about Z (the entity's; a mover translates, it does not turn). */
   rotationZ: number;
+  /** Phase 23.1 (3D): the entity's rotation, and its collider's box around its position (null: no collider). */
+  rotation: [number, number, number, number];
+  aabb: { min: Vec3; max: Vec3 } | null;
 }
 
 interface Box {
@@ -86,6 +97,8 @@ interface Trigger extends Box {
   stay: boolean;
   inside: boolean;
   spent: boolean;
+  /** Phase 23.1 (3D): the volume — a box's half extents with depth, a sphere, or a capsule (its centre-segment half length). */
+  volume: { kind: 'box'; half: Vec3 } | { kind: 'sphere'; radius: number } | { kind: 'capsule'; radius: number; halfSegment: number };
 }
 
 interface Switch extends Box {
@@ -178,6 +191,157 @@ export interface BlocksHost {
   readonly playerSkin?: number;
   /** Phase 15.3: a model asset's recorded bounds (from the asset's import metrics), or null. */
   modelBounds?(assetId: string): ModelBounds | null;
+  /** Phase 23.1: the 3D port (a 3D project) — movers are posed on it and the blocks work in 3D. */
+  readonly physics3d?: PhysicsPort3D;
+  /** Phase 23.1 (3D): the player's committed position (the entity origin), or null. */
+  player3?(): Vec3 | null;
+  /** Phase 23.1 (3D): the player's capsule centre offset along Z. */
+  readonly playerOffsetZ?: number;
+  /** Phase 23.1 (3D): the colliders scripts drive, where they are now (posed as kinematic bodies with the movers). */
+  scriptColliders3D?(): readonly { entityId: string; position: Vec3; rotation: readonly number[] }[];
+}
+
+// ---- phase 23.1: 3D geometry (pure, deterministic) ---------------------------
+
+type V3 = readonly [number, number, number];
+
+/** Rotate `p` by the unit quaternion `q` ([x, y, z, w]); `inverse` rotates by its conjugate. */
+function rotate3(q: readonly number[], p: V3, inverse = false): Vec3 {
+  const qx = inverse ? -(q[0] ?? 0) : (q[0] ?? 0);
+  const qy = inverse ? -(q[1] ?? 0) : (q[1] ?? 0);
+  const qz = inverse ? -(q[2] ?? 0) : (q[2] ?? 0);
+  const qw = q[3] ?? 1;
+  const [x, y, z] = p;
+  const tx = 2 * (qy * z - qz * y);
+  const ty = 2 * (qz * x - qx * z);
+  const tz = 2 * (qx * y - qy * x);
+  return [x + qw * tx + (qy * tz - qz * ty), y + qw * ty + (qz * tx - qx * tz), z + qw * tz + (qx * ty - qy * tx)];
+}
+
+const sub3 = (a: V3, b: V3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/** Squared distance from point `p` to segment `a`–`b`. */
+export function segmentPointDistance2(a: V3, b: V3, p: V3): number {
+  const ab = sub3(b, a);
+  const len2 = dot3(ab, ab);
+  const t = len2 > 0 ? clamp01(dot3(sub3(p, a), ab) / len2) : 0;
+  const d = sub3(p, [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t]);
+  return dot3(d, d);
+}
+
+/** Squared distance between segments `p1`–`q1` and `p2`–`q2` (closest points, Ericson §5.1.9). */
+export function segmentSegmentDistance2(p1: V3, q1: V3, p2: V3, q2: V3): number {
+  const d1 = sub3(q1, p1);
+  const d2 = sub3(q2, p2);
+  const r = sub3(p1, p2);
+  const a = dot3(d1, d1);
+  const e = dot3(d2, d2);
+  const f = dot3(d2, r);
+  let s: number;
+  let t: number;
+  if (a <= 1e-12 && e <= 1e-12) return dot3(r, r);
+  if (a <= 1e-12) {
+    s = 0;
+    t = clamp01(f / e);
+  } else {
+    const c = dot3(d1, r);
+    if (e <= 1e-12) {
+      t = 0;
+      s = clamp01(-c / a);
+    } else {
+      const b = dot3(d1, d2);
+      const denom = a * e - b * b;
+      s = denom > 1e-12 ? clamp01((b * f - c * e) / denom) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) {
+        t = 0;
+        s = clamp01(-c / a);
+      } else if (t > 1) {
+        t = 1;
+        s = clamp01((b - c) / a);
+      }
+    }
+  }
+  const c1: Vec3 = [p1[0] + d1[0] * s, p1[1] + d1[1] * s, p1[2] + d1[2] * s];
+  const c2: Vec3 = [p2[0] + d2[0] * t, p2[1] + d2[1] * t, p2[2] + d2[2] * t];
+  const d = sub3(c1, c2);
+  return dot3(d, d);
+}
+
+/**
+ * Squared distance from segment `a`–`b` to the box of half extents `half`
+ * centred at the origin (axis-aligned; the caller works in the box's frame).
+ * The distance along the segment is convex, so a fixed golden-section search
+ * finds its minimum (80 rounds: far below a micrometre; deterministic).
+ */
+export function segmentBoxDistance2(a: V3, b: V3, half: V3): number {
+  const at = (t: number): number => {
+    let d = 0;
+    for (let i = 0; i < 3; i += 1) {
+      const v = a[i]! + (b[i]! - a[i]!) * t;
+      const o = Math.abs(v) - half[i]!;
+      if (o > 0) d += o * o;
+    }
+    return d;
+  };
+  const g = (Math.sqrt(5) - 1) / 2;
+  let lo = 0;
+  let hi = 1;
+  let x1 = hi - g * (hi - lo);
+  let x2 = lo + g * (hi - lo);
+  let f1 = at(x1);
+  let f2 = at(x2);
+  for (let i = 0; i < 80; i += 1) {
+    if (f1 <= f2) {
+      hi = x2;
+      x2 = x1;
+      f2 = f1;
+      x1 = hi - g * (hi - lo);
+      f1 = at(x1);
+    } else {
+      lo = x1;
+      x1 = x2;
+      f1 = f2;
+      x2 = lo + g * (hi - lo);
+      f2 = at(x2);
+    }
+  }
+  return Math.min(at(0), at(1), f1, f2);
+}
+
+/** Phase 23.1: the box around a resolved 3D collider shape turned by `q` (offsets from the body origin). */
+function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min: Vec3; max: Vec3 } {
+  const pts: V3[] = [];
+  switch (shape.type) {
+    case 'box':
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) pts.push([sx * shape.hx, sy * shape.hy, sz * shape.hz]);
+      break;
+    case 'sphere':
+      return { min: [-shape.radius, -shape.radius, -shape.radius], max: [shape.radius, shape.radius, shape.radius] };
+    case 'capsule': {
+      const e = rotate3(q, [0, shape.halfHeight, 0]);
+      const r = shape.radius;
+      return { min: [-Math.abs(e[0]) - r, -Math.abs(e[1]) - r, -Math.abs(e[2]) - r], max: [Math.abs(e[0]) + r, Math.abs(e[1]) + r, Math.abs(e[2]) + r] };
+    }
+    case 'convex':
+    case 'mesh': {
+      const list = shape.type === 'convex' ? shape.points : shape.vertices;
+      for (let i = 0; i + 2 < list.length; i += 3) pts.push([list[i]!, list[i + 1]!, list[i + 2]!]);
+      break;
+    }
+  }
+  const min: Vec3 = [Infinity, Infinity, Infinity];
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const p of pts) {
+    const r = rotate3(q, p);
+    for (let i = 0; i < 3; i += 1) {
+      min[i] = Math.min(min[i]!, r[i]!);
+      max[i] = Math.max(max[i]!, r[i]!);
+    }
+  }
+  return { min, max };
 }
 
 /** A box collider's half extents, or null for another shape. */
@@ -196,6 +360,7 @@ const NO_TRIGGER_EVENTS: readonly TriggerEventRecord[] = Object.freeze([]);
 const NO_QUEUED_MESSAGES: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
 const NO_MESSAGES: readonly BehaviorMessage[] = Object.freeze([]);
 const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
+const NO_CARRY3: Readonly<Vec3> = Object.freeze([0, 0, 0]) as unknown as Readonly<Vec3>;
 
 export class GameplayBlocks {
   private readonly movers = new Map<string, Mover>();
@@ -231,6 +396,9 @@ export class GameplayBlocks {
   private messagesPrev: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
   private pendingBounce: number | null = null;
   private carry: Vec2 = { x: 0, y: 0 };
+  /** Phase 23.1 (3D): the carried platform's motion (and pushes) this step, and where each script-driven collider was posed last. */
+  private carry3: Readonly<Vec3> = NO_CARRY3;
+  private readonly scriptPosed = new Map<string, Vec3>();
   private step = 0;
   /** Phase 14.0: the player capsule's box — centre offset from the player's position, half width, half height. */
   private readonly pc: { ox: number; oy: number; hw: number; hh: number };
@@ -316,6 +484,7 @@ export class GameplayBlocks {
           half: boxHalf(col),
           pushStep: num(m['maxPush'], D.maxPush) / this.host.hz,
           rotationZ: colliderRotationZ(e.components.transform.rotation),
+          ...this.mover3(e, col),
         });
       }
       const t = c['trigger'];
@@ -323,7 +492,16 @@ export class GameplayBlocks {
         const circle = t['shape'] === 'circle';
         const radius = circle ? num(t['radius'], 0.5) : null;
         const size = (t['size'] as number[] | undefined) ?? [2 * (radius ?? 0.5), 2 * (radius ?? 0.5)];
+        // Phase 23.1: the 3D volume (a 3D project; the model gives a box its depth, a capsule its height).
+        const r3 = num(t['radius'], 0.5);
+        const volume: Trigger['volume'] =
+          t['shape'] === 'sphere' || t['shape'] === 'circle'
+            ? { kind: 'sphere', radius: r3 }
+            : t['shape'] === 'capsule'
+              ? { kind: 'capsule', radius: r3, halfSegment: Math.max(0, num(t['height'], 2 * r3) / 2 - r3) }
+              : { kind: 'box', half: [size[0]! / 2, size[1]! / 2, (size[2] ?? size[0]!) / 2] };
         this.triggers.set(e.id, {
+          volume,
           id: e.id,
           half: { x: size[0]! / 2, y: size[1]! / 2 },
           radius,
@@ -412,9 +590,19 @@ export class GameplayBlocks {
     }
   }
 
+  /** Phase 23.1: a mover's 3D data — its entity's rotation and its collider's box (a 2D plane never reads them). */
+  private mover3(e: EntityV3, col: Record<string, unknown> | undefined): Pick<Mover, 'rotation' | 'aabb'> {
+    const q = e.components.transform.rotation;
+    const rotation: [number, number, number, number] = [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0, q[3] ?? 1];
+    if (this.host.physics3d === undefined || col === undefined) return { rotation, aabb: null };
+    const shape = colliderShape3DOf(col['shape'], e.components.transform.scale);
+    return { rotation, aabb: shape === null ? null : shapeAabb3(shape, rotation) };
+  }
+
   /** Entities of an unloaded scene. */
   remove(ids: ReadonlySet<string>): void {
     for (const id of ids) {
+      this.scriptPosed.delete(id);
       this.movers.delete(id);
       this.triggers.delete(id);
       this.switches.delete(id);
@@ -458,6 +646,8 @@ export class GameplayBlocks {
     this.messagesPrev = Object.freeze([]);
     this.pendingBounce = null;
     this.carry = { x: 0, y: 0 };
+    this.carry3 = NO_CARRY3;
+    this.scriptPosed.clear();
   }
 
   /**
@@ -606,6 +796,11 @@ export class GameplayBlocks {
     return this.carry;
   }
 
+  /** Phase 23.1 (3D): the carried platform's motion (and a mover's push) this step, added to the player's move. */
+  carryDelta3(): Readonly<Vec3> {
+    return this.carry3;
+  }
+
   isOneWay(entityId: string | null): boolean {
     return entityId !== null && this.oneWay.has(entityId);
   }
@@ -638,6 +833,10 @@ export class GameplayBlocks {
         if (t.stop !== null && this.signalsPrev.has(t.stop)) this.host.effect?.({ op: 'stop', effectId: '', entityId: id, position: [0, 0, 0], source: 'component' });
         if (t.signal !== null && this.signalsPrev.has(t.signal)) this.host.effect?.({ op: 'play', effectId: t.effectId, entityId: id, position: [0, 0, 0], source: 'component' });
       }
+    }
+    if (this.host.physics3d !== undefined) {
+      this.beforeStep3D(this.host.physics3d);
+      return;
     }
     if (this.movers.size === 0 && this.knock.steps <= 0) {
       // Nothing moves the player this step: no carry, no poses.
@@ -690,6 +889,67 @@ export class GameplayBlocks {
     if (poses.length > 0) this.host.physics?.setKinematicPositions?.(poses);
   }
 
+  /**
+   * Phase 23.1: the 3D mover step. Movers advance and are posed on the 3D
+   * port with their entity's rotation (a mover translates, it does not turn),
+   * together with the colliders scripts drive (where the last step's
+   * transform phase left them). The player moves with what it stands on; a
+   * mover moving into the player pushes it out along the axis of least
+   * overlap (the 2D rule in 3D: a mover moving mostly upward pushes a player
+   * beside or under it sideways, never up).
+   */
+  private beforeStep3D(port: PhysicsPort3D): void {
+    const extras = this.host.scriptColliders3D?.() ?? [];
+    if (this.movers.size === 0 && extras.length === 0) {
+      this.carry3 = NO_CARRY3;
+      return;
+    }
+    const dt = 1 / this.host.hz;
+    const ground = this.host.groundEntityId();
+    const carry: Vec3 = [0, 0, 0];
+    const pushed: Vec3 = [0, 0, 0];
+    const poses: KinematicPose3D[] = [];
+    const player = this.host.player3?.() ?? null;
+    const oz = this.host.playerOffsetZ ?? 0;
+    const capHalf: Vec3 = [this.pc.hw, this.pc.hh, this.pc.hw];
+    const push = (m: Mover, before: Vec3): void => {
+      if (player === null || m.aabb === null) return;
+      const pc: Vec3 = [player[0] + this.pc.ox + pushed[0], player[1] + this.pc.oy + pushed[1], player[2] + oz + pushed[2]];
+      const centre: Vec3 = [0, 1, 2].map((i) => m.pos[i]! + (m.aabb!.min[i]! + m.aabb!.max[i]!) / 2) as Vec3;
+      const over: Vec3 = [0, 1, 2].map((i) => (m.aabb!.max[i]! - m.aabb!.min[i]!) / 2 + capHalf[i]! + this.pushSkin - Math.abs(pc[i]! - centre[i]!)) as Vec3;
+      if (over[0] <= 0 || over[1] <= 0 || over[2] <= 0) return;
+      const d = sub3(m.pos, before);
+      const sideways = d[1] > 0 && d[1] >= Math.hypot(d[0], d[2]) && pc[1] < m.pos[1] + m.aabb.max[1];
+      const axis: 0 | 1 | 2 = over[1] <= over[0] && over[1] <= over[2] && !sideways ? 1 : over[0] <= over[2] ? 0 : 2;
+      pushed[axis] = pushed[axis] + Math.min(m.pushStep, over[axis]) * (pc[axis] >= centre[axis] ? 1 : -1);
+    };
+    for (const m of this.movers.values()) {
+      const before: Vec3 = [...m.pos];
+      if (!m.started && m.startOn !== null && this.signalsPrev.has(m.startOn)) m.started = true;
+      if (m.started && !m.done) this.advance(m, dt);
+      this.writeTransform(m.id, m.pos);
+      poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1], z: m.pos[2] }, rotation: { x: m.rotation[0], y: m.rotation[1], z: m.rotation[2], w: m.rotation[3] } });
+      if (ground === m.id) {
+        carry[0] = m.pos[0] - before[0];
+        carry[1] = m.pos[1] - before[1];
+        carry[2] = m.pos[2] - before[2];
+      } else if (m.pos[0] !== before[0] || m.pos[1] !== before[1] || m.pos[2] !== before[2]) push(m, before);
+    }
+    for (const x of extras) {
+      const q = x.rotation;
+      poses.push({ entityId: x.entityId, position: { x: x.position[0], y: x.position[1], z: x.position[2] }, rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 } });
+      const was = this.scriptPosed.get(x.entityId);
+      if (was !== undefined && ground === x.entityId) {
+        carry[0] = x.position[0] - was[0];
+        carry[1] = x.position[1] - was[1];
+        carry[2] = x.position[2] - was[2];
+      }
+      this.scriptPosed.set(x.entityId, [x.position[0], x.position[1], x.position[2]]);
+    }
+    this.carry3 = [carry[0] + pushed[0], carry[1] + pushed[1], carry[2] + pushed[2]];
+    if (poses.length > 0) port.setKinematicPoses?.(poses);
+  }
+
   private advance(m: Mover, dt: number): void {
     if (m.waiting > 0) {
       m.waiting = Math.max(0, m.waiting - dt);
@@ -736,6 +996,10 @@ export class GameplayBlocks {
 
   /** After physics: overlaps with the player, enemies, pickups, switches, damage. */
   afterPhysics(frame: ActionFrame, playing: boolean): void {
+    if (this.host.physics3d !== undefined) {
+      if (playing) this.triggers3D();
+      return;
+    }
     const dt = 1 / this.host.hz;
     this.moveEnemies(dt);
     this.turnFacers(dt);
@@ -759,18 +1023,7 @@ export class GameplayBlocks {
       const ny = Math.min(cy + segHalf, Math.max(cy - segHalf, at[1]));
       return Math.hypot(at[0] - cx, at[1] - ny) < r + this.pc.hw;
     };
-    for (const t of this.triggers.values()) {
-      const inside = t.radius !== null ? inCircle(t.id, t.radius) : overlaps(t.id, t.half);
-      if (inside && (!t.inside || t.stay) && !t.spent) {
-        this.emit(t.signal);
-        if (t.once) t.spent = true;
-      }
-      if (!inside && t.inside && t.exitSignal !== null) this.emit(t.exitSignal);
-      // Phase 14.2: every real entry and exit (whatever `once` says about the signal).
-      // `stepIndex` counts as scripts' `ctx.stepIndex` does (this.step is the 1-based ordinal).
-      if (inside !== t.inside) this.triggerEventsNow.push(Object.freeze({ type: inside ? 'enter' : 'exit', trigger: t.id, stepIndex: this.step - 1 }));
-      t.inside = inside;
-    }
+    for (const t of this.triggers.values()) this.updateTrigger(t, t.radius !== null ? inCircle(t.id, t.radius) : overlaps(t.id, t.half));
     const interact = frame.actions?.['interact']?.p === 'pressed';
     for (const s of this.switches.values()) {
       const inside = overlaps(s.id, s.half);
@@ -819,6 +1072,54 @@ export class GameplayBlocks {
       } else if (e.contactDamage > 0) {
         this.damage(e.contactDamage, at[0]);
       }
+    }
+  }
+
+  /** A trigger's signals and events for this step's inside test (the 2D plane's and 3D's shared rules). */
+  private updateTrigger(t: Trigger, inside: boolean): void {
+    if (inside && (!t.inside || t.stay) && !t.spent) {
+      this.emit(t.signal);
+      if (t.once) t.spent = true;
+    }
+    if (!inside && t.inside && t.exitSignal !== null) this.emit(t.exitSignal);
+    // Phase 14.2: every real entry and exit (whatever `once` says about the signal).
+    // `stepIndex` counts as scripts' `ctx.stepIndex` does (this.step is the 1-based ordinal).
+    if (inside !== t.inside) this.triggerEventsNow.push(Object.freeze({ type: inside ? 'enter' : 'exit', trigger: t.id, stepIndex: this.step - 1 }));
+    t.inside = inside;
+  }
+
+  /**
+   * Phase 23.1: the 3D triggers after physics. The player is its capsule —
+   * a segment of half length `halfHeight` along Y through its centre, swept
+   * by its radius — tested exactly against each volume at its entity's world
+   * position (the parents' offsets summed, as in 2D): a sphere by the
+   * segment's distance to its centre, a capsule by segment-to-segment
+   * distance (standing along the trigger's own Y, turned with it), a box by
+   * the segment's distance to it in the box's own frame. Inside is strictly
+   * closer than the radii (a touch is outside, as in 2D).
+   */
+  private triggers3D(): void {
+    const p = this.host.player3?.() ?? null;
+    if (p === null) return;
+    const seg = Math.max(0, this.pc.hh - this.pc.hw);
+    const c: Vec3 = [p[0] + this.pc.ox, p[1] + this.pc.oy, p[2] + (this.host.playerOffsetZ ?? 0)];
+    const a: Vec3 = [c[0], c[1] - seg, c[2]];
+    const b: Vec3 = [c[0], c[1] + seg, c[2]];
+    const r = this.pc.hw;
+    for (const t of this.triggers.values()) {
+      const at = this.worldOf(t.id);
+      if (at === null) continue;
+      const q = this.host.curr.get(t.id)?.rotation ?? [0, 0, 0, 1];
+      const v = t.volume;
+      let inside: boolean;
+      if (v.kind === 'sphere') inside = segmentPointDistance2(a, b, at) < (v.radius + r) * (v.radius + r);
+      else if (v.kind === 'capsule') {
+        const e = rotate3(q, [0, v.halfSegment, 0]);
+        inside = segmentSegmentDistance2(a, b, [at[0] - e[0], at[1] - e[1], at[2] - e[2]], [at[0] + e[0], at[1] + e[1], at[2] + e[2]]) < (v.radius + r) * (v.radius + r);
+      } else {
+        inside = segmentBoxDistance2(rotate3(q, sub3(a, at), true), rotate3(q, sub3(b, at), true), v.half) < r * r;
+      }
+      this.updateTrigger(t, inside);
     }
   }
 

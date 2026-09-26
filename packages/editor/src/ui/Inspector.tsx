@@ -366,7 +366,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
           )}
 
           {registry !== null && !isFolder && (
-            <AddComponent entries={addEntries(registry, present)} components={registry.components} ctx={fieldContext} onAdd={(component, value) => onAddComponent(entity.id, component, value)} {...(addExtras !== undefined ? { extras: addExtras } : {})} />
+            <AddComponent entries={addEntries(registry, present, { dimension: fieldContext.physicsDimension ?? 2 })} components={registry.components} ctx={fieldContext} onAdd={(component, value) => onAddComponent(entity.id, component, value)} {...(addExtras !== undefined ? { extras: addExtras } : {})} />
           )}
 
           <p className="tl-inspector__hint">

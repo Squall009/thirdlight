@@ -61,6 +61,8 @@ export interface CompileDiagnosticView {
   column?: number;
   /** Phase 19.0: the visual-script node the diagnostic is about. */
   nodeId?: string;
+  /** Phase 23.7: the script library whose file `path` names (absent: the script's own file). */
+  library?: string;
 }
 
 /** The bounded compile failure the publication panel renders (≤ 32 entries). */

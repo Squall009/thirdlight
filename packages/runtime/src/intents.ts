@@ -45,6 +45,8 @@ export interface ControlJumpIntent {
 
 /**
  * A position write on ONE owned entity axis set (§14.4/§14.6).
+ * Phase 23.7: it may also set the rotation, as a `quaternion` or a `facing`
+ * direction (fields in the order kind, entityId, position, quaternion, facing, up).
  * @graphNode Move object
  * @graphPhase transform
  */
@@ -52,6 +54,24 @@ export interface TransformIntent {
   kind: 'transform';
   entityId: string;
   position: { x?: number; y?: number; z?: number };
+  /**
+   * Phase 23.7: the rotation as a quaternion [x, y, z, w] (normalized when applied; not all zero).
+   * One rotation form per intent.
+   * @graphNode skip a quaternion is set by scripts; the node takes angles
+   */
+  quaternion?: readonly [number, number, number, number];
+  /**
+   * Phase 23.7: turn the entity so its forward axis (+Z, the glTF forward) points along
+   * this direction [x, y, z] (not all zero), its top towards `up`. One rotation form per intent.
+   * @graphNode skip a facing is set by scripts; the node takes angles
+   */
+  facing?: readonly [number, number, number];
+  /**
+   * Phase 23.7: with `facing`, the direction the entity's top (+Y) leans towards
+   * (default [0, 1, 0]; must not be parallel to `facing`).
+   * @graphNode skip a facing is set by scripts; the node takes angles
+   */
+  up?: readonly [number, number, number];
 }
 
 /**
@@ -60,6 +80,9 @@ export interface TransformIntent {
  * 0) and/or scale (one number, or [x, y, z]) — transform phase only, visual
  * (colliders keep their shape). Fields in the order kind, entityId,
  * rotation, scale; at least one of rotation and scale.
+ * Phase 23.7: the rotation may instead be a `quaternion` or a `facing`
+ * direction (order kind, entityId, rotation, quaternion, facing, up, scale;
+ * exactly one of rotation, quaternion and facing when turning).
  * @graphNode Pose object
  * @graphPhase transform
  */
@@ -67,6 +90,24 @@ export interface PoseIntent {
   kind: 'pose';
   entityId: string;
   rotation?: { yaw?: number; pitch?: number; roll?: number };
+  /**
+   * Phase 23.7: the rotation as a quaternion [x, y, z, w] (normalized when applied; not all zero).
+   * One rotation form per intent.
+   * @graphNode skip a quaternion is set by scripts; the node takes angles
+   */
+  quaternion?: readonly [number, number, number, number];
+  /**
+   * Phase 23.7: turn the entity so its forward axis (+Z, the glTF forward) points along
+   * this direction [x, y, z] (not all zero), its top towards `up`. One rotation form per intent.
+   * @graphNode skip a facing is set by scripts; the node takes angles
+   */
+  facing?: readonly [number, number, number];
+  /**
+   * Phase 23.7: with `facing`, the direction the entity's top (+Y) leans towards
+   * (default [0, 1, 0]; must not be parallel to `facing`).
+   * @graphNode skip a facing is set by scripts; the node takes angles
+   */
+  up?: readonly [number, number, number];
   scale?: number | [number, number, number];
 }
 
@@ -154,10 +195,15 @@ const INTENT_KEYS: Record<IntentKind, readonly string[]> = {
   control_move: ['kind', 'value'],
   control_jump: ['kind', 'value'],
   transform: ['kind', 'entityId', 'position'],
-  pose: ['kind', 'entityId', 'rotation', 'scale'],
+  pose: ['kind', 'entityId', 'rotation', 'quaternion', 'facing', 'up', 'scale'],
   respawn: ['kind'],
 };
 const ROTATION_KEYS = ['yaw', 'pitch', 'roll'] as const;
+/** Phase 23.7: a transform intent's fields with the optional rotation forms, in order. */
+const TRANSFORM_KEYS_ROTATED: readonly string[] = ['kind', 'entityId', 'position', 'quaternion', 'facing', 'up'];
+/** Phase 23.7: bounds of quaternion/direction components, and the smallest length (all-zero is refused). */
+const MAX_ROTATION_COMPONENT = 1e6;
+const MIN_ROTATION_LENGTH = 1e-9;
 const MAX_DEGREES = 1e6;
 const SCALE_MIN = 0.001;
 const SCALE_MAX = 1000;
@@ -245,6 +291,8 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
     return { ok: false, error: invalid('shape', `unknown intent kind ${JSON.stringify(String(kind))}`) };
   }
   if (kind === 'pose') return poseShape(value);
+  // Phase 23.7: a transform may carry a rotation form after its position.
+  if (kind === 'transform' && !exactOrder(value, INTENT_KEYS.transform)) return rotatedTransformShape(value);
   const allowed = INTENT_KEYS[kind];
   const unknownKey = firstUnknownKey(value, allowed);
   if (unknownKey !== null) {
@@ -268,6 +316,13 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
     }
     return accepted(kind, { kind, value: value['value'] as JumpPhase });
   }
+  const parsed = transformBase(value);
+  if (!('entityId' in parsed)) return parsed;
+  return accepted(kind, parsed);
+}
+
+/** The kind/entityId/position part of a transform intent (shape checks), or the failure. */
+function transformBase(value: Record<string, unknown>): TransformIntent | { ok: false; error: BehaviorIntentError } {
   if (typeof value['entityId'] !== 'string') {
     return { ok: false, error: invalid('shape', 'transform.entityId must be a string') };
   }
@@ -295,7 +350,67 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   }
   const parsed: { x?: number; y?: number; z?: number } = {};
   for (const key in position) if (hasOwn.call(position, key)) parsed[key as 'x' | 'y' | 'z'] = position[key] as number;
-  return accepted(kind, { kind, entityId: value['entityId'], position: parsed });
+  return { kind: 'transform', entityId: value['entityId'], position: parsed };
+}
+
+/** Phase 23.7: a transform intent with fields past `position` (a quaternion, or a facing and up). */
+function rotatedTransformShape(value: Record<string, unknown>): IntentShapeResult {
+  const unknownKey = firstUnknownKey(value, TRANSFORM_KEYS_ROTATED);
+  if (unknownKey !== null) {
+    return { ok: false, error: invalid('shape', `unknown transform field "${unknownKey}" (strict shape)`) };
+  }
+  let keys = 0;
+  for (const key in value) if (hasOwn.call(value, key)) keys += 1;
+  if (inOrderCount(value, TRANSFORM_KEYS_ROTATED) !== keys || !hasOwn.call(value, 'entityId') || !hasOwn.call(value, 'position')) {
+    return { ok: false, error: invalid('shape', `intent fields must be in canonical order (${TRANSFORM_KEYS_ROTATED.join(', ')}; kind, entityId and position required)`) };
+  }
+  const base = transformBase(value);
+  if (!('entityId' in base)) return base;
+  const error = rotationFormShape(value, base, 'transform');
+  if (error !== null) return { ok: false, error };
+  return accepted('transform', base);
+}
+
+/** A tuple of `n` numbers (copied), or null. */
+function numberTuple(v: unknown, n: number): number[] | null {
+  if (!Array.isArray(v) || v.length !== n) return null;
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const x: unknown = v[i];
+    if (typeof x !== 'number') return null;
+    out.push(x);
+  }
+  return out;
+}
+
+/**
+ * Phase 23.7: the quaternion/facing/up fields of a transform or pose (shape):
+ * copied onto `into`; at most one rotation form (`rotation` counts for a pose);
+ * `up` only with `facing`.
+ */
+function rotationFormShape(value: Record<string, unknown>, into: TransformIntent | PoseIntent, kind: 'transform' | 'pose'): BehaviorIntentError | null {
+  const q = value['quaternion'];
+  const f = value['facing'];
+  const u = value['up'];
+  const forms = (value['rotation'] !== undefined ? 1 : 0) + (q !== undefined ? 1 : 0) + (f !== undefined ? 1 : 0);
+  if (forms > 1) return invalid('shape', `a ${kind} takes one rotation form: ${kind === 'pose' ? 'rotation, ' : ''}quaternion or facing`);
+  if (u !== undefined && f === undefined) return invalid('shape', `${kind}.up needs ${kind}.facing`);
+  if (q !== undefined) {
+    const t = numberTuple(q, 4);
+    if (t === null) return invalid('shape', `${kind}.quaternion must be [x, y, z, w]`);
+    into.quaternion = [t[0]!, t[1]!, t[2]!, t[3]!];
+  }
+  if (f !== undefined) {
+    const t = numberTuple(f, 3);
+    if (t === null) return invalid('shape', `${kind}.facing must be [x, y, z]`);
+    into.facing = [t[0]!, t[1]!, t[2]!];
+  }
+  if (u !== undefined) {
+    const t = numberTuple(u, 3);
+    if (t === null) return invalid('shape', `${kind}.up must be [x, y, z]`);
+    into.up = [t[0]!, t[1]!, t[2]!];
+  }
+  return null;
 }
 
 const AXIS_ORDER: readonly string[] = ['x', 'y', 'z'];
@@ -307,7 +422,9 @@ function poseShape(value: Record<string, unknown>): IntentShapeResult {
     return { ok: false, error: invalid('shape', `pose fields must be among and in the order ${INTENT_KEYS.pose.join(', ')}`) };
   }
   if (typeof value['entityId'] !== 'string') return { ok: false, error: invalid('shape', 'pose.entityId must be a string') };
-  if (value['rotation'] === undefined && value['scale'] === undefined) return { ok: false, error: invalid('shape', 'a pose needs rotation or scale') };
+  if (value['rotation'] === undefined && value['quaternion'] === undefined && value['facing'] === undefined && value['scale'] === undefined) {
+    return { ok: false, error: invalid('shape', value['up'] !== undefined ? 'pose.up needs pose.facing' : 'a pose needs rotation or scale') };
+  }
   const intent: PoseIntent = { kind: 'pose', entityId: value['entityId'] };
   const r = value['rotation'];
   if (r !== undefined) {
@@ -324,6 +441,8 @@ function poseShape(value: Record<string, unknown>): IntentShapeResult {
     for (const key in r) if (hasOwn.call(r, key)) rotation[key as 'yaw' | 'pitch' | 'roll'] = r[key] as number;
     intent.rotation = rotation;
   }
+  const formError = rotationFormShape(value, intent, 'pose');
+  if (formError !== null) return { ok: false, error: formError };
   const s = value['scale'];
   if (s !== undefined) {
     if (typeof s === 'number') intent.scale = s;
@@ -372,6 +491,10 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
   }
   if (intent.kind === 'respawn') return null;
   if (intent.kind === 'pose') {
+    if (intent.quaternion !== undefined || intent.facing !== undefined) {
+      const formError = rotationFormValue(intent, 'pose');
+      if (formError !== null) return formError;
+    }
     // Phase 21.2: walked in place (no entries/arrays per intent).
     const rotation = intent.rotation;
     if (rotation !== undefined) {
@@ -391,6 +514,10 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
   let axes = 0;
   for (const axis in position) if (hasOwn.call(position, axis)) axes += 1;
   if (axes === 0) return invalid('value', 'transform.position needs at least one axis');
+  if (intent.quaternion !== undefined || intent.facing !== undefined) {
+    const formError = rotationFormValue(intent, 'transform');
+    if (formError !== null) return formError;
+  }
   for (const axis in position) {
     if (!hasOwn.call(position, axis)) continue;
     const v = position[axis as 'x' | 'y' | 'z'];
@@ -402,6 +529,98 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
     }
   }
   return null;
+}
+
+/** Phase 23.7: the quaternion/facing/up values (finite, bounded, not all zero, up not parallel to facing). */
+function rotationFormValue(intent: TransformIntent | PoseIntent, kind: 'transform' | 'pose'): BehaviorIntentError | null {
+  const e = vectorError(kind, 'quaternion', intent.quaternion) ?? vectorError(kind, 'facing', intent.facing) ?? vectorError(kind, 'up', intent.up);
+  if (e !== null) return e;
+  if (intent.facing !== undefined && intent.up !== undefined && facingQuaternion(intent.facing, intent.up) === null) {
+    return invalid('value', `${kind}.up must not be parallel to ${kind}.facing`);
+  }
+  return null;
+}
+
+function vectorError(kind: string, name: string, v: readonly number[] | undefined): BehaviorIntentError | null {
+  if (v === undefined) return null;
+  let len2 = 0;
+  for (const x of v) {
+    if (!Number.isFinite(x) || Math.abs(x) > MAX_ROTATION_COMPONENT) return invalid('value', `${kind}.${name} components must be finite and |v| <= ${MAX_ROTATION_COMPONENT}`);
+    len2 += x * x;
+  }
+  if (!(Math.sqrt(len2) > MIN_ROTATION_LENGTH)) return invalid('value', `${kind}.${name} must not be all zero`);
+  return null;
+}
+
+/**
+ * Phase 23.7: the unit quaternion [x, y, z, w] of a (validated, non-zero)
+ * quaternion — each component divided by the length.
+ */
+export function normalizedQuaternion(q: readonly number[]): [number, number, number, number] {
+  const len = Math.sqrt(q[0]! * q[0]! + q[1]! * q[1]! + q[2]! * q[2]! + q[3]! * q[3]!);
+  return [q[0]! / len, q[1]! / len, q[2]! / len, q[3]! / len];
+}
+
+/**
+ * Phase 23.7: the rotation [x, y, z, w] that turns +Z (forward) along
+ * `facing` and +Y (top) towards `up` (default +Y; a facing straight up or
+ * down without an `up` leans its top away from / towards +Z, as pitching a
+ * +Z-facing object would). `null` when `up` is parallel to `facing` (or
+ * either is all zero). Facing +Z with the default up is exactly the identity.
+ */
+export function facingQuaternion(facing: readonly number[], up?: readonly number[]): [number, number, number, number] | null {
+  const fl = Math.hypot(facing[0]!, facing[1]!, facing[2]!);
+  if (!(fl > 0)) return null;
+  const fx = facing[0]! / fl;
+  const fy = facing[1]! / fl;
+  const fz = facing[2]! / fl;
+  let ux = 0;
+  let uy = 1;
+  let uz = 0;
+  if (up !== undefined) {
+    ux = up[0]!;
+    uy = up[1]!;
+    uz = up[2]!;
+  }
+  const ul = Math.hypot(ux, uy, uz);
+  if (!(ul > 0)) return null;
+  // right = up × forward
+  let rx = uy * fz - uz * fy;
+  let ry = uz * fx - ux * fz;
+  let rz = ux * fy - uy * fx;
+  let rl = Math.hypot(rx, ry, rz);
+  if (!(rl > 1e-6 * ul)) {
+    if (up !== undefined) return null;
+    // Straight up or down with the default up: the top leans along -Z / +Z.
+    uz = fy > 0 ? -1 : 1;
+    rx = -uz * fy;
+    ry = uz * fx;
+    rz = 0;
+    rl = Math.hypot(rx, ry, rz);
+  }
+  rx /= rl;
+  ry /= rl;
+  rz /= rl;
+  // top = forward × right (unit: both are unit and perpendicular)
+  const tx = fy * rz - fz * ry;
+  const ty = fz * rx - fx * rz;
+  const tz = fx * ry - fy * rx;
+  // The rotation matrix has the columns right, top, forward; to a quaternion (Shepperd's method).
+  const trace = rx + ty + fz;
+  if (trace > 0) {
+    const s = Math.sqrt(trace + 1) * 2; // 4w
+    return [(tz - fy) / s, (fx - rz) / s, (ry - tx) / s, s / 4];
+  }
+  if (rx > ty && rx > fz) {
+    const s = Math.sqrt(1 + rx - ty - fz) * 2; // 4x
+    return [s / 4, (tx + ry) / s, (fx + rz) / s, (tz - fy) / s];
+  }
+  if (ty > fz) {
+    const s = Math.sqrt(1 + ty - rx - fz) * 2; // 4y
+    return [(tx + ry) / s, s / 4, (fy + tz) / s, (fx - rz) / s];
+  }
+  const s = Math.sqrt(1 + fz - rx - ty) * 2; // 4z
+  return [(fx + rz) / s, (fy + tz) / s, s / 4, (ry - tx) / s];
 }
 
 function scaleOk(v: number): boolean {

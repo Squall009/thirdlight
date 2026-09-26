@@ -450,7 +450,16 @@ const COMPONENT_BASES: Record<string, J[]> = {
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
-  collider: [{ shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true }, { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } }, { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } }],
+  collider: [
+    { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
+    { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } },
+    { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } },
+    // Phase 23.1: the 3D shapes (their dimension rule is the project's, not the scene's).
+    { shape: { type: 'sphere', radius: 0.5 } },
+    { shape: { type: 'capsule', radius: 0.5, height: 100 } },
+    { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] } },
+    { shape: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]] } },
+  ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
   virtualCamera: [
@@ -472,8 +481,11 @@ const COMPONENT_BASES: Record<string, J[]> = {
   playerSpawn: [{ facing: 'left' }],
   mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
   trigger: [
-    { shape: 'box', size: [2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
+    { shape: 'box', size: [2, 2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
     { shape: 'circle', radius: 1.5, signal: 'enter' },
+    // Phase 23.1: the 3D areas.
+    { shape: 'sphere', radius: 1.5, signal: 'enter' },
+    { shape: 'capsule', radius: 0.025, height: 500, signal: 'enter' },
   ],
   switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }],
   health: [{ max: 5, start: 3, invulnerableSeconds: 1, knockback: 2, knockbackTime: 0.4, hitBounce: 3, hitEffect: 'fx-a' }],
@@ -673,7 +685,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, depth_buffer: 2 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, random_seed: 7, depth_buffer: 2 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, clipsFor: MODEL_ASSET['assetId'] };
@@ -685,6 +697,8 @@ function runAllProbes(): void {
   probe('behaviorTrust', contentErrors, contentDoc({ behaviorTrust: { entries: [] } }), '/behaviorTrust', block('behaviorTrust'), 'behaviorTrust:');
   probe('lighting', contentErrors, contentDoc({ lighting: {} }), '/lighting', block('lighting'), 'lighting:');
   probe('graphs', contentErrors, contentDoc({ graphs: [{ graphId: 'g-1', kind: 'test', name: 'G', graph: { nodes: [], edges: [] } }] }), '/graphs', block('graphs'), 'graphs:');
+  // Phase 23.7: shared script libraries (the files are free text, the item is json).
+  probe('scriptLibraries', contentErrors, contentDoc({ scriptLibraries: [{ libraryId: 'lib-a', name: 'Lib', files: [{ path: 'src/index.ts', text: 'export const a = 1;\n' }] }] }), '/scriptLibraries', block('scriptLibraries'), 'scriptLibraries:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
   // the content block's own keys (each block's inside is probed above)

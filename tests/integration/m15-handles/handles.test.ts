@@ -109,7 +109,8 @@ describe('the Scene-view handles over the real registry and commands', () => {
     // Phase 23.0: with its depth set (hz) the collider box has three axes and follows the whole rotation.
     s = must(s, 'setComponent', { entityId: ledge, component: 'collider', value: { shape: { type: 'box', hx: 1.5, hy: 0.25, hz: 0.5 } } }, 'depth');
     const deep = handleShapesOf(projected(s, ledge), DESCRIPTORS).find((x) => x.kind === 'box2')!;
-    expect(deep.frame).toBe('rotation');
+    // Phase 23.1: the object's whole transform (a 3D collider scales with its object).
+    expect(deep.frame).toBe('transform');
     expect(gripsOf(deep).map((g) => g.id)).toContain('depth');
     s = dragAndStore(s, ledge, 'collider', 'box2', 'depth', p3(0, 0, 1.01), true, (v) => expect(v.shape).toEqual({ type: 'box', hx: 1.5, hy: 0.25, hz: 1 }));
     // World bounds of camera follow.
@@ -127,6 +128,37 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(gripsOf(cap).map((g) => [g.id, g.at])).toEqual([['top', p3(0, 0.9)], ['side', p3(0.3, 0)]]);
     s = dragAndStore(s, 'group-0001', 'controller', 'capsule', 'top', p3(0, 0.12), true, (v) => expect(v.capsule).toEqual({ radius: 0.3, height: 1, offset: [0, -0.4] }));
     dragAndStore(s, 'group-0001', 'controller', 'capsule', 'side', p3(0.52, 0), true, (v) => expect(v.capsule).toEqual({ radius: 0.5, height: 1, offset: [0, -0.4] }));
+  });
+
+  it('phase 23.1 (a 3D project): a sphere collider\'s radius, a capsule collider grows both ways; 3D trigger areas (box with depth, sphere, capsule) turn with the object', () => {
+    let s = fresh();
+    s = must(s, 'setSettings', { settings: { physics_dimension: 3 } }, '3D');
+    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: { type: 'sphere', radius: 0.5 } } }, 'sphere');
+    const ball = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'collider')!;
+    expect(ball.kind).toBe('radius');
+    expect(ball.frame).toBe('transform');
+    s = dragAndStore(s, 'group-0001', 'collider', 'radius', 'side', p3(0.81, 0.02), true, (v) => expect(v.shape).toEqual({ type: 'sphere', radius: 0.8 }));
+    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } } }, 'capsule');
+    const cap = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'collider')!;
+    expect(cap.kind).toBe('capsule');
+    expect(gripsOf(cap).map((g) => [g.id, g.at])).toEqual([['top', p3(0, 1)], ['side', p3(0.5, 0)]]);
+    // Centred: dragging the top to 1.5 m makes it 3 m tall (no offset is written).
+    s = dragAndStore(s, 'group-0001', 'collider', 'capsule', 'top', p3(0, 1.49), true, (v) => expect(v.shape).toEqual({ type: 'capsule', radius: 0.5, height: 3 }));
+    s = dragAndStore(s, 'group-0001', 'collider', 'capsule', 'side', p3(0.71, 0), true, (v) => expect(v.shape).toEqual({ type: 'capsule', radius: 0.7, height: 3 }));
+    // Triggers.
+    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'trigger', value: { size: [2, 2, 2], signal: 'go' } }, 'trigger box');
+    const tbox = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
+    expect(tbox.frame).toBe('rotation');
+    expect(gripsOf(tbox).map((g) => g.id)).toEqual(['top', 'side', 'depth']);
+    s = dragAndStore(s, 'group-0001', 'trigger', 'box2', 'depth', p3(0, 0, 1.51), true, (v) => expect(v.size).toEqual([2, 2, 3]));
+    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'trigger', value: { size: null, shape: 'capsule', radius: 0.5, height: 2 } }, 'trigger capsule');
+    const tcap = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
+    expect([tcap.kind, tcap.frame]).toEqual(['capsule', 'rotation']);
+    s = dragAndStore(s, 'group-0001', 'trigger', 'capsule', 'top', p3(0, 2.01), true, (v) => expect(v).toMatchObject({ shape: 'capsule', radius: 0.5, height: 4 }));
+    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'trigger', value: { shape: 'sphere', height: null } }, 'trigger sphere');
+    const tball = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
+    expect([tball.kind, tball.frame]).toEqual(['radius', 'rotation']);
+    dragAndStore(s, 'group-0001', 'trigger', 'radius', 'side', p3(1.2, 0), true, (v) => expect(v).toMatchObject({ shape: 'sphere', radius: 1.2 }));
   });
 
   it('lights: a directional light\'s direction, a spot cone (direction, range, half-angle), a point light\'s range', () => {
