@@ -1494,6 +1494,33 @@ level wiring (camera, lights, zones, spawn markers) never go into a prefab.
 `tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
 and the export carry the project's prefabs with the game.
 
+### Script libraries and JSON data (phase 23.7)
+
+- **Libraries** are shared TypeScript (and JSON) every script of the
+  project can use: the **Libraries** tab (bottom dock) creates one from a
+  name (its id is the name in lower case, e.g. "Scoring" → `scoring`),
+  renames, deletes and opens it. Its tab is the code editor: `src/index.ts`
+  is what scripts import — `import { points } from '@lib/scoring';` — and
+  **+ File** adds more modules or `.json` data (`import table from
+  './table.json'`). The draft compiles after a short pause (or Ctrl+S);
+  problems are marked in the code. **Save** stores the changed files (one
+  undo step) and recompiles every published script that imports the
+  library in the same step; the first save that changes a library such
+  scripts use asks for the trust acknowledgment of the new version (like
+  publishing a script). If a script no longer compiles against the change,
+  the save is refused and the message names the script. A library a
+  published script imports cannot be deleted.
+- A library may import other libraries (`@lib/<id>`); a cycle between
+  libraries or an import of a library that does not exist is a compile
+  error. Bounds: 32 libraries, 16 files and 256 KiB per library, 64 KiB per
+  file (one save sends at most ~64 KiB of changed text).
+- Scripts may also keep `.json` files in their own source and import them
+  the same way.
+- MCP: `tl_command` `setScriptLibrary {libraryId, name?, files?: [{path,
+  text|null}]}` (text null removes a file; other files are kept) and
+  `deleteScriptLibrary {libraryId}`; the libraries are in
+  `tl_content_query target="game"` (`scriptLibraries`).
+
 ### Random numbers, finding objects and facing (phase 23.7)
 
 - `ctx.random` gives each object's script its own seeded random numbers:

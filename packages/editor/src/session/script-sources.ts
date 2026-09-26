@@ -224,7 +224,8 @@ export function newLibraryFiles(libraryId: string): ScriptFile[] {
   return [
     {
       path: ENTRY_PATH,
-      text: ['// Shared code: any script imports it with', `// import { clamp } from '@lib/${libraryId}';`, '', 'export function clamp(value: number, min: number, max: number): number {', '  return Math.min(max, Math.max(min, value));', '}', ''].join('\n'),
+      // No import statement in the comment: the compiler's import scan is textual (a comment counts).
+      text: [`// Shared code for every script of this project (its module name is @lib/${libraryId}).`, '','export function clamp(value: number, min: number, max: number): number {', '  return Math.min(max, Math.max(min, value));', '}', ''].join('\n'),
     },
   ];
 }

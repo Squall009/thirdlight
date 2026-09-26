@@ -445,3 +445,62 @@ for editor items, commit/push/restart, decision log).
   code and move pinned output digests. The older Random nodes keep their
   per-object seed. Sprout's pinned outputs and the catalogue suite are
   unchanged/green.
+- 2026-09-26 (23.7): **script libraries are project data stored inline.**
+  `content.scriptLibraries[] {libraryId, name, files[{path, text}]}` (v4,
+  absent = none, so existing content bytes stay the same), imported as
+  `@lib/<libraryId>` (its `src/index.ts`). Stored inline rather than as
+  source blobs so MCP creates and edits them with plain commands
+  (`setScriptLibrary` / `deleteScriptLibrary`) and undo covers them. A
+  library's digest is the sha256 of its canonical source-graph container
+  (the behavior container format, no required modules/owned transforms) and
+  goes through the same per-digest trust entries as a behavior source;
+  each library has a behavior source's bounds (16 files, 64 KiB per file,
+  256 KiB per container), a project at most 32 libraries and 1 MiB of
+  library text. `setScriptLibrary` is a patch (`files: [{path,
+  text|null}]`, unmentioned files kept) because the command request cap is
+  64 KiB — an edit sends only the changed files.
+- 2026-09-26 (23.7): **pins, and dependents move with the library.** A
+  published behavior that imports libraries records the versions it was
+  compiled against (`BehaviorSourceRecord.libraries` `[{libraryId,
+  sourceDigest}]`, direct and transitive, absent when none — older records
+  and every existing output digest are unchanged, pinned by a test that a
+  library-free source compiles to the same manifest whatever libraries
+  exist). The content validation requires every pin to name an existing
+  library at its current digest, so a library change must republish its
+  dependents in the same command: the backend's command route, before
+  `setScriptLibrary`, compiles each dependent against the library set the
+  command will commit (`prepareScriptLibraryDependents`) and files the
+  prepared facts under `<sourceDigest>|<librarySetKey>`; the command builds
+  the new records only from those facts. One change record carries the
+  library and the dependents' records, so undo/redo move them together
+  and the closure always recompiles to the recorded digests. The patched
+  digest must be acknowledged first when there are dependents (trust
+  precedes the compile); a dependent that no longer compiles refuses the
+  save with its id and diagnostics and records a Problem. Deleting a library
+  a published script imports is refused (`reference_in_use`).
+- 2026-09-26 (23.7): **compiled once.** Each behavior output stays a
+  self-contained module (the runtime loads one module per behavior; a
+  shared runtime module would need an import map in the worker and the
+  export), so a library's code is linked into each dependent's bundle. What
+  is shared is the library compile: the compiler instance keeps a bounded
+  cache (64) of parsed, checked and transpiled libraries keyed by digest
+  (esbuild `transform` once, then linked as JS), so a Play/export build that
+  recompiles N dependents compiles each library once. Missing libraries and
+  library cycles are compile failures naming the chain (a cycle between
+  libraries is refused even when the file-level graph would be acyclic);
+  the library chain is bounded by the import-depth limit. The import scan
+  stays textual, so an import written in a comment counts (the new-library
+  template avoids one).
+- 2026-09-26 (23.7): **`.json` data modules.** A behavior or library
+  container may hold `.json` files (the entry stays `.ts`), imported with a
+  relative path as their parsed value (esbuild's json loader); the file must
+  parse (`behavior_source_invalid` `json`, naming it). Containers without
+  `.json` files are unaffected (a `.tsx` is still refused).
+- 2026-09-26 (23.7): **editor.** A Libraries bottom tab (create → id from
+  the name, rename, delete — disabled while imported, open) and a
+  "Library: <name>" centre tab reusing the code editor: file list (+ File for
+  `.ts`/`.json`, rename, delete; the entry stays), an idle/Ctrl+S check
+  through `POST content/libraries/check` (the draft compiled alone against
+  the project's other libraries, nothing written; answers the scripts that
+  import it) and Save (one patch command; the trust prompt when a dependent
+  will link the new digest; "Recompiled …" on success).
