@@ -588,10 +588,14 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       // Phase 14.2: the hierarchy of the loaded entities (a script owns the triggers below its entity).
       const parentOf = new Map<string, string>();
       for (const e of snapshot.scene.entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
+      // Phase 23.1: in a 3D project a collider no mover moves is script-drivable (the runtime poses it
+      // as a kinematic body from the transform intents); the controller and movers stay off limits.
+      const physicsBody = (c: { collider?: unknown; controller?: unknown; mover?: unknown }): boolean =>
+        c.controller !== undefined || (c.collider !== undefined && (cfg.physicsDimension !== 3 || c.mover !== undefined));
       for (const e of snapshot.scene.entities) {
-        const c = (e.components as { camera?: unknown; collider?: unknown; controller?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } });
+        const c = (e.components as { camera?: unknown; collider?: unknown; controller?: unknown; mover?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } });
         if (c.camera !== undefined) cameraIds.add(e.id);
-        if (c.collider !== undefined || c.controller !== undefined) physicsIds.add(e.id);
+        if (physicsBody(c)) physicsIds.add(e.id);
         if (c.behavior?.behaviorId === behaviorId) {
           entityIds.add(e.id);
           components.set(e.id, { behaviorId, values: c.behavior.values ?? {} });
@@ -947,9 +951,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           const added = new Set<string>();
           for (const e of entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
           for (const e of entities) {
-            const c = e.components as { camera?: unknown; collider?: unknown; controller?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } };
+            const c = e.components as { camera?: unknown; collider?: unknown; controller?: unknown; mover?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } };
             if (c.camera !== undefined) cameraIds.add(e.id);
-            if (c.collider !== undefined || c.controller !== undefined) physicsIds.add(e.id);
+            if (physicsBody(c)) physicsIds.add(e.id);
             if (c.behavior?.behaviorId === behaviorId) {
               entityIds.add(e.id);
               added.add(e.id);

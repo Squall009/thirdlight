@@ -36,7 +36,8 @@ import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
-import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D, stripCollisionNodes, type VertexColorMode } from './pieces';
+import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D,
+  pieceCollider3D, stripCollisionNodes, type ModelCollider3D, type VertexColorMode } from './pieces';
 import { disposeObjectTree } from './dispose';
 
 /**
@@ -229,6 +230,8 @@ export interface PreparedVisualResource {
   pieces(): readonly { readonly name: string; readonly lods: number; readonly hasCollider: boolean; readonly skinned: boolean }[];
   /** The 2D collider polygon from a piece's `_COL` node (null piece = the file's single `_COL`). */
   collider2D(piece: string | null): [number, number][] | null;
+  /** Phase 23.1: a 3D collider (triangle mesh or convex hull) from a piece's `_COL` node(s), else its LOD0 geometry. */
+  collider3D(piece: string | null, kind: 'mesh' | 'convex'): ModelCollider3D;
   /** A piece's (or the whole file's) LOD0 bounds in the file's root space. */
   bounds(piece: string | null): THREE.Box3;
   /** The names of the file's materials (of one piece), in first-use order. */
@@ -832,6 +835,10 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
     },
     collider2D(piece: string | null) {
       return pieceCollider2D(loaded.root, piece);
+    },
+    // Phase 23.1: a 3D mesh or convex-hull collider from the piece's `_COL` node(s), else its LOD0 geometry.
+    collider3D(piece: string | null, kind: 'mesh' | 'convex') {
+      return pieceCollider3D(loaded.root, piece, kind);
     },
     bounds(piece: string | null) {
       return pieceBounds(loaded.root, piece);

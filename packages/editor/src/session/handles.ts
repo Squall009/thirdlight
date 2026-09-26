@@ -62,7 +62,8 @@ type Range = { min: number; max: number };
 export type HandleModel =
   | { type: 'box'; dims: 2 | 3; roles: 'size' | 'half'; center: P3; half: P3; anchor: 'center' | 'bottom' }
   | { type: 'bounds'; minX: number; maxX: number; minY: number; maxY: number }
-  | { type: 'capsule'; cx: number; cy: number; radius: number; halfHeight: number; cz?: number }
+  /** Phase 23.1: `centered` — a capsule without an offset (a collider or trigger): its height grows both ways. */
+  | { type: 'capsule'; cx: number; cy: number; radius: number; halfHeight: number; cz?: number; centered?: boolean }
   | { type: 'radius'; r: number; along: 'xy' | 'x'; band: number | null }
   | { type: 'segment'; left: number; right: number }
   | { type: 'cone'; dir: P3; angle: number; range: number }
@@ -191,13 +192,15 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
     case 'box3': {
       if (h.bind['size'] !== undefined) {
         const s = at('size');
-        const dims = h.kind === 'box3' ? 3 : 2;
+        // Phase 23.1: a `box2` size with a depth ([w, h, d], a 3D trigger) is a 3-axis box turning with the object.
+        const deep = h.kind === 'box2' && Array.isArray(s.v) && s.v.length === 3;
+        const dims = h.kind === 'box3' || deep ? 3 : 2;
         const v = vec(s.v, dims);
         if (v === null) return null;
         lim('size', s.f);
         const half = p3(v[0]! / 2, v[1]! / 2, dims === 3 ? v[2]! / 2 : 0);
         const anchor = h.anchor === 'bottom' ? 'bottom' : 'center';
-        return { ...base, model: { type: 'box', dims, roles: 'size', center: p3(0, anchor === 'bottom' ? half.y : 0, 0), half, anchor } };
+        return { ...base, ...(deep ? { frame: 'rotation' as const } : {}), model: { type: 'box', dims, roles: 'size', center: p3(0, anchor === 'bottom' ? half.y : 0, 0), half, anchor } };
       }
       if (h.bind['halfX'] !== undefined) {
         const hx = at('halfX');
@@ -211,7 +214,8 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         const hz = h.bind['halfZ'] !== undefined ? at('halfZ') : null;
         if (hz !== null && typeof hz.v === 'number') {
           lim('halfZ', hz.f);
-          return { ...base, frame: 'rotation', model: { type: 'box', dims: 3, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, hz.v), anchor: 'center' } };
+          // Phase 23.1: the object's whole transform (a 3D collider scales with it).
+          return { ...base, frame: 'transform', model: { type: 'box', dims: 3, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, hz.v), anchor: 'center' } };
         }
         return { ...base, model: { type: 'box', dims: 2, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, 0), anchor: 'center' } };
       }
@@ -226,10 +230,14 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
     case 'capsule': {
       const r = at('radius');
       const ht = at('height');
-      const o = at('offset');
-      const off = vec(o.v, 2) ?? [0, 0];
       lim('radius', r.f);
       lim('height', ht.f);
+      if (h.bind['offset'] === undefined) {
+        // Phase 23.1: a centred capsule (a 3D collider or trigger, standing along the object's Y).
+        return { ...base, model: { type: 'capsule', cx: 0, cy: 0, radius: N(r.v, 0.5), halfHeight: N(ht.v, 2) / 2, centered: true } };
+      }
+      const o = at('offset');
+      const off = vec(o.v, 2) ?? [0, 0];
       lim('offset', o.f);
       // Phase 23.0: an offset's third component (z, a 3D project) is kept through a drag.
       return { ...base, model: { type: 'capsule', cx: off[0]!, cy: off[1]!, radius: N(r.v, 0.3), halfHeight: N(ht.v, 1.8) / 2, ...(typeof off[2] === 'number' ? { cz: off[2] } : {}) } };
@@ -438,6 +446,11 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
         const radius = round3(clamp(size(Math.abs(p.x - m.cx)), { min: rr.min, max: Math.min(rr.max, m.halfHeight) }));
         return { ...s, model: { ...m, radius } };
       }
+      if (m.centered === true) {
+        // Phase 23.1: a centred capsule grows both ways (its centre stays on the object).
+        const height = round3(clamp(size(2 * Math.abs(p.y - m.cy)), { min: Math.max(hr.min, 2 * m.radius), max: hr.max }));
+        return { ...s, model: { ...m, halfHeight: height / 2 } };
+      }
       // The top moves; the feet stay (the offset follows).
       const bottom = m.cy - m.halfHeight;
       const height = round3(clamp(size(p.y - bottom), { min: Math.max(hr.min, 2 * m.radius), max: hr.max }));
@@ -525,6 +538,7 @@ function fieldWrites(s: HandleShape): [string, DescriptorJson][] {
     case 'bounds':
       return [[b['minX']!, round3(m.minX)], [b['maxX']!, round3(m.maxX)], [b['minY']!, round3(m.minY)], [b['maxY']!, round3(m.maxY)]];
     case 'capsule':
+      if (m.centered === true) return [[b['radius']!, round3(m.radius)], [b['height']!, round3(2 * m.halfHeight)]];
       return [[b['radius']!, round3(m.radius)], [b['height']!, round3(2 * m.halfHeight)], [b['offset']!, m.cz !== undefined ? [round3(m.cx), round3(m.cy), m.cz] : [round3(m.cx), round3(m.cy)]]];
     case 'radius':
       return [[b['radius']!, round3(m.r)]];

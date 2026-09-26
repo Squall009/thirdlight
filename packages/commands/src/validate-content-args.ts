@@ -481,7 +481,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
   audioSource: ['assetId', 'volume', 'range'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
-  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'],
+  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'],
   switch: ['mode', 'signal', 'size', 'once'],
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
@@ -679,16 +679,17 @@ export function validateSetComponentArgs(
     // Phase 15.1: `oneWay` alone edits the flag (the shape stays).
     if (shape === undefined && value['oneWay'] !== undefined) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
-      return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon", ... })') };
+      return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh", ... })') };
     }
-    if (shape['type'] !== 'box' && shape['type'] !== 'polygon') {
+    // Phase 23.1: the 3D shapes (the project's physics dimension is the model's rule).
+    if (!['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'].includes(shape['type'] as string)) {
       return {
         ok: false,
         error: fieldValue(
           '/args/value/shape/type',
           shape['type'],
-          '"box" or "polygon"',
-          'collider.shape.type must be "box" or "polygon"',
+          '"box", "polygon", "sphere", "capsule", "convex" or "mesh"',
+          'collider.shape.type must be "box" or "polygon" (a 3D project also "sphere", "capsule", "convex" or "mesh")',
         ),
       };
     }

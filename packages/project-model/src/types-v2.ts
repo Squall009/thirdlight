@@ -73,8 +73,46 @@ export interface ColliderPolygonShape {
   vertices: [number, number][];
 }
 
-/** §21.1/§21.3 collider shape vocabulary. */
-export type ColliderShape = ColliderBoxShape | ColliderPolygonShape;
+/** Phase 23.1 (3D projects): a sphere centred on the entity. */
+export interface ColliderSphereShape {
+  type: 'sphere';
+  radius: number;
+}
+
+/**
+ * Phase 23.1 (3D projects): a capsule standing along the entity's local Y,
+ * centred on the entity — `height` is the total height, end caps included
+ * (>= 2 x radius), the controller capsule's convention.
+ */
+export interface ColliderCapsuleShape {
+  type: 'capsule';
+  radius: number;
+  height: number;
+}
+
+/**
+ * Phase 23.1 (3D projects): the convex hull of `points` ([x, y, z] in the
+ * entity's frame) — usually generated from a model's `_COL` node or its
+ * geometry, stored as data like the 2D plane's model outline polygon.
+ */
+export interface ColliderConvexShape {
+  type: 'convex';
+  points: [number, number, number][];
+}
+
+/**
+ * Phase 23.1 (3D projects, static only): a triangle mesh — `vertices`
+ * ([x, y, z] in the entity's frame) and `triangles` (index triples into
+ * them), usually generated from a model's `_COL` node or its geometry.
+ */
+export interface ColliderMeshShape {
+  type: 'mesh';
+  vertices: [number, number, number][];
+  triangles: [number, number, number][];
+}
+
+/** §21.1/§21.3 collider shape vocabulary (phase 23.1: sphere, capsule, convex and mesh in 3D projects). */
+export type ColliderShape = ColliderBoxShape | ColliderPolygonShape | ColliderSphereShape | ColliderCapsuleShape | ColliderConvexShape | ColliderMeshShape;
 
 export interface ColliderComponent {
   shape: ColliderShape;

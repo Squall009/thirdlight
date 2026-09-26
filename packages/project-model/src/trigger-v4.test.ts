@@ -28,7 +28,7 @@ describe('trigger component (phase 14.2)', () => {
     expect(check({ shape: 'circle', radius: 1, size: [1, 1], signal: 'go' })).toEqual(['field_unexpected /t/size']);
     expect(check({ size: [1, 1], radius: 1, signal: 'go' })).toEqual(['field_unexpected /t/radius']);
     expect(check({ radius: 1, signal: 'go' })).toEqual(['field_missing /t/size', 'field_unexpected /t/radius']);
-    expect(check({ shape: 'sphere', size: [1, 1], signal: 'go' })).toEqual(['field_value /t/shape']);
+    expect(check({ shape: 'cone', size: [1, 1], signal: 'go' })).toEqual(['field_value /t/shape']);
     expect(check({ size: [1, 1], signal: 'go', mode: 'exit' })).toEqual(['field_value /t/mode']);
     expect(check({ shape: 'circle', radius: 0, signal: 'go' })).toEqual(['field_value /t/radius']);
     expect(check({ shape: 'circle', radius: 251, signal: 'go' })).toEqual(['field_value /t/radius']);
@@ -40,6 +40,6 @@ describe('trigger component (phase 14.2)', () => {
     expect(JSON.stringify(canonical(old))).toBe('{"size":[1,2],"signal":"in","once":true,"exitSignal":"out"}');
     const circle = { mode: 'stay', radius: 2, shape: 'circle', signal: 'in' } as TriggerComponent;
     expect(JSON.stringify(canonical(circle))).toBe('{"signal":"in","shape":"circle","radius":2,"mode":"stay"}');
-    expect(BLOCK_COMPONENTS.trigger.fields).toEqual(['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode']);
+    expect(BLOCK_COMPONENTS.trigger.fields).toEqual(['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height']);
   });
 });

@@ -431,7 +431,16 @@ const COMPONENT_BASES: Record<string, J[]> = {
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
-  collider: [{ shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true }, { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } }, { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } }],
+  collider: [
+    { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
+    { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } },
+    { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } },
+    // Phase 23.1: the 3D shapes (their dimension rule is the project's, not the scene's).
+    { shape: { type: 'sphere', radius: 0.5 } },
+    { shape: { type: 'capsule', radius: 0.5, height: 100 } },
+    { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] } },
+    { shape: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]] } },
+  ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
   cameraFollow: [{ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 }, distance: 10, maxSpeed: 100 }],
@@ -445,8 +454,11 @@ const COMPONENT_BASES: Record<string, J[]> = {
   playerSpawn: [{ facing: 'left' }],
   mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
   trigger: [
-    { shape: 'box', size: [2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
+    { shape: 'box', size: [2, 2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
     { shape: 'circle', radius: 1.5, signal: 'enter' },
+    // Phase 23.1: the 3D areas.
+    { shape: 'sphere', radius: 1.5, signal: 'enter' },
+    { shape: 'capsule', radius: 0.025, height: 500, signal: 'enter' },
   ],
   switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }],
   health: [{ max: 5, start: 3, invulnerableSeconds: 1, knockback: 2, knockbackTime: 0.4, hitBounce: 3, hitEffect: 'fx-a' }],

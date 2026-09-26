@@ -249,10 +249,51 @@ export interface PhysicsQuat {
 /** Phase 23.0: one static collider of a 3D world (the entity's full transform; root, unit scale). */
 export interface StaticColliderSpec3D {
   entityId: string;
-  /** The validated `components.collider.shape` (a box with `hz`; opaque to the runtime core). */
+  /**
+   * The collider's shape as the port takes it (phase 23.1: a resolved
+   * `ColliderShape3D` — the entity's scale applied, a model's collision
+   * geometry turned into points or triangles; opaque to the runtime core).
+   */
   shape: unknown;
   position: PhysicsVec3;
   rotation: PhysicsQuat;
+  /** Phase 23.1: a mover's collider (a kinematic body posed every step with `setKinematicPoses`). */
+  kinematic?: boolean;
+}
+
+/**
+ * Phase 23.1: the 3D shapes a port builds (metres, in the collider's own
+ * frame; a capsule stands along its local Y). `convex` is the hull of its
+ * points and `mesh` a triangle mesh (a static collider only), both flat
+ * `[x, y, z, ...]` lists.
+ */
+export type ColliderShape3D =
+  | { type: 'box'; hx: number; hy: number; hz: number }
+  | { type: 'sphere'; radius: number }
+  | { type: 'capsule'; radius: number; halfHeight: number }
+  | { type: 'convex'; points: readonly number[] }
+  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] };
+
+/** Phase 23.1: a shape for 3D overlap queries (half extents / radius / capsule half height, metres). */
+export type OverlapShape3D =
+  | { type: 'box'; hx: number; hy: number; hz: number }
+  | { type: 'sphere'; radius: number }
+  | { type: 'capsule'; radius: number; halfHeight: number };
+
+/** Phase 23.1: where a kinematic (mover) collider is after this step's move. */
+export interface KinematicPose3D {
+  entityId: string;
+  position: PhysicsVec3;
+  rotation: PhysicsQuat;
+}
+
+/** Phase 23.1: the 3D clearance of the character capsule at a point (the 2D result's fields). */
+export interface CharacterClearanceResult3D {
+  ok: boolean;
+  reason?: 'blocked' | 'no_support';
+  supportNormal?: PhysicsVec3;
+  /** m, the deepest overlap with a collider. */
+  penetration?: number;
 }
 
 /** Phase 23.0: the 3D port's per-step character result (the 2D result's fields in 3D). */
@@ -265,6 +306,8 @@ export interface CharacterMoveResult3D {
   contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
   snapped: boolean;
   groundEntityId?: string | null;
+  /** Phase 23.1: how far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
+  kinematicSlack?: number;
 }
 
 /** Phase 23.0: a ray hit in 3D. */
@@ -308,6 +351,14 @@ export interface PhysicsPort3D {
   removeStaticColliders?(entityIds: readonly string[]): void;
   /** The nearest collider hit by a ray (the character excluded). */
   raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null;
+  /** Phase 23.1: where the kinematic (mover) colliders go with this step's world update (after the character's sweep). */
+  setKinematicPoses?(poses: readonly KinematicPose3D[]): void;
+  /** Phase 23.1: the entities whose colliders overlap `shape` at `center` turned by `rotation` (the character excluded), sorted, at most 64. */
+  overlap?(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat): string[];
+  /** Phase 23.1: query only — the clearance of the character capsule if its origin were at `origin`. */
+  characterClearance?(origin: PhysicsVec3): CharacterClearanceResult3D;
+  /** Phase 23.1: re-place the character (its origin) and return its clearance there; clears its motion caches. */
+  placeCharacter?(origin: PhysicsVec3): CharacterClearanceResult3D;
   dispose(): void;
 }
 
@@ -348,7 +399,10 @@ export function validateCharacterMoveResult3D(
   if (Math.abs(a.x - (p.x - previousPosition.x)) > 1e-9 || Math.abs(a.y - (p.y - previousPosition.y)) > 1e-9 || Math.abs(a.z - (p.z - previousPosition.z)) > 1e-9) {
     return bad('applied != position - previousPosition within 1e-9');
   }
-  const allowance = result.snapped ? 0.11 : 0.001;
+  // Phase 23.1: a mover that moved into the character may push it by up to that move (as in 2D).
+  const ks = (result as { kinematicSlack?: unknown }).kinematicSlack;
+  const slack = typeof ks === 'number' && Number.isFinite(ks) ? Math.min(0.5, Math.max(0, ks)) : 0;
+  const allowance = (result.snapped ? 0.11 : 0.001) + slack;
   if (Math.hypot(a.x, a.y, a.z) > Math.hypot(requested.x, requested.y, requested.z) + allowance + 1e-12) {
     return bad('|applied| exceeds |requested| + allowance');
   }

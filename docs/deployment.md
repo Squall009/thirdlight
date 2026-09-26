@@ -2053,8 +2053,32 @@ In a 3D project:
 - every box collider needs a **depth**: the collider's **Half depth** field
   (`hz`, metres; its Scene handle becomes a 3-axis box that turns with the
   object once the depth is set). Switching a project to 3D is refused while a
-  box has none; polygon colliders are 2D-plane shapes and are refused too
-  (more 3D shapes come with phase 23.1);
+  box has none; polygon colliders are 2D-plane shapes and are refused too;
+- phase 23.1: a collider's **Shape** may also be a **sphere** (radius), a
+  **capsule** (radius and total height, standing along the object's Y), a
+  **convex hull** (up to 64 points) or a **triangle mesh** (up to 1,024
+  vertices and 2,048 triangles; static level geometry — never on a mover).
+  Hulls and meshes are made from a model: dragging a model with a `_COL`
+  node into a 3D project gives it a mesh collider from that node (a convex
+  hull when it is too big for a mesh), and the Inspector's **Box / Convex
+  hull / Mesh from model** buttons make one from the object's model (its
+  `_COL` node(s), else its LOD0 geometry). A 3D collider takes its object's
+  scale (any positive scale for a box, hull or mesh; uniform for a sphere or
+  capsule). The Scene view draws every 3D collider as a wire outline; a
+  sphere has a radius handle, a capsule a height and a radius handle.
+  "+ Add component" offers the 3D presets (Box (3D), Sphere, Capsule, Convex
+  hull, Mesh) in a 3D project and the 2D ones in a 2D plane;
+- **triggers** are 3D volumes: a **box** with a depth (`size` [w, h, d]),
+  a **sphere** or a **capsule** (radius and height), turned with their
+  object and tested exactly against the player's capsule — enter and exit
+  signals, `mode: stay`, `once` and scripts' trigger events work as in 2D.
+  Switches, pickups and enemies are 2D-plane blocks and are refused in a 3D
+  project (their 3D forms come with game modes, 23.10); one-way colliders
+  too;
+- **movers** move 3D colliders (box, sphere, capsule, hull) along their
+  waypoints and carry the player standing on them; a script may drive a
+  collider no mover moves through its transform intents (the runtime turns
+  it into a moving body; the player standing on it rides along);
 - colliders may be rotated about any axis; the player controller stays
   upright; the capsule's **Offset** may have a z component;
 - in Play and the export the player capsule falls under the project's

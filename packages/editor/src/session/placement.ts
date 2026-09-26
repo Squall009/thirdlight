@@ -117,8 +117,8 @@ export interface PieceFacts {
   name: string;
   /** LOD0 bounds in the file's root space (null when empty). */
   bounds: { min: [number, number, number]; max: [number, number, number] } | null;
-  /** The 2D collider from the piece's `_COL` node (null: none). */
-  collider: [number, number][] | null;
+  /** The 2D collider from the piece's `_COL` node (null: none); phase 23.1: in a 3D project its 3D shape (`{ shape }`). */
+  collider: DropCollider;
   skinned: boolean;
 }
 
@@ -133,14 +133,20 @@ export interface ModelDropInput {
   /** The file's pieces (from the loaded GLB). */
   pieces: readonly PieceFacts[];
   /** The whole file's collider (its single `_COL`), for a single-piece file. */
-  wholeCollider: [number, number][] | null;
+  wholeCollider: DropCollider;
   position: [number, number, number];
   /** A folder to file into (null: the scene root). */
   parentId: string | null;
 }
 
-const colliderComponents = (c: [number, number][] | null, skinned: boolean): { components?: Record<string, unknown> } =>
-  c !== null && !skinned ? { components: { collider: { shape: { type: 'polygon', vertices: c.map(([x, y]) => [x, y]) } } } } : {};
+/** A drop's collider: the 2D plane's polygon corners, or (phase 23.1, a 3D project) a 3D shape made from the `_COL` node. */
+export type DropCollider = [number, number][] | { shape: Record<string, unknown> } | null;
+
+const colliderComponents = (c: DropCollider, skinned: boolean): { components?: Record<string, unknown> } => {
+  if (c === null || skinned) return {};
+  if (!Array.isArray(c)) return { components: { collider: { shape: c.shape } } };
+  return { components: { collider: { shape: { type: 'polygon', vertices: c.map(([x, y]) => [x, y]) } } } };
+};
 
 /**
  * Plan the one `createEntity` a model drop issues:
