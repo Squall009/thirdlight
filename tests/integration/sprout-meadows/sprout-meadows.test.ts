@@ -269,8 +269,10 @@ async function playThrough(mode: Mode): Promise<void> {
     expect(results.map((r) => r.level)).toEqual(['meadow-1', 'meadow-2', 'autumn-1', 'autumn-2', 'night-1', 'night-2', 'cave-1', 'cave-2', 'summit-1', 'summit-2']);
     // Phase 14.9: every boar the bot stomped dropped a coin (Sprout's script, ctx.spawn).
     for (const r of results) expect(r.spawned).toBe(r.counters['defeated'] ?? 0);
-    // Phase 24.0: nothing spawned in one level is left in the next one.
-    expect(leftoverSpawned).toEqual(results.map(() => 0));
+    // Phase 24.0: nothing spawned in one level is left in the next one (a level that restarts
+    // samples again, so there is at least one sample per level and every sample is zero).
+    expect(leftoverSpawned.length).toBeGreaterThanOrEqual(results.length);
+    expect(leftoverSpawned.every((n) => n === 0)).toBe(true);
   } finally {
     await h.dispose();
   }
