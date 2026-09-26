@@ -658,7 +658,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, random_seed: 7 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, clipsFor: MODEL_ASSET['assetId'] };
@@ -670,6 +670,8 @@ function runAllProbes(): void {
   probe('behaviorTrust', contentErrors, contentDoc({ behaviorTrust: { entries: [] } }), '/behaviorTrust', block('behaviorTrust'), 'behaviorTrust:');
   probe('lighting', contentErrors, contentDoc({ lighting: {} }), '/lighting', block('lighting'), 'lighting:');
   probe('graphs', contentErrors, contentDoc({ graphs: [{ graphId: 'g-1', kind: 'test', name: 'G', graph: { nodes: [], edges: [] } }] }), '/graphs', block('graphs'), 'graphs:');
+  // Phase 23.7: shared script libraries (the files are free text, the item is json).
+  probe('scriptLibraries', contentErrors, contentDoc({ scriptLibraries: [{ libraryId: 'lib-a', name: 'Lib', files: [{ path: 'src/index.ts', text: 'export const a = 1;\n' }] }] }), '/scriptLibraries', block('scriptLibraries'), 'scriptLibraries:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
   // the content block's own keys (each block's inside is probed above)

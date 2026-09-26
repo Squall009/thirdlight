@@ -487,6 +487,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   graphs?: GraphDocument[];
   /** Phase 20.0: visual effects (absent = none). */
   effects?: import('./effects').EffectDef[];
+  /** Phase 23.7: shared script libraries behaviors import as `@lib/<id>` (absent = none). */
+  scriptLibraries?: import('./script-libraries').ScriptLibrary[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

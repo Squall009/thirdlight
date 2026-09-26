@@ -93,6 +93,8 @@ function withRequiredModules(c: ScriptContainer): ScriptContainer {
 }
 
 function fileOfDiagnostic(d: CompileDiagnosticView): string | null {
+  // Phase 23.7: a diagnostic in an imported script library is not about this script's files.
+  if (d.library !== undefined) return null;
   if (d.path !== undefined) return d.path;
   return d.line !== undefined ? ENTRY_PATH : null;
 }
@@ -375,7 +377,8 @@ export function ScriptDocument(p: ScriptDocumentProps): JSX.Element {
             <ul>
               {diagnostics.map((d, i) => {
                 const file = fileOfDiagnostic(d);
-                const where = file === null ? '' : `${file}${d.line !== undefined ? `:${d.line}${d.column !== undefined ? `:${d.column}` : ''}` : ''}`;
+                const shown = file ?? (d.library !== undefined && d.path !== undefined ? `@lib/${d.library}/${d.path}` : null);
+                const where = shown === null ? '' : `${shown}${d.line !== undefined ? `:${d.line}${d.column !== undefined ? `:${d.column}` : ''}` : ''}`;
                 return (
                   <li key={`${i}-${d.code}`}>
                     <button

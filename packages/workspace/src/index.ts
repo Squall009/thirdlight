@@ -53,6 +53,9 @@ export type {
   PrepareBehaviorSourceOk,
   PrepareBehaviorSourceRequest,
   PrepareBehaviorSourceResult,
+  PrepareLibraryDependentsOk,
+  PrepareLibraryDependentsResult,
+  ScriptLibraryDraftCheckResult,
 } from './behavior';
 export type { AssetRecord, AssetVersion, ContentCatalog, ImportRecipe } from '@thirdlight/project-model';
 // Packet 25: the injected inspector's proposal type is asset-pipeline's

@@ -160,6 +160,11 @@ export class PrefabProjection {
         this.behaviors.set(change.behaviorId, toDeclarationView(next));
         return true;
       }
+      case 'setScriptLibrary': {
+        // Phase 23.7: the scripts recompiled against the changed library (their new records).
+        for (const b of change.behaviors) this.behaviors.set(b.behaviorId, toDeclarationView(b.next));
+        return change.behaviors.length > 0;
+      }
       case 'graphEdit': {
         // Phase 19.0: a visual script's graph advances from the change's ops
         // (the backend applied and validated the same ops).

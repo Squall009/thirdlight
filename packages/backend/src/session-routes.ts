@@ -183,6 +183,27 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
     // no revision advance, no mutation.applied, no history).
     const isMut = isMutationOp(envelope.op);
     if (isMut) {
+      // Phase 23.7: a script library change republishes the published scripts
+      // that import it in the same command; compile them against the library
+      // set it will commit first (the command reads only those prepared facts).
+      if (envelope.op === 'setScriptLibrary' && typeof env.args === 'object' && env.args !== null && !Array.isArray(env.args)) {
+        const args = env.args as Record<string, unknown>;
+        if (typeof args['libraryId'] === 'string') {
+          const prep = await service.prepareScriptLibraryDependents(projectId, args as unknown as Parameters<WorkspaceService['prepareScriptLibraryDependents']>[1]);
+          if (!prep.ok && prep.kind === 'compile') {
+            const first = prep.failure.diagnostics[0]?.message ?? prep.failure.reason;
+            const message = `script ${prep.behaviorId} does not compile against the changed library @lib/${args['libraryId']}: ${first}`.slice(0, 256);
+            recordProblem(projectId, 'compile', prep.failure.code, message);
+            sendJson(res, 400, { ok: false, error: { code: prep.failure.code, cls: 'validation', message, behaviorId: prep.behaviorId, diagnostics: prep.failure.diagnostics.slice(0, 32) } });
+            return;
+          }
+          if (!prep.ok) {
+            recordProblem(projectId, 'command', prep.error.code, `setScriptLibrary: ${prep.error.message ?? prep.error.code}`);
+            sendJson(res, statusFor(prep.error.cls), { ok: false, error: prep.error });
+            return;
+          }
+        }
+      }
       const result = service.runCommand(env);
       if (result.ok) {
         if (result.duplicated === false) {

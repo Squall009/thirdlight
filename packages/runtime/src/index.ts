@@ -174,6 +174,8 @@ export {
   BehaviorIntentError,
   INTENT_LIMITS,
   emptyIntentSet,
+  facingQuaternion,
+  normalizedQuaternion,
   quantizeIntentMove,
   validateIntentPhase,
   validateIntentShape,
@@ -208,5 +210,8 @@ export type { BehaviorSpawnControl } from './types';
 // Phase 14.2: ctx.timers and the trigger events in ctx.events.
 export { MAX_TIMERS_PER_INSTANCE, MAX_TIMER_SECONDS } from './timers';
 export type { BehaviorMessage, BehaviorMessageControl, BehaviorMessages, BehaviorTimers, TriggerEventRecord } from './types';
+// Phase 23.7: ctx.random (seeded, replay-safe) and ctx.world queries.
+export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random';
+export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';

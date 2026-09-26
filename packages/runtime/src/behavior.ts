@@ -37,6 +37,7 @@ import type {
 import type { ActionFrame } from './actions';
 import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
+import { InstanceRandom, RandomCallError, randomSeedOf } from './random';
 import { LiveTagIndex } from './scene-set';
 import { InstanceTimers, TimerCallError } from './timers';
 import {
@@ -58,6 +59,7 @@ import type {
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
+  BehaviorRandom,
   BehaviorSave,
   BehaviorSceneControl,
   BehaviorSignals,
@@ -67,6 +69,7 @@ import type {
   GameplaySettings,
   ModuleConfig,
   RuntimeSnapshot,
+  SimEntityData,
   SimulationModuleSpec,
   SimulationPhase,
   SimulationPhaseModule,
@@ -126,6 +129,11 @@ export interface BehaviorContext {
   readonly events?: readonly (AnimatorEventRecord | TriggerEventRecord)[];
   /** Named timers of this instance, counted in fixed steps. */
   readonly timers: BehaviorTimers;
+  /**
+   * Phase 23.7: seeded random numbers of this instance (replay-safe; the project's
+   * `random_seed` setting with this script and object), with named sub-streams.
+   */
+  readonly random: BehaviorRandom;
   /** Signals (seen one step after they are emitted). */
   readonly signals?: BehaviorSignals;
   /** Phase 19.1: messages to other scripts, with a value (seen one step after they are sent). */
@@ -539,6 +547,8 @@ interface BehaviorInstance {
   /** Phase 21.2: `ctx.log` and `ctx.messages` of this instance (made once). */
   log: ((level: BehaviorLogLevel, message: string) => void) | null;
   messages: { src: StepContext; view: BehaviorMessages } | null;
+  /** Phase 23.7: `ctx.random` of this instance (made on first use). */
+  random: InstanceRandom | null;
 }
 
 /**
@@ -661,7 +671,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         } catch (e) {
           throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`);
         }
-        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null };
+        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null };
       };
       for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
         try {
@@ -671,6 +681,13 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           throw e;
         }
       }
+
+      // Phase 23.7: the run seed of ctx.random (the project's random_seed, else the default).
+      const randomSeed = randomSeedOf(cfg.settings);
+      const randomOf = (instance: BehaviorInstance): BehaviorRandom => {
+        if (instance.random === null) instance.random = new InstanceRandom(randomSeed, behaviorId, instance.entityId);
+        return instance.random.api;
+      };
 
       let disposed = false;
       let logCount = 0;
@@ -734,6 +751,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (!owns(instance, intent.entityId)) {
             throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
           }
+          // Phase 23.7: a quaternion or a facing (transform or pose) writes the rotation too.
+          if (intent.quaternion !== undefined || intent.facing !== undefined) bits |= 8;
           if (intent.kind === 'transform') {
             for (const axis in intent.position) bits |= axis === 'x' ? 1 : axis === 'y' ? 2 : 4;
           } else {
@@ -844,6 +863,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.animators !== undefined || src.triggerEvents !== undefined) fields['events'] = { get: () => eventsFor(instance, src), enumerable: true };
         // Phase 14.2: named step-counted timers of this instance.
         fields['timers'] = { value: instance.timers.api, enumerable: true };
+        // Phase 23.7: seeded random numbers (made on first use).
+        fields['random'] = { get: () => randomOf(instance), enumerable: true };
         // Phase 9.9: signals and the run's counters.
         if (src.signals !== undefined) fields['signals'] = { value: src.signals, enumerable: true };
         // Phase 19.1: messages between scripts (this instance sends and receives as its entity).
@@ -888,7 +909,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             if (nodeId !== undefined) err.nodeId = nodeId;
             return err;
           };
-          if (e instanceof TimerCallError) {
+          if (e instanceof TimerCallError || e instanceof RandomCallError) {
             throw withNode(new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`));
           }
           if (e instanceof FrozenPreparedError) {
@@ -924,6 +945,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (rctx.reason !== 'start' && rctx.reason !== 'replay') return;
           for (const instance of instances) {
             instance.timers.clear();
+            // Phase 23.7: every random stream starts over with the run.
+            instance.random?.reset();
             instance.events = null;
             instance.eventsStep = -1;
             try {
@@ -1065,7 +1088,7 @@ function channelName(intent: BehaviorIntent, bits: number): string {
       if ((bits & bit) !== 0) return `t:${intent.entityId}:${axis}`;
     }
   }
-  if (intent.kind === 'pose') return `p:${intent.entityId}:${(bits & 8) !== 0 ? 'rotation' : 'scale'}`;
+  if (intent.kind === 'pose' || (intent.kind === 'transform' && (bits & 8) !== 0)) return `p:${intent.entityId}:${(bits & 8) !== 0 ? 'rotation' : 'scale'}`;
   return intent.kind;
 }
 
@@ -1074,7 +1097,37 @@ function channelName(intent: BehaviorIntent, bits: number): string {
  * they stand at this point of the step.
  */
 function worldView(ctx: StepContext): BehaviorWorldView {
-  const curr = ctx.state.curr;
+  const state = ctx.state;
+  const curr = state.curr;
+  // Phase 23.7: name/component queries, cached per entity list (the runtime
+  // replaces `order` whenever entities come or go, never edits it in place).
+  let cachedOrder: readonly string[] | null = null;
+  const byName = new Map<string, readonly string[]>();
+  const byKind = new Map<string, readonly string[]>();
+  const listFor = (cache: Map<string, readonly string[]>, key: unknown, what: string, match: (e: SimEntityData) => boolean): readonly string[] => {
+    if (typeof key !== 'string') throw new BehaviorHostError('module_error', 'behavior_query_invalid', `ctx.world.${what} needs a text`);
+    const order = state.order;
+    if (order !== cachedOrder) {
+      cachedOrder = order;
+      byName.clear();
+      byKind.clear();
+    }
+    let hit = cache.get(key);
+    if (hit === undefined) {
+      const entities = state.entities;
+      const out: string[] = [];
+      for (const id of order) {
+        const e = entities.get(id);
+        if (e !== undefined && match(e)) out.push(id);
+      }
+      hit = Object.freeze(out);
+      // A bound on remembered queries (a script asking for ever new names).
+      if (cache.size >= WORLD_QUERY_CACHE) cache.clear();
+      cache.set(key, hit);
+    }
+    return hit;
+  };
+  const named = (name: unknown, what: string): readonly string[] => listFor(byName, name, what, (e) => e.name === name);
   return Object.freeze({
     transform(entityId: string) {
       const t = curr.get(entityId);
@@ -1085,8 +1138,20 @@ function worldView(ctx: StepContext): BehaviorWorldView {
         scale: Object.freeze([t.scale[0], t.scale[1], t.scale[2]] as const),
       });
     },
+    find(name: string): string | undefined {
+      return named(name, 'find')[0];
+    },
+    findAll(name: string): readonly string[] {
+      return named(name, 'findAll');
+    },
+    withComponent(kind: string): readonly string[] {
+      return listFor(byKind, kind, 'withComponent', (e) => e.componentKinds?.includes(kind) === true);
+    },
   });
 }
+
+/** Phase 23.7: remembered name/component queries per kind before the cache starts over. */
+const WORLD_QUERY_CACHE = 256;
 
 /** The evaluated `default` export of a compiled artifact namespace. */
 /**

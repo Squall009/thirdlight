@@ -5,7 +5,8 @@
  * Steps owned here: strict parse + unknown-field rejection + canonical-form
  * check (`container`), lone-surrogate rejection (`encoding`), `graphVersion`,
  * `entryPath`/`entry_missing`, per-path grammar and `.ts` extension, ascending
- * order, duplicate paths and the step-7 bounds. Nothing here is executed: the
+ * order, duplicate paths and the step-7 bounds (phase 23.7: `.json` data
+ * files are accepted beside `.ts`). Nothing here is executed: the
  * container is data and is parsed with the accepted strict byte parser.
  */
 
@@ -230,8 +231,12 @@ export function parseSourceGraphContainer(
     if (f.path.length < 1 || f.path.length > 128 || !PATH_RE.test(f.path)) {
       return containerFailure('behavior_source_invalid', 'path', { path: f.path, detail: f.path, message: `stored path "${f.path}" violates the path grammar` });
     }
-    if (!f.path.endsWith('.ts')) {
-      return containerFailure('behavior_source_invalid', 'extension', { path: f.path, detail: f.path, message: `stored path "${f.path}" is not a .ts file` });
+    // Phase 23.7: `.json` files are data modules (imported as their parsed value).
+    if (!f.path.endsWith('.ts') && !f.path.endsWith('.json')) {
+      return containerFailure('behavior_source_invalid', 'extension', { path: f.path, detail: f.path, message: `stored path "${f.path}" is not a .ts or .json file` });
+    }
+    if (f.path === entryPath && !f.path.endsWith('.ts')) {
+      return containerFailure('behavior_source_invalid', 'extension', { path: f.path, detail: f.path, message: `the entry file "${f.path}" is not a .ts file` });
     }
   }
   // Step 5: ascending order (duplicates are step 6) and module/ownership order.

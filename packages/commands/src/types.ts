@@ -120,7 +120,10 @@ export type V3MutationOp =
   // phase 20.0: visual effects
   | 'setEffect'
   | 'deleteEffect'
-  | 'renameEffect';
+  | 'renameEffect'
+  // phase 23.7: shared script libraries
+  | 'setScriptLibrary'
+  | 'deleteScriptLibrary';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -418,6 +421,27 @@ export interface SetEffectChange {
   effectId: string;
   previous: EffectDef | null;
   next: EffectDef | null;
+}
+
+/**
+ * Phase 23.7: `setScriptLibrary`/`deleteScriptLibrary` change data: the library
+ * before and after (null = none) and the published behaviors recompiled
+ * against it in the same command (their records before and after).
+ */
+export interface SetScriptLibraryChange {
+  type: 'setScriptLibrary';
+  libraryId: string;
+  previous: import('@thirdlight/project-model').ScriptLibrary | null;
+  next: import('@thirdlight/project-model').ScriptLibrary | null;
+  behaviors: { behaviorId: string; previous: BehaviorRecord; next: BehaviorRecord }[];
+}
+
+/** Phase 23.7: undo of a library op: restore the library and its dependents' records. */
+export interface SetScriptLibraryInverse {
+  kind: 'setScriptLibrary';
+  libraryId: string;
+  restore: import('@thirdlight/project-model').ScriptLibrary | null;
+  behaviors: { behaviorId: string; restore: BehaviorRecord }[];
 }
 
 /** Phase 20.0: undo of an effect op: restore the previous effect (null = remove it). */
@@ -723,7 +747,8 @@ export type ChangeData =
   | SetSceneIndexChange
   | GraphEditChange
   | SetGraphChange
-  | SetEffectChange;
+  | SetEffectChange
+  | SetScriptLibraryChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -754,7 +779,8 @@ export type ForwardChange =
   | SetSceneIndexChange
   | GraphEditChange
   | SetGraphChange
-  | SetEffectChange;
+  | SetEffectChange
+  | SetScriptLibraryChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -923,6 +949,7 @@ export type InverseSpec =
   | GraphEditInverse
   | SetGraphInverse
   | SetEffectInverse
+  | SetScriptLibraryInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
@@ -1063,6 +1090,8 @@ export interface PreparedBehaviorSourceFact {
   declaredInCode?: true;
   /** Phase 19.0: the source was generated from a visual-script graph. */
   sourceKind?: 'graph';
+  /** Phase 23.7: the script library versions the output links (absent when none). */
+  libraries?: { libraryId: string; sourceDigest: string }[];
   declarationDigest: string;
   recipeDigest: string;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
@@ -1344,6 +1373,18 @@ export interface DeleteGraphArgs {
   graphId: string;
 }
 
+/**
+ * Phase 23.7: `setScriptLibrary` creates a library or patches one: `files`
+ * lists the files to add or replace (`text: null` removes one; files not
+ * mentioned are kept); `name` is required for a new library.
+ */
+export type SetScriptLibraryArgs = import('@thirdlight/project-model').ScriptLibraryPatch;
+
+/** Phase 23.7: `deleteScriptLibrary` removes one (refused while a published behavior imports it). */
+export interface DeleteScriptLibraryArgs {
+  libraryId: string;
+}
+
 /** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
   effect: EffectDef;
@@ -1361,6 +1402,8 @@ export interface RenameEffectArgs {
 }
 
 export type MutationArgs =
+  | SetScriptLibraryArgs
+  | DeleteScriptLibraryArgs
   | SetEffectArgs
   | DeleteEffectArgs
   | RenameEffectArgs
