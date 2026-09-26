@@ -6,7 +6,7 @@ Version: 0.1 · 2026-09-16 · Planning draft; no implementation started.
 
 Build a personal, self-hostable, browser-based game editor using three.js. Human visual editing and external AI tools must operate on the same project through well-defined interfaces. Keep implementation tasks small enough for local models to understand, implement, and verify independently.
 
-The long-term ambition includes scene authoring, prefabs, gameplay systems, UI, material and shader graphs, asset previews, efficient rendering, and genre templates. The initial proving ground is one short side-scrolling 2.5D platformer. Future RPG support should be possible without building RPG features into the foundation now.
+The long-term ambition includes scene authoring, prefabs, gameplay systems, UI, material and shader graphs, asset previews, efficient rendering, and genre templates. The initial proving ground was one short side-scrolling 2.5D platformer; since phase 23 (2026-09-26, owner) the scope is 3D games of any genre, with 2D/2.5D as a constrained case of the same 3D simulation. Features stay generic capabilities; genre rules (RPG, tactics, platformer) remain project content.
 
 ## 2. Decisions and status
 
@@ -122,7 +122,7 @@ The harness edits code and tests directly. File watching triggers compilation an
 
 Play starts from an identified immutable authoring snapshot and creates separate runtime state. Runtime simulation never writes authoring data implicitly. Applying play-mode changes is a later explicit operation with a selected change set. Early code changes can restart play mode; state-preserving hot reload is not required.
 
-For 2.5D gameplay, use a 3D scene with an explicitly defined movement plane, camera convention, and physics policy. Choose the physics library and exact dimensional model during a bounded evaluation, before implementing the character controller.
+The simulation is 3D; 2.5D gameplay is a 3D scene with an explicitly defined movement plane, camera convention, and physics policy (phase 23). Choose the physics library and exact dimensional model during a bounded evaluation, before implementing the character controller.
 
 ## 7. AI integration and context limits
 

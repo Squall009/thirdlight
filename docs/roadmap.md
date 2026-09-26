@@ -16,7 +16,10 @@ that phase plan's decision log, and move on. The owner reviews at the end.
    (`tests/integration/sprout-meadows`, `tests/e2e/sprout-live.e2e.ts`) use
    the demo. Sprout is a consumer: its own values live in its own project
    data and scripts. When an existing default turns out to be demo-shaped,
-   fix it and log it.
+   fix it and log it. This covers **API shape and dimensionality**, not only
+   values: a port, library or data model that only works in 2D, on one axis
+   or for one genre is demo-shaped even when every default is neutral
+   (the 2D-only simulation found in 2026-09-26 was this; phase 23).
 2. **Everything that affects the game is an object in the editor.** Any
    data the game reads can be seen, selected and edited in the editor —
    Inspector fields, and Scene-view handles for anything with a size, range,
@@ -46,6 +49,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 20 | `docs/plan-phase-20.md` | Visual effects graph on GPU compute (CPU/WebGL2 fallback) |
 | 21 | `docs/plan-phase-21.md` | Performance and memory pass |
 | 22 | `docs/plan-phase-22.md` | Multithreading: simulation worker, optional render worker |
+| 23 | `docs/plan-phase-23.md` | 3D game foundations: 3D physics and character controller, cameras, pointer and 3D queries, block layers, project UI, game modes, dialogue, sequencer, audio, saves (gap list from the Skyforge Tactics dogfooding project) |
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).
