@@ -279,13 +279,13 @@ for editor items, commit/push/restart, decision log).
 | Item | Status |
 |---|---|
 | 23.0 Dimensional model | done 2026-09-26 — two backends (rapier2d untouched for plane2d, rapier3d 0.20.0 for 3d), `physics_dimension`, box `hz`, PhysicsPort3D; 2D rotated-collider bug fixed (no pinned values moved) |
-| 23.1 3D physics world, colliders, triggers | next |
+| 23.1 3D physics world, colliders, triggers | in progress |
 | 23.2 3D character controller | planned |
 | 23.3 Pointer input and 3D queries | planned |
-| 23.4 Camera framework | planned |
+| 23.4 Camera framework | in progress |
 | 23.5 Block layers — core | planned |
 | 23.6 Block layers — editor | planned |
-| 23.7 Scripting conveniences | planned |
+| 23.7 Scripting conveniences | in progress |
 | 23.8 Test and debug entry points | planned |
 | 23.9a Project UI — runtime | planned |
 | 23.9b Project UI — editor | planned |
@@ -304,6 +304,8 @@ for editor items, commit/push/restart, decision log).
 ## 6. Results and decision log
 
 ### Decision log
+
+- 2026-09-26 (owner): finish all of phase 23 in one autonomous run. Worktree agents in parallel waves of about three (host load); one `tools/gate.sh full` may cover a batch of merged items before they are ticked.
 
 - 2026-09-26 (owner): phase 23 approved from the Skyforge gap list; one
   phase in tranches A–F. Charter scope widened from "2.5D platformer proving
