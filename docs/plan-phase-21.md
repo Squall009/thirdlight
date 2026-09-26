@@ -134,7 +134,7 @@ Effects are generated now but drawn only after 20.2.
 | 21.3 rendering | done 2026-09-25 | baa4685 |
 | 21.4 editor and backend | done 2026-09-25 | 0f81af6, 37ff8b7, b6efa32 |
 | 21.5 memory | done 2026-09-25 | 5337727 |
-| 21.6 wrap-up | todo | |
+| 21.6 wrap-up | done 2026-09-26 | c51b818, 56000a6 |
 
 ## 4. Results and decision log
 
