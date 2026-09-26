@@ -61,7 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -315,18 +315,9 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
     const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
     const position = transform?.position ?? [0, 0, 0];
-    if (components['collider'] !== undefined) {
-      const collider = components['collider'] as { shape?: unknown; rotationZ?: number; oneWay?: boolean };
-      statics.push({
-        entityId: entity.id,
-        position: { x: position[0] ?? 0, y: position[1] ?? 0 },
-        rotationZ: collider.rotationZ ?? 0,
-        shape: collider.shape as never,
-        // Phase 9.9: movers are kinematic; one-way platforms.
-        ...(components['mover'] !== undefined ? { kinematic: true } : {}),
-        ...(collider.oneWay === true ? { oneWay: true } : {}),
-      });
-    }
+    // Phase 23.0: the shared rule (world XY, the entity's rotation about Z; movers kinematic; one-way platforms).
+    const collider = staticColliderOf(entity.id, components);
+    if (collider !== null) statics.push(collider as RapierStaticColliderSpec);
     if (components['controller'] !== undefined) {
       // Phase 14.0: the player's own capsule (its controller's, else the default).
       const capsule = playerCapsuleOf(components['controller']);

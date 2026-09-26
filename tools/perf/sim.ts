@@ -26,7 +26,7 @@ import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import { createGameHost, linkBehaviorModules } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { M2_SETTINGS_KEYS } from '@thirdlight/project-model';
-import { playerCapsuleOf, playerPhysicsOf } from '@thirdlight/runtime';
+import { playerCapsuleOf, playerPhysicsOf, staticColliderOf } from '@thirdlight/runtime';
 
 import { cpuCalibration } from './stats';
 
@@ -118,7 +118,8 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   for (const e of entities) {
     const c = e.components ?? {};
     const pos = c.transform?.position ?? [0, 0, 0];
-    if (c.collider !== undefined) statics.push({ entityId: e.id, position: { x: pos[0], y: pos[1] }, rotationZ: c.collider.rotationZ ?? 0, shape: c.collider.shape, ...(c.mover !== undefined ? { kinematic: true } : {}), ...(c.collider.oneWay === true ? { oneWay: true } : {}) });
+    const collider = staticColliderOf(e.id, c);
+    if (collider !== null) statics.push(collider);
     if (c.controller !== undefined) {
       const capsule = playerCapsuleOf(c.controller);
       tuning = playerPhysicsOf(c.controller);

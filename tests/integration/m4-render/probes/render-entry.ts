@@ -35,6 +35,7 @@
  */
 import {
   BUILTIN_MODULES,
+  colliderRotationZ,
   createSimulationRegistry,
   instantiateRuntime,
   registerSimulationModule,
@@ -161,11 +162,11 @@ function physicsConfigFromScene(): RapierPhysicsInitConfig | null {
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
     const position = transform?.position ?? [0, 0, 0];
     if (components['collider'] !== undefined) {
-      const collider = components['collider'] as { shape?: unknown; rotationZ?: number };
+      const collider = components['collider'] as { shape?: unknown };
       statics.push({
         entityId: entity.id,
         position: { x: position[0] ?? 0, y: position[1] ?? 0 },
-        rotationZ: collider.rotationZ ?? 0,
+        rotationZ: colliderRotationZ(transform?.rotation),
         shape: collider.shape as never,
       });
     }

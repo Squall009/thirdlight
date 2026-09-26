@@ -27,7 +27,7 @@ import type { ActionFrame } from './actions';
 import type { PhysicsPort, Vec2 } from './ports';
 import { BLOCK_DEFAULTS, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, ModelBounds, PlayerCapsule, TransformState, TriggerEventRecord } from './types';
-import { capsuleHalfTotal } from './scene-set';
+import { capsuleHalfTotal, colliderRotationZ } from './scene-set';
 
 /**
  * Phase 19.1: script messages per step (`ctx.messages.send`): far above what
@@ -67,6 +67,8 @@ interface Mover {
   half: Vec2 | null;
   /** Phase 15.3: the most it pushes a player per step (its `maxPush` m/s over the step rate). */
   pushStep: number;
+  /** Phase 23.0: its collider's rotation about Z (the entity's; a mover translates, it does not turn). */
+  rotationZ: number;
 }
 
 interface Box {
@@ -313,6 +315,7 @@ export class GameplayBlocks {
           pos: [...base],
           half: boxHalf(col),
           pushStep: num(m['maxPush'], D.maxPush) / this.host.hz,
+          rotationZ: colliderRotationZ(e.components.transform.rotation),
         });
       }
       const t = c['trigger'];
@@ -674,7 +677,7 @@ export class GameplayBlocks {
       if (!m.started && m.startOn !== null && this.signalsPrev.has(m.startOn)) m.started = true;
       if (m.started && !m.done) this.advance(m, dt);
       this.writeTransform(m.id, m.pos);
-      poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: 0 });
+      poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: m.rotationZ });
       if (ground === m.id) this.carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
       else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m, before);
     }

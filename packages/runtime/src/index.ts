@@ -181,7 +181,7 @@ export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags 
 // Phase 14.0: the character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { capsuleHalfTotal, modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument } from './scene-set';
+export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf } from './scene-set';
 // Phase 15.3: the tuning defaults hosts and editors read (the values are project-model's).
 export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';

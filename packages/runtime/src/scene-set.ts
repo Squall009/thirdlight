@@ -51,19 +51,48 @@ export function sceneContribution(entities: readonly EntityV3[]): SceneContribut
       const facing = (c['playerSpawn'] as { facing?: string }).facing;
       out.spawns.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] }, ...(facing === 'left' || facing === 'right' ? { facing } : {}) });
     }
-    const collider = c['collider'] as { shape?: unknown; rotationZ?: number; oneWay?: boolean } | undefined;
-    if (collider !== undefined && c['controller'] === undefined) {
-      out.colliders.push({
-        entityId: e.id,
-        shape: collider.shape,
-        position: { x: t.position[0], y: t.position[1] },
-        rotationZ: collider.rotationZ ?? 0,
-        ...(c['mover'] !== undefined ? { kinematic: true } : {}),
-        ...(collider.oneWay === true ? { oneWay: true } : {}),
-      });
+    if (c['controller'] === undefined) {
+      const spec = staticColliderOf(e.id, c);
+      if (spec !== null) out.colliders.push(spec);
     }
   }
   return out;
+}
+
+/**
+ * Phase 23.0: the angle about Z (radians) of a transform's `[x, y, z, w]`
+ * quaternion — the one rotation a 2D-plane collider takes (the project model
+ * keeps a physics entity's rotation about Z only). Exactly 0 for the
+ * identity (either sign of `w`), so an unrotated collider keeps its old spec.
+ */
+export function colliderRotationZ(rotation: readonly number[] | undefined): number {
+  if (rotation === undefined) return 0;
+  const z = rotation[2] ?? 0;
+  const w = rotation[3] ?? 1;
+  return z === 0 ? 0 : 2 * Math.atan2(z, w);
+}
+
+/**
+ * Phase 23.0: the static collider spec of one entity's `collider` component
+ * (null without one) — its world XY, the entity's rotation about Z (the
+ * editor draws the collider rotated with the entity; before 23.0 every host
+ * read a `collider.rotationZ` field the model never had, so physics always
+ * got 0), kinematic for a mover, one-way when set. The single place the
+ * runtime, the Play preview, the export and the perf harness derive it.
+ */
+export function staticColliderOf(entityId: string, components: Readonly<Record<string, unknown>>): StaticColliderSpec | null {
+  const collider = components['collider'] as { shape?: unknown; oneWay?: boolean } | undefined;
+  if (collider === undefined) return null;
+  const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[] } | undefined;
+  const position = t?.position ?? [0, 0, 0];
+  return {
+    entityId,
+    shape: collider.shape,
+    position: { x: position[0] ?? 0, y: position[1] ?? 0 },
+    rotationZ: colliderRotationZ(t?.rotation),
+    ...(components['mover'] !== undefined ? { kinematic: true } : {}),
+    ...(collider.oneWay === true ? { oneWay: true } : {}),
+  };
 }
 
 /** The entities with `at` added to every root entity's position (children follow their parent). */

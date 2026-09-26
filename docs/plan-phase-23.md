@@ -313,3 +313,15 @@ for editor items, commit/push/restart, decision log).
   demo-shaped foundation roadmap principle 1 forbids; the phase 15 defaults
   audit checked values, not dimensionality or genre assumptions in APIs.
   Principle 1 now names dimensionality and API shape explicitly.
+- 2026-09-26 (23.0): **2D collider rotation fixed** — one shared helper,
+  `staticColliderOf` / `colliderRotationZ` in `runtime/src/scene-set.ts`
+  (2·atan2(z, w) of the entity quaternion, exactly 0 for the identity), is
+  now used by scene loads, the Play preview, the export bootstrap, the perf
+  harness and the render probe instead of four copies reading the
+  nonexistent `collider.rotationZ`; a mover's kinematic pose keeps its
+  entity's angle too (it was reset to 0 every step). Values changed: none —
+  no fixture, template, replay or Sprout scene has a rotated collider (a
+  scan of every JSON document found only two validation cases in
+  `fixtures/m2/contracts/physics/numerics.json`, which never reach physics);
+  the physics course fixtures carry `rotationZ` directly and were already
+  right. All pinned suites stay unchanged.
