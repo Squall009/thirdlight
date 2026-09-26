@@ -1266,7 +1266,8 @@ export function inputView(frame: ActionFrame): BehaviorInputView {
   const get = (name: string): { v: number; x?: number; y?: number; p: string } | undefined => {
     const a = frame.actions?.[name];
     if (a !== undefined) return a;
-    if (name === 'move') return { v: frame.moveX, p: 'none' };
+    // Phase 23.2: with a second move axis the move is a vector.
+    if (name === 'move') return frame.moveY !== undefined ? { v: frame.moveX, x: frame.moveX, y: frame.moveY, p: 'none' } : { v: frame.moveX, p: 'none' };
     if (name === 'jump') return { v: frame.jump === 'pressed' || frame.jump === 'held' ? 1 : 0, p: frame.jump };
     return undefined;
   };

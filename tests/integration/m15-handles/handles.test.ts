@@ -74,6 +74,16 @@ function dragAndStore(s: State, id: string, component: string, kind: string, gri
   return after;
 }
 
+/** Phase 23.2: drag a (3D) height shape's grip, store it, one undo restores the component. */
+function dragAndStore3(s: State, shape: HandleShape, to: P3, stored: (v: Any) => void): void {
+  const edit = commitValue(dragGrip(shape, 'height', to, true)) as Any;
+  expect(edit?.ok, JSON.stringify(edit)).toBe(true);
+  const before = JSON.parse(JSON.stringify(entityOf(s, shape.entityId).components[shape.component]));
+  const after = must(s, 'setComponent', { entityId: shape.entityId, component: shape.component, value: edit.value }, 'height');
+  stored(entityOf(after, shape.entityId).components[shape.component]);
+  expect(entityOf(must(after, 'undo', {}, 'undo height'), shape.entityId).components[shape.component]).toEqual(before);
+}
+
 describe('the Scene-view handles over the real registry and commands', () => {
   it('every descriptor handle binds fields that exist; `point` is defined but no field uses it yet', () => {
     const used = new Set(DESCRIPTORS.components.flatMap((c) => c.handles.map((h) => h.kind)));
@@ -129,6 +139,39 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(gripsOf(cap).map((g) => [g.id, g.at])).toEqual([['top', p3(0, 0.9)], ['side', p3(0.3, 0)]]);
     s = dragAndStore(s, 'group-0001', 'controller', 'capsule', 'top', p3(0, 0.12), true, (v) => expect(v.capsule).toEqual({ radius: 0.3, height: 1, offset: [0, -0.4] }));
     dragAndStore(s, 'group-0001', 'controller', 'capsule', 'side', p3(0.52, 0), true, (v) => expect(v.capsule).toEqual({ radius: 0.5, height: 1, offset: [0, -0.4] }));
+  });
+
+  it('phase 23.2 (a 3D project): the step-up and ledge heights above the capsule\'s feet; a 2D plane shows neither', () => {
+    let s = fresh();
+    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'controller', value: {} }, 'controller');
+    // A 2D plane (and a registry read without a dimension): no height handles.
+    expect(handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).some((x) => x.kind === 'height')).toBe(false);
+    expect(handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS, 2).some((x) => x.kind === 'height')).toBe(false);
+    s = must(s, 'setSettings', { settings: { physics_dimension: 3 } }, '3D');
+    const shapes = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS, 3);
+    // The ledge height only while the ledge climb is on.
+    expect(shapes.filter((x) => x.kind === 'height').map((x) => x.label)).toEqual(['Step-up height']);
+    const step = shapes.find((x) => x.kind === 'height')!;
+    const [g] = gripsOf(step);
+    // 0.3 m (the default) above the default capsule's feet (0.9 m below the origin), at its side.
+    expect([g!.id, g!.drag, g!.axis]).toEqual(['height', 'axis', p3(0, 1, 0)]);
+    expect(g!.at.x).toBeCloseTo(0.3, 9);
+    expect(g!.at.y).toBeCloseTo(-0.6, 9);
+    const moved = dragGrip(step, 'height', p3(0.3, -0.9 + 0.52), true);
+    const edit = commitValue(moved) as Any;
+    expect(edit.value).toEqual({ stepHeight: 0.5 });
+    const after = must(s, 'setComponent', { entityId: 'group-0001', component: 'controller', value: edit.value }, 'step-up');
+    expect(entityOf(after, 'group-0001').components.controller).toEqual({ stepHeight: 0.5 });
+    expect(entityOf(must(after, 'undo', {}, 'undo step-up'), 'group-0001').components.controller).toEqual({});
+    // Clamped to the field's range (at most 1 m).
+    expect((commitValue(dragGrip(step, 'height', p3(0.3, 3), true)) as Any).value).toEqual({ stepHeight: 1 });
+    // The ledge height with its own capsule: 1.2 m above the feet of a 1.6 m capsule raised 0.2 m.
+    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'controller', value: { ledgeClimb: true, capsule: { radius: 0.4, height: 1.6, offset: [0, 0.2] } } }, 'ledge climb');
+    const ledge = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS, 3).find((x) => x.label === 'Ledge height')!;
+    const lg = gripsOf(ledge)[0]!;
+    expect(lg.at.x).toBeCloseTo(0.4, 9);
+    expect(lg.at.y).toBeCloseTo(0.2 - 0.8 + 1.2, 9);
+    dragAndStore3(s, ledge, p3(0.4, 0.2 - 0.8 + 0.99), (v) => expect(v.ledgeHeight).toBe(1));
   });
 
   it('phase 23.1 (a 3D project): a sphere collider\'s radius, a capsule collider grows both ways; 3D trigger areas (box with depth, sphere, capsule) turn with the object', () => {

@@ -24,7 +24,7 @@
  *    state, idempotently.
  */
 import type { ActionFrame, ActionSource } from '@thirdlight/runtime';
-import { mapRawStep, type StepState } from './mapping';
+import { mapRawStep, quantizeMove, type StepState } from './mapping';
 import {
   createMenuController,
   type MenuSample,
@@ -200,6 +200,8 @@ export function attachBrowserInput(
   /** Phase 14.5: the pad buttons/axes of the platformer's move and jump (rebindable). */
   let PAD: PlatformerPad = STANDARD_PLATFORMER_PAD;
   let evaluator: ReturnType<typeof createActionEvaluator> | null = null;
+  /** Phase 23.2: the project's `move` action is a 2D axis (a 3D character's move vector: the frame's moveX and moveY). */
+  let MOVE_2D = false;
   /** Every key an action uses (held keys and taps between samples feed the evaluator). */
   let ACTION_CODES = new Set<string>();
   /** Phase 9.10: the ui actions' keys (menus). */
@@ -213,6 +215,7 @@ export function attachBrowserInput(
     evaluator = cfg !== undefined ? createActionEvaluator(cfg) : null;
     ACTION_CODES = new Set(cfg?.actions.flatMap(actionKeys) ?? []);
     UI_KEYS = uiKeys(cfg ?? DEFAULT_INPUT_CONFIG);
+    MOVE_2D = cfg?.actions.some((a) => a.name === 'move' && a.type === 'axis2d') === true;
   };
   applyConfig(options.inputConfig);
   /** Menu edges in arrival order; `sampleUi` hands out one per call (fast key bursts keep their order). */
@@ -636,6 +639,9 @@ export function attachBrowserInput(
     if (evaluator === null) return frame;
     const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null });
     actionPressed.clear();
+    // Phase 23.2: a 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the M2 mapping exactly.
+    const move = MOVE_2D ? actions['move'] : undefined;
+    if (move !== undefined) return { ...frame, moveX: quantizeMove(move.x ?? 0), moveY: quantizeMove(move.y ?? 0), actions };
     return { ...frame, actions };
   };
 

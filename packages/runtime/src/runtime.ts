@@ -42,7 +42,7 @@ import {
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
-import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
+import { byEntityId, capsuleInZone, character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -79,6 +79,7 @@ import {
   type CharacterClearanceResult,
   type CharacterMoveResult,
   type CharacterMoveResult3D,
+  type CharacterState3D,
   type PhysicsPort,
   type PhysicsPort3D,
   type PhysicsVec3,
@@ -235,6 +236,12 @@ interface MutableIntentSet {
   axesTag: number;
   /** Accepted intents committed in this step. */
   count: number;
+  /** Phase 23.2: the committed control_move's second axis, and the character intents with their writers (null: none this step). */
+  moveY: number | null;
+  characterMove: { x: number; z: number; run: boolean } | null;
+  characterPlace: { x: number; y: number; z: number } | null;
+  characterEnabled: boolean | null;
+  characterWriters: Map<string, string>;
 }
 
 function emptyMutableIntents(stepIndex: number): MutableIntentSet {
@@ -248,6 +255,11 @@ function emptyMutableIntents(stepIndex: number): MutableIntentSet {
     axes: new Map(),
     axesTag: 1,
     count: 0,
+    moveY: null,
+    characterMove: null,
+    characterPlace: null,
+    characterEnabled: null,
+    characterWriters: new Map(),
   };
 }
 
@@ -260,6 +272,11 @@ function resetMutableIntents(s: MutableIntentSet, stepIndex: number): void {
   s.transformWrites.length = 0;
   s.axesTag += 1;
   s.count = 0;
+  s.moveY = null;
+  s.characterMove = null;
+  s.characterPlace = null;
+  s.characterEnabled = null;
+  if (s.characterWriters.size > 0) s.characterWriters.clear();
 }
 
 interface WallAnchor {
@@ -776,7 +793,8 @@ export function instantiateRuntime(
       };
     }
     const needsPort = selected.some((s) => s.requiresPhysicsPort === true);
-    if (needsPort && physics === undefined) {
+    // Phase 23.2: a 3D port serves a module that needs physics too (the 3D character controller).
+    if (needsPort && physics === undefined && physics3d === undefined) {
       return {
         ok: false,
         error: fail('config_invalid', 'the selected module set requires an injected physics port', {
@@ -920,6 +938,15 @@ export function instantiateRuntime(
     ...(liveTags !== null ? { tags: liveTags } : {}),
     // Phase 23.1: a 3D project (scripts may drive colliders through intents there).
     ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
+    // Phase 23.2: the 3D character controller's read-only world queries.
+    ...(physics3d !== undefined
+      ? {
+          character3D: {
+            raycast: (origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number) => (typeof physics3d.raycast === 'function' ? physics3d.raycast(origin, direction, maxDistance) : null),
+            clearance: (origin: PhysicsVec3) => (typeof physics3d.characterClearance === 'function' ? physics3d.characterClearance(origin) : null),
+          },
+        }
+      : {}),
   });
   const entries: ModuleEntry[] = [];
   const disposeCreated = (): void => {
@@ -1271,6 +1298,10 @@ class RuntimeInstance implements Runtime {
   /** Phase 23.0: the character's vertical speed under gravity (m/s; 3D, no movement input yet). */
   private fallSpeed3d = 0;
   private lastCharacterResult3D?: CharacterMoveResult3D;
+  /** Phase 23.2: the character's step-up height and ground snap (the 3D result check allows them). */
+  private character3DClimb?: { stepHeight: number; groundSnap: number };
+  /** Phase 23.2: where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
+  private cameraYawSource: (() => number | undefined) | null = null;
   /**
    * Phase 23.1: the collider-bearing entities of a 3D world (their authored
    * components, to re-add a collider as kinematic), the colliders scripts
@@ -1580,6 +1611,11 @@ class RuntimeInstance implements Runtime {
       for (const e of args.initialEntities) {
         const c = e.components as unknown as Record<string, unknown>;
         if (c['collider'] !== undefined && c['controller'] === undefined) this.colliderComponents3D.set(e.id, c);
+        // Phase 23.2: the character's step-up height and ground snap.
+        if (c['controller'] !== undefined) {
+          const climb = character3DPhysicsOf(c['controller'], args.settings.max_slope_climb_deg);
+          this.character3DClimb = { stepHeight: climb.stepHeight, groundSnap: climb.groundSnap };
+        }
       }
     }
     this.settings = args.settings;
@@ -2571,6 +2607,8 @@ class RuntimeInstance implements Runtime {
     this.intentsVersion += 1;
     try {
       this.runPhase('intent', action);
+      // Phase 23.2: a script's character_place takes effect before the controller runs.
+      if (this.physics3d !== undefined && this.intents.characterPlace !== null) this.applyCharacterPlace3D();
       this.runPhase('controller', action);
       this.runPhysicsPhase();
       this.runPhase('transform', action);
@@ -2982,7 +3020,7 @@ class RuntimeInstance implements Runtime {
     const session = this.session;
     if (session === null) return frame;
     if (session.runState !== 'playing') {
-      return { ...frame, moveX: 0, jump: 'none' };
+      return { ...frame, moveX: 0, ...(frame.moveY !== undefined ? { moveY: 0 } : {}), jump: 'none' };
     }
     if (session.isFirstLiveStep(ordinal)) {
       return { ...frame, jump: 'none' };
@@ -3716,6 +3754,8 @@ class RuntimeInstance implements Runtime {
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
+      // Phase 23.2 (3D): the active camera's yaw for the character's move input (absent: world axes).
+      if (this.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
       views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);
     }
     return views;
@@ -3738,6 +3778,11 @@ class RuntimeInstance implements Runtime {
       transformWrites: Object.freeze(s.transformWrites.slice()),
       // Phase 9.9: a stomp/hit bounce for the controller this step.
       ...(this.stepBounce !== null ? { bounce: this.stepBounce } : {}),
+      // Phase 23.2: present only when committed (a 2D step's view keeps its old shape).
+      ...(s.moveY !== null ? { moveY: s.moveY } : {}),
+      ...(s.characterMove !== null ? { characterMove: Object.freeze({ ...s.characterMove }) } : {}),
+      ...(s.characterPlace !== null ? { characterPlace: Object.freeze({ ...s.characterPlace }) } : {}),
+      ...(s.characterEnabled !== null ? { characterEnabled: s.characterEnabled } : {}),
     });
     this.intentViewCache = view;
     this.intentViewVersion = this.intentsVersion;
@@ -3766,6 +3811,24 @@ class RuntimeInstance implements Runtime {
       this.bumpIntentCount();
       this.intents.move = quantizeIntentMove(intent.value);
       this.intents.moveWriter = entry.id;
+      // Phase 23.2: the second axis (a 3D character's forward input).
+      if (intent.y !== undefined) this.intents.moveY = quantizeIntentMove(intent.y);
+      return;
+    }
+    if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
+      // Phase 23.2: the 3D character controller's channels (one writer each per step).
+      if (this.physics3d === undefined) {
+        throw new BehaviorIntentError('behavior_intent_invalid', 'value', `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
+      }
+      const writer = this.intents.characterWriters.get(intent.kind);
+      if (writer !== undefined) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `${intent.kind} already committed by "${writer}" and "${entry.id}"`);
+      }
+      this.bumpIntentCount();
+      this.intents.characterWriters.set(intent.kind, entry.id);
+      if (intent.kind === 'character_move') this.intents.characterMove = { x: intent.x, z: intent.z, run: intent.run === true };
+      else if (intent.kind === 'character_place') this.intents.characterPlace = { x: intent.position[0], y: intent.position[1], z: intent.position[2] };
+      else this.intents.characterEnabled = intent.enabled;
       return;
     }
     if (intent.kind === 'respawn') {
@@ -3935,7 +3998,9 @@ class RuntimeInstance implements Runtime {
 
   private readonly physicsClient: PhysicsStepClient = {
     stageCharacterMove: (entityId: string, delta: Vec2): void => this.stageMove(entityId, delta),
-    characterResult: (): CharacterMoveResult | undefined => this.lastCharacterResult,
+    // Phase 23.2: in 3D the 3D result (its vectors carry z too).
+    characterResult: (): CharacterMoveResult | undefined => (this.physics3d !== undefined ? (this.lastCharacterResult3D as unknown as CharacterMoveResult | undefined) : this.lastCharacterResult),
+    characterState: (): CharacterState3D | undefined => this.characterState3D(),
     // Phase 9.9: at most 32 queries (rays and overlaps) per step for modules and scripts.
     raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
       if (this.raycastsThisStep >= 32 || this.physics?.raycast === undefined) return null;
@@ -4053,7 +4118,7 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new PhysicsPortFailure('threw', `physics port step() threw: ${messageOf(e)}`);
     }
-    const check = validateCharacterMoveResult3D(raw, previous, requested);
+    const check = validateCharacterMoveResult3D(raw, previous, requested, this.character3DClimb);
     if (!check.ok) throw new PhysicsPortFailure('result', `physics port returned an invalid result: ${check.failure.detail}`);
     this.lastCharacterResult3D = check.result;
     // A landing (or a head bump) ends the fall; the next step starts from rest.
@@ -4065,6 +4130,73 @@ class RuntimeInstance implements Runtime {
     }
     if (this.staged.size > 0) this.staged.clear();
     if (this.staged3d.size > 0) this.staged3d.clear();
+  }
+
+  /**
+   * Phase 23.2: the active camera's yaw for the 3D character's move input —
+   * radians about +Y (0 looking along −Z) — or undefined (world axes). The
+   * camera framework (phase 23.4) resolves the active camera in the
+   * simulation and provides it here; until then the character moves along
+   * world axes.
+   */
+  private cameraYaw3D(): number | undefined {
+    const source = this.cameraYawSource;
+    if (source === null) return undefined;
+    const v = source();
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  }
+
+  /**
+   * Phase 23.2: apply a committed `character_place` (after the intent phase,
+   * before the controller runs): the port re-places the capsule and clears
+   * its motion; the controller's transform takes the new origin (the
+   * controller module starts from rest there).
+   */
+  private applyCharacterPlace3D(): void {
+    const place = this.intents.characterPlace;
+    const port = this.physics3d;
+    const id = this.controllerEntityId;
+    if (place === null || port === undefined || id === undefined) return;
+    if (typeof port.placeCharacter !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot place the character');
+    try {
+      port.placeCharacter({ x: place.x, y: place.y, z: place.z });
+    } catch (e) {
+      throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
+    }
+    const t = this.curr.get(id);
+    if (t !== undefined) {
+      t.position[0] = place.x;
+      t.position[1] = place.y;
+      t.position[2] = place.z;
+    }
+    this.lastCharacterResult3D = undefined;
+    this.fallSpeed3d = 0;
+  }
+
+  /** Phase 23.2: `ctx.physics.characterState` — the 3D character after the last step (undefined in 2D or before it). */
+  private characterState3D(): CharacterState3D | undefined {
+    const r = this.lastCharacterResult3D;
+    if (this.physics3d === undefined || r === undefined) return undefined;
+    let status: { enabled?: unknown; climbing?: unknown; yaw?: unknown } | null = null;
+    for (const entry of this.entries) {
+      const probe = entry.instance as { character3DStatus?: () => { enabled: boolean; climbing: boolean; yaw: number } };
+      if (typeof probe.character3DStatus === 'function') {
+        status = probe.character3DStatus();
+        break;
+      }
+    }
+    const yaw = typeof status?.yaw === 'number' ? status.yaw : 0;
+    return Object.freeze({
+      position: Object.freeze({ x: r.position.x, y: r.position.y, z: r.position.z }),
+      velocity: Object.freeze({ x: r.applied.x * this.hz, y: r.applied.y * this.hz, z: r.applied.z * this.hz }),
+      grounded: r.grounded,
+      contacts: Object.freeze({ ...r.contacts }),
+      supportNormal: Object.freeze({ x: r.supportNormal.x, y: r.supportNormal.y, z: r.supportNormal.z }),
+      groundEntityId: r.groundEntityId ?? null,
+      enabled: status?.enabled !== false,
+      climbing: status?.climbing === true,
+      facing: (yaw * 180) / Math.PI,
+    });
   }
 
   /**

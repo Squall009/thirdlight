@@ -69,6 +69,8 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       raycast: rec('physics.raycast', { entityId: 'wall-1', distance: 2, normal: { x: -1, y: 0 } }),
       overlapBox: rec('physics.overlapBox', () => ['crate-1']),
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
+      // Phase 23.2: the 3D character's state.
+      characterState: rec('physics.characterState', { position: { x: 1, y: 2, z: 3 }, velocity: { x: 0, y: 0, z: 2 }, grounded: true, contacts: { ground: true, wall: false, head: false, steepSlope: false }, supportNormal: { x: 0, y: 1, z: 0 }, groundEntityId: null, enabled: true, climbing: false, facing: 0 }),
     },
     tags: { mask: rec('tags.mask', 1), of: rec('tags.of', 1), has: rec('tags.has', true), query: rec('tags.query', () => ['box-1']) },
     world: { transform: rec('world.transform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }), find: rec('world.find', 'box-2'), findAll: rec('world.findAll', () => ['box-2']), withComponent: rec('world.withComponent', () => ['box-2']) },
@@ -218,6 +220,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
     // script-only rotation forms of the intents (the nodes keep their inputs).
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
+      // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
+      'emit(control_move).y',
       'emit(pose).facing',
       'emit(pose).quaternion',
       'emit(pose).up',
@@ -238,6 +242,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       ['api.emit.transform', 'transform'],
       ['api.emit.pose', 'transform'],
       ['api.emit.respawn', 'intent'],
+      // Phase 23.2: the 3D character intents.
+      ['api.emit.character_move', 'intent'],
+      ['api.emit.character_place', 'intent'],
+      ['api.emit.character_enable', 'intent'],
     ]);
   });
 

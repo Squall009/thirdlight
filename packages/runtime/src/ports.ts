@@ -120,6 +120,37 @@ export interface PhysicsStepClient {
    * @graphDefault radius 0.5
    */
   overlapCircle?(center: Vec2, radius: number): string[];
+  /**
+   * Phase 23.2 (3D projects): the player character's state after the last
+   * completed step — position, velocity, grounding, contacts, whether its
+   * controller is on and whether it is climbing a ledge — or undefined (a 2D
+   * plane, or before the first step).
+   * @graphPure
+   * @graphNode Character state
+   */
+  characterState?(entityId: string): CharacterState3D | undefined;
+}
+
+/** Phase 23.2: the 3D player character's state (`ctx.physics.characterState`). */
+export interface CharacterState3D {
+  /** Its origin (m). */
+  readonly position: PhysicsVec3;
+  /** How fast it moved in the last step (m/s; its actual motion, collisions included). */
+  readonly velocity: PhysicsVec3;
+  /** Standing on something. */
+  readonly grounded: boolean;
+  /** What it touched: ground, a wall, its head, a slope too steep to walk. */
+  readonly contacts: { readonly ground: boolean; readonly wall: boolean; readonly head: boolean; readonly steepSlope: boolean };
+  /** The normal of what it stands on (up when in the air). */
+  readonly supportNormal: PhysicsVec3;
+  /** The object it stands on, or null. */
+  readonly groundEntityId: string | null;
+  /** Its controller is on (a script may switch it off). */
+  readonly enabled: boolean;
+  /** Climbing onto a ledge (input is ignored until it is up). */
+  readonly climbing: boolean;
+  /** The way it faces, in degrees about the up axis (0: +Z). */
+  readonly facing: number;
 }
 
 /** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */
@@ -376,6 +407,12 @@ export function validateCharacterMoveResult3D(
   value: unknown,
   previousPosition: PhysicsVec3,
   requested: PhysicsVec3,
+  /**
+   * Phase 23.2: the character's step-up height and ground snap (m) — a step
+   * climbed or a snap down a stair may move it that much beyond the request
+   * (absent: the 23.0 allowance only).
+   */
+  climb?: { stepHeight: number; groundSnap: number },
 ): { ok: true; result: CharacterMoveResult3D } | { ok: false; failure: CharacterMoveResultFailure } {
   const bad = (detail: string): { ok: false; failure: CharacterMoveResultFailure } => ({ ok: false, failure: { reason: 'result', detail } });
   if (typeof value !== 'object' || value === null) return bad('result must be an object');
@@ -402,7 +439,9 @@ export function validateCharacterMoveResult3D(
   // Phase 23.1: a mover that moved into the character may push it by up to that move (as in 2D).
   const ks = (result as { kinematicSlack?: unknown }).kinematicSlack;
   const slack = typeof ks === 'number' && Number.isFinite(ks) ? Math.min(0.5, Math.max(0, ks)) : 0;
-  const allowance = (result.snapped ? 0.11 : 0.001) + slack;
+  const step = climb !== undefined && Number.isFinite(climb.stepHeight) ? Math.min(2, Math.max(0, climb.stepHeight)) : 0;
+  const snap = climb !== undefined && Number.isFinite(climb.groundSnap) ? Math.min(1, Math.max(0, climb.groundSnap)) : 0;
+  const allowance = (result.snapped ? Math.max(0.11, snap + 0.11) : 0.001) + step + slack;
   if (Math.hypot(a.x, a.y, a.z) > Math.hypot(requested.x, requested.y, requested.z) + allowance + 1e-12) {
     return bad('|applied| exceeds |requested| + allowance');
   }

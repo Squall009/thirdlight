@@ -26,6 +26,12 @@ export interface ActionFrame {
   stepIndex: number;
   /** Finite, `−1 ≤ v ≤ 1`, quantized to 1e-4 (`round(v·1e4)/1e4`). */
   moveX: number;
+  /**
+   * Phase 23.2, optional: the move vector's second axis (forward / up on a
+   * stick, like `moveX` quantized to 1e-4 in [−1, 1]) — from a 2D `move`
+   * action; a 3D character walks along it. Absent: 0 (every older frame).
+   */
+  moveY?: number;
   jump: JumpPhase;
   /**
    * Phase 9.8, optional: every named input action this step — `v` its value
@@ -120,7 +126,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'moveY') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -153,12 +159,22 @@ export function validateActionFrame(
   if (quantizeMove(moveX) !== moveX || Object.is(moveX, -0)) {
     return { ok: false, field: 'moveX', message: 'moveX must be quantized to 1e-4 (negative zero normalized)' };
   }
+  // Phase 23.2: the optional second move axis (the same rules as moveX).
+  const moveY = value['moveY'];
+  if (moveY !== undefined) {
+    if (typeof moveY !== 'number' || !Number.isFinite(moveY) || moveY < -1 || moveY > 1) {
+      return { ok: false, field: 'moveY', message: 'moveY must be finite and within [-1, 1]' };
+    }
+    if (quantizeMove(moveY) !== moveY || Object.is(moveY, -0)) {
+      return { ok: false, field: 'moveY', message: 'moveY must be quantized to 1e-4 (negative zero normalized)' };
+    }
+  }
   const jump = value['jump'];
   if (typeof jump !== 'string' || !JUMP_PHASES.includes(jump as JumpPhase)) {
     return { ok: false, field: 'jump', message: 'jump must be one of none | pressed | held | released' };
   }
   const rawActions = value['actions'];
-  if (rawActions === undefined) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase } };
+  if (rawActions === undefined) return { ok: true, frame: moveY === undefined ? { stepIndex, moveX, jump: jump as JumpPhase } : { stepIndex, moveX, moveY, jump: jump as JumpPhase } };
   if (!isPlainObject(rawActions) || ownKeyCount(rawActions) > MAX_FRAME_ACTIONS) {
     return { ok: false, field: 'actions', message: `actions must map at most ${MAX_FRAME_ACTIONS} action names to values` };
   }
@@ -178,7 +194,7 @@ export function validateActionFrame(
     if (same && !(sameActionValue(prevActions![name], a) && keyAt(prevActions!, index) === name)) same = false;
     index += 1;
   }
-  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: prevActions! } };
+  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: { stepIndex, moveX, ...(moveY !== undefined ? { moveY } : {}), jump: jump as JumpPhase, actions: prevActions! } };
   const actions: Record<string, ActionValue> = {};
   for (const name in rawActions) {
     if (!hasOwn.call(rawActions, name)) continue;
@@ -189,7 +205,7 @@ export function validateActionFrame(
         ? prev
         : Object.freeze({ v: a['v'] as number, ...(a['x'] !== undefined ? { x: a['x'] as number } : {}), ...(a['y'] !== undefined ? { y: a['y'] as number } : {}), p: a['p'] as JumpPhase });
   }
-  return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: Object.freeze(actions) } };
+  return { ok: true, frame: { stepIndex, moveX, ...(moveY !== undefined ? { moveY } : {}), jump: jump as JumpPhase, actions: Object.freeze(actions) } };
 }
 
 const hasOwn = Object.prototype.hasOwnProperty;

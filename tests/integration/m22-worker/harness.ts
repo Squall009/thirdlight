@@ -105,6 +105,8 @@ export interface HarnessConfig {
   readonly enginePins?: readonly { id: string; version: string; apiVersion: number }[];
   readonly loadScene?: (sceneId: string) => Promise<Any>;
   readonly digestSteps?: boolean;
+  /** Phase 23.2: the manifest's module list (absent: the host's default set). */
+  readonly modules?: readonly string[];
   /** Extra host config (flow, audio, …). */
   readonly host?: Record<string, unknown>;
 }
@@ -151,6 +153,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     assetPaths: {},
     document: { createElement: () => new FakeNode() },
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),
+    ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
     ...(cfg.host ?? {}),
   };
   if (mode === 'single') {
@@ -195,6 +198,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       behaviors: { rows, urls, enginePins: pins },
       ...(cfg.replay !== undefined ? { replay: cfg.replay } : {}),
       ...(cfg.digestSteps === true ? { digestSteps: true } : {}),
+      ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
     },
     input: recorded !== null ? null : liveInput,
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),

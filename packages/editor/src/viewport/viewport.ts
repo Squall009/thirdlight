@@ -1725,6 +1725,12 @@ export class Viewport {
     this.requestRender();
   }
 
+  /** Phase 23.2: the project's physics dimension (handles of the other dimension are not shown). */
+  setPhysicsDimension(dimension: 2 | 3): void {
+    this.zones.setPhysicsDimension(dimension);
+    this.requestRender();
+  }
+
   /** The game view's aspect (width / height): the cameras' frustums use it. */
   setGameAspect(aspect: number): void {
     if (!Number.isFinite(aspect) || aspect <= 0 || Math.abs(aspect - this.gameAspect) < 1e-3) return;

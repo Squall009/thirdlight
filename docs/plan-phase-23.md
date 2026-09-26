@@ -597,3 +597,99 @@ for editor items, commit/push/restart, decision log).
   the project's other libraries, nothing written; answers the scripts that
   import it) and Save (one patch command; the trust prompt when a dependent
   will link the new digest; "Recompiled …" on success).
+- 2026-09-26 (23.2): **where the 3D controller lives.** A runtime built-in
+  simulation module, `thirdlight.character3d:controller` (package
+  `@thirdlight/runtime`, like the demo module; `runtime/src/character3d.ts`),
+  phases controller and transform, owning the controller entity — not a new
+  package (it needs only runtime and project-model, and a package would add a
+  lockfile, pin, boundary and export-closure row for no isolation gain) and
+  not a part of `@thirdlight/platformer` (2D by construction, its frozen
+  traces untouched). In 3D the project model resolves a `controller` to this
+  module (which requires the 3D backend and input), so a 3D project's
+  manifest selects it and its scene runs on the M2 step path (input sampled,
+  controller → physics → transform); the runtime's 23.0 gravity-only phase
+  stays as the fallback for a module set without it. The host registers it
+  like the platformer specs.
+- 2026-09-26 (23.2): **settings are controller data, 3D-only fields.** New
+  optional controller fields (canonical order after the tuning fields):
+  walkSpeed 2 m/s, runSpeed, airControl 0.5, gravityScale 1, jump true,
+  jumpSpeed, slopeLimit, stepHeight 0.3 m (0: off), ledgeClimb false,
+  ledgeHeight 1.2 m, ledgeClimbTime 0.6 s, turnSpeed 720°/s (0: at once),
+  faceMovement true — reasons in `DEFAULT_CHARACTER_3D`. runSpeed, jumpSpeed
+  and slopeLimit are absent by default and then read the project settings
+  (`run_speed`, `jump_velocity`, `max_slope_climb_deg`), gravity is the
+  project's × gravityScale, so a project has one source per value;
+  acceleration, deceleration, coyote time, jump buffer/release, ground snap
+  and skin are shared with the 2D controller. Descriptor fields and handles
+  gained an optional `dimension` (the Inspector shows a project's own: the 3D
+  fields in 3D, autostep/autostepHeight only on the 2D plane); commands accept
+  every field in both (a 2D plane ignores the 3D ones, as it ignores `hz`).
+  In 3D the ground snap is at least the step-up height (a character that
+  climbs a riser walks down it without a fall) — no separate field.
+- 2026-09-26 (23.2): **stepping up is the port's own.** Rapier's autostep
+  (rapier3d-compat 0.20.0) missed risers above about 0.15 m with a capsule
+  whatever its minimum width (measured: a 0.2 m riser blocked a walking 0.3 m
+  capsule). The 3D port now probes a riser it is blocked by (grounded, less
+  than half the move across): up by the step height plus two skins, across
+  by the capsule radius plus two skins, down; when that lands grounded on
+  walkable ground ≤ step height + skin higher, the character is lifted by the
+  rise this step and moves on at that height, snap off, until the ground
+  under its centre is the top (a capsule's rounded bottom would otherwise
+  slide back off the edge) — ends when it stops pushing that way, jumps, or
+  after one second. The measured result: 0.3 m climbs, 0.31 m and 0.6 m block
+  with the default. Two more port changes found while walking: the grounded
+  character's small downward request is now swept as it is (the 23.0 port
+  dropped it like the 2D port, which made Rapier's grounded status flicker
+  every other step), and a grounded character asked for nothing across and
+  moving less than its skin on a non-kinematic support stays exactly where it
+  is (Rapier's sweep and snap alternated it by ~0.1 mm per step, so it never
+  came to rest). The runtime's 3D result check allows the step height, the
+  snap and the skin. All 23.0/23.1 tests stay green unchanged.
+- 2026-09-26 (23.2): **input.** `ActionFrame.moveY` is optional (absent: 0;
+  `validateActionFrame` accepts it like moveX, so every recorded replay and
+  2D frame validates and digests exactly as before). The browser input owner
+  fills moveX/moveY from the project's `move` action when that is a 2D axis
+  (a 1D `move` keeps the M2 mapping bit for bit). A 3D project without its own
+  input gets `DEFAULT_INPUT_3D` (move as a 2D axis on W/A/S/D, arrows and the
+  left stick; a `run` button on Shift and the left-stick press; the rest as
+  the 2D defaults) in Play, the export and the editor's input defaults. The
+  worker's live input (`TickInputSource`), the exclusive-test relay and the
+  whole `tl_input_exercise` chain (MCP tool, backend route, WS event, bridge,
+  preview, worker) carry `moveY` — and now the named `actions`, which the MCP
+  tool accepted but dropped before and the bridge refused.
+- 2026-09-26 (23.2): **camera yaw is a small input** — `StepContext.cameraYaw`
+  (radians about +Y, 0 looking along −Z, three.js' default camera), read from
+  the runtime's private `cameraYawSource` (null now: world axes, input +x →
+  +X, forward → −Z). 23.4 resolves the active camera in the simulation and
+  sets the source; the main session wires it. The controller turns the move
+  vector by it (right = (cos, 0, −sin), forward = (−sin, 0, −cos)).
+- 2026-09-26 (23.2): **facing.** With faceMovement the controller turns the
+  entity about +Y toward the pushed direction at turnSpeed (+Z forward, the
+  glTF forward, as 23.7's facing), writing the controller entity's rotation
+  in the transform phase (it owns it); off leaves the authored rotation.
+- 2026-09-26 (23.2): **ledge climb** (module): pushing into a wall (last
+  step: wall contact, less than half the move across) with ledgeClimb on, a
+  ray down from ledgeHeight + 5 cm above the feet, one capsule width ahead,
+  must find a walkable top higher than the step-up height and at most
+  ledgeHeight up, the capsule must fit on top (`characterClearance` ok) and
+  have room to rise (not blocked); then the character rises alongside the
+  wall for 60% of ledgeClimbTime and moves onto the top for the rest, input
+  and gravity ignored, each step a staged move the port sweeps (never
+  through geometry). The module gets read-only ray/clearance queries through
+  `ModuleConfig.character3D` (not part of the scripts' context; scripts'
+  3D queries are 23.3).
+- 2026-09-26 (23.2): **scripts drive the character through intents**
+  (intent phase, one writer per channel per step, refused on a 2D plane):
+  `character_move {x, z, run?}` (a world direction this step, replacing the
+  input), `character_place {position: [x, y, z]}` (the runtime calls the
+  port's `placeCharacter` after the intent phase and commits the origin; the
+  controller starts from rest), `character_enable {enabled}` (lasting; off:
+  no input, no gravity, a zero move staged so what it stands on still carries
+  it), and `control_move` takes an optional `y` (`@graphNode skip`, so the
+  existing node and pinned graph code are unchanged). Reading:
+  `ctx.physics.characterState(id)` (position, velocity = the last applied
+  motion × step rate, grounded, contacts, support normal, ground entity,
+  enabled, climbing, facing in degrees); `characterResult` returns the 3D
+  result in 3D. New graph nodes: Walk character, Place character, Enable
+  character, Character state (additive; no existing node's code moved).
+  Respawn/spawn clearance in 3D stays with 23.10.
