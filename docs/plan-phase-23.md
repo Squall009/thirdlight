@@ -278,8 +278,8 @@ for editor items, commit/push/restart, decision log).
 
 | Item | Status |
 |---|---|
-| 23.0 Dimensional model | in progress |
-| 23.1 3D physics world, colliders, triggers | planned |
+| 23.0 Dimensional model | done 2026-09-26 — two backends (rapier2d untouched for plane2d, rapier3d 0.20.0 for 3d), `physics_dimension`, box `hz`, PhysicsPort3D; 2D rotated-collider bug fixed (no pinned values moved) |
+| 23.1 3D physics world, colliders, triggers | next |
 | 23.2 3D character controller | planned |
 | 23.3 Pointer input and 3D queries | planned |
 | 23.4 Camera framework | planned |
