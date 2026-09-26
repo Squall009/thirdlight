@@ -55,7 +55,7 @@ const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
-const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep'] as const;
+const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
 /** The largest single upload frame accepted by the backend (sessions.md §11.5). */
 const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
 /** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
@@ -395,7 +395,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Submit one bounded §20 game-control command (start, replay, mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
       'sceneId - the same request a script makes with ctx.scenes; debugPause / debugResume / debugStep hold the simulation at a step boundary, ' +
-      'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}) to an explicitly presented play ' +
+      'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}; ' +
+      'phase 23.8: debugCommand with name and args runs a project debug command - one a script declared with ctx.debug.command(name, {description, args: [{name, type: number|string|boolean, optional}]}, handler?) - ' +
+      'inside the next simulation step as part of its input (a recording replays it; tl_game_observe lists debugCommands {registered, applied [{stepIndex, name, args}]}); ' +
+      'refused (game_command_invalid) when no script declared it or the args do not match) to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
       'tuple + run state); with no connected/presenting browser the contracted session_unavailable is returned - ' +
@@ -407,6 +410,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         command: { type: 'string', enum: [...GAME_CONTROL_COMMANDS] },
         expectedRunId: { type: 'string' },
         sceneId: { type: 'string', description: 'loadScene / unloadScene: the scene' },
+        name: { type: 'string', description: 'debugCommand: the debug command a script declared' },
+        args: { type: 'object', description: 'debugCommand: its arguments by name (numbers, text up to 256 characters, true/false; at most 8)', additionalProperties: { type: ['number', 'string', 'boolean'] } },
       },
       required: ['playSessionId', 'command'],
       additionalProperties: false,
@@ -441,12 +446,25 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     name: 'tl_play_start',
     description:
       'Start a play session for the project from the current revision. Requires a connected editor ' +
-      'browser (an active authoring session); with none, returns the structured session_unavailable ' +
-      'error. Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
-      'playSessionId + the frozen snapshotId/revision on success.',
+      'browser (an active authoring session); with none, the backend opens a headless editor (else session_unavailable). ' +
+      'Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
+      'playSessionId + the frozen snapshotId/revision on success. Phase 23.8 test/debug starts (the editor\'s "Play from..." sends the same): ' +
+      'sceneId - start there (a game with levels starts the first level that loads the scene, skipping the title; without levels the scene loads with the start scenes and the player starts at its first player spawn); ' +
+      'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
+      'save - a save document ({version, levelId, run, ...}, as the game writes them; <= 64 KB) or saveSlot auto|1|2|3 (a save in the Play page) to continue a game with levels; ' +
+      'mode - a game mode id (checked once the project defines game modes; ignored and noted in start.notes otherwise). ' +
+      'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
       type: 'object',
-      properties: { demo: { type: 'boolean' }, sessionId: { type: 'string', pattern: '^sess-[0-9a-f]{32}$' } },
+      properties: {
+        demo: { type: 'boolean' },
+        sessionId: { type: 'string', pattern: '^sess-[0-9a-f]{32}$' },
+        sceneId: { type: 'string', description: 'start Play at this scene' },
+        mode: { type: 'string', description: 'a game mode id (applies once the project has game modes)' },
+        variables: { type: 'object', description: 'script variables: what ctx.save holds from step 0' },
+        save: { type: 'object', description: 'a save document to continue from (a game with levels)' },
+        saveSlot: { type: 'string', enum: ['auto', '1', '2', '3'], description: 'continue from this save slot of the Play page' },
+      },
       additionalProperties: false,
     },
   },
@@ -651,10 +669,14 @@ async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<C
   // sessions.md §10.1: the play-start body is `{ options: { demo } }` (demo
   // boolean, default true) — `demo` nests under `options`, not at the top level.
   const body: Record<string, unknown> = {};
+  const options: Record<string, unknown> = {};
   if (a.demo !== undefined) {
     if (typeof a.demo !== 'boolean') return toolError('demo must be a boolean');
-    body.options = { demo: a.demo };
+    options.demo = a.demo;
   }
+  // Phase 23.8: the start options go in `options` too (the backend validates and resolves them).
+  for (const k of ['sceneId', 'mode', 'variables', 'save', 'saveSlot'] as const) if (a[k] !== undefined) options[k] = a[k];
+  if (Object.keys(options).length > 0) body.options = options;
   if (a.sessionId !== undefined) {
     if (typeof a.sessionId !== 'string') return toolError('sessionId must be a string');
     body.sessionId = a.sessionId;
@@ -928,6 +950,17 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
     body.sceneId = a.sceneId;
   } else if (a.sceneId !== undefined) {
     return toolError('sceneId goes with loadScene / unloadScene only');
+  }
+  // Phase 23.8: a debug command's name and arguments.
+  if (a.command === 'debugCommand') {
+    if (typeof a.name !== 'string' || a.name.length === 0) return toolError('name is required for debugCommand');
+    body.name = a.name;
+    if (a.args !== undefined) {
+      if (!isObj(a.args)) return toolError('args must be an object of argument values');
+      body.args = a.args;
+    }
+  } else if (a.name !== undefined || a.args !== undefined) {
+    return toolError('name and args go with debugCommand only');
   }
   const res = await ctx.client.gameControl(ctx.projectId, a.playSessionId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);

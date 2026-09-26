@@ -36,11 +36,16 @@ import {
   neutralFrame,
   validateActionFrame,
   InputFrameError,
+  validateDebugCommandCall,
+  DEBUG_COMMAND_NAME_RE,
+  MAX_FRAME_COMMANDS,
   type ActionFrame,
   type ActionSource,
+  type DebugCommandCall,
   type JumpPhase,
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
+import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
 import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
@@ -138,6 +143,10 @@ import {
   type ViewportInfo,
   type RunRestore,
   type RunSaveState,
+  type DebugCommandArgs,
+  type DebugCommandOptions,
+  type DebugCommandSpec,
+  type DebugCommandState,
 } from './types';
 
 /** runtime.md §3.1 default (the M1 constant). */
@@ -452,6 +461,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     'driver',
     'fixedStepHz',
     'onFrame',
+    'variables',
   ]);
   for (const key of Object.keys(config)) {
     if (!allowed.has(key)) {
@@ -559,6 +569,22 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     }
     onFrame = config.onFrame as () => void;
   }
+  // Phase 23.8: injected script variables (ctx.save from step 0), under ctx.save's own rules.
+  let variables: Record<string, unknown> | undefined;
+  if (config.variables !== undefined) {
+    const v = config.variables;
+    if (!isPlainObject(v) || Object.keys(v).length > SAVE_MAX_KEYS) {
+      return { error: fail('config_invalid', `config field "variables" must map at most ${SAVE_MAX_KEYS} keys to JSON values`, { reason: 'shape', path: '/variables' }) };
+    }
+    variables = {};
+    for (const [k, value] of Object.entries(v)) {
+      const text = saveValueText(value);
+      if (!SAVE_KEY_RE.test(k) || text === null) {
+        return { error: fail('config_invalid', `variable ${JSON.stringify(k.slice(0, 64))}: a key is 1-64 of A-Z a-z 0-9 _ . : - and a value JSON of at most ${SAVE_MAX_VALUE_CHARS} characters`, { reason: 'shape', path: `/variables/${k.slice(0, 64)}` }) };
+      }
+      variables[k] = JSON.parse(text) as unknown;
+    }
+  }
   return {
     cfg: {
       snapshot: config.snapshot,
@@ -573,8 +599,24 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       driverKind,
       hz,
       onFrame,
+      ...(variables !== undefined ? { variables } : {}),
     },
   };
+}
+
+/** Phase 9.11: `ctx.save` rules (shared by the Phase 23.8 injected variables). */
+const SAVE_MAX_KEYS = 64;
+const SAVE_MAX_VALUE_CHARS = 4096;
+const SAVE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+/** A value's JSON text when it fits a save value, else null. */
+function saveValueText(value: unknown): string | null {
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    return null;
+  }
+  return text === undefined || text.length > SAVE_MAX_VALUE_CHARS ? null : text;
 }
 
 interface ParsedConfig {
@@ -591,6 +633,7 @@ interface ParsedConfig {
   driverKind: 'raf' | 'manual';
   hz: number;
   onFrame?: () => void;
+  variables?: Record<string, unknown>;
 }
 
 /**
@@ -606,7 +649,7 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
@@ -1125,6 +1168,7 @@ export function instantiateRuntime(
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
     modelBounds: snap.modelBounds,
+    ...(variables !== undefined ? { variables } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1197,6 +1241,8 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
   modelBounds: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.8: injected script variables (validated; ctx.save from step 0). */
+  variables?: Readonly<Record<string, unknown>>;
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1465,6 +1511,31 @@ class RuntimeInstance implements Runtime {
     },
     keys: (): string[] => [...this.saveStore.keys()].sort(),
   });
+  // ---- Phase 23.8: debug commands -------------------------------------------
+  /** The commands scripts declared (first declaration wins; kept across runs). */
+  private readonly debugRegistry = new Map<string, DebugCommandSpec>();
+  /** Calls queued by the host for the next sampled step. */
+  private debugQueue: DebugCommandCall[] = [];
+  /** This step's calls by command (from its input frame); null: none. */
+  private stepDebugCalls: Map<string, DebugCommandArgs[]> | null = null;
+  private debugApplied: { stepIndex: number; name: string; args: DebugCommandArgs }[] = [];
+  private debugRevision = 0;
+  private debugStateCache: DebugCommandState | null = null;
+  private readonly debugControl = Object.freeze({
+    command: (name: string, options: DebugCommandOptions | undefined, phase: SimulationPhase): readonly DebugCommandArgs[] => {
+      if (typeof name !== 'string' || !DEBUG_COMMAND_NAME_RE.test(name)) throw new DebugCallError('behavior_debug_invalid', 'a debug command name is a letter or _, then up to 31 letters, digits, _ . : -');
+      const known = this.debugRegistry.get(name);
+      if (known === undefined) {
+        if (this.debugRegistry.size >= MAX_DEBUG_COMMANDS) throw new DebugCallError('behavior_debug_limit', `at most ${MAX_DEBUG_COMMANDS} debug commands per game`);
+        this.debugRegistry.set(name, debugSpecOf(name, options));
+        this.debugTouched();
+      } else if (options !== undefined && JSON.stringify(debugSpecOf(name, options)) !== JSON.stringify(known)) {
+        throw new DebugCallError('behavior_debug_invalid', `debug command "${name}" is already declared with other options`);
+      }
+      if (phase !== 'intent') return NO_DEBUG_CALLS;
+      return this.stepDebugCalls?.get(name) ?? NO_DEBUG_CALLS;
+    },
+  });
   private readonly audioControl = Object.freeze({
     play: (assetId: string, options?: { volume?: number }): void => {
       if (typeof assetId !== 'string' || assetId.length === 0 || assetId.length > 128 || this.audioQueue.length >= 16) return;
@@ -1578,6 +1649,8 @@ class RuntimeInstance implements Runtime {
       this.playerEntityId = '';
     }
     this.actions = args.actions;
+    // Phase 23.8: injected variables are the scripts' saved values from step 0.
+    if (args.variables !== undefined) for (const [k, v] of Object.entries(args.variables)) this.saveControl.set(k, v);
     this.physics = args.physics;
     if (args.physics3d !== undefined) {
       this.physics3d = args.physics3d;
@@ -2657,6 +2730,7 @@ class RuntimeInstance implements Runtime {
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
+      this.stepDebugCalls = null;
     } else {
       try {
         action = this.sampleAction(stepIndex);
@@ -2761,12 +2835,79 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new InputSourceError(messageOf(e));
     }
+    // Phase 23.8: queued debug commands ride on this step's frame (so a recording keeps them).
+    if (this.debugQueue.length > 0 && typeof raw === 'object' && raw !== null) {
+      const have = (raw as ActionFrame).commands ?? [];
+      const room = Math.max(0, MAX_FRAME_COMMANDS - (Array.isArray(have) ? have.length : 0));
+      if (room > 0) raw = { ...(raw as ActionFrame), commands: [...have, ...this.debugQueue.splice(0, room)] };
+    }
     // Phase 21.2: equal action values of the last frame are shared (immutable).
     const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
     if (!check.ok) throw new InputFrameError(check.field, check.message);
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
+    this.deliverDebugCommands(check.frame);
     return check.frame;
+  }
+
+  /**
+   * Phase 23.8: this step's debug command calls from its frame, by command
+   * (in frame order). A call no script declared, or whose arguments do not
+   * match the declaration, is dropped with a diagnostic entry.
+   */
+  private deliverDebugCommands(frame: ActionFrame): void {
+    const commands = frame.commands;
+    if (commands === undefined || commands.length === 0) {
+      this.stepDebugCalls = null;
+      return;
+    }
+    const byName = new Map<string, DebugCommandArgs[]>();
+    for (const c of commands) {
+      const spec = this.debugRegistry.get(c.name);
+      const problem = spec === undefined ? `no script declared the debug command "${c.name}"` : debugCallProblem(spec, c.args);
+      if (problem !== null) {
+        this.recordError({ code: 'module_error', message: clipMessage(`debug command dropped: ${problem}`), stepIndex: frame.stepIndex, reason: 'debug_command_invalid' });
+        continue;
+      }
+      let list = byName.get(c.name);
+      if (list === undefined) byName.set(c.name, (list = []));
+      list.push(c.args);
+      this.debugApplied.push({ stepIndex: frame.stepIndex, name: c.name, args: c.args });
+    }
+    if (this.debugApplied.length > MAX_DEBUG_APPLIED) this.debugApplied.splice(0, this.debugApplied.length - MAX_DEBUG_APPLIED);
+    this.debugTouched();
+    this.stepDebugCalls = byName.size > 0 ? byName : null;
+  }
+
+  private debugTouched(): void {
+    this.debugRevision += 1;
+    this.debugStateCache = null;
+  }
+
+  /** Phase 23.8: the registered debug commands and the calls run (newest last). */
+  debugCommandState(): DebugCommandState {
+    if (this.debugStateCache === null) {
+      this.debugStateCache = Object.freeze({
+        registered: Object.freeze([...this.debugRegistry.values()]),
+        applied: Object.freeze(this.debugApplied.map((a) => Object.freeze({ ...a }))),
+        revision: this.debugRevision,
+      });
+    }
+    return this.debugStateCache;
+  }
+
+  /** Phase 23.8: queue a debug command call for the next sampled step (see `Runtime.queueDebugCommand`). */
+  queueDebugCommand(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    const checked = validateDebugCommandCall(call);
+    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `debug command: ${checked.message}`, { reason: 'debug_command', path: `/${checked.field}` }) };
+    const spec = this.debugRegistry.get(checked.call.name);
+    if (spec === undefined) return { ok: false, error: fail('game_command_invalid', `no script declared the debug command "${checked.call.name}"`, { reason: 'debug_command' }) };
+    const problem = debugCallProblem(spec, checked.call.args);
+    if (problem !== null) return { ok: false, error: fail('game_command_invalid', problem, { reason: 'debug_command' }) };
+    if (this.debugQueue.length >= MAX_DEBUG_QUEUE) return { ok: false, error: fail('game_command_invalid', `at most ${MAX_DEBUG_QUEUE} debug command calls may wait for the next step`, { reason: 'pending' }) };
+    this.debugQueue.push(checked.call);
+    return { ok: true };
   }
 
   // -------------------------------------------------------------------------
@@ -3851,6 +3992,9 @@ class RuntimeInstance implements Runtime {
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
       // Phase 23.4: the virtual cameras (ctx.camera).
       fields['camera'] = { value: this.cameraControl, enumerable: true };
+      // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
+      const debugControl = this.debugControl;
+      fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };

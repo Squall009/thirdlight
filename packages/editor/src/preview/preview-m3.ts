@@ -75,6 +75,7 @@ import {
   browserContextFactory,
   type GameHostConfig,
   type GameHost,
+  type GameStartOptions,
   type HostDomNode,
   type FlowConfigLike,
   browserSaveStorage,
@@ -396,7 +397,11 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   //    manifest's own hash-bound `game` block: the buildId check already binds
   //    `gameDigest`, so a deep-equal snapshot `game` re-hashes to it).
   // The runtime wants an explicit `game` (null = scene mode).
-  const authored: RuntimeSnapshot = { ...cfg.snapshot, game: cfg.snapshot.game ?? null };
+  // Phase 23.8: a test/debug start (resolved by the backend) is not part of the runtime snapshot.
+  const { start: startBlock, ...bridged } = cfg.snapshot as RuntimeSnapshot & { start?: PlayStartBlock };
+  const authored: RuntimeSnapshot = { ...bridged, game: cfg.snapshot.game ?? null };
+  const startOptions = startBlock !== undefined ? hostStartOf(startBlock) : undefined;
+  const startVariables = startBlock?.variables;
   const sceneDigest = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(authored.scene, null, 2)}\n`));
   if (sceneDigest !== manifest.sceneDigest) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot scene digest does not match manifest.sceneDigest');
@@ -478,6 +483,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
               // The worker imports each compiled script from the locator (absolute same-origin URLs).
               behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(`${cfg.contentRoot}${r.path}`, location.href).href])) },
               shared: resolveTransport(globalThis as never) === 'shared',
+              // Phase 23.8: injected script variables (ctx.save from step 0).
+              ...(startVariables !== undefined ? { variables: startVariables } : {}),
             },
             input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
             ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
@@ -611,6 +618,11 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
       ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
       assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
+      // Phase 23.8: Play always has the debug console (the backquote key); a start from "Play from…" / tl_play_start.
+      debugConsole: true,
+      focusGame: () => cfg.canvas.focus(),
+      ...(startVariables !== undefined ? { variables: startVariables } : {}),
+      ...(startOptions !== undefined ? { start: startOptions } : {}),
     };
     const host = createGameHost(config);
     // Play has no page gesture wiring of its own: the first key or click in the
@@ -899,6 +911,7 @@ export function bootstrapPreviewM3(): void {
         ...rendererObservation(h),
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
+        ...debugCommandsObservation(h),
       };
     }
     const v = gv.view;
@@ -951,6 +964,8 @@ export function bootstrapPreviewM3(): void {
       ...(behaviors !== null ? { behaviors } : {}),
       // Phase 19.2: the visual-script debugger (held at a step boundary, the breakpoint node it holds on).
       ...(debug !== null && debug !== undefined ? { debug } : {}),
+      // Phase 23.8: the project's debug commands and the calls run; the start options' outcome.
+      ...debugCommandsObservation(h),
     };
   };
 
@@ -964,7 +979,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.game.control', (m) => {
-    const body = m as { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep'; sceneId?: string };
+    const body = m as ControlBody;
     const h = handle;
     if (h === null) {
       bridge.sendGameResult('control', playId, body.relayId, notReady);
@@ -973,10 +988,13 @@ export function bootstrapPreviewM3(): void {
     void control(h, body);
   });
 
-  const control = async (handle: M3PreviewHandle, body: { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep'; sceneId?: string }): Promise<void> => {
+  const control = async (handle: M3PreviewHandle, body: ControlBody): Promise<void> => {
     // Phase 12 (c): a scene request goes to the runtime like a script's ctx.scenes.
     let r: ReturnType<GameHost['control']>;
-    if (body.command === 'debugPause' || body.command === 'debugResume' || body.command === 'debugStep') {
+    if (body.command === 'debugCommand') {
+      // Phase 23.8: a project debug command, queued into the next step's input (recorded with it).
+      r = handle.host.debugCommand?.(String(body.name ?? ''), body.args ?? {}) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this game has no debug commands' } };
+    } else if (body.command === 'debugPause' || body.command === 'debugResume' || body.command === 'debugStep') {
       // Phase 19.2: the debugger's hold / release / single step (Play only; an export has no relay).
       await handle.access.debugControl(body.command);
       const view = handle.host.runtime.getGameView();
@@ -989,6 +1007,15 @@ export function bootstrapPreviewM3(): void {
       r = handle.host.control(body.command);
     }
     const gv = handle.host.runtime.getGameView();
+    if (r.ok && !gv.ok && body.command === 'debugCommand') {
+      // Phase 23.8: a scene-mode play (no game block) runs debug commands too; its run state is "scene".
+      const snap = handle.identity.snapshotId;
+      bridge.sendGameResult('control', playId, body.relayId, {
+        ok: true,
+        result: { ok: true, playSessionId: playId, snapshotId: snap, buildId: handle.identity.buildId, runId: `${snap}#0`, command: body.command, state: 'scene', acceptedAtStep: r.acceptedAtStep, inputMode: handle.access.inputTestActive ? 'test' : 'physical' },
+      });
+      return;
+    }
     if (!r.ok || !gv.ok) {
       const error = r.ok ? { code: 'game_unavailable', message: 'this play has no game session' } : { code: r.error.code, message: r.error.message };
       bridge.sendGameResult('control', playId, body.relayId, { ok: false, error });
@@ -1026,6 +1053,61 @@ export function bootstrapPreviewM3(): void {
 // `game.js` for a v3 play is this bundle — the same role as the M2
 // `preview.js`/`preview-bootstrap.ts`).
 bootstrapPreviewM3();
+
+/** Phase 23.8: the resolved start block the backend puts on the bridged snapshot. */
+interface PlayStartBlock {
+  sceneId?: string;
+  levelId?: string;
+  scenes?: string[];
+  spawnId?: string;
+  variables?: Record<string, unknown>;
+  save?: Record<string, unknown>;
+  saveSlot?: 'auto' | '1' | '2' | '3';
+  mode?: string;
+}
+
+/** Phase 23.8: the host's start options from the resolved block (variables go to the runtime separately). */
+function hostStartOf(b: PlayStartBlock): GameStartOptions | undefined {
+  const o: { -readonly [K in keyof GameStartOptions]: GameStartOptions[K] } = {};
+  if (b.levelId !== undefined) o.levelId = b.levelId;
+  if (b.scenes !== undefined) o.scenes = b.scenes;
+  if (b.spawnId !== undefined) o.spawnId = b.spawnId;
+  if (b.save !== undefined) o.save = b.save as unknown as NonNullable<GameStartOptions['save']>;
+  if (b.saveSlot !== undefined) o.saveSlot = b.saveSlot;
+  if (b.mode !== undefined) o.mode = b.mode;
+  return Object.keys(o).length > 0 ? o : undefined;
+}
+
+/** A relayed §20 control request (phase 23.8: `debugCommand` with its name and arguments). */
+interface ControlBody {
+  relayId: string;
+  command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep' | 'debugCommand';
+  sceneId?: string;
+  name?: string;
+  args?: Record<string, number | string | boolean>;
+}
+
+/**
+ * Phase 23.8: `debugCommands` {registered [{name, description, args}], applied
+ * [{stepIndex, name, args}] (the last 16)} and `start` (what the start options
+ * did), for tl_game_observe — bounded (32 commands, 16 calls).
+ */
+function debugCommandsObservation(h: M3PreviewHandle): { debugCommands?: Record<string, unknown>; start?: Record<string, unknown> } {
+  const st = h.host.runtime.debugCommandState?.();
+  const outcome = h.host.startOutcome ?? null;
+  let debugCommands: Record<string, unknown> | undefined;
+  if (st !== undefined && (st.registered.length > 0 || st.applied.length > 0)) {
+    const applied = st.applied.slice(-16).map((a) => ({ stepIndex: a.stepIndex, name: a.name, args: { ...a.args } }));
+    const registered = st.registered.slice(0, 32).map((c) => ({ name: c.name, description: c.description, args: c.args.map((a) => ({ ...a })) }));
+    debugCommands = { registered, applied };
+    // The observation's 16 KiB bound: long descriptions go first, then the oldest calls.
+    if (JSON.stringify(debugCommands).length > 6000) debugCommands = { registered: registered.map((c) => ({ ...c, description: c.description.slice(0, 24) })), applied: applied.slice(-8), truncated: true };
+  }
+  return {
+    ...(debugCommands !== undefined ? { debugCommands } : {}),
+    ...(outcome !== null ? { start: outcome.ok ? { ok: true, applied: [...outcome.applied] } : { ok: false, reason: outcome.reason } } : {}),
+  };
+}
 
 /** Phase 9.9: counters (at most 32) and health, for tl_game_observe. */
 function gameCounters(runtime: unknown): { counters?: Record<string, number>; health?: { current: number; max: number } } {

@@ -1692,6 +1692,62 @@ named on the title screen and ignored. Play keeps its saves apart from
 exported games (and each project apart from the others); **Game flow →
 Clear Play save** forgets Play's (MCP: `tl_game_control` `clearSave`).
 
+## Test and debug entry points (phase 23.8)
+
+**Play from…** (the toolbar button next to *play*) starts Play somewhere
+other than the game's start:
+
+- **Scene** — a game with levels (a game flow) starts a new game at the
+  first level that loads the scene, skipping the title; a game without levels
+  loads the scene together with its start scenes (they hold the camera and
+  the player) and the player starts at the scene's first player spawn (else
+  the game's own). A scene-only project (no game block) loads it as well.
+- **Variables** — a JSON object the scripts read with `ctx.save.get(key)`
+  from the very first step (the save's rules: at most 64 keys of 4 KB JSON
+  each). With a save they are added on top of the save's values.
+- **Save slot** — continue a game with levels from Play's autosave or slot
+  1–3 (the title's Continue / Load game path).
+
+MCP's `tl_play_start` takes the same options — `sceneId`, `variables`,
+`save` (a save document as the game writes them, at most 64 KB) or `saveSlot`
+(`auto`, `1`–`3`), and `mode` (a game-mode id: checked once the project
+defines game modes, and until then ignored and named in the result's
+`start.notes`). The backend checks them against the project (an unknown
+scene, a scene no level loads, or a save in a game without levels is
+refused) and the result echoes the resolved start; `tl_game_observe`
+reports what the game did with it as `start {ok, applied | reason}`. It
+works with the headless editor too (no browser open).
+
+**Debug commands** are declared by the project's scripts:
+
+```ts
+ctx.debug?.command('giveItem', {
+  description: 'Give the party an item',
+  args: [{ name: 'item', type: 'string' }, { name: 'count', type: 'number', optional: true }],
+}, (args) => { /* runs once per call, in this step */ });
+```
+
+The call also returns this step's calls (a list of argument objects) for a
+script that prefers to loop over them. Every script instance that declares
+the command receives each call, in the `intent` phase. The first declaration
+fixes the arguments (a second one with other arguments stops the game with
+the script error); at most 32 commands per game. A command runs **inside the
+simulation step as part of that step's input** (the input frame carries it),
+so it is deterministic and a recording that carries it replays it exactly;
+`tl_game_observe` lists `debugCommands {registered, applied [{stepIndex,
+name, args}] (the last 16)}` — the steps a playtest needs to reproduce a run.
+Run one from:
+
+- MCP: `tl_game_control` with `command: "debugCommand"`, `name` and `args`
+  (refused with `game_command_invalid` when no script declared it or the
+  arguments do not match);
+- the **in-game console**: press **`** (backquote) in Play — it lists the
+  commands (`help`), takes `giveItem lantern 2` (the declared order) or
+  `giveItem count=2 item="iron key"`, and prints each call the game ran with
+  its step. Play always has it. An exported game has it only when **Project
+  settings → Engine → Debug console in export** (`debug_console`) is on —
+  off by default, so a release build never ships a console by accident.
+
 ## Score
 
 **Game flow → Score**: tick *keep score*, then add the counters that earn
