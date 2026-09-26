@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight M2 Rapier 2D physics adapter (docs/contracts/runtime.md §12.6, promoted from physics.md; packet 31): the approved `@dimforge/rapier2d-compat@0.20.0` collision port — async cancellable WASM initialization before runtime start, one `World` per game with static box/convex-polygon colliders, the parentless kinematic character controller (createCharacterController(offset) + computeColliderMovement/computedMovement/setTranslation) with ground snap and collision-result grounding/support normals, per-step correction/support results, diagnostics and idempotent disposal that releases the world. Imports `@thirdlight/runtime` types and the approved Rapier pin only (dependencies.md §4.1/§4.3: no project-model internals, editor, backend, protocol, workspace, three or three-adapter edge; the runtime owns stepping — no second frame driver).",
+  "description": "Thirdlight M2 Rapier 2D physics adapter (docs/contracts/runtime.md §12.6, promoted from physics.md; packet 31): the approved `@dimforge/rapier2d-compat@0.20.0` collision port — async cancellable WASM initialization before runtime start, one `World` per game with static box/convex-polygon colliders, the parentless kinematic character controller (createCharacterController(offset) + computeColliderMovement/computedMovement/setTranslation) with ground snap and collision-result grounding/support normals, per-step correction/support results, diagnostics and idempotent disposal that releases the world. Imports `@thirdlight/runtime` types and the approved Rapier pin only (dependencies.md §4.1/§4.3: no project-model internals, editor, backend, protocol, workspace, three or three-adapter edge; the runtime owns stepping — no second frame driver). Phase 23.0: the `./3d` subpath is the 3D backend on the approved `@dimforge/rapier3d-compat@0.20.0` (the 2D pin's version; decision 0005) implementing the runtime `PhysicsPort3D` — a separate entry so 2D bundles never carry the 3D WASM.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./3d": "./src/3d/index.ts"
   },
   "dependencies": {
-    "@thirdlight/runtime": "0.1.0",
-    "@dimforge/rapier2d-compat": "0.20.0"
+    "@dimforge/rapier2d-compat": "0.20.0",
+    "@dimforge/rapier3d-compat": "0.20.0",
+    "@thirdlight/runtime": "0.1.0"
   },
   "scripts": {
     "test": "vitest run"

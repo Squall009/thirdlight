@@ -47,6 +47,8 @@ export const PINS = {
   '@types/react': '19.3.0',
   '@types/react-dom': '19.3.0',
   '@dimforge/rapier2d-compat': '0.20.0',
+  // Phase 23.0: the 3D backend, the same version as the 2D pin (decision 0005).
+  '@dimforge/rapier3d-compat': '0.20.0',
   '@playwright/test': '1.62.1',
   'playwright-core': '1.62.1',
   '@types/node': '22.20.4',
@@ -96,6 +98,8 @@ const PIN_CONSUMERS = {
   'playwright-core': 'backend (phase 11: the headless editor for MCP play; same version as @playwright/test)',
   '@dimforge/rapier2d-compat':
     'physics-rapier (packet 31) — the exact 0.20.0 pin (decision 0002 §1; dependencies.md §7); bundled by the preview/export graphs in packets 35/36',
+  '@dimforge/rapier3d-compat':
+    'physics-rapier ./3d (phase 23.0) — the exact 0.20.0 pin, the 2D pin\'s version (decision 0005); only in the separate physics-3d.js bundle a 3D project loads',
 };
 
 /** Exact semver string: no ^, ~, ranges, *, file:, workspace:, etc. */

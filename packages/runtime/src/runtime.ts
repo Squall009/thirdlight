@@ -40,7 +40,7 @@ import {
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
-import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, type LiveTagIndex, type SceneContribution } from './scene-set';
+import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -71,9 +71,14 @@ import {
 } from './game-session';
 import {
   validateCharacterMoveResult,
+  validateCharacterMoveResult3D,
   type CharacterClearanceResult,
   type CharacterMoveResult,
+  type CharacterMoveResult3D,
   type PhysicsPort,
+  type PhysicsPort3D,
+  type PhysicsVec3,
+  type StaticColliderSpec3D,
   type PhysicsResetPort,
   type PhysicsStepClient,
   type Vec2,
@@ -400,6 +405,11 @@ function isPhysicsPort(v: unknown): v is PhysicsPort {
   );
 }
 
+/** Phase 23.0: a 3D port carries `dimension: 3` (the 2D port has no such field). */
+function isPhysicsPort3D(v: unknown): v is PhysicsPort3D {
+  return isPlainObject(v) && v['dimension'] === 3 && typeof v['stageCharacterMove'] === 'function' && typeof v['step'] === 'function' && typeof v['dispose'] === 'function';
+}
+
 function isFiniteVec2(v: unknown): v is Vec2 {
   return (
     isPlainObject(v) &&
@@ -473,7 +483,11 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     actions = config.actions as unknown as ActionSource;
   }
   let physics: PhysicsPort | undefined;
-  if (config.physics !== undefined) {
+  let physics3d: PhysicsPort3D | undefined;
+  if (config.physics !== undefined && isPhysicsPort3D(config.physics)) {
+    // Phase 23.0: a 3D project's port (the runtime holds one or the other).
+    physics3d = config.physics;
+  } else if (config.physics !== undefined) {
     if (!isPhysicsPort(config.physics)) {
       return {
         error: fail('config_invalid', 'config field "physics" must be an initialized PhysicsPort', {
@@ -536,6 +550,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       modules,
       actions,
       physics,
+      ...(physics3d !== undefined ? { physics3d } : {}),
       settings: config.settings,
       clock,
       clockLabel,
@@ -552,6 +567,8 @@ interface ParsedConfig {
   modules: string[];
   actions: ActionSource;
   physics?: PhysicsPort;
+  /** Phase 23.0: the 3D port (instead of `physics`). */
+  physics3d?: PhysicsPort3D;
   settings: unknown;
   clock: () => number;
   clockLabel: 'performance' | 'injected';
@@ -573,7 +590,7 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, settings, clock, clockLabel, driverKind, hz, onFrame } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
@@ -1070,6 +1087,7 @@ export function instantiateRuntime(
     timing: sessionTimingSteps(game, hz),
     actions,
     physics,
+    ...(physics3d !== undefined ? { physics3d } : {}),
     settings: resolvedSettings,
     controllerEntityId: controllerEntityIds[0],
     order,
@@ -1124,6 +1142,8 @@ interface RuntimeArgs {
   timing: { settleSteps: number; dropThroughSteps: number; respawnDelaySteps: number };
   actions: ActionSource;
   physics?: PhysicsPort;
+  /** Phase 23.0: the 3D port (a project with physics_dimension 3), instead of `physics`. */
+  physics3d?: PhysicsPort3D;
   settings: GameplaySettings;
   controllerEntityId?: string;
   order: string[];
@@ -1206,6 +1226,17 @@ class RuntimeInstance implements Runtime {
   private executedSteps = 0;
   private readonly actions: ActionSource;
   private readonly physics?: PhysicsPort;
+  /**
+   * Phase 23.0: the 3D port. With it the runtime runs the 3D character phase
+   * (`runPhysicsPhase3D`) and commits the full position; `physics` is then
+   * absent, so every 2D path (movers, drop-through, queries, respawn) is inert.
+   */
+  private readonly physics3d?: PhysicsPort3D;
+  /** Phase 23.0: the 3D moves staged in this step's controller phase. */
+  private staged3d = new Map<string, PhysicsVec3>();
+  /** Phase 23.0: the character's vertical speed under gravity (m/s; 3D, no movement input yet). */
+  private fallSpeed3d = 0;
+  private lastCharacterResult3D?: CharacterMoveResult3D;
   private readonly settings: GameplaySettings;
   private readonly controllerEntityId?: string;
   private order: readonly string[];
@@ -1501,6 +1532,7 @@ class RuntimeInstance implements Runtime {
     }
     this.actions = args.actions;
     this.physics = args.physics;
+    if (args.physics3d !== undefined) this.physics3d = args.physics3d;
     this.settings = args.settings;
     this.controllerEntityId = args.controllerEntityId;
     this.order = args.order;
@@ -2190,6 +2222,13 @@ class RuntimeInstance implements Runtime {
         /* a failing port dispose must not break runtime disposal */
       }
     }
+    if (this.physics3d) {
+      try {
+        this.physics3d.dispose();
+      } catch {
+        /* a failing port dispose must not break runtime disposal */
+      }
+    }
     this.prev = new Map();
     this.curr = new Map();
     this.committed = null;
@@ -2263,7 +2302,7 @@ class RuntimeInstance implements Runtime {
         this.debugSteps -= 1;
         if (this.isM2) {
           if (!this.stepOnceM2()) return;
-        } else this.stepOnce();
+        } else if (!this.stepOnce()) return;
       }
       this.anchor = { wall: t, simTime: this.simTime };
       this.lastAlpha = 0;
@@ -2288,8 +2327,8 @@ class RuntimeInstance implements Runtime {
     for (let i = 0; i < n; i += 1) {
       if (this.isM2) {
         if (!this.stepOnceM2()) return; // fail-stop: no further frame/onFrame
-      } else {
-        this.stepOnce();
+      } else if (!this.stepOnce()) {
+        return; // phase 23.0: a 3D physics fail-stop (the only way a plain step stops)
       }
       // Phase 19.2: a breakpoint holds right after the step it hit.
       if (this.stepWatcher !== null && this.stepWatcher(this.stepIndex)) {
@@ -2318,9 +2357,9 @@ class RuntimeInstance implements Runtime {
   }
 
   /** One fixed M1 step (§5.3 + §5.1 module isolation). */
-  private stepOnce(): void {
+  private stepOnce(): boolean {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
-    if (!this.applySceneOps()) return;
+    if (!this.applySceneOps()) return true;
     // §5.1: copy curr before the step; restore it if any module throws
     // (no partial module application).
     const backup = cloneCurr(this.curr);
@@ -2357,12 +2396,26 @@ class RuntimeInstance implements Runtime {
       // instance is not re-created; the step keeps no-opping on every
       // subsequent step until disposed (§5.1).
       this.curr = cloneCurr(backup);
-      return;
+      return true;
+    }
+    if (this.physics3d !== undefined) {
+      // Phase 23.0: a 3D game steps its physics in a plain (scene-mode) step
+      // too — its character falls and rests under the runtime's 3D phase (no
+      // controller module drives it before phase 23.2). The 2D plane keeps
+      // its scene mode exactly as before (no physics step).
+      try {
+        this.runPhysicsPhase3D(this.physics3d);
+      } catch (e) {
+        this.curr = cloneCurr(backup);
+        this.failStopFromError(e, stepOrdinal);
+        return false;
+      }
     }
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
     this.stepAnimators();
+    return true;
   }
 
   /**
@@ -3031,6 +3084,7 @@ class RuntimeInstance implements Runtime {
     }
     const frozen = deepFreeze(entities.map((e) => structuredClone(e)));
     const contribution = sceneContribution(frozen);
+    if (this.physics3d !== undefined && !this.addColliders3D(frozen, (why) => refuse(why), `scene "${sceneId}"`)) return false;
     if (contribution.colliders.length > 0 && this.physics !== undefined) {
       if (typeof this.physics.addStaticColliders !== 'function') return refuse('the physics port cannot add colliders');
       try {
@@ -3136,6 +3190,13 @@ class RuntimeInstance implements Runtime {
       // Phase 14.1: owners that left ("@self" carriers) are released.
       const owners = instance.transformOwners;
       if (Array.isArray(owners)) entry.owners = owners.filter((id) => !ids.has(id));
+    }
+    if (colliderIds.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
+      try {
+        this.physics3d.removeStaticColliders(colliderIds);
+      } catch (e) {
+        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+      }
     }
     if (colliderIds.length > 0 && typeof this.physics?.removeStaticColliders === 'function') {
       try {
@@ -3270,6 +3331,10 @@ class RuntimeInstance implements Runtime {
     }
     const frozen = deepFreeze(entities.map((e) => structuredClone(e)));
     const colliders = sceneContribution(frozen).colliders;
+    if (this.physics3d !== undefined && !this.addColliders3D(frozen, (why) => {
+      this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${why}`), stepIndex: this.stepIndex });
+      return true;
+    }, `spawn "${root.id}"`)) return false;
     if (colliders.length > 0 && this.physics !== undefined) {
       if (typeof this.physics.addStaticColliders !== 'function') {
         this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: the physics port cannot add colliders`), stepIndex: this.stepIndex });
@@ -3801,6 +3866,15 @@ class RuntimeInstance implements Runtime {
     if (!isFiniteVec2(delta)) {
       throw new Error('a staged character move must be a finite { x, y }');
     }
+    if (this.physics3d !== undefined) {
+      // Phase 23.0: a 3D move (z optional: a module written for the plane moves in it).
+      const z = (delta as { z?: unknown }).z;
+      const moved3 = { x: delta.x, y: delta.y, z: typeof z === 'number' && Number.isFinite(z) ? z : 0 };
+      this.staged.set(entityId, { x: moved3.x, y: moved3.y });
+      this.staged3d.set(entityId, moved3);
+      this.physics3d.stageCharacterMove(moved3);
+      return;
+    }
     // Phase 9.9: the player moves with the platform it stands on.
     const carry = entityId === this.controllerEntityId ? (this.blocks?.carryDelta() ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
     const moved = { x: delta.x + carry.x, y: delta.y + carry.y };
@@ -3810,6 +3884,10 @@ class RuntimeInstance implements Runtime {
 
   /** Phase 4 (runtime, not a module): one validated `port.step()`. */
   private runPhysicsPhase(): void {
+    if (this.physics3d !== undefined) {
+      this.runPhysicsPhase3D(this.physics3d);
+      return;
+    }
     const port = this.physics;
     if (!port) return;
     const controllerId = this.controllerEntityId;
@@ -3841,6 +3919,71 @@ class RuntimeInstance implements Runtime {
       }
     }
     if (this.staged.size > 0) this.staged.clear();
+  }
+
+  /**
+   * Phase 23.0: the 3D physics phase — one validated `port.step()`. The
+   * character falls under the project's gravity (`gravity_y` along Y, capped
+   * at `max_fall_speed`) and rests on what it lands on (its fall speed is
+   * zeroed while grounded); a move a module staged in the controller phase
+   * replaces the fall. Walking, jumping and turning are phase 23.2. The full
+   * position (x, y and z) is committed to the controller's transform.
+   */
+  private runPhysicsPhase3D(port: PhysicsPort3D): void {
+    const controllerId = this.controllerEntityId;
+    const t = controllerId !== undefined ? this.curr.get(controllerId) : undefined;
+    const previous: PhysicsVec3 = t ? { x: t.position[0], y: t.position[1], z: t.position[2] } : { x: 0, y: 0, z: 0 };
+    const dt = 1 / this.hz;
+    let requested = controllerId !== undefined ? this.staged3d.get(controllerId) : undefined;
+    if (requested === undefined) {
+      const grounded = this.lastCharacterResult3D?.grounded === true;
+      this.fallSpeed3d = grounded ? 0 : Math.max(this.settings.max_fall_speed, this.fallSpeed3d + this.settings.gravity_y * dt);
+      requested = { x: 0, y: this.fallSpeed3d * dt, z: 0 };
+      port.stageCharacterMove(requested);
+    }
+    let raw: unknown;
+    this.physicsSteps += 1;
+    try {
+      raw = port.step();
+    } catch (e) {
+      throw new PhysicsPortFailure('threw', `physics port step() threw: ${messageOf(e)}`);
+    }
+    const check = validateCharacterMoveResult3D(raw, previous, requested);
+    if (!check.ok) throw new PhysicsPortFailure('result', `physics port returned an invalid result: ${check.failure.detail}`);
+    this.lastCharacterResult3D = check.result;
+    // A landing (or a head bump) ends the fall; the next step starts from rest.
+    if (check.result.grounded || check.result.contacts.head) this.fallSpeed3d = 0;
+    if (t) {
+      t.position[0] = check.result.position.x;
+      t.position[1] = check.result.position.y;
+      t.position[2] = check.result.position.z;
+    }
+    if (this.staged.size > 0) this.staged.clear();
+    if (this.staged3d.size > 0) this.staged3d.clear();
+  }
+
+  /** Phase 23.0: add the 3D colliders of loaded / spawned entities (false after a fail-stop). */
+  private addColliders3D(entities: readonly EntityV3[], refuse: (why: string) => boolean, what: string): boolean {
+    const port = this.physics3d!;
+    const specs: StaticColliderSpec3D[] = [];
+    for (const e of entities) {
+      const c = e.components as unknown as Record<string, unknown>;
+      if (c['controller'] !== undefined) continue;
+      const spec = staticColliderOf3D(e.id, c);
+      if (spec !== null) specs.push(spec);
+    }
+    if (specs.length === 0) return true;
+    if (typeof port.addStaticColliders !== 'function') {
+      refuse('the physics port cannot add colliders');
+      return false;
+    }
+    try {
+      port.addStaticColliders(specs);
+    } catch (e) {
+      this.failStop('physics_port_error', 'scene_colliders', `adding the colliders of ${what} failed: ${messageOf(e)}`, this.stepIndex);
+      return false;
+    }
+    return true;
   }
 
   private failStopFromError(e: unknown, stepIndex: number): void {
@@ -3965,9 +4108,10 @@ class RuntimeInstance implements Runtime {
   private physicsDiagnostics(): { stall: number; penetration: number } {
     let stall = 0;
     let penetration = 0;
-    if (this.physics && typeof this.physics.diagnostics === 'function') {
+    const diag = this.physics ?? this.physics3d;
+    if (diag && typeof diag.diagnostics === 'function') {
       try {
-        const d = this.physics.diagnostics() ?? {};
+        const d = diag.diagnostics() ?? {};
         if (typeof d.stallSteps === 'number' && Number.isFinite(d.stallSteps)) stall = d.stallSteps;
         if (typeof d.penetrationCorrectedCount === 'number' && Number.isFinite(d.penetrationCorrectedCount)) {
           penetration = d.penetrationCorrectedCount;

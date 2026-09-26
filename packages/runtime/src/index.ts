@@ -62,6 +62,15 @@ export {
   type StaticColliderSpec,
   type OverlapShape,
   type Vec2,
+  // Phase 23.0: the 3D port (a project with physics_dimension 3).
+  validateCharacterMoveResult3D,
+  type CharacterMoveResult3D,
+  type PhysicsInitConfig3D,
+  type PhysicsPort3D,
+  type PhysicsQuat,
+  type RaycastHit3D,
+  type StaticColliderSpec3D,
+  type PhysicsVec3,
 } from './ports';
 export { DuplicateMoveError, PhaseViolationError } from './guard';
 export {
@@ -181,7 +190,7 @@ export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags 
 // Phase 14.0: the character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf } from './scene-set';
+export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D } from './scene-set';
 // Phase 15.3: the tuning defaults hosts and editors read (the values are project-model's).
 export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';

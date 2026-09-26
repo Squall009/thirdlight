@@ -4,9 +4,9 @@
  * root offset of a load, the live tag index that follows loads and unloads,
  * and the exit-zone entry test. No I/O, no three.js.
  */
-import { controllerCapsuleOf, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
-import type { StaticColliderSpec, Vec2 } from './ports';
+import type { PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
 import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, ModelBounds, PlayerCapsule } from './types';
 
 /** What one scene adds to the running game. */
@@ -143,6 +143,71 @@ export function playerCapsuleOf(controller: unknown): PlayerCapsule {
 export function playerPhysicsOf(controller: unknown): { offsetSkin: number; groundSnap: number; autostep: boolean; autostepHeight: number } {
   const t = controllerTuningOf(controller);
   return { offsetSkin: t.skin, groundSnap: t.groundSnap, autostep: t.autostep, autostepHeight: t.autostepHeight };
+}
+
+/**
+ * Phase 23.0: the 3D static collider spec of one entity's `collider` (null
+ * without one): its world position and full rotation (a 3D collider turns on
+ * any axis; the project model keeps it a root at unit scale), the shape as
+ * authored (a box with `hz` — the model refuses one without in a 3D project).
+ */
+export function staticColliderOf3D(entityId: string, components: Readonly<Record<string, unknown>>): StaticColliderSpec3D | null {
+  const collider = components['collider'] as { shape?: unknown } | undefined;
+  if (collider === undefined) return null;
+  const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[] } | undefined;
+  const p = t?.position ?? [0, 0, 0];
+  const q = t?.rotation ?? [0, 0, 0, 1];
+  return { entityId, shape: collider.shape, position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 }, rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 } };
+}
+
+/**
+ * Phase 23.0: the 3D physics init config of a scene's (resolved) entities —
+ * every collider but the player's as a static, the controller entity as the
+ * character with its capsule (the offset's z included) and its tuning, the
+ * project's step rate and gravity along −Y, the slope angles. Null without a
+ * controller entity. The one builder the Play preview, the export, the
+ * simulation worker's host and the tests use.
+ */
+export function physics3DConfigOf(
+  entities: readonly { id: string; components?: unknown }[],
+  settings: { gravity_y: number; max_slope_climb_deg: number; min_slope_slide_deg: number; fixed_step_hz?: number },
+): PhysicsInitConfig3D | null {
+  const statics: StaticColliderSpec3D[] = [];
+  let character: PhysicsInitConfig3D['character'] | null = null;
+  let tuning = playerPhysicsOf(undefined);
+  for (const e of entities) {
+    const c = (e.components ?? {}) as Record<string, unknown>;
+    if (c['controller'] !== undefined) {
+      const t = c['transform'] as { position?: readonly number[] } | undefined;
+      const p = t?.position ?? [0, 0, 0];
+      const capsule = playerCapsuleOf(c['controller']);
+      tuning = playerPhysicsOf(c['controller']);
+      character = {
+        position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
+        radius: capsule.radius,
+        halfHeight: capsule.halfHeight,
+        offset: { x: capsule.offset.x, y: capsule.offset.y, z: controllerCapsuleOffsetZ(c['controller']) },
+      };
+      continue;
+    }
+    const spec = staticColliderOf3D(e.id, c);
+    if (spec !== null) statics.push(spec);
+  }
+  if (character === null) return null;
+  return {
+    dimension: 3,
+    character,
+    statics,
+    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
+    controller: {
+      offsetSkin: tuning.offsetSkin,
+      groundSnap: tuning.groundSnap,
+      maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
+      minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
+      autostep: tuning.autostep,
+      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
+    },
+  };
 }
 
 /**

@@ -79,6 +79,8 @@ describe('runtime core imports no physics implementation', () => {
       for (const specifier of imports) {
         const allowed =
           specifier.startsWith('./') || specifier.startsWith('../') || specifier === '@dimforge/rapier2d-compat' ||
+          // Phase 23.0: the 3D backend (the `./3d` subpath; decision 0005).
+          specifier === '@dimforge/rapier3d-compat' ||
           specifier === '@thirdlight/runtime' ||
           specifier === 'vitest';
         expect(allowed, `${file} imports '${specifier}' (dependencies.md §4.1/§4.3)`).toBe(true);

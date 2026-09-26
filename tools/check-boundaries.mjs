@@ -241,9 +241,10 @@ export const NODE_SIDE_ALLOWED = {
   // (the approved pin, §7)". The adapter never imports a concrete runtime
   // value (the runtime owns stepping and hands it only the port shape), and it
   // may not reach project-model/editor/backend/protocol/workspace/three.
+  // Phase 23.0: + @dimforge/rapier3d-compat for the `./3d` subpath (decision 0005).
   'physics-rapier': {
     packages: ['runtime'],
-    external: ['@dimforge/rapier2d-compat'],
+    external: ['@dimforge/rapier2d-compat', '@dimforge/rapier3d-compat'],
     node: [],
     typesOnly: { runtime: true },
   },
@@ -396,6 +397,20 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
     computedDynamicImport: 'locator',
+  },
+  // Phase 23.0: the 3D physics backend entries (`js/physics-3d.js` of a 3D
+  // project's export; `dist/preview/physics-3d.js` on the preview origin):
+  // physics-rapier's `./3d` port and the dependency-free hand-over module of
+  // game-host (`./physics-3d-global`) only.
+  'packages/exporter/src/export-physics-3d.ts': {
+    packages: ['physics-rapier', 'game-host'],
+    external: [],
+    node: [],
+  },
+  'packages/editor/src/preview/physics-3d.ts': {
+    packages: ['physics-rapier', 'game-host'],
+    external: [],
+    node: [],
   },
   // dependencies.md §4.2 play-preview bundle row (packet 35): the entry is
   // `editor/src/preview/**` and its graph may include protocol, runtime,

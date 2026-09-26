@@ -222,3 +222,135 @@ export function validateCharacterMoveResult(
   }
   return { ok: true, result };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 23.0: the 3D physics port. A project whose `physics_dimension` is 3
+// runs on a separate 3D backend (physics-rapier's `./3d` subpath, rapier3d);
+// the runtime holds this port instead of the 2D `PhysicsPort` above, which —
+// with its fakes, the platformer controller and the graph codegen — stays
+// exactly as it was. Positions are PhysicsVec3, rotations unit quaternions.
+// ---------------------------------------------------------------------------
+
+/** Phase 23.0: a 3D vector (m). */
+export interface PhysicsVec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Phase 23.0: a unit quaternion. */
+export interface PhysicsQuat {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}
+
+/** Phase 23.0: one static collider of a 3D world (the entity's full transform; root, unit scale). */
+export interface StaticColliderSpec3D {
+  entityId: string;
+  /** The validated `components.collider.shape` (a box with `hz`; opaque to the runtime core). */
+  shape: unknown;
+  position: PhysicsVec3;
+  rotation: PhysicsQuat;
+}
+
+/** Phase 23.0: the 3D port's per-step character result (the 2D result's fields in 3D). */
+export interface CharacterMoveResult3D {
+  requested: PhysicsVec3;
+  applied: PhysicsVec3;
+  position: PhysicsVec3;
+  grounded: boolean;
+  supportNormal: PhysicsVec3;
+  contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
+  snapped: boolean;
+  groundEntityId?: string | null;
+}
+
+/** Phase 23.0: a ray hit in 3D. */
+export interface RaycastHit3D {
+  entityId: string;
+  distance: number;
+  normal: PhysicsVec3;
+}
+
+/**
+ * Phase 23.0: what a 3D port is created from (built by the hosts from the
+ * snapshot and settings — game-host `physics3DConfigOf`). `dimension: 3`
+ * tells a host (and the simulation worker) which backend to load.
+ */
+export interface PhysicsInitConfig3D {
+  readonly dimension: 3;
+  /** The controller entity: its origin, and its capsule (radius, centre-line half height, centre offset from the origin). */
+  character: { position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3 };
+  statics: readonly StaticColliderSpec3D[];
+  /** The project's step rate and gravity along Y (−Y is down). */
+  solver: { hz: number; gravityY: number };
+  /** The character controller's tuning (the 2D controller's fields: skin, snap, slope angles, autostep). */
+  controller: { offsetSkin: number; groundSnap: number; maxSlopeClimbRad: number; minSlopeSlideRad: number; autostep: boolean; autostepHeight?: number };
+}
+
+/**
+ * Phase 23.0: the injected 3D physics port — initialized before
+ * `instantiateRuntime` like the 2D one, stepped once per fixed step by the
+ * runtime. The character is a kinematic capsule swept by the backend's
+ * character controller.
+ */
+export interface PhysicsPort3D {
+  /** The discriminant: a 3D port (the 2D `PhysicsPort` has none). */
+  readonly dimension: 3;
+  readonly implementation?: string;
+  stageCharacterMove(delta: PhysicsVec3): void;
+  step(): CharacterMoveResult3D;
+  diagnostics?(): PhysicsDiagnostics;
+  /** A loaded / unloaded scene's static colliders (at a step boundary). */
+  addStaticColliders?(specs: readonly StaticColliderSpec3D[]): void;
+  removeStaticColliders?(entityIds: readonly string[]): void;
+  /** The nearest collider hit by a ray (the character excluded). */
+  raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null;
+  dispose(): void;
+}
+
+function isVec3(v: unknown): v is PhysicsVec3 {
+  return typeof v === 'object' && v !== null && finite((v as PhysicsVec3).x) && finite((v as PhysicsVec3).y) && finite((v as PhysicsVec3).z);
+}
+
+/**
+ * Phase 23.0: the 3D counterpart of `validateCharacterMoveResult` — the same
+ * rules on three axes (finite vectors, a unit support normal pointing up
+ * while grounded, `applied == position − previousPosition` within 1e-9, the
+ * correction bounded by the request plus the snap allowance).
+ */
+export function validateCharacterMoveResult3D(
+  value: unknown,
+  previousPosition: PhysicsVec3,
+  requested: PhysicsVec3,
+): { ok: true; result: CharacterMoveResult3D } | { ok: false; failure: CharacterMoveResultFailure } {
+  const bad = (detail: string): { ok: false; failure: CharacterMoveResultFailure } => ({ ok: false, failure: { reason: 'result', detail } });
+  if (typeof value !== 'object' || value === null) return bad('result must be an object');
+  const r = value as Partial<CharacterMoveResult3D>;
+  if (!isVec3(r.requested)) return bad('requested must be a finite { x, y, z }');
+  if (!isVec3(r.applied)) return bad('applied must be a finite { x, y, z }');
+  if (!isVec3(r.position)) return bad('position must be a finite { x, y, z }');
+  if (!isVec3(r.supportNormal)) return bad('supportNormal must be a finite { x, y, z }');
+  if (typeof r.grounded !== 'boolean') return bad('grounded must be a boolean');
+  if (typeof r.snapped !== 'boolean') return bad('snapped must be a boolean');
+  const c = r.contacts;
+  if (typeof c !== 'object' || c === null || typeof c.ground !== 'boolean' || typeof c.wall !== 'boolean' || typeof c.head !== 'boolean' || typeof c.steepSlope !== 'boolean') {
+    return bad('contacts must be { ground, wall, head, steepSlope } booleans');
+  }
+  const result = r as CharacterMoveResult3D;
+  const n = result.supportNormal;
+  if (Math.abs(Math.hypot(n.x, n.y, n.z) - 1) > 1e-6) return bad('supportNormal must be unit within 1e-6');
+  if (result.grounded && !(n.y > 0)) return bad('grounded requires supportNormal.y > 0');
+  const a = result.applied;
+  const p = result.position;
+  if (Math.abs(a.x - (p.x - previousPosition.x)) > 1e-9 || Math.abs(a.y - (p.y - previousPosition.y)) > 1e-9 || Math.abs(a.z - (p.z - previousPosition.z)) > 1e-9) {
+    return bad('applied != position - previousPosition within 1e-9');
+  }
+  const allowance = result.snapped ? 0.11 : 0.001;
+  if (Math.hypot(a.x, a.y, a.z) > Math.hypot(requested.x, requested.y, requested.z) + allowance + 1e-12) {
+    return bad('|applied| exceeds |requested| + allowance');
+  }
+  return { ok: true, result };
+}

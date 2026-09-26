@@ -30,7 +30,7 @@ export type { GameZoneRole };
 import type { ActionFrame, ActionSource } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode, RuntimeError } from './errors';
-import type { PhysicsPort, PhysicsStepClient, Vec2 } from './ports';
+import type { PhysicsPort, PhysicsPort3D, PhysicsStepClient, Vec2 } from './ports';
 
 /** One entity of any supported normalized scene version. */
 export type RuntimeSnapshotEntity = ResolvedSceneV3['entities'][number];
@@ -187,8 +187,12 @@ export interface InstantiateConfig {
   modules?: readonly string[];
   /** The injected per-step input port (runtime.md §12.5). Default: neutral frames. */
   actions?: ActionSource;
-  /** An already-initialized physics port (runtime.md §12.6). Required by port-requiring sets. */
-  physics?: PhysicsPort;
+  /**
+   * An already-initialized physics port (runtime.md §12.6). Required by
+   * port-requiring sets. Phase 23.0: or a 3D port (`PhysicsPort3D`, a project
+   * whose `physics_dimension` is 3).
+   */
+  physics?: PhysicsPort | PhysicsPort3D;
   /** Gameplay settings input, resolved + deep-frozen at instantiate. Default: registry defaults. */
   settings?: unknown;
   /** Monotonic seconds. Default `performance.now() / 1000`. */
