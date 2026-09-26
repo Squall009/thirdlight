@@ -30,7 +30,9 @@ export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.e2e.ts',
   globalSetup: './tests/e2e/global-setup.ts',
-  workers: 1,
+  // TL_E2E_WORKERS (default 1): tests run in parallel files when > 1 — each test starts its own
+  // backend and data root; SwiftShader is CPU-bound, so more workers than ~cores/3 slows every test.
+  workers: Number(process.env['TL_E2E_WORKERS'] ?? 1),
   timeout: 60_000,
   reporter: [['list']],
   outputDir: './test-results',

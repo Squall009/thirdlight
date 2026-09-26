@@ -23,6 +23,10 @@ export const RENDERER_VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 
 export function onlyInItsProject(variant: RendererVariant): void {
   const webgpuProject = test.info().project.name === 'webgpu';
   test.skip(webgpuProject ? variant !== 'webgpu' : variant === 'webgpu', `the ${variant} variant runs in the ${variant === 'webgpu' ? 'webgpu' : 'default'} project`);
+  // Gate speed (2026-09-26): on a host without a WebGPU adapter `auto` takes the same WebGL 2
+  // path as the `webgl2` variant, so it would repeat it step for step (~6 min per full run).
+  // `renderer.e2e.ts` still covers the `auto` default itself; TL_E2E_ALL_VARIANTS=1 runs it here too.
+  test.skip(!webgpuProject && variant === 'auto' && process.env['TL_E2E_ALL_VARIANTS'] !== '1', 'auto = webgl2 on this host (TL_E2E_ALL_VARIANTS=1 runs it)');
 }
 
 /** The editor URL with the variant's `?renderer=` flag (before the token fragment); `auto` is the default (no flag). */

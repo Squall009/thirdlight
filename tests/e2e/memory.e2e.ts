@@ -38,6 +38,8 @@ import { skinnedGlb } from './skinned-glb';
 
 // Small scenes, a smaller page: the CPU renderer draws each frame faster (the counts do not depend on the size).
 test.use({ viewport: { width: 1280, height: 720 } });
+// Opt-in (~10 min): the full gate (`tools/gate.sh full`) sets TL_MEMORY=1; the per-commit gate skips it.
+test.skip(process.env['TL_MEMORY'] !== '1', 'leak test: set TL_MEMORY=1 (the full gate does)');
 
 let be: E2EBackend;
 test.afterEach(async () => {

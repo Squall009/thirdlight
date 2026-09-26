@@ -56,9 +56,13 @@ The rules of `docs/plan-phase-9.md` §3 (including its **Traps**) and the
 extra traps in `docs/plan-phase-14.md` §3 apply to every phase. In short:
 items in order; schema/commands → runtime/adapter/host → editor → exporter
 → tests → docs; every editor change gets a Playwright test against a real
-backend; green = the literal `build: done`, `npx vitest run --exclude
-'.claude/**' --exclude 'archive/**'` passing, the full `npx playwright
-test` passing (both projects since 17.1: `default` and `webgpu`); commit to `main`, push, `sudo systemctl restart thirdlight`;
+backend; green is tiered (2026-09-26, owner: a 50-minute gate per commit was
+too slow): **per commit** `tools/gate.sh fast <the e2e files of the area
+you changed>` (build, all of vitest, a smoke set, those files — a few
+minutes); **per finished item, before its STATUS row says done**
+`tools/gate.sh full` (every spec in both projects, the leak test included);
+while fixing a failure `tools/gate.sh rerun` runs only what failed last
+time. Commit to `main`, push, `sudo systemctl restart thirdlight`;
 tick the phase plan's progress table and one or two lines in its
 `docs/STATUS.md` row; decisions in the phase plan's decision log. Sprout:
 commit there, never push. Never print the owner token.

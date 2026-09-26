@@ -2280,10 +2280,11 @@ stopped 20×, and in one Play session an additive scene loaded and unloaded
 the renderer's own counts come back to where they were. The Scene view's
 canvas carries the renderer's counts in `data-memory`; Play's diagnostics
 (`tl_diagnostics` renderer.gpu) carry the same counts. Run it after
-`npm run build` with `npx playwright test tests/e2e/memory.e2e.ts` (both
+`npm run build` with `TL_MEMORY=1 npx playwright test tests/e2e/memory.e2e.ts` (both
 projects; 10–15 min on a CPU renderer; `[memory] …` lines print each
 scenario's baseline and end counts); `TL_MEMORY_CYCLES=5` shortens it for a
-quick smoke run.
+quick smoke run. Without `TL_MEMORY=1` the spec is skipped (the full gate
+sets it).
 
 ## Upgrade
 
@@ -2301,6 +2302,9 @@ Projects in an older layout are upgraded the first time they are opened
 ## Verification
 
 ```sh
+tools/gate.sh fast [e2e files…]             # per change: build, vitest, smoke e2e + the named files (minutes)
+tools/gate.sh full                          # everything incl. the leak test, before an item is done
+tools/gate.sh rerun                         # only the tests that failed last time
 npm test                                    # unit + integration (vitest)
 npm run build && npm run test:e2e           # Playwright: real backend + Chromium
 npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
@@ -2317,7 +2321,10 @@ renderer-sensitive specs again with
 Dawn's SwiftShader adapter). The materials, textures, lightmaps,
 environment, lights, sky-texture, level-look and shadows specs run once per
 renderer variant: `auto` (no flag) and `webgl2` (forced with `?renderer=`)
-in `default`, `webgpu` in `webgpu`; the shader-parity and env-parity specs
+in `default`, `webgpu` in `webgpu` (the `auto` variant only with
+`TL_E2E_ALL_VARIANTS=1` where no WebGPU adapter exists, since it then draws
+exactly like `webgl2`); `TL_E2E_WORKERS=<n>` runs spec files in parallel
+(`tools/gate.sh` uses 3); the shader-parity and env-parity specs
 compare every shader type and environment with its reference image (drawn
 by the old WebGL renderer, frozen since phase 17.4) on WebGL 2 and on
 WebGPU.

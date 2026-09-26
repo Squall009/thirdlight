@@ -28,7 +28,9 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
 - When an item is done, update its row in `docs/STATUS.md` in one or two
   lines. Do not write handoff files, gate reviews, or evidence dumps.
 - Commit to `main` with a clear message when a coherent change is green,
-  then push to `origin`.
+  then push to `origin`. Green is tiered: `tools/gate.sh fast <e2e files of
+  the area>` per commit, `tools/gate.sh full` before an item is marked done,
+  `tools/gate.sh rerun` (only what failed) while fixing.
 - Preserve unrelated user changes. Never expose credentials in code, logs,
   bundles, fixtures, or docs.
 
