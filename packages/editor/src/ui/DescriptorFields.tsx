@@ -254,7 +254,8 @@ export function FieldRow(p: RowProps): JSX.Element | null {
     }
     case 'vector': {
       const labels = f.type === 'vec2' || f.type === 'vec3' ? f.labels : [];
-      const arr = Array.isArray(shown) ? (shown as number[]) : labels.map(() => 0);
+      // Phase 23.0: a left-out last component (an optional z) shows as 0; editing stores all of them.
+      const arr = Array.isArray(shown) ? labels.map((_, i) => (shown as number[])[i] ?? 0) : labels.map(() => 0);
       return (
         <Row f={f} label={p.label} isDefault={isDefault} className="tl-vec">
           <VectorWidget {...p} aria={aria} shown={arr} labels={labels} />

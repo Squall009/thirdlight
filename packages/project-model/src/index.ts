@@ -85,7 +85,7 @@ export type {
 } from './types-v2';
 
 // Phase 14.0: the character capsule (default, limits, resolved form).
-export { CAPSULE_LIMITS, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerTuningOf } from './components';
+export { CAPSULE_LIMITS, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
@@ -94,6 +94,9 @@ export { validateManifest, normalizeManifest } from './validate';
 export {
   M2_SETTINGS_KEYS,
   AUDIO_VOICE_CAP,
+  PHYSICS_DIMENSIONS,
+  physicsDimensionOf,
+  type PhysicsDimension,
   MAX_SOURCE_PATH_LENGTH,
   MAX_CONVERTED_SOURCE_BYTES,
   M2_GLTF_EXTENSION_ALLOWLIST,

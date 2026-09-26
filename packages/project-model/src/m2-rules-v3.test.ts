@@ -278,18 +278,22 @@ describe('gameplay settings resolution (§21.5)', () => {
       'animation_crossfade_s',
       // Phase 17.1: the renderer backend (0 legacy WebGL, 1 auto, 2 WebGPU, 3 WebGL 2).
       'render_backend',
+      // Phase 23.0: the simulation's dimension (2 the 2D plane, 3 3D).
+      'physics_dimension',
       // Phase 22.0: where the simulation runs (1 a worker, 2 the main thread).
       'sim_thread',
     ]);
     // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
     const engine = resolveGameplaySettings({ settings: { audio_voices: 4, fixed_step_hz: 60 } });
     expect(engine.ok && Object.keys(engine.normalized)).toEqual(['gravity_y', 'run_speed', 'jump_velocity', 'max_fall_speed', 'max_slope_climb_deg', 'min_slope_slide_deg', 'fixed_step_hz', 'audio_voices']);
+    const dim = resolveGameplaySettings({ settings: { physics_dimension: 3 } });
+    expect(dim.ok && dim.normalized).toMatchObject({ physics_dimension: 3 });
     const backend = resolveGameplaySettings({ settings: { render_backend: 3 } });
     expect(backend.ok && backend.normalized.render_backend).toBe(3);
     // Phase 17.4: 0 (the archived WebGL renderer) stays valid in an older project (read as auto).
     const legacy = resolveGameplaySettings({ settings: { render_backend: 0 } });
     expect(legacy.ok && legacy.normalized.render_backend).toBe(0);
-    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }, { sim_thread: 0 }, { sim_thread: 3 }]) {
+    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }, { sim_thread: 0 }, { sim_thread: 3 }, { physics_dimension: 1 }, { physics_dimension: 2.5 }]) {
       expect(resolveGameplaySettings({ settings: bad }).ok, JSON.stringify(bad)).toBe(false);
     }
   });

@@ -24,10 +24,10 @@
  */
 
 import { composeV3 } from './project-v3';
-import { validateContentV4, MAX_SCENES } from './content';
+import { validateContentV4, MAX_SCENES, physicsDimensionOf } from './content';
 import { effectiveEntityFlags } from './hierarchy-v3';
 import { validateSceneV4 } from './scene-v3';
-import { ID_RE_V2 } from './components';
+import { ID_RE_V2, physicsRotationErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
@@ -342,6 +342,38 @@ export function composeV4(
 
   // Per-scene references against the content block.
   for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
+
+  // Phase 23.0: a prefab's collider follows the project's physics dimension too.
+  const dimension = physicsDimensionOf(content.settings);
+  (content.prefabs ?? []).forEach((d, di) => {
+    d.entities.forEach((e, ei) => {
+      const local: ModelErrorV3[] = [];
+      physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, dimension, local, `/prefabs/${di}/entities/${ei}/components`);
+      for (const x of local) errors.push({ ...x, document: 'content' } as ModelErrorV3);
+    });
+  });
+}
+
+/**
+ * Phase 23.0: the rules of one physics-bearing entity (scene entity or prefab
+ * entity; `path` is the entity's pointer) that depend on the project's
+ * physics dimension. A 2D plane: the rotation about Z only rules (as before).
+ * 3D: any collider rotation, the controller upright; every box collider
+ * needs its half depth `hz` (no guessed depth); a polygon collider is a
+ * 2D-plane shape (3D shapes and mesh colliders are phase 23.1).
+ */
+export function physicsDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[], rotationBase: string = path): void {
+  const collider = comps['collider'] as { shape?: { type?: string; hz?: number } } | undefined;
+  const hasController = comps['controller'] !== undefined;
+  if (collider === undefined && !hasController) return;
+  physicsRotationErrors(comps, rotationBase, hasController, dimension, errors);
+  if (dimension !== 3 || collider === undefined) return;
+  const shape = collider.shape;
+  if (shape?.type === 'box' && shape.hz === undefined) {
+    errors.push({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/hz`, message: 'a box collider in a 3D project needs its half depth hz (m)', expected: 'hz > 0' } as ModelErrorV3);
+  } else if (shape?.type === 'polygon') {
+    errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: 'a polygon collider is a 2D-plane shape; a 3D project uses box colliders (more 3D shapes come with phase 23.1)', expected: '"box" with hz' } as ModelErrorV3, 'polygon'));
+  }
 }
 
 /**
@@ -359,6 +391,13 @@ export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: Mo
   const asV3 = { ...s, schemaVersion: 3, revision: projectRevision } as unknown as SceneV3;
   composeV3(asV3, { ...(content as ContentCatalogV3), game: null }, local);
   for (const e of local) errors.push(e.document === 'content' ? e : sceneError(s.sceneId, e));
+  // Phase 23.0: the rules that follow the project's physics dimension.
+  const dimension = physicsDimensionOf(content.settings);
+  s.entities.forEach((e, i) => {
+    const local3: ModelErrorV3[] = [];
+    physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, dimension, local3);
+    for (const x of local3) errors.push(sceneError(s.sceneId, x));
+  });
   s.entities.forEach((e, i) => {
     const inst = e.components.instances;
     if (inst === undefined) return;

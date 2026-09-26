@@ -64,6 +64,8 @@ export interface ColliderBoxShape {
   type: 'box';
   hx: number;
   hy: number;
+  /** Phase 23.0: the half depth along Z (m) — required in a 3D project, ignored by a 2D plane. */
+  hz?: number;
 }
 
 export interface ColliderPolygonShape {
@@ -88,7 +90,8 @@ export interface ColliderComponent {
 export interface ControllerCapsule {
   radius: number;
   height: number;
-  offset?: [number, number];
+  /** Phase 23.0: may carry a third component (z) in a 3D project. */
+  offset?: [number, number] | [number, number, number];
 }
 
 /**

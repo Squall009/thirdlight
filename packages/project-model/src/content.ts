@@ -912,8 +912,9 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
     const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
     if (oneWay !== undefined && oneWay !== true) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true', 'oneWay is true or absent'));
     validateColliderComponent(isPlainObject(col) && oneWay !== undefined ? Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay')) : col, `${path}/collider`, errors);
-    // A collider sits on the definition root at unit scale, rotated about Z only (as on a scene entity).
-    validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors);
+    // A collider sits on the definition root at unit scale (as on a scene entity);
+    // phase 23.0: its rotation rule follows the project's physics dimension (composeV4).
+    validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors, false);
     if (comps['enemy'] !== undefined) {
       errors.push(withFound({ code: 'component_conflict', path, message: 'an enemy has no collider (its size is its body)', expected: 'enemy or collider' }, ['enemy', 'collider']));
     }
@@ -1519,8 +1520,27 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // a long step never delays a frame or an input event — every genre gains and
   // none needs the page thread; the page falls back to it where the browser
   // cannot start a worker. Results are the same either way (determinism).
+  // Phase 23.0: the simulation's dimension. 2, the 2D plane: every project
+  // made before 3D physics existed plays on it exactly as before (its own
+  // Rapier 2D backend); 3 runs the game on the 3D backend (Vec3 positions,
+  // full rotations, colliders with depth) — a choice of the game, not a
+  // default fitted to any genre, so the neutral default keeps existing data valid.
+  { key: 'physics_dimension', type: 'number', default: 2, values: [2, 3], valueLabels: ['2D plane', '3D'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Physics', tooltip: 'The simulation\'s dimension: a 2D plane (movement and collision in X and Y, colliders rotate about Z) or full 3D (colliders with depth and any rotation). A 3D project needs every box collider to have a depth.' },
   { key: 'sim_thread', type: 'number', default: 1, values: [1, 2], valueLabels: ['Worker (off the main thread)', 'Main thread'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Simulation thread', tooltip: 'Where the game simulation (physics, gameplay, scripts) runs in Play and the export: a worker (the page thread only draws and reads input) or the page\'s main thread. Results are identical. A page URL flag ?threads=off|on overrides it.' },
 ];
+
+/** Phase 23.0: the simulation's dimension (the `physics_dimension` setting's values). */
+export type PhysicsDimension = 2 | 3;
+export const PHYSICS_DIMENSIONS: readonly PhysicsDimension[] = [2, 3];
+
+/**
+ * Phase 23.0: the physics dimension a settings map resolves to — 3 only when
+ * the project sets `physics_dimension` to 3, else 2 (the 2D plane every
+ * project had before the setting existed).
+ */
+export function physicsDimensionOf(settings: unknown): PhysicsDimension {
+  return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['physics_dimension'] === 3 ? 3 : 2;
+}
 
 /** Phase 15.3: the engine cap on concurrent sound voices (the `audio_voices` setting's maximum). */
 export const AUDIO_VOICE_CAP = 32;

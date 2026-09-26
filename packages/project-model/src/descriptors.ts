@@ -68,7 +68,8 @@ export type HandleKind = (typeof HANDLE_KINDS)[number];
  * bounds `minX..maxY`).
  */
 export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string[])[]>> = {
-  box2: [['size'], ['halfX', 'halfY'], ['minX', 'maxX', 'minY', 'maxY']],
+  // Phase 23.0: half extents with an optional depth (a collider box: three axes once hz is set).
+  box2: [['size'], ['halfX', 'halfY'], ['halfX', 'halfY', 'halfZ'], ['minX', 'maxX', 'minY', 'maxY']],
   box3: [['size']],
   radius: [['radius']],
   capsule: [['radius', 'height', 'offset']],
@@ -165,6 +166,8 @@ export interface VecFieldDescriptor extends FieldBase {
   readonly ascending?: boolean;
   /** Not every component 0 (a direction). */
   readonly nonZero?: boolean;
+  /** Phase 23.0: a vec3 whose last component may be left out (`[x, y]` reads as `[x, y, 0]`). */
+  readonly optionalLast?: boolean;
 }
 export interface QuatFieldDescriptor extends FieldBase {
   readonly type: 'quat';
@@ -508,13 +511,15 @@ const prefab: ComponentDescriptor = {
 const collider: ComponentDescriptor = {
   name: 'collider',
   label: 'Collider',
-  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon, in the X/Y plane).',
+  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth).',
   category: 'Physics',
   value: obj('collider', 'Collider', 'The collision shape.', [
     obj('shape', 'Shape', 'A box (half extents) or a convex polygon.', [
       enm('type', 'Shape', 'Box or convex polygon.', ['box', 'polygon'], { required: true, default: 'box' }),
       num('hx', 'Half width', 'Half the box width.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
       num('hy', 'Half height', 'Half the box height.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
+      // Phase 23.0: the depth. Absent in a 2D plane (which ignores it); required by a 3D project (no guessed depth).
+      num('hz', 'Half depth', 'Half the box depth along Z (needed in a 3D project; a 2D plane ignores it).', { when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', handle: 'box2' }),
       list('vertices', 'Vertices', `3–${MAX_POLYGON_VERTICES} corners [x, y], counter-clockwise, convex.`, vec2('*', 'Vertex', 'A corner [x, y] from the object origin.', { min: -POSITION_LIMIT, max: POSITION_LIMIT, step: 0.05, unit: 'm' }), {
         required: true,
         when: when('type', 'polygon'),
@@ -531,7 +536,7 @@ const collider: ComponentDescriptor = {
     { label: 'Polygon', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } } },
   ],
   handles: [
-    { kind: 'box2', label: 'Box size', bind: { halfX: 'shape/hx', halfY: 'shape/hy' }, space: 'local', when: when('shape/type', 'box'), follows: 'rotationZ' },
+    { kind: 'box2', label: 'Box size', bind: { halfX: 'shape/hx', halfY: 'shape/hy', halfZ: 'shape/hz' }, space: 'local', when: when('shape/type', 'box'), follows: 'rotationZ' },
     { kind: 'polygon', label: 'Polygon', bind: { vertices: 'shape/vertices' }, space: 'local', when: when('shape/type', 'polygon'), follows: 'rotationZ' },
   ],
   excludes: [
@@ -559,7 +564,8 @@ const controller: ComponentDescriptor = {
     obj('capsule', 'Capsule', `The collision capsule (absent: ${DEFAULT_CONTROLLER_CAPSULE.radius} m radius, ${DEFAULT_CONTROLLER_CAPSULE.height} m tall — an adult human).`, [
       num('radius', 'Radius', 'Half the capsule width.', { required: true, min: CAPSULE_LIMITS.minRadius, max: CAPSULE_LIMITS.maxRadius, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.radius, handle: 'capsule' }),
       num('height', 'Height', 'Total height, both end caps included.', { required: true, min: CAPSULE_LIMITS.minHeight, max: CAPSULE_LIMITS.maxHeight, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.height, handle: 'capsule' }),
-      vec2('offset', 'Offset', 'The capsule centre from the object origin.', { min: -CAPSULE_LIMITS.maxOffset, max: CAPSULE_LIMITS.maxOffset, step: 0.01, unit: 'm', default: [...DEFAULT_CONTROLLER_CAPSULE.offset], handle: 'capsule' }),
+      // Phase 23.0: [x, y] or [x, y, z] — z places the capsule in depth in a 3D project (a 2D plane ignores it).
+      vec3('offset', 'Offset', 'The capsule centre from the object origin (z: in a 3D project).', { min: -CAPSULE_LIMITS.maxOffset, max: CAPSULE_LIMITS.maxOffset, step: 0.01, unit: 'm', default: [...DEFAULT_CONTROLLER_CAPSULE.offset], handle: 'capsule', optionalLast: true }),
     ], { group: 'Collision', rules: ['height ≥ 2 × radius'] }),
     // Phase 15.3: the movement tuning (absent: the engine defaults, the values every project played with before).
     num('acceleration', 'Acceleration', 'How fast it speeds up toward the run speed (40: a 4 m/s run in 0.1 s).', { group: 'Movement', ...TL.acceleration, step: 1, unit: 'm/s²', default: CT.acceleration }),

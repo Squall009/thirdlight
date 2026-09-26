@@ -62,7 +62,7 @@ type Range = { min: number; max: number };
 export type HandleModel =
   | { type: 'box'; dims: 2 | 3; roles: 'size' | 'half'; center: P3; half: P3; anchor: 'center' | 'bottom' }
   | { type: 'bounds'; minX: number; maxX: number; minY: number; maxY: number }
-  | { type: 'capsule'; cx: number; cy: number; radius: number; halfHeight: number }
+  | { type: 'capsule'; cx: number; cy: number; radius: number; halfHeight: number; cz?: number }
   | { type: 'radius'; r: number; along: 'xy' | 'x'; band: number | null }
   | { type: 'segment'; left: number; right: number }
   | { type: 'cone'; dir: P3; angle: number; range: number }
@@ -205,6 +205,14 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         if (typeof hx.v !== 'number' || typeof hy.v !== 'number') return null;
         lim('halfX', hx.f);
         lim('halfY', hy.f);
+        // Phase 23.0: with its depth set (a collider's hz) the box has three axes and
+        // turns with the object's whole rotation (a 3D collider); without, it is the flat
+        // 2D-plane box, turning about Z only (as before).
+        const hz = h.bind['halfZ'] !== undefined ? at('halfZ') : null;
+        if (hz !== null && typeof hz.v === 'number') {
+          lim('halfZ', hz.f);
+          return { ...base, frame: 'rotation', model: { type: 'box', dims: 3, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, hz.v), anchor: 'center' } };
+        }
         return { ...base, model: { type: 'box', dims: 2, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, 0), anchor: 'center' } };
       }
       // World bounds: only while they are set (absent means "anywhere").
@@ -223,7 +231,8 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       lim('radius', r.f);
       lim('height', ht.f);
       lim('offset', o.f);
-      return { ...base, model: { type: 'capsule', cx: off[0]!, cy: off[1]!, radius: N(r.v, 0.3), halfHeight: N(ht.v, 1.8) / 2 } };
+      // Phase 23.0: an offset's third component (z, a 3D project) is kept through a drag.
+      return { ...base, model: { type: 'capsule', cx: off[0]!, cy: off[1]!, radius: N(r.v, 0.3), halfHeight: N(ht.v, 1.8) / 2, ...(typeof off[2] === 'number' ? { cz: off[2] } : {}) } };
     }
     case 'radius': {
       const r = at('radius');
@@ -401,7 +410,7 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
       // Sizes are the full extent (a half-extent field's range doubles).
       const full = (axis: 'x' | 'y' | 'z', raw: number): number => {
         const idx = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-        const r = m.roles === 'half' ? L[idx === 0 ? 'halfX' : 'halfY'] : L['size'];
+        const r = m.roles === 'half' ? L[idx === 0 ? 'halfX' : idx === 1 ? 'halfY' : 'halfZ'] : L['size'];
         const range = r === undefined ? undefined : m.roles === 'half' ? { min: 2 * r.min, max: 2 * r.max } : r;
         return round3(clamp(size(raw), range));
       };
@@ -511,12 +520,12 @@ function fieldWrites(s: HandleShape): [string, DescriptorJson][] {
   const r3 = (v: P3, dims: 2 | 3): number[] => (dims === 3 ? [round3(v.x), round3(v.y), round3(v.z)] : [round3(v.x), round3(v.y)]);
   switch (m.type) {
     case 'box':
-      if (m.roles === 'half') return [[b['halfX']!, round3(m.half.x)], [b['halfY']!, round3(m.half.y)]];
+      if (m.roles === 'half') return [[b['halfX']!, round3(m.half.x)], [b['halfY']!, round3(m.half.y)], ...(m.dims === 3 && b['halfZ'] !== undefined ? [[b['halfZ'], round3(m.half.z)] as [string, DescriptorJson]] : [])];
       return [[b['size']!, m.dims === 3 ? [round3(2 * m.half.x), round3(2 * m.half.y), round3(2 * m.half.z)] : [round3(2 * m.half.x), round3(2 * m.half.y)]]];
     case 'bounds':
       return [[b['minX']!, round3(m.minX)], [b['maxX']!, round3(m.maxX)], [b['minY']!, round3(m.minY)], [b['maxY']!, round3(m.maxY)]];
     case 'capsule':
-      return [[b['radius']!, round3(m.radius)], [b['height']!, round3(2 * m.halfHeight)], [b['offset']!, [round3(m.cx), round3(m.cy)]]];
+      return [[b['radius']!, round3(m.radius)], [b['height']!, round3(2 * m.halfHeight)], [b['offset']!, m.cz !== undefined ? [round3(m.cx), round3(m.cy), m.cz] : [round3(m.cx), round3(m.cy)]]];
     case 'radius':
       return [[b['radius']!, round3(m.r)]];
     case 'segment':

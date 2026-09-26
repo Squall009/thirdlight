@@ -325,3 +325,29 @@ for editor items, commit/push/restart, decision log).
   `fixtures/m2/contracts/physics/numerics.json`, which never reach physics);
   the physics course fixtures carry `rotationZ` directly and were already
   right. All pinned suites stay unchanged.
+- 2026-09-26 (23.0): **setting and 3D collider data.** `physics_dimension`
+  is an optional engine setting (values 2 "2D plane" / 3 "3D", absent = 2)
+  in the settings registry and `M3_OPTIONAL_SETTINGS_KEYS` (before
+  `sim_thread`, registry order), read through `physicsDimensionOf`; it is
+  not added to the `GameplaySettings` interface, so the public script
+  `.d.ts` and the graph node list stay byte-identical. Box colliders take
+  an optional `hz`, the capsule `offset` an optional third component (the
+  canonicalizer keeps both; absent keeps the old bytes); a 2D plane ignores
+  them (the runtime's `staticColliderOf` drops `hz` before the untouched
+  rapier2d adapter sees the shape).
+- 2026-09-26 (23.0): **where the dimension rules live.** A scene document is
+  validated without the content block, so for v4 documents the rotation
+  rules moved from per-entity validation to the cross-document composition
+  (`composeSceneV4` for scene entities, `composeV4` for prefab entities),
+  which every command, project load and `setSettings` passes through:
+  2D keeps exactly the old errors (rotation about Z only, controller
+  upright); 3D allows any collider rotation, keeps the controller upright,
+  and refuses a box without `hz` and a polygon collider (3D shapes are
+  23.1). Switching a project to 3D is therefore refused until its boxes have
+  a depth. v2/v3 documents keep the rule in place.
+- 2026-09-26 (23.0): **editor.** `hz` is an Inspector field (via its
+  descriptor); the collider's box handle binds `halfZ` too and becomes a
+  3-axis box that follows the whole rotation once `hz` is set (kind stays
+  `box2`, a new role set `halfX/halfY/halfZ`); the capsule offset descriptor
+  is a `vec3` with the new `optionalLast` flag (`[x, y]` stays valid and
+  shows z = 0; a capsule drag keeps a stored z).

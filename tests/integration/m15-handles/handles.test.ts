@@ -107,6 +107,12 @@ describe('the Scene-view handles over the real registry and commands', () => {
     const colBox = handleShapesOf(projected(s, ledge), DESCRIPTORS).find((x) => x.kind === 'box2')!;
     expect(colBox.frame).toBe('rotationZ');
     s = dragAndStore(s, ledge, 'collider', 'box2', 'side', p3(1.5, 0.1), true, (v) => expect(v.shape).toEqual({ type: 'box', hx: 1.5, hy: 0.25 }));
+    // Phase 23.0: with its depth set (hz) the collider box has three axes and follows the whole rotation.
+    s = must(s, 'setComponent', { entityId: ledge, component: 'collider', value: { shape: { type: 'box', hx: 1.5, hy: 0.25, hz: 0.5 } } }, 'depth');
+    const deep = handleShapesOf(projected(s, ledge), DESCRIPTORS).find((x) => x.kind === 'box2')!;
+    expect(deep.frame).toBe('rotation');
+    expect(gripsOf(deep).map((g) => g.id)).toContain('depth');
+    s = dragAndStore(s, ledge, 'collider', 'box2', 'depth', p3(0, 0, 1.01), true, (v) => expect(v.shape).toEqual({ type: 'box', hx: 1.5, hy: 0.25, hz: 1 }));
     // World bounds of camera follow.
     s = must(s, 'setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -10, maxX: 10, minY: -5, maxY: 5 } } }, 'follow');
     const bounds = handleShapesOf(projected(s, 'cam-main'), DESCRIPTORS).find((x) => x.component === 'cameraFollow')!;

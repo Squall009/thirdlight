@@ -85,9 +85,11 @@ export function staticColliderOf(entityId: string, components: Readonly<Record<s
   if (collider === undefined) return null;
   const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[] } | undefined;
   const position = t?.position ?? [0, 0, 0];
+  // Phase 23.0: a box's depth (`hz`, for a 3D project) is not part of a 2D-plane shape.
+  const shape = collider.shape as { type?: unknown; hx?: unknown; hy?: unknown; hz?: unknown } | undefined;
   return {
     entityId,
-    shape: collider.shape,
+    shape: shape !== undefined && shape !== null && shape.type === 'box' && shape.hz !== undefined ? { type: 'box', hx: shape.hx, hy: shape.hy } : collider.shape,
     position: { x: position[0] ?? 0, y: position[1] ?? 0 },
     rotationZ: colliderRotationZ(t?.rotation),
     ...(components['mover'] !== undefined ? { kinematic: true } : {}),

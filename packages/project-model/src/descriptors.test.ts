@@ -263,7 +263,10 @@ function probeField(ctx: Ctx, root: J, objPtr: string, key: string, d: FieldDesc
     case 'vec2':
     case 'vec3': {
       const n = d.type === 'vec2' ? 2 : 3;
-      const v = value as number[];
+      // Phase 23.0: a vec3 whose last component may be left out is probed at full length (and short).
+      const v0 = value as number[];
+      const v = d.optionalLast === true && v0.length === n - 1 ? [...v0, 0] : v0;
+      if (d.optionalLast === true) expectOk(ctx, set(v.slice(0, n - 1)), errAt, 'the last component left out');
       expectErr(ctx, set([...v, 0]), errAt, 'too many components');
       expectErr(ctx, set('x'), errAt, 'a string');
       for (let i = 0; i < n; i++) {
@@ -428,7 +431,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
-  collider: [{ shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true }, { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } }],
+  collider: [{ shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true }, { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } }, { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } }],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
   cameraFollow: [{ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 }, distance: 10, maxSpeed: 100 }],
@@ -643,7 +646,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, sim_thread: 2 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, clipsFor: MODEL_ASSET['assetId'] };
@@ -703,7 +706,7 @@ function fits(d: FieldDescriptor, v: unknown): string | null {
     case 'vec2':
     case 'vec3': {
       const n = d.type === 'vec2' ? 2 : 3;
-      if (!Array.isArray(v) || v.length !== n) return 'wrong length';
+      if (!Array.isArray(v) || !(v.length === n || (d.optionalLast === true && v.length === n - 1))) return 'wrong length';
       for (const x of v) if (typeof x !== 'number' || (d.min !== undefined && (d.minExclusive ? x <= d.min : x < d.min)) || (d.max !== undefined && x > d.max)) return 'component out of range';
       if (d.ascending && !((v[0] as number) < (v[1] as number))) return 'not ascending';
       return null;

@@ -999,7 +999,9 @@ function validateEntityComponentsV3(
 
   const physicsBearing = comps['collider'] !== undefined || comps['controller'] !== undefined;
   if (physicsBearing) {
-    validatePhysicsTransform(comps, parentId, ePath, comps['controller'] !== undefined, errors);
+    // Phase 23.0: a v4 scene's rotation rules depend on the project's physics
+    // dimension (content settings) and are checked with the content (composeSceneV4).
+    validatePhysicsTransform(comps, parentId, ePath, comps['controller'] !== undefined, errors, version !== 4);
   }
 
   let polygonVertices = 0;

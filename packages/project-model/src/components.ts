@@ -46,7 +46,7 @@ const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
 const KNOWN_PREFAB_FIELDS = new Set(['prefabId', 'localId']);
 const KNOWN_COLLIDER_FIELDS = new Set(['shape']);
-const KNOWN_BOX_SHAPE_FIELDS = new Set(['type', 'hx', 'hy']);
+const KNOWN_BOX_SHAPE_FIELDS = new Set(['type', 'hx', 'hy', 'hz']);
 const KNOWN_POLYGON_SHAPE_FIELDS = new Set(['type', 'vertices']);
 const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
 const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow']);
@@ -231,8 +231,10 @@ function validateColliderShape(shape: unknown, path: string, errors: ModelErrorV
     else checkFiniteNumber(shape['hx'], `${path}/hx`, { positive: true, absMax: MAX_LEN }, `0 < hx <= ${MAX_LEN}`, errors);
     if (shape['hy'] === undefined) errors.push(fieldMissing(`${path}/hy`, 'hy'));
     else checkFiniteNumber(shape['hy'], `${path}/hy`, { positive: true, absMax: MAX_LEN }, `0 < hy <= ${MAX_LEN}`, errors);
+    // Phase 23.0: the half depth along Z (optional; a 3D project requires it, a 2D plane ignores it).
+    if (shape['hz'] !== undefined) checkFiniteNumber(shape['hz'], `${path}/hz`, { positive: true, absMax: MAX_LEN }, `0 < hz <= ${MAX_LEN}`, errors);
     for (const k of Object.keys(shape)) {
-      if (!KNOWN_BOX_SHAPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, hx, hy'));
+      if (!KNOWN_BOX_SHAPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, hx, hy, hz'));
     }
     return;
   }
@@ -365,6 +367,13 @@ export const DEFAULT_CONTROLLER_CAPSULE: Readonly<{ radius: number; height: numb
 /** Phase 14.0: the capsule ranges (m) — far beyond any character, small enough to keep the solver sane. */
 export const CAPSULE_LIMITS = Object.freeze({ minRadius: 0.05, maxRadius: 5, minHeight: 0.1, maxHeight: 20, maxOffset: 5 });
 
+/** Phase 23.0: the capsule centre's offset along Z (a 3D project; the offset's optional third component, else 0). */
+export function controllerCapsuleOffsetZ(controller: unknown): number {
+  const c = isPlainObject(controller) ? controller['capsule'] : undefined;
+  const o = isPlainObject(c) && Array.isArray(c['offset']) ? (c['offset'] as unknown[]) : [];
+  return typeof o[2] === 'number' && Number.isFinite(o[2]) ? o[2] : 0;
+}
+
 /** Phase 14.0: the capsule a controller component describes (the default when it has none). */
 export function controllerCapsuleOf(controller: unknown): { radius: number; height: number; offset: [number, number] } {
   const c = isPlainObject(controller) ? controller['capsule'] : undefined;
@@ -463,7 +472,7 @@ export function canonicalController(controller: unknown): ControllerComponent {
     out['capsule'] = {
       radius: c['radius'] as number,
       height: c['height'] as number,
-      ...(Array.isArray(o) ? { offset: [o[0] as number, o[1] as number] as [number, number] } : {}),
+      ...(Array.isArray(o) ? { offset: (o.length === 3 ? [o[0] as number, o[1] as number, o[2] as number] : [o[0] as number, o[1] as number]) as [number, number] } : {}),
     };
   }
   for (const k of CONTROLLER_TUNING_FIELDS) if (src[k] !== undefined) out[k] = src[k];
@@ -519,8 +528,9 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
   }
   const offset = capsule['offset'];
   if (offset !== undefined) {
-    const ok = Array.isArray(offset) && offset.length === 2 && offset.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= L.maxOffset);
-    if (!ok) errors.push(fieldValue(`${cp}/offset`, offset, `[x, y], each within ±${L.maxOffset} m`, 'capsule offset is [x, y] in metres from the entity origin'));
+    // Phase 23.0: an optional third component (z) for a 3D project; a 2D plane ignores it.
+    const ok = Array.isArray(offset) && (offset.length === 2 || offset.length === 3) && offset.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= L.maxOffset);
+    if (!ok) errors.push(fieldValue(`${cp}/offset`, offset, `[x, y] or [x, y, z], each within ±${L.maxOffset} m`, 'capsule offset is [x, y] (or [x, y, z]) in metres from the entity origin'));
   }
 }
 
@@ -536,6 +546,13 @@ export function validatePhysicsTransform(
   path: string,
   hasController: boolean,
   errors: ModelErrorV2[],
+  /**
+   * Phase 23.0: `false` defers the rotation rules to the project level
+   * (`physicsRotationErrors` with the project's `physics_dimension`), so a v4
+   * scene's collider may turn freely in a 3D project. v2/v3 documents (2D
+   * only) keep the rules here.
+   */
+  checkRotation = true,
 ): void {
   const t = effectiveTransform(comps);
   if (typeof parentId === 'string') {
@@ -566,7 +583,37 @@ export function validatePhysicsTransform(
       ),
     );
   }
+  if (checkRotation) physicsRotationErrors(comps, path, hasController, 2, errors);
+}
+
+/**
+ * Phase 23.0: the rotation rules of a physics-bearing entity for the
+ * project's physics dimension. A 2D-plane project (2): rotated about Z only
+ * and the controller upright (identity) — the rules every project had
+ * before. A 3D project (3): a collider takes any rotation; the controller
+ * stays upright (identity: the capsule stands along Y; turning the
+ * character is phase 23.2).
+ */
+export function physicsRotationErrors(comps: Record<string, unknown>, path: string, hasController: boolean, dimension: 2 | 3, errors: ModelErrorV2[]): void {
+  const t = effectiveTransform(comps);
   const [qx, qy, qz, qw] = t.rotation;
+  if (dimension === 3) {
+    if (hasController && !(qx === 0 && qy === 0 && qz === 0 && qw === 1)) {
+      errors.push(
+        withFound(
+          {
+            code: 'physics_transform_unsupported',
+            path: `${path}/transform/rotation`,
+            message: 'the controller entity must be upright (identity rotation)',
+            reason: 'upright',
+            expected: '[0, 0, 0, 1]',
+          },
+          t.rotation,
+        ),
+      );
+    }
+    return;
+  }
   const zOnly = Math.abs(qx) <= 1e-6 && Math.abs(qy) <= 1e-6;
   if (!zOnly) {
     errors.push(
@@ -673,7 +720,7 @@ export function canonicalCollider(c: unknown): ColliderShape {
   const o = c as Record<string, unknown>;
   const shape = o['shape'] as Record<string, unknown>;
   if (shape['type'] === 'box') {
-    return { type: 'box', hx: canonNum(shape['hx']), hy: canonNum(shape['hy']) };
+    return { type: 'box', hx: canonNum(shape['hx']), hy: canonNum(shape['hy']), ...(shape['hz'] !== undefined ? { hz: canonNum(shape['hz']) } : {}) };
   }
   const verts = shape['vertices'] as unknown[];
   return {
