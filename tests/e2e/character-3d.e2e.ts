@@ -161,10 +161,15 @@ test('3D character: keyboard walks it up a riser and into a wall in Play, tl_inp
   await page.keyboard.down('a');
   try {
     let lastX = Infinity;
+    let lastStep = -1;
     await expect.poll(async () => {
-      const p = (await read())?.player;
-      const stopped = p !== undefined && p.x < -2 && Math.abs(p.x - lastX) < 1e-4;
+      const o = await read();
+      const p = o?.player;
+      const step = o?.stepIndex ?? -1;
+      // Stopped: steps ran since the last read (a loaded host may run none) and x did not change.
+      const stopped = p !== undefined && p.x < -2 && step > lastStep + 10 && Math.abs(p.x - lastX) < 1e-4;
       lastX = p?.x ?? Infinity;
+      lastStep = step;
       return stopped;
     }, { timeout: 30_000, intervals: [250], message: 'A walks into the wall and stops' }).toBe(true);
   } finally {
