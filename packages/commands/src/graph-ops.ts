@@ -64,6 +64,8 @@ import {
   behaviorGraphContext,
   validateGraphData,
   validateGraphDocument,
+  DIALOGUE_GRAPH_KIND,
+  validateDialogue,
   type GraphData,
   type GraphDocument,
   type GraphKindDef,
@@ -75,6 +77,7 @@ import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { withAnimators } from './material-ops';
 import { effectsOf, withEffect } from './effect-ops';
+import { dialoguesOf, withDialogueValue } from './dialogue-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, ForwardChange, GraphEditChange, GraphOwner, InverseSpec, SetGraphChange } from './types';
 
@@ -234,6 +237,20 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       });
       if (refused !== null) return { refused };
       return { ...content, behaviors: list } as ContentDocument;
+    },
+  },
+  // Phase 23.16: `<dialogueId>` — a conversation's graph (kind `dialogue`); conditions and effects must parse.
+  dialogue: {
+    read(content, id) {
+      const d = dialoguesOf(content).find((x) => x.dialogueId === id);
+      return d !== undefined ? { kind: DIALOGUE_GRAPH_KIND, graph: d.graph } : null;
+    },
+    write(content, id, graph) {
+      const d = dialoguesOf(content).find((x) => x.dialogueId === id)!;
+      const errors: ModelErrorV2[] = [];
+      validateDialogue({ ...d, graph }, '', errors);
+      if (errors.length > 0) return { refused: `${errors[0]!.message} (at ${errors[0]!.path})` };
+      return withDialogueValue(content, 'dialogue', id, { ...d, graph });
     },
   },
 };

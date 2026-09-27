@@ -520,6 +520,12 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   collisionLayers?: string[];
   /** Phase 23.19: the project save document and settings document schema (absent = no project saves). */
   saveSchema?: import('./save-schema').SaveSchema;
+  /** Phase 23.16: conversations (node graphs of kind `dialogue`; absent = none). */
+  dialogues?: import('./dialogue').DialogueDocument[];
+  /** Phase 23.16: the speaker registry (absent = none). */
+  speakers?: import('./dialogue').DialogueSpeaker[];
+  /** Phase 23.16: dialogue engine settings (absent = the defaults). */
+  dialogueSettings?: import('./dialogue').DialogueSettings;
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

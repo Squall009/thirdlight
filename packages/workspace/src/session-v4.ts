@@ -611,6 +611,10 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
         // Phase 23.19: the project save schema (null: no project saves).
         saveSchema: (state.content as { saveSchema?: unknown }).saveSchema !== undefined ? (JSON.parse(JSON.stringify((state.content as { saveSchema?: unknown }).saveSchema)) as unknown) : null,
+        // Phase 23.16: conversations, the speaker registry and the dialogue settings (null: the defaults).
+        dialogues: JSON.parse(JSON.stringify((state.content as { dialogues?: unknown[] }).dialogues ?? [])) as unknown,
+        speakers: JSON.parse(JSON.stringify((state.content as { speakers?: unknown[] }).speakers ?? [])) as unknown,
+        dialogueSettings: (state.content as { dialogueSettings?: unknown }).dialogueSettings !== undefined ? (JSON.parse(JSON.stringify((state.content as { dialogueSettings?: unknown }).dialogueSettings)) as unknown) : null,
         // Phase 17.1: the settings map (the editor's Scene view reads render_backend at load).
         settings: JSON.parse(JSON.stringify((state.content as { settings?: unknown }).settings ?? {})) as unknown,
         ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown, graphKinds: JSON.parse(JSON.stringify(GRAPH_KINDS)) as unknown } : {}),

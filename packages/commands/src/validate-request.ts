@@ -166,6 +166,11 @@ const OPS: readonly MutationOp[] = [
   'deleteUiDocument',
   'setUiTheme',
   'deleteUiTheme',
+  'setDialogue',
+  'deleteDialogue',
+  'setSpeaker',
+  'deleteSpeaker',
+  'setDialogueSettings',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -211,7 +216,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1219,7 +1224,12 @@ export type ValidatedOpArgs =
   | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
   | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
   | { op: 'setUiTheme'; args: { theme: import('@thirdlight/project-model').UiTheme } }
-  | { op: 'deleteUiTheme'; args: { uiThemeId: string } };
+  | { op: 'deleteUiTheme'; args: { uiThemeId: string } }
+  | { op: 'setDialogue'; args: { dialogue: { dialogueId: string; name: string; graph?: import('@thirdlight/project-model').GraphData } } }
+  | { op: 'deleteDialogue'; args: { dialogueId: string } }
+  | { op: 'setSpeaker'; args: { speaker: import('@thirdlight/project-model').DialogueSpeaker } }
+  | { op: 'deleteSpeaker'; args: { speakerId: string } }
+  | { op: 'setDialogueSettings'; args: { settings: import('@thirdlight/project-model').DialogueSettings | null } };
 
 /** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1428,6 +1438,22 @@ export function validateOpArgs(
       const isObjectArg = op === 'setUiDocument' || op === 'setUiTheme';
       if (isObjectArg ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setUiDocument' ? 'object ({ uiDocumentId, name, root, … })' : op === 'setUiTheme' ? 'object ({ uiThemeId, name, styles, icons? })' : `string (${key})`) };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setDialogue':
+    case 'deleteDialogue':
+    case 'setSpeaker':
+    case 'deleteSpeaker':
+    case 'setDialogueSettings': {
+      // Phase 23.16: setDialogue {dialogue}; deleteDialogue {dialogueId}; setSpeaker {speaker}; deleteSpeaker {speakerId}; setDialogueSettings {settings | null}.
+      const key = op === 'setDialogue' ? 'dialogue' : op === 'deleteDialogue' ? 'dialogueId' : op === 'setSpeaker' ? 'speaker' : op === 'deleteSpeaker' ? 'speakerId' : 'settings';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      const isObjectArg = op === 'setDialogue' || op === 'setSpeaker' || op === 'setDialogueSettings';
+      const okShape = op === 'setDialogueSettings' ? args[key] === null || isPlainObject(args[key]) : isObjectArg ? isPlainObject(args[key]) : typeof args[key] === 'string';
+      if (!okShape) {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setDialogue' ? 'object ({ dialogueId, name, graph? })' : op === 'setSpeaker' ? 'object ({ speakerId, name, color?, portraits?, … })' : op === 'setDialogueSettings' ? 'object or null' : `string (${key})`) };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

@@ -30,6 +30,7 @@ import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { uiOf, withUi } from './ui-ops';
+import { dialogueValueOf, withDialogueValue } from './dialogue-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
@@ -571,6 +572,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withUi(content, inv.uiKind, inv.id, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setDialogue') {
+    // Phase 23.16: one conversation, speaker or the settings back to what it was.
+    const before = dialogueValueOf(content, inv.dialogueKind, inv.id);
+    const change: ChangeData = { type: 'setDialogue', dialogueKind: inv.dialogueKind, id: inv.id, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withDialogueValue(content, inv.dialogueKind, inv.id, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setEffect') {
     const before = effectsOf(content).find((e) => e.effectId === inv.effectId) ?? null;
     const change: ChangeData = { type: 'setEffect', effectId: inv.effectId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
@@ -1021,6 +1029,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = uiOf(content, f.uiKind, f.id);
     const change: ChangeData = { type: 'setUi', uiKind: f.uiKind, id: f.id, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withUi(content, f.uiKind, f.id, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setDialogue') {
+    const before = dialogueValueOf(content, f.dialogueKind, f.id);
+    const change: ChangeData = { type: 'setDialogue', dialogueKind: f.dialogueKind, id: f.id, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withDialogueValue(content, f.dialogueKind, f.id, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setEffect') {

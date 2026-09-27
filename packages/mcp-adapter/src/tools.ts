@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -270,6 +270,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{do: "show"|"hide"|"toggle", doc}, {do: "play", tween, widget?}. Bindings read the scripts\' view model (ctx.ui.set(path, value)); $flow.* reads the game flow (screen, level, lives, volumes, result, slots). ' +
       'setFlow flow.screens {title|paused|settings|levelComplete|gameOver|finished|load|save: uiDocumentId} replaces built-in screens. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus, events()/event(name). ' +
       'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
+      'Text widgets may also take content: {bind} (rich text from the view model) and reveal: number|{bind} (a typewriter); an action {do: "dialogue", input: advance|choose|skip|auto|backlog, value?} is a dialogue input. ' +
+      'Dialogue (phase 23.16): setDialogue {dialogue: {dialogueId, name, graph?}} creates (graph absent: a Start node) or renames a conversation; its graph is owner kind "dialogue" (owner id = dialogueId, graph kind dialogue) edited with graphEdit: ' +
+      'nodes start (fixed), entry {name}, line {speaker (speakerId|$binding|""), expression, text (rich text, {var}/{$binding} values, [pause=0.5]), voice (audio or music asset), auto: default|on|off}, choice (outputs options → option nodes, none), ' +
+      'option {text, condition, effects, once}, branch {condition} (outputs true/false), set {effects}, signal {name, value, wait}, wait {seconds}, jump {dialogue, entry}, end; wires port "next". ' +
+      'Conditions: variables, $bindings, numbers, "texts", true/false/null, ! not, * / %, + -, < <= > >=, == !=, && and, || or, seen("nodeId"); effects: "name = value; count += 1; x -= 2". ' +
+      'deleteDialogue {dialogueId}; setSpeaker {speaker: {speakerId, name, color? #rrggbb, portraits? {expression: texture}, defaultExpression?, voiceProfile?, blip? (audio), blipEvery?, blipVolume?}}; deleteSpeaker {speakerId}; ' +
+      'setDialogueSettings {settings: {textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay?, duck? (music/SFX level under a voice), backlog?, document? (uiDocumentId; absent: the engine document "tl-dialogue"), theme?} | null}. ' +
+      'Scripts: ctx.dialogue.start(id, {entry?, node?, bindings?}), advance, choose, skip, setAuto, resume, stop, current, events, get/set variables, seen, history. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
