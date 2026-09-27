@@ -54,6 +54,8 @@ import {
 } from './errors';
 import {
   canonicalCollider,
+  colliderCore,
+  validateColliderLayers,
   ID_RE_V2,
   MAX_COLLIDERS,
   MAX_ENTITIES_V2,
@@ -905,7 +907,13 @@ function validateEntityComponentsV3(
     const col = comps['collider'];
     const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
     if (oneWay !== undefined && (version !== 4 || oneWay !== true)) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true (v4 scenes)', 'oneWay is true or absent'));
-    validateColliderComponent(isPlainObject(col) && oneWay !== undefined ? Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay')) : col, `${path}/collider`, errors);
+    // Phase 23.3 (v4): the collision layers the collider is in.
+    const layers = isPlainObject(col) ? col['layers'] : undefined;
+    if (layers !== undefined) {
+      if (version !== 4) errors.push(fieldValue(`${path}/collider/layers`, layers, 'absent (v4 scenes only)', 'collision layers are a v4 field'));
+      else validateColliderLayers(layers, `${path}/collider/layers`, errors);
+    }
+    validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
   }
   if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors, version);
 
@@ -1228,7 +1236,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     components.behavior = { behaviorId: b.behaviorId, values: b.values };
   }
   if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
-  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}) };
+  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}) };
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['gameZone'] !== undefined) components.gameZone = canonicalGameZone(comps['gameZone']);
   if (comps['playerSpawn'] !== undefined) {

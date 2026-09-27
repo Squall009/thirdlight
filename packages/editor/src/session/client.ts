@@ -314,6 +314,8 @@ export class SessionClient {
   private blockRevision = 0;
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
+  /** Phase 23.3: the project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
+  private collisionLayers: string[] = [];
   private inputDefaults: InputConfig = { actions: [] };
   /**
    * Phase 15.0: the component and content descriptor registry (the editor
@@ -535,6 +537,8 @@ export class SessionClient {
         this.animators = Array.isArray(animators) ? structuredClone(animators) : [];
         const input = (g as { input?: InputConfig | null }).input;
         this.input = input !== undefined && input !== null ? structuredClone(input) : null;
+        const layers = (g as { collisionLayers?: string[] }).collisionLayers;
+        this.collisionLayers = Array.isArray(layers) ? [...layers] : [];
         const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
         if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
         const flow = (g as { flow?: GameFlow | null }).flow;
@@ -761,6 +765,8 @@ export class SessionClient {
         this.flow = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setInput') {
         this.input = change.next === null ? null : structuredClone(change.next);
+      } else if (change.type === 'setCollisionLayers') {
+        this.collisionLayers = [...change.next];
       } else if (change.type === 'setAnimators') {
         this.animators = structuredClone(change.next);
       } else if (change.type === 'setGraph') {
@@ -1231,6 +1237,11 @@ export class SessionClient {
   /** Phase 9.4: the environment (null = defaults). */
   getEnvironment(): EnvironmentConfig | null {
     return this.environment === null ? null : structuredClone(this.environment);
+  }
+
+  /** Phase 23.3: the project's named collision layers ("default" is implicit). */
+  getCollisionLayers(): string[] {
+    return [...this.collisionLayers];
   }
 
   /** Phase 9.8: the project's input actions (null = the defaults). */

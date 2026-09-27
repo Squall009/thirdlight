@@ -118,6 +118,8 @@ export interface ColliderComponent {
   shape: ColliderShape;
   /** Phase 9.9, v4 only: the character passes from below and the sides, lands from above. */
   oneWay?: true;
+  /** Phase 23.3 (v4, 3D): the collision layers the collider is in (absent: "default"). */
+  layers?: string[];
 }
 
 /**

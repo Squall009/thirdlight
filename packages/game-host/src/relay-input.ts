@@ -16,14 +16,14 @@ export class RelayActionSource implements ActionSource {
     this.browser = browser;
   }
 
-  beginTest(frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions'] }[], firstStep: number, onComplete: (from: number, to: number) => void): boolean {
+  beginTest(frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions']; pointer?: ActionFrame['pointer']; }[], firstStep: number, onComplete: (from: number, to: number) => void): boolean {
     if (this.test !== null) return false;
     const map = new Map<number, ActionFrame>();
     let lastOffset = -1;
     for (const f of frames) {
       const jump = f.jump as ActionFrame['jump'];
       // Phase 23.2: a frame's second move axis (a 3D character's forward input).
-      map.set(f.stepOffset, { stepIndex: firstStep + f.stepOffset, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump, ...(f.actions !== undefined ? { actions: f.actions } : {}) });
+      map.set(f.stepOffset, { stepIndex: firstStep + f.stepOffset, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}) });
       if (f.stepOffset > lastOffset) lastOffset = f.stepOffset;
     }
     this.browser.reset?.('exclusive-test');
@@ -45,7 +45,7 @@ export class RelayActionSource implements ActionSource {
       if (test.first < 0) test.first = stepIndex;
       test.last = stepIndex;
       const done = offset >= test.lastOffset;
-      const out: ActionFrame = { stepIndex, moveX: frame.moveX, ...(frame.moveY !== undefined ? { moveY: frame.moveY } : {}), jump: frame.jump, ...(frame.actions !== undefined ? { actions: frame.actions } : {}) };
+      const out: ActionFrame = { stepIndex, moveX: frame.moveX, ...(frame.moveY !== undefined ? { moveY: frame.moveY } : {}), jump: frame.jump, ...(frame.actions !== undefined ? { actions: frame.actions } : {}), ...(frame.pointer !== undefined ? { pointer: frame.pointer } : {}) };
       if (done) this.finish();
       return out;
     }

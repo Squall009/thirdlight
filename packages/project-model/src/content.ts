@@ -60,6 +60,9 @@ import type {
 } from './types-v2';
 import {
   canonicalCollider,
+  colliderCore,
+  validateColliderLayers,
+  validateCollisionLayers,
   ID_RE_V2,
   PROPERTY_KEY_RE,
   validateBehaviorComponent,
@@ -916,7 +919,9 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   if (col !== undefined) {
     const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
     if (oneWay !== undefined && oneWay !== true) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true', 'oneWay is true or absent'));
-    validateColliderComponent(isPlainObject(col) && oneWay !== undefined ? Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay')) : col, `${path}/collider`, errors);
+    // Phase 23.3: the collision layers the collider is in.
+    if (isPlainObject(col) && col['layers'] !== undefined) validateColliderLayers(col['layers'], `${path}/collider/layers`, errors);
+    validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
     // A collider sits on the definition root at unit scale (as on a scene entity);
     // phase 23.0: its rotation rule follows the project's physics dimension (composeV4).
     validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors, false);
@@ -1884,7 +1889,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   }
   // Phase 14.1 (v4): the gameplay components, canonical as on a scene entity.
   const x = e.components;
-  if (x.collider !== undefined) components.collider = { shape: canonicalCollider(x.collider), ...(x.collider.oneWay === true ? { oneWay: true as const } : {}) };
+  if (x.collider !== undefined) components.collider = { shape: canonicalCollider(x.collider), ...(x.collider.oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray(x.collider.layers) ? { layers: [...x.collider.layers] } : {}) };
   if (x.surface !== undefined) components.surface = canonicalSurface(x.surface);
   if (x.materials !== undefined) components.materials = canonicalMaterialMapping(x.materials);
   if (x.animator !== undefined) components.animator = canonicalAnimatorComponent(x.animator);
@@ -2113,8 +2118,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2272,6 +2277,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc['blockStamps'] !== undefined) validateBlockStamps(doc['blockStamps'], '/blockStamps', errors);
     if (errors.length === before && (doc['blockTypes'] !== undefined || doc['blockStamps'] !== undefined)) composeBlockContent(doc as unknown as BlockContentView, errors);
   }
+  // Phase 23.3: the named collision layers (v4).
+  if (version === 4 && doc['collisionLayers'] !== undefined) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
   validateLibraryPinReferences(doc, errors);
   if (version === 4) validateMaterialReferences(doc, errors);
   else if (Array.isArray(doc['assets'])) {
@@ -2412,6 +2419,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).blockTypes !== undefined && (c as ContentCatalogV4).blockTypes!.length > 0 ? { blockTypes: canonicalBlockTypes((c as ContentCatalogV4).blockTypes!) } : {}),
     ...((c as ContentCatalogV4).cellFields !== undefined && (c as ContentCatalogV4).cellFields!.length > 0 ? { cellFields: canonicalCellFields((c as ContentCatalogV4).cellFields!) } : {}),
     ...((c as ContentCatalogV4).blockStamps !== undefined && (c as ContentCatalogV4).blockStamps!.length > 0 ? { blockStamps: canonicalBlockStamps((c as ContentCatalogV4).blockStamps!) } : {}),
+    // Phase 23.3: present only when the project names collision layers.
+    ...((c as ContentCatalogV4).collisionLayers !== undefined && (c as ContentCatalogV4).collisionLayers!.length > 0 ? { collisionLayers: [...(c as ContentCatalogV4).collisionLayers!] } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };
