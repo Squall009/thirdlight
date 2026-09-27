@@ -460,6 +460,57 @@ function hasVolume(pts: readonly (readonly [number, number, number])[]): boolean
   return vol > 1e-9;
 }
 
+/**
+ * Phase 23.3: collision layers. A 3D project names up to
+ * `MAX_COLLISION_LAYERS` layers in `content.collisionLayers`; together with
+ * the implicit "default" layer (every collider without `layers`) they are the
+ * 16 membership bits of the physics engine's collision groups. A collider
+ * lists the layers it is in; a script query's filter names the layers it
+ * sees. The names are identifiers (letters, digits, _; 1–32 characters).
+ */
+export const DEFAULT_COLLISION_LAYER = 'default';
+export const MAX_COLLISION_LAYERS = 15;
+const LAYER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+
+/** Phase 23.3: the project's layer list (`content.collisionLayers`). */
+export function validateCollisionLayers(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!Array.isArray(v)) {
+    errors.push(fieldType(path, v, 'array'));
+    return;
+  }
+  if (v.length > MAX_COLLISION_LAYERS) {
+    errors.push(withFound({ code: 'field_value', path, message: `a project names at most ${MAX_COLLISION_LAYERS} collision layers (with "default", 16)`, expected: `at most ${MAX_COLLISION_LAYERS} names` }, v.length));
+    return;
+  }
+  const seen = new Set<string>();
+  v.forEach((name, i) => {
+    if (typeof name !== 'string' || !LAYER_NAME_RE.test(name)) errors.push(withFound({ code: 'field_value', path: `${path}/${i}`, message: 'a layer name is a letter or _ then up to 31 letters, digits or _', expected: 'an identifier' }, name));
+    else if (name === DEFAULT_COLLISION_LAYER) errors.push(withFound({ code: 'field_value', path: `${path}/${i}`, message: '"default" is the implicit layer of every collider without layers; it is not listed', expected: 'another name' }, name));
+    else if (seen.has(name)) errors.push(withFound({ code: 'field_value', path: `${path}/${i}`, message: 'layer names are unique', expected: 'a new name' }, name));
+    else seen.add(name);
+  });
+}
+
+/** Phase 23.3: a collider's `layers` (1–16 unique names; whether they exist is the project composition's check). */
+export function validateColliderLayers(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!Array.isArray(v) || v.length < 1 || v.length > MAX_COLLISION_LAYERS + 1) {
+    errors.push(withFound({ code: 'field_value', path, message: `layers lists 1–${MAX_COLLISION_LAYERS + 1} collision layer names`, expected: 'a list of layer names' }, v));
+    return;
+  }
+  const seen = new Set<string>();
+  v.forEach((name, i) => {
+    if (typeof name !== 'string' || !LAYER_NAME_RE.test(name)) errors.push(withFound({ code: 'field_value', path: `${path}/${i}`, message: 'a layer name is a letter or _ then up to 31 letters, digits or _', expected: 'an identifier' }, name));
+    else if (seen.has(name)) errors.push(withFound({ code: 'field_value', path: `${path}/${i}`, message: 'a collider lists each layer once', expected: 'unique names' }, name));
+    else seen.add(name);
+  });
+}
+
+/** Phase 23.3: the collider value without its v4 extras (`oneWay`, `layers`), for the shape validation. */
+export function colliderCore(col: unknown): unknown {
+  if (!isPlainObject(col) || (col['oneWay'] === undefined && col['layers'] === undefined)) return col;
+  return Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay' && k !== 'layers'));
+}
+
 export function validateColliderComponent(c: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));

@@ -27,6 +27,7 @@ import { Projection, type ProjectedEntity } from '../session/projection';
 import { draggedRoots, effectiveFlagsOf, subtreeOrder } from '../session/hierarchy';
 import { scatterProblem, scatterTransforms } from '../session/instances';
 import { TagsPanel } from './TagsPanel';
+import { CollisionLayersPanel } from './CollisionLayersPanel';
 import type { AssetView } from '../session/content-projection';
 import {
   importFailed,
@@ -541,6 +542,9 @@ function EditorApp(): JSX.Element {
   const [sceneHeaders, setSceneHeaders] = useState<SceneHeaderView[] | null>(null);
   const [closedScenes, setClosedScenes] = useState<{ sceneId: string; name: string }[]>([]);
   const [tagsError, setTagsError] = useState<string | null>(null);
+  /** Phase 23.3: the named collision layers and the last setCollisionLayers error. */
+  const [collisionLayers, setCollisionLayers] = useState<string[]>([]);
+  const [layersError, setLayersError] = useState<string | null>(null);
   const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
 
   // ---- packet 27: content browser + local snapping -------------------------
@@ -802,6 +806,7 @@ function EditorApp(): JSX.Element {
     setRegistry(c.getDescriptors());
     setSettings(stable('settings', c.getSettings()));
     setTags(stable('tags', c.getTags()));
+    setCollisionLayers(stable('collisionLayers', c.getCollisionLayers()));
     const mats = stable('materials', c.getMaterials());
     const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
@@ -1849,6 +1854,14 @@ function EditorApp(): JSX.Element {
     const res = await c.command('setTags', { tags: next }, c.projection.revision);
     if (res.ok) setTagsError(null);
     else setTagsError((res.response as { message?: string }).message ?? 'the tags could not be saved');
+  }, []);
+  /** Phase 23.3: replace the named collision layers (one setCollisionLayers command). */
+  const saveCollisionLayers = useCallback(async (next: string[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setCollisionLayers', { layers: next }, c.projection.revision);
+    if (res.ok) setLayersError(null);
+    else setLayersError((res.response as { message?: string }).message ?? 'the collision layers could not be saved');
   }, []);
   /** Phase 12 (b): set an entity's own tags, by name. */
   const setEntityTags = useCallback(async (entityId: string, names: string[]) => {
@@ -3569,6 +3582,16 @@ function EditorApp(): JSX.Element {
     }
     return usage;
   }, [entities]);
+  /** Phase 23.3: how many colliders list each collision layer ("default": those listing none). */
+  const layerUsageMemo = useMemo(() => {
+    const usage = new Map<string, number>();
+    for (const e of entities) {
+      if (e.collider === undefined) continue;
+      const layers = (e.collider as { layers?: unknown }).layers;
+      for (const name of Array.isArray(layers) ? (layers as string[]) : ['default']) usage.set(name, (usage.get(name) ?? 0) + 1);
+    }
+    return usage;
+  }, [entities]);
   const allEntitiesMemo = clientRef.current?.projection.listEntities() ?? entities;
   const projectScenes = clientRef.current?.projection.scenes;
   const fieldContextBase = useMemo(
@@ -4233,6 +4256,15 @@ function EditorApp(): JSX.Element {
               usage={tagUsage}
               error={tagsError}
               onSetTags={(next) => void saveTags(next)}
+            />
+          )}
+          {bottomTab === 'tags' && (
+            <CollisionLayersPanel
+              layers={collisionLayers}
+              usage={layerUsageMemo}
+              dimension={settings?.['physics_dimension'] === 3 ? 3 : 2}
+              error={layersError}
+              onSetLayers={(next) => void saveCollisionLayers(next)}
             />
           )}
           {bottomTab === 'media' && (

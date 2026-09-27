@@ -7,10 +7,14 @@
  * to defaults" removes the project's own actions. A project without its own
  * actions shows (and plays with) the defaults.
  *
+ * Phase 23.3: "+ pointer" binds a mouse button, the pointer's position or
+ * movement, one movement axis or the wheel (what fits the action type); each
+ * map chooses its cursor (free or locked).
+ *
  * Browser-only (React).
  */
 import { useEffect, useRef, useState, type JSX } from 'react';
-import type { InputAction, InputActionType, InputBinding, InputConfig } from '@thirdlight/project-model';
+import type { CursorMode, InputAction, InputActionType, InputBinding, InputConfig } from '@thirdlight/project-model';
 
 interface Props {
   input: InputConfig | null;
@@ -35,8 +39,36 @@ export function bindingLabel(b: InputBinding): string {
       return `Pad ${b.negative} / ${b.positive}`;
     case 'gamepadStick':
       return `Pad stick ${b.x},${b.y}`;
+    case 'pointerButton':
+      return `Mouse ${b.button}`;
+    case 'pointerPosition':
+      return 'Pointer position';
+    case 'pointerDelta':
+      return 'Pointer movement';
+    case 'pointerAxis':
+      return b.axis === 'wheel' ? 'Mouse wheel' : `Pointer ${b.axis}`;
   }
 }
+
+/** Phase 23.3: the pointer bindings that fit an action type (the "+ pointer" choices). */
+const POINTER_CHOICES: Record<InputActionType, readonly { label: string; binding: InputBinding }[]> = {
+  button: [
+    { label: 'left button', binding: { kind: 'pointerButton', button: 'left' } },
+    { label: 'right button', binding: { kind: 'pointerButton', button: 'right' } },
+    { label: 'middle button', binding: { kind: 'pointerButton', button: 'middle' } },
+  ],
+  axis1d: [
+    { label: 'movement x', binding: { kind: 'pointerAxis', axis: 'x' } },
+    { label: 'movement y', binding: { kind: 'pointerAxis', axis: 'y' } },
+    { label: 'wheel', binding: { kind: 'pointerAxis', axis: 'wheel' } },
+    { label: 'left button', binding: { kind: 'pointerButton', button: 'left' } },
+    { label: 'right button', binding: { kind: 'pointerButton', button: 'right' } },
+  ],
+  axis2d: [
+    { label: 'position', binding: { kind: 'pointerPosition' } },
+    { label: 'movement', binding: { kind: 'pointerDelta' } },
+  ],
+};
 
 type Listening = { action: string; device: 'key' | 'pad'; keys: string[] } | null;
 
@@ -56,7 +88,12 @@ export function InputPanel(p: Props): JSX.Element {
   const listenRef = useRef<Listening>(null);
   listenRef.current = listening;
 
-  const save = (actions: InputAction[]): void => p.onSave({ actions });
+  // Phase 23.3: an edit keeps the cursor settings.
+  const save = (actions: InputAction[]): void => p.onSave({ actions, ...(config.cursor !== undefined ? { cursor: config.cursor } : {}) });
+  const setCursor = (map: 'gameplay' | 'ui', mode: CursorMode): void => {
+    const cursor = { ...(config.cursor ?? {}), [map]: mode };
+    p.onSave({ actions: config.actions, cursor });
+  };
   const put = (name: string, next: InputAction): void => save(config.actions.map((a) => (a.name === name ? next : a)));
   const addBinding = (name: string, b: InputBinding): void => {
     const a = config.actions.find((x) => x.name === name);
@@ -114,7 +151,16 @@ export function InputPanel(p: Props): JSX.Element {
 
   const group = (map: 'gameplay' | 'ui'): JSX.Element => (
     <div className="tl-input-map" aria-label={`${map} actions`}>
-      <div className="tl-panel__title">{map === 'gameplay' ? 'Gameplay' : 'Menus (ui)'}</div>
+      <div className="tl-panel__title">
+        {map === 'gameplay' ? 'Gameplay' : 'Menus (ui)'}{' '}
+        <label className="tl-hint">
+          cursor{' '}
+          <select className="tl-input" aria-label={`cursor while ${map}`} value={config.cursor?.[map] ?? 'free'} onChange={(e) => setCursor(map, e.target.value as CursorMode)}>
+            <option value="free">free</option>
+            <option value="locked">locked</option>
+          </select>
+        </label>
+      </div>
       {config.actions
         .filter((a) => a.map === map)
         .map((a) => (
@@ -149,6 +195,22 @@ export function InputPanel(p: Props): JSX.Element {
                     + pad
                   </button>
                 )}
+                <select
+                  className="tl-input"
+                  aria-label={`add a pointer binding to ${a.name}`}
+                  value=""
+                  onChange={(e) => {
+                    const choice = POINTER_CHOICES[a.type][Number(e.target.value)];
+                    if (choice !== undefined) addBinding(a.name, { ...choice.binding } as InputBinding);
+                  }}
+                >
+                  <option value="">+ pointer</option>
+                  {POINTER_CHOICES[a.type].map((c, i) => (
+                    <option key={c.label} value={i}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
               </>
             )}
             {a.name !== 'move' && a.name !== 'jump' && (

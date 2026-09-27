@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -172,8 +172,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'automatically; scripts use ctx.animator(entityId)?.set/trigger/state(layer?). Input: setInput {input: {actions: [{name, type: ' +
       'button|axis1d|axis2d, map: gameplay|ui, bindings: [{kind: "key", code: KeyboardEvent.code} | {kind: "gamepadButton", button} | ' +
       '{kind: "gamepadAxis", axis} | {kind: "keys1d", negative, positive} | {kind: "keys2d", up, down, left, right} | {kind: ' +
-      '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y}], deadZone?, invert?, scale?}]} | null} (null = defaults: ' +
-      'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name). ' +
+      '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y} | {kind: "pointerButton", button: left|right|middle} | ' +
+      '{kind: "pointerPosition"} (axis2d: x, y 0-1 from the top left) | {kind: "pointerDelta"} (axis2d, up positive) | {kind: "pointerAxis", ' +
+      'axis: x|y|wheel} (axis1d)], deadZone?, invert?, scale?}], cursor?: {gameplay?: free|locked, ui?: free|locked}} | null} (null = defaults: ' +
+      'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name), ' +
+      'ctx.input.pointer() / pointerPressed/Released/Held(button) and ctx.input.setCursor(free|locked|auto); the cursor hides while a gamepad drives. ' +
+      '3D queries (physics_dimension 3): ctx.physics.raycast3d/overlapSphere/overlapBox3d/overlapCapsule/pickAt/pickAtPointer with a filter ' +
+      '{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to 15 collision layers ("default" is implicit) that ' +
+      'collider {layers: [...]} lists. ' +
       'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
       'loop|pingpong|once, wait?, easing?: linear|smooth, startOn?: signal, maxPush? 1-1000 m/s (60: how hard it shoves a player out of its way)} (with a box collider it is a moving platform that carries ' +
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
@@ -370,7 +376,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; jump ∈ none|pressed|held|released; optional moveY (−1..1, the move ' +
       'vector\'s forward axis: a 3D character walks along (moveX, moveY), relative to the camera); optional actions: ' +
       '{<action name>: {v, x?, y?, p: none|pressed|held|released}} for named input actions (attack, interact, …; scripts read ' +
-      'them with ctx.input). Returns the applied ' +
+      'them with ctx.input); optional pointer: {x, y (0-1 of the view, 0,0 top left), dx?, dy?, wheel?, buttons?, pressed?, released? ' +
+      '(masks: 1 left, 2 right, 4 middle), over?, locked?} (a frame without one keeps the last position and held buttons; a button ' +
+      'going down between frames is a click - ctx.input.pointerPressed, ctx.physics.pickAtPointer). Returns the applied ' +
       'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
       'connected (never a simulated success). No DOM injection, no eval.',
     inputSchema: {
@@ -396,6 +404,24 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
                   required: ['v', 'p'],
                   additionalProperties: false,
                 },
+              },
+              pointer: {
+                type: 'object',
+                description: 'phase 23.3: the pointer this step (a frame without one keeps the last position and held buttons)',
+                properties: {
+                  x: { type: 'number', minimum: 0, maximum: 1 },
+                  y: { type: 'number', minimum: 0, maximum: 1 },
+                  dx: { type: 'number', minimum: -10, maximum: 10 },
+                  dy: { type: 'number', minimum: -10, maximum: 10 },
+                  wheel: { type: 'number', minimum: -10, maximum: 10 },
+                  buttons: { type: 'integer', minimum: 0, maximum: 7 },
+                  pressed: { type: 'integer', minimum: 0, maximum: 7 },
+                  released: { type: 'integer', minimum: 0, maximum: 7 },
+                  over: { type: 'boolean' },
+                  locked: { type: 'boolean' },
+                },
+                required: ['x', 'y'],
+                additionalProperties: false,
               },
             },
             required: ['stepOffset', 'moveX', 'jump'],
@@ -777,8 +803,10 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
       return toolError(`frames[${i}].moveY must be a finite number in [-1, 1]`);
     }
     if (actions !== undefined && !isObj(actions)) return toolError(`frames[${i}].actions must be an object`);
+    // Phase 23.3: the pointer too.
+    if (raw.pointer !== undefined && !isObj(raw.pointer)) return toolError(`frames[${i}].pointer must be an object { x, y, ... }`);
     // Phase 23.2: the forward axis and the named actions reach the game (the backend validates them).
-    frames.push({ stepOffset, moveX, ...(moveY !== undefined ? { moveY } : {}), jump, ...(actions !== undefined ? { actions } : {}) });
+    frames.push({ stepOffset, moveX, ...(moveY !== undefined ? { moveY } : {}), jump, ...(actions !== undefined ? { actions } : {}), ...(raw.pointer !== undefined ? { pointer: raw.pointer } : {}) });
   }
   const body = JSON.stringify({ mode: 'exclusive-test', frames });
   if (body.length > 16_384) return toolError('the relay body exceeds the 16384-byte bound');

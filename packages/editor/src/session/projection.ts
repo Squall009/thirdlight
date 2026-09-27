@@ -654,6 +654,7 @@ export class Projection {
       case 'setLighting':
       case 'setAnimators':
       case 'setInput':
+      case 'setCollisionLayers':
       case 'setFlow':
       // Phase 16.1: graphs are tracked by the client from the change data.
       case 'graphEdit':

@@ -110,6 +110,8 @@ export type V3MutationOp =
   | 'deleteAnimator'
   | 'setInput'
   | 'setFlow'
+  // phase 23.3: named collision layers (3D physics)
+  | 'setCollisionLayers'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -563,6 +565,13 @@ export interface SetFlowChange {
   next: GameFlow | null;
 }
 
+/** Phase 23.3: `setCollisionLayers` change data (the whole list; empty = only "default"). */
+export interface SetCollisionLayersChange {
+  type: 'setCollisionLayers';
+  previous: string[];
+  next: string[];
+}
+
 /** Phase 9.8: `setInput` change data (null = the defaults). */
 export interface SetInputChange {
   type: 'setInput';
@@ -841,6 +850,7 @@ export type ChangeData =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetCollisionLayersChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -878,6 +888,7 @@ export type ForwardChange =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetCollisionLayersChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -1017,6 +1028,12 @@ export interface SetFlowInverse {
   restore: GameFlow | null;
 }
 
+/** Phase 23.3: undo of `setCollisionLayers`: restore the previous list. */
+export interface SetCollisionLayersInverse {
+  kind: 'setCollisionLayers';
+  restore: string[];
+}
+
 /** Undo of `setInput`: restore the previous actions (null = the defaults). */
 export interface SetInputInverse {
   kind: 'setInput';
@@ -1070,6 +1087,7 @@ export type InverseSpec =
   | SetLightingInverse
   | SetAnimatorsInverse
   | SetInputInverse
+  | SetCollisionLayersInverse
   | SetFlowInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse

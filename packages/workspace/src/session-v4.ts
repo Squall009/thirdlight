@@ -607,6 +607,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         // Phase 23.9a: project UI documents and themes.
         uiDocuments: JSON.parse(JSON.stringify((state.content as { uiDocuments?: unknown[] }).uiDocuments ?? [])) as unknown,
         uiThemes: JSON.parse(JSON.stringify((state.content as { uiThemes?: unknown[] }).uiThemes ?? [])) as unknown,
+        // Phase 23.3: the named collision layers.
+        collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
         // Phase 17.1: the settings map (the editor's Scene view reads render_backend at load).
         settings: JSON.parse(JSON.stringify((state.content as { settings?: unknown }).settings ?? {})) as unknown,
         ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown, graphKinds: JSON.parse(JSON.stringify(GRAPH_KINDS)) as unknown } : {}),

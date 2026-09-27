@@ -464,7 +464,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   // Phase 15.1: the piece of a multi-piece file is an Inspector field too.
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
-  collider: ['shape', 'oneWay'],
+  collider: ['shape', 'oneWay', 'layers'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'],
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
@@ -688,7 +688,8 @@ export function validateSetComponentArgs(
   } else if (component === 'collider') {
     const shape = value['shape'];
     // Phase 15.1: `oneWay` alone edits the flag (the shape stays).
-    if (shape === undefined && value['oneWay'] !== undefined) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
+    // Phase 23.3: `layers` alone edits the collision layers (the shape stays).
+    if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
       return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh", ... })') };
     }

@@ -18,6 +18,7 @@ import type {
   EffectRequest,
   LoadedSceneBatch,
   GameView,
+  PointerSample,
   GameplaySettings,
   RunSaveState,
   RuntimeDiagnostics,
@@ -113,7 +114,7 @@ export type MainToWorker =
   | SimTickMessage
   | { readonly t: 'cmd'; readonly command: SimCommand }
   | { readonly t: 'scene'; readonly sceneId: string; readonly result: { ok: true; entities: SceneEntities } | { ok: false; message: string } }
-  | { readonly t: 'relay'; readonly frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions'] }[] }
+  | { readonly t: 'relay'; readonly frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions']; pointer?: ActionFrame['pointer']; }[] }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
   | { readonly t: 'dispose' };
 
@@ -169,6 +170,10 @@ export interface FrameState {
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
   /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
   readonly ui?: UiOutput;
+  /** Phase 23.3: the cursor a script asked for (when it changed; null: the input map decides). */
+  readonly cursor?: 'free' | 'locked' | null;
+  /** Phase 23.3: the pointer as of the last step (when it changed; observers). */
+  readonly pointer?: PointerSample | null;
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };

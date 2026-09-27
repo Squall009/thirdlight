@@ -22,7 +22,24 @@ export type InputBinding =
   | { kind: 'keys1d'; negative: string; positive: string }
   | { kind: 'keys2d'; up: string; down: string; left: string; right: string }
   | { kind: 'gamepadButtons1d'; negative: number; positive: number }
-  | { kind: 'gamepadStick'; x: number; y: number };
+  | { kind: 'gamepadStick'; x: number; y: number }
+  // Phase 23.3: the pointer (mouse, pen or touch). A button, the position in
+  // the view (x, y 0–1 from the top left), the movement this step (a 2D axis,
+  // up positive like a stick) or one axis of it (x, y up positive, or the wheel).
+  | { kind: 'pointerButton'; button: PointerButtonName }
+  | { kind: 'pointerPosition' }
+  | { kind: 'pointerDelta' }
+  | { kind: 'pointerAxis'; axis: PointerAxisName };
+
+/** Phase 23.3: the pointer buttons an action binds. */
+export type PointerButtonName = 'left' | 'right' | 'middle';
+export const POINTER_BUTTONS = ['left', 'right', 'middle'] as const;
+/** Phase 23.3: one axis of the pointer's movement (x, y) or the wheel. */
+export type PointerAxisName = 'x' | 'y' | 'wheel';
+export const POINTER_AXES = ['x', 'y', 'wheel'] as const;
+/** Phase 23.3: the cursor while a map is active — free (visible, moves) or locked (hidden, held in the view; the movement still counts). */
+export type CursorMode = 'free' | 'locked';
+export const CURSOR_MODES = ['free', 'locked'] as const;
 
 export interface InputAction {
   name: string;
@@ -37,6 +54,11 @@ export interface InputAction {
 
 export interface InputConfig {
   actions: InputAction[];
+  /**
+   * Phase 23.3: the cursor while each map is active (absent: free for both —
+   * a pointer-driven game needs a visible cursor; mouse-look opts in to locked).
+   */
+  cursor?: { gameplay?: CursorMode; ui?: CursorMode };
 }
 
 export const MAX_INPUT_ACTIONS = 32;
@@ -97,17 +119,30 @@ const BINDING_KEYS: Record<InputBinding['kind'], readonly string[]> = {
   keys2d: ['up', 'down', 'left', 'right'],
   gamepadButtons1d: ['negative', 'positive'],
   gamepadStick: ['x', 'y'],
+  pointerButton: ['button'],
+  pointerPosition: [],
+  pointerDelta: [],
+  pointerAxis: ['axis'],
 };
 /** Which bindings fit which action type. */
 const FITS: Record<InputActionType, readonly InputBinding['kind'][]> = {
-  button: ['key', 'gamepadButton'],
-  axis1d: ['keys1d', 'gamepadButtons1d', 'gamepadAxis', 'key', 'gamepadButton'],
-  axis2d: ['keys2d', 'gamepadStick'],
+  button: ['key', 'gamepadButton', 'pointerButton'],
+  axis1d: ['keys1d', 'gamepadButtons1d', 'gamepadAxis', 'key', 'gamepadButton', 'pointerAxis', 'pointerButton'],
+  axis2d: ['keys2d', 'gamepadStick', 'pointerPosition', 'pointerDelta'],
 };
 
 export function validateInput(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'input is { actions }', value);
-  for (const k of Object.keys(value)) if (k !== 'actions') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions');
+  for (const k of Object.keys(value)) if (k !== 'actions' && k !== 'cursor') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions, cursor');
+  const cursor = value['cursor'];
+  if (cursor !== undefined) {
+    if (!isPlainObject(cursor)) err(errors, 'field_type', `${path}/cursor`, 'cursor is { gameplay?, ui? }', cursor);
+    else
+      for (const [k, v] of Object.entries(cursor)) {
+        if (!(INPUT_MAPS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/cursor/${k}`, `unknown field "${k}"`, k, 'gameplay, ui');
+        else if (!(CURSOR_MODES as readonly unknown[]).includes(v)) err(errors, 'field_value', `${path}/cursor/${k}`, 'the cursor is free or locked', v);
+      }
+  }
   const actions = value['actions'];
   if (!Array.isArray(actions) || actions.length > MAX_INPUT_ACTIONS) return err(errors, 'field_value', `${path}/actions`, `actions is a list of at most ${MAX_INPUT_ACTIONS}`, actions);
   const names = new Set<string>();
@@ -132,9 +167,15 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
       if (!isPlainObject(b)) return err(errors, 'field_type', bp, 'a binding is an object', b);
       const kind = b['kind'] as InputBinding['kind'];
       const keys = BINDING_KEYS[kind];
-      if (keys === undefined) return err(errors, 'field_value', `${bp}/kind`, 'kind is key, gamepadButton, gamepadAxis, keys1d, keys2d, gamepadButtons1d or gamepadStick', kind);
+      if (keys === undefined) return err(errors, 'field_value', `${bp}/kind`, 'kind is key, gamepadButton, gamepadAxis, keys1d, keys2d, gamepadButtons1d, gamepadStick, pointerButton, pointerPosition, pointerDelta or pointerAxis', kind);
       if (!FITS[type].includes(kind)) return err(errors, 'field_value', `${bp}/kind`, `a ${kind} binding does not fit a ${type} action`, kind);
       for (const k of Object.keys(b)) if (k !== 'kind' && !keys.includes(k)) err(errors, 'field_unexpected', `${bp}/${k}`, `unknown field "${k}"`, k, ['kind', ...keys].join(', '));
+      if (kind === 'pointerButton' || kind === 'pointerAxis') {
+        const v = b[keys[0]!];
+        const allowed: readonly unknown[] = kind === 'pointerButton' ? POINTER_BUTTONS : POINTER_AXES;
+        if (!allowed.includes(v)) err(errors, 'field_value', `${bp}/${keys[0]}`, kind === 'pointerButton' ? 'a pointer button: left, right or middle' : 'a pointer axis: x, y or wheel', v);
+        return;
+      }
       for (const k of keys) {
         const v = b[k];
         const ok = kind === 'key' || kind === 'keys1d' || kind === 'keys2d' ? code(v) : kind === 'gamepadAxis' || kind === 'gamepadStick' ? axis(v) : button(v);
@@ -155,5 +196,6 @@ export function canonicalInput(c: InputConfig): InputConfig {
       ...(a.invert !== undefined ? { invert: a.invert } : {}),
       ...(a.scale !== undefined ? { scale: a.scale } : {}),
     })),
+    ...(c.cursor !== undefined ? { cursor: { ...(c.cursor.gameplay !== undefined ? { gameplay: c.cursor.gameplay } : {}), ...(c.cursor.ui !== undefined ? { ui: c.cursor.ui } : {}) } } : {}),
   };
 }
