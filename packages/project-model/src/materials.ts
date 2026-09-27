@@ -14,7 +14,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, type GraphContext, type GraphData, type GraphDocument } from './graph';
-import { MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
+import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
@@ -128,8 +128,13 @@ export interface MaterialParameter {
   /** The name Parameter nodes and overrides use (an identifier). */
   key: string;
   type: MaterialParameterType;
-  /** float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none). */
+  /**
+   * float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none);
+   * data (phase 23.12): the RGBA bytes (4 integers 0–255) every cell starts with.
+   */
   default: number | number[] | string;
+  /** Phase 23.12, data only (required there): the grid's cells [width, height], 1–64 each. */
+  size?: [number, number];
   /** float / vec2–4: the range the value (every component) stays in. */
   min?: number;
   max?: number;
@@ -226,6 +231,8 @@ export function materialParameterValueError(p: Pick<MaterialParameter, 'type' | 
       return typeof v === 'string' && COLOR_RE.test(v) ? null : 'a colour "#rrggbb" (lowercase hex)';
     case 'texture':
       return typeof v === 'string' && (v === '' || ID_RE.test(v)) ? null : 'a texture asset id (or "" for none)';
+    case 'data':
+      return Array.isArray(v) && v.length === 4 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255) ? null : '4 integers 0–255 (the RGBA every cell starts with)';
     default:
       return `one of ${MATERIAL_PARAMETER_TYPES.join(', ')}`;
   }
@@ -242,8 +249,8 @@ export function validateMaterialParameters(value: unknown, path: string, errors:
   const keys = new Set<string>();
   value.forEach((p, i) => {
     const pp = `${path}/${i}`;
-    if (!isPlainObject(p)) return err(errors, 'field_type', pp, 'a parameter is { key, type, default, min?, max?, visibility?, label?, group?, tooltip? }', p);
-    const allowed = ['key', 'type', 'default', 'min', 'max', 'visibility', 'label', 'group', 'tooltip'];
+    if (!isPlainObject(p)) return err(errors, 'field_type', pp, 'a parameter is { key, type, default, min?, max?, size?, visibility?, label?, group?, tooltip? }', p);
+    const allowed = ['key', 'type', 'default', 'min', 'max', 'size', 'visibility', 'label', 'group', 'tooltip'];
     for (const k of Object.keys(p)) if (!allowed.includes(k)) err(errors, 'field_unexpected', `${pp}/${k}`, `unknown parameter field "${k}"`, k, allowed.join(', '));
     const key = p['key'];
     if (typeof key !== 'string' || !MATERIAL_PARAMETER_KEY_RE.test(key)) err(errors, 'field_value', `${pp}/key`, 'a parameter key is an identifier (a letter or _, then letters, digits or _; 1-32 characters)', key);
@@ -262,6 +269,12 @@ export function validateMaterialParameters(value: unknown, path: string, errors:
       else if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > PARAM_BOUND) err(errors, 'field_value', `${pp}/${k}`, `${k} is a number within ±${PARAM_BOUND}`, v);
     }
     if (typeof p['min'] === 'number' && typeof p['max'] === 'number' && p['min'] > p['max']) err(errors, 'field_value', `${pp}/max`, 'max is at least min', p['max']);
+    // Phase 23.12: a data parameter's grid size (and only there).
+    if (type === 'data') {
+      const size = p['size'];
+      if (size === undefined) err(errors, 'field_missing', `${pp}/size`, 'a data parameter needs its size [width, height]', undefined, 'size');
+      else if (!Array.isArray(size) || size.length !== 2 || !size.every((x) => Number.isInteger(x) && x >= 1 && x <= MATERIAL_DATA_MAX)) err(errors, 'field_value', `${pp}/size`, `size is [width, height], integers 1-${MATERIAL_DATA_MAX}`, size);
+    } else if (p['size'] !== undefined) err(errors, 'field_unexpected', `${pp}/size`, `a ${type} parameter has no size`, 'size');
     if (p['default'] === undefined) err(errors, 'field_missing', `${pp}/default`, 'a parameter needs a default', undefined, 'default');
     else {
       const bad = materialParameterValueError({ type: type as MaterialParameterType, ...(typeof p['min'] === 'number' ? { min: p['min'] } : {}), ...(typeof p['max'] === 'number' ? { max: p['max'] } : {}) }, p['default']);
@@ -359,6 +372,7 @@ export function canonicalMaterialParameters(list: readonly MaterialParameter[]):
     default: Array.isArray(p.default) ? [...p.default] : typeof p.default === 'string' && p.type === 'color' ? p.default.toLowerCase() : p.default,
     ...(p.min !== undefined ? { min: p.min } : {}),
     ...(p.max !== undefined ? { max: p.max } : {}),
+    ...(p.size !== undefined ? { size: [p.size[0], p.size[1]] as [number, number] } : {}),
     // Public is the default and omitted (like script properties, 15.4).
     ...(p.visibility === 'private' ? { visibility: 'private' as const } : {}),
     ...(p.label !== undefined ? { label: p.label } : {}),
@@ -845,6 +859,8 @@ export function materialOverrideErrors(overrides: MaterialParamsComponent, mater
       const p = (m.parameters ?? []).find((x) => x.key === k);
       if (p === undefined) out.push({ path: `/${id}/${k}`, code: 'reference_missing', message: `material "${m.name}" has no parameter "${k}"`, found: k });
       else if (p.visibility === 'private') out.push({ path: `/${id}/${k}`, code: 'field_value', message: `parameter "${k}" of material "${m.name}" is private: objects cannot override it`, found: k });
+      // Phase 23.12: a data parameter's cells are written by scripts while the game runs.
+      else if (p.type === 'data') out.push({ path: `/${id}/${k}`, code: 'field_value', message: `parameter "${k}" of material "${m.name}" is a data parameter: scripts write its cells while the game runs (ctx.materials.setData)`, found: k });
       else {
         const bad = materialParameterValueError(p, v);
         if (bad !== null) out.push({ path: `/${id}/${k}`, code: 'field_value', message: `${k} must be ${bad}`, found: v });

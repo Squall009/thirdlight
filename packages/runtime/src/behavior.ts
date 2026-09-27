@@ -29,6 +29,7 @@
  * three.js, no authoring/backend edge.
  */
 import type { BehaviorGrid } from './grid';
+import type { BehaviorMaterials } from './material-params';
 import type {
   DeclaredProperty,
   PropertyDeclaration,
@@ -217,6 +218,11 @@ export interface BehaviorContext {
   readonly camera?: BehaviorCamera;
   /** Phase 23.11: objects riding on named nodes of other objects' models — attach, detach, node poses. */
   readonly sockets?: BehaviorSockets;
+  /**
+   * Phase 23.12: graph-material parameters per object — set a value (number, vector, colour,
+   * texture) or write the cells of a data parameter on one object; others wearing the material keep theirs.
+   */
+  readonly materials?: BehaviorMaterials;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -925,6 +931,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
         // Phase 23.5: the block layers.
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
+        // Phase 23.12: graph-material parameters per object.
+        if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

@@ -157,6 +157,14 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       attachedTo: rec('sockets.attachedTo', () => ({ target: 'box-2', nodeName: 'hand' })),
       nodePose: rec('sockets.nodePose', () => ({ position: [1, 2, 3], rotation: [0, 0, 0, 1] })),
     },
+    // Phase 23.12: graph-material parameters per object.
+    materials: {
+      set: rec('materials.set', true),
+      get: rec('materials.get', '#ff0000'),
+      reset: rec('materials.reset', true),
+      setData: rec('materials.setData', true),
+      getData: rec('materials.getData', () => [255, 0, 0, 255]),
+    },
   };
 }
 

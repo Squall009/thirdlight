@@ -20,6 +20,7 @@
  *   action sampling and fail-stop with no rollback.
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
+import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   GAME_TIMING_DEFAULTS,
@@ -1262,6 +1263,7 @@ export function instantiateRuntime(
     ...(variables !== undefined ? { variables } : {}),
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
+    ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1342,6 +1344,8 @@ interface RuntimeArgs {
   /** Phase 23.5: the block types and cell fields of the project's block layers. */
   blockTypes: readonly BlockType[];
   cellFields: readonly CellField[];
+  /** Phase 23.12: the graph materials' parameters (ctx.materials). */
+  materialCatalog?: RuntimeMaterialCatalog;
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1568,6 +1572,8 @@ class RuntimeInstance implements Runtime {
   private blocks: GameplayBlocks | null = null;
   /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
   private readonly grid: RuntimeGrid;
+  /** Phase 23.12: graph-material parameters scripts set per object (`ctx.materials`). */
+  private readonly materials: RuntimeMaterials;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
   /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
@@ -1831,6 +1837,9 @@ class RuntimeInstance implements Runtime {
     this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
+    // Phase 23.12: the start set's graph materials (the values scripts set per object).
+    this.materials = new RuntimeMaterials(args.materialCatalog);
+    this.materials.addEntities(args.initialEntities);
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
     // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
@@ -2142,6 +2151,20 @@ class RuntimeInstance implements Runtime {
   /** Phase 23.5: the cells changed since the run started (tests, saves). */
   gridDiff(): import('./grid').GridDiff {
     return this.grid.api.diff();
+  }
+
+  /**
+   * Phase 23.12: the material parameters scripts changed since the last call
+   * (the latest value of each, a cleared one, a data parameter's grid) — the
+   * renderer applies them per object. Taking them changes nothing the simulation computes.
+   */
+  takeMaterialChanges(): MaterialRenderChange[] {
+    return this.materials.takeRenderChanges();
+  }
+
+  /** Phase 23.12: the values scripts set, as digest text (null while none is set). */
+  materialState(): string | null {
+    return this.materials.digestText();
   }
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
@@ -2842,6 +2865,7 @@ class RuntimeInstance implements Runtime {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
     this.grid.beginStep(this.stepIndex + 1);
+    this.materials.beginStep(this.stepIndex + 1);
     // §5.1: copy curr before the step; restore it if any module throws
     // (no partial module application). Phase 23.0: into the reused step
     // buffer `prev` does not hold (as the M2 step does since phase 21.2) — a
@@ -2952,6 +2976,7 @@ class RuntimeInstance implements Runtime {
     if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
     this.respawnRequested = false;
     this.grid.beginStep(ordinal);
+    this.materials.beginStep(ordinal);
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
@@ -3429,6 +3454,8 @@ class RuntimeInstance implements Runtime {
     if (reset === 'replay' || reset === 'start') {
       this.grid.reset();
       this.grid.flushCollision(this.physics3d);
+      // Phase 23.12: and from the authored material values.
+      this.materials.reset();
     }
     // Phase 9.11: a loaded save's run on top of the fresh one.
     if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
@@ -3775,6 +3802,7 @@ class RuntimeInstance implements Runtime {
    * tags, animators and gameplay blocks (a loaded scene, a spawned copy).
    */
   private attachEntities(frozen: readonly EntityV3[]): void {
+    this.materials.addEntities(frozen);
     for (const e of frozen) {
       const t = e.components.transform;
       const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
@@ -3856,6 +3884,7 @@ class RuntimeInstance implements Runtime {
   private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
     // Phase 23.11: sockets of (and on) these entities let go.
     this.sockets.remove(ids);
+    this.materials.removeEntities(ids);
     for (const id of ids) {
       this.colliderComponents3D.delete(id);
       this.scriptColliders3D.delete(id);
@@ -4326,6 +4355,8 @@ class RuntimeInstance implements Runtime {
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
       // Phase 23.5: the block layers.
       fields['grid'] = { value: this.grid.api, enumerable: true };
+      // Phase 23.12: graph-material parameters per object.
+      fields['materials'] = { value: this.materials.api, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
