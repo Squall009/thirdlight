@@ -10,7 +10,7 @@
  * theme a document uses cannot be deleted). Each is one undo; the change
  * records the value before and after (`setUi {uiKind, id, previous, next}`).
  */
-import { canonicalUiDocument, canonicalUiDocuments, canonicalUiTheme, canonicalUiThemes, INPUT_MAPS, validateUiDocument, validateUiTheme, type ModelErrorV2, type UiDocument, type UiTheme } from '@thirdlight/project-model';
+import { canonicalUiDocument, canonicalUiDocuments, canonicalUiTheme, canonicalUiThemes, projectInputMaps, validateUiDocument, validateUiTheme, type ModelErrorV2, type UiDocument, type UiTheme } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -63,7 +63,7 @@ function commit(input: OpInput, next: ContentDocument, kind: UiKind, id: string,
 export function applySetUiDocument(input: OpInput, args: { document: UiDocument }): OpOutcome {
   const catalog = contentOf(input.content);
   const errors: ModelErrorV2[] = [];
-  validateUiDocument(args.document, '', errors, INPUT_MAPS);
+  validateUiDocument(args.document, '', errors, projectInputMaps((catalog as { input?: unknown }).input));
   if (errors.length > 0) return { ok: false, error: modelError(errors[0]!, '/args/document') };
   const doc = canonicalUiDocument(args.document);
   const previous = uiOf(catalog, 'document', doc.uiDocumentId);

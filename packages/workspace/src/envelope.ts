@@ -453,7 +453,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setModes', 'setBehaviorGroups'];
 /** Phase 12 (c): the ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -723,6 +723,8 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'setCellFields',
   'setBlockStamp',
   'setUi',
+  'setModes',
+  'setBehaviorGroups',
 ];
 
 /** Required field names per change type (structural well-formedness). */
@@ -765,6 +767,8 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setCellFields: ['type', 'previous', 'next'],
   setBlockStamp: ['type', 'stampId', 'previous', 'next'],
   setUi: ['type', 'uiKind', 'id', 'previous', 'next'],
+  setModes: ['type', 'previous', 'next'],
+  setBehaviorGroups: ['type', 'previous', 'next'],
 };
 
 /** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
@@ -823,6 +827,8 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   deleteUiDocument: 'setUi',
   setUiTheme: 'setUi',
   deleteUiTheme: 'setUi',
+  setModes: 'setModes',
+  setBehaviorGroups: 'setBehaviorGroups',
 };
 
 /**

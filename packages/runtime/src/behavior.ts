@@ -65,6 +65,8 @@ import type {
   BehaviorSockets,
   BehaviorDebug,
   BehaviorUi,
+  BehaviorModes,
+  BehaviorLifecycle,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -233,6 +235,10 @@ export interface BehaviorContext {
   readonly saves?: BehaviorSaves;
   /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
+  /** Phase 23.10: the game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. */
+  readonly modes?: BehaviorModes;
+  /** Phase 23.10: the run lifecycle of a game without the platformer session — respawn the player at a spawn, restart the run. */
+  readonly lifecycle?: BehaviorLifecycle;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -947,6 +953,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
         // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
+        // Phase 23.10: the game modes and the run lifecycle.
+        if (src.modes !== undefined) fields['modes'] = { value: src.modes, enumerable: true };
+        if (src.lifecycle !== undefined) fields['lifecycle'] = { value: src.lifecycle, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };
@@ -1037,7 +1046,13 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
           }
           if (instances.length === 0) return;
-          for (let i = 0; i < instances.length; i += 1) stepBehavior(instances[i]!, phase, ctx);
+          // Phase 23.10: a behavior whose group the game mode pauses does not run this step.
+          const ticks = ctx.behaviorTicks;
+          if (ticks === undefined) {
+            for (let i = 0; i < instances.length; i += 1) stepBehavior(instances[i]!, phase, ctx);
+          } else {
+            for (let i = 0; i < instances.length; i += 1) if (ticks(instances[i]!.entityId)) stepBehavior(instances[i]!, phase, ctx);
+          }
         },
         sceneLoaded(entities): void {
           // Phase 12 (c): new carriers get their instance (document order of

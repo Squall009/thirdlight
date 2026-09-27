@@ -34,7 +34,7 @@ import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateC
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { validateModelRig, type ModelRig } from './model-rig';
-import { canonicalInput, validateInput, type InputConfig } from './input';
+import { canonicalInput, projectInputMaps, validateInput, type InputConfig } from './input';
 import { validateCollisionLayers } from './components';
 import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
@@ -43,6 +43,7 @@ import { canonicalGraphDocuments, graphDocumentsContext, validateGraphDocuments,
 import { GRAPH_KINDS } from './graph-kinds';
 import { canonicalEffects, validateEffects, type EffectDef } from './effects';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiThemes, type UiDocument, type UiTheme } from './ui-documents';
+import { canonicalModes, validateModes, type GameMode } from './modes';
 import { fail, isPlainObject, withFound } from './validate';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
@@ -83,7 +84,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'modes', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -124,6 +125,8 @@ export const MANIFEST_KEYS_V2 = [
   // Phase 23.9a: the project UI (themes, documents) the game host draws.
   'uiThemes',
   'uiDocuments',
+  // Phase 23.10: the game modes (the runtime switches them; the host reads their pause screens).
+  'modes',
   'scenes',
   'buffers',
   'assets',
@@ -285,6 +288,8 @@ export interface RuntimeContentManifestV2 {
   /** Phase 23.9a: the project UI themes and documents (present only when the project has some). */
   uiThemes?: UiTheme[];
   uiDocuments?: UiDocument[];
+  /** Phase 23.10: the game modes (present only when the project has some). */
+  modes?: GameMode[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
@@ -603,6 +608,8 @@ export interface CaptureManifestV2Input {
   /** Phase 23.9a: the project UI themes and documents (only when the project has some). */
   uiThemes?: readonly UiTheme[];
   uiDocuments?: readonly UiDocument[];
+  /** Phase 23.10: the game modes (only when the project has some). */
+  modes?: readonly GameMode[];
   environment?: EnvironmentConfig;
   /** Phase 9.6: the scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
@@ -748,6 +755,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
     ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
+    ...(input.modes !== undefined && input.modes.length > 0 ? { modes: canonicalModes(input.modes) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -855,7 +863,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined) {
+  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined || d['modes'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
     // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
     if (d['materialFunctions'] !== undefined) {
@@ -876,7 +884,9 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['flow'] !== undefined) validateFlow(d['flow'], '/flow', matErrors);
     // Phase 23.9a: the UI validates as content.uiThemes / uiDocuments do.
     if (d['uiThemes'] !== undefined) validateUiThemes(d['uiThemes'], '/uiThemes', matErrors);
-    if (d['uiDocuments'] !== undefined) validateUiDocuments(d['uiDocuments'], '/uiDocuments', matErrors);
+    if (d['uiDocuments'] !== undefined) validateUiDocuments(d['uiDocuments'], '/uiDocuments', matErrors, projectInputMaps(d['input']));
+    // Phase 23.10: the game modes validate as content.modes does.
+    if (d['modes'] !== undefined) validateModes(d['modes'], '/modes', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };
   }
 

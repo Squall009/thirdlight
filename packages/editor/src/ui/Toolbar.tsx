@@ -29,6 +29,8 @@ interface Props {
   /** Phase 23.8: open the "Play from…" dialog (a scene, variables, a save slot). */
   onPlayFrom?: () => void;
   onStop: () => void;
+  /** Phase 23.10: the running Play's game mode (a project with modes). */
+  playMode?: { current: string; name: string };
 }
 
 const TOOLS: ReadonlyArray<{ mode: GizmoMode; icon: string; title: string }> = [
@@ -80,9 +82,16 @@ export function Toolbar(p: Props): JSX.Element {
       <div className="tl-toolbar__spacer" />
       <div className="tl-toolbar__group">
         {p.playing ? (
-          <button className="tl-btn tl-btn--stop" onClick={p.onStop} title="Stop the play preview">
-            ■ stop
-          </button>
+          <>
+            {p.playMode !== undefined && (
+              <span className="tl-toolbar__mode" data-play-mode={p.playMode.current} title="The game mode the running Play is in">
+                mode: {p.playMode.name !== '' ? p.playMode.name : p.playMode.current}
+              </span>
+            )}
+            <button className="tl-btn tl-btn--stop" onClick={p.onStop} title="Stop the play preview">
+              ■ stop
+            </button>
+          </>
         ) : (
           <>
             <button className="tl-btn tl-btn--play" onClick={p.onPlay} title="Start an isolated play preview">

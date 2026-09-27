@@ -61,7 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -137,6 +137,8 @@ export interface PreviewManifestV2 {
   /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
   uiDocuments?: import('@thirdlight/runtime').UiDocument[];
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
+  /** Phase 23.10: the game modes (the runtime switches them; the first is the start mode). */
+  modes?: import('@thirdlight/runtime').GameMode[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
@@ -395,7 +397,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'modes', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -455,7 +457,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsU = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
   // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
   const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
-  const withBounds = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
+  const withBoundsA = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
+  // Phase 23.10: the game modes and each action's input map (the masking of inactive maps; from the verified manifest).
+  const modeRows = modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(manifest.settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG));
+  const withBounds = modeRows !== undefined ? ({ ...withBoundsA, modes: modeRows } as RuntimeSnapshot) : withBoundsA;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
@@ -515,6 +520,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
               shared: resolveTransport(globalThis as never) === 'shared',
               // Phase 23.8: injected script variables (ctx.save from step 0).
               ...(startVariables !== undefined ? { variables: startVariables } : {}),
+              // Phase 23.10: the game mode the run starts in (a start option).
+              ...(startOptions?.mode !== undefined && modeRows !== undefined ? { startMode: startOptions.mode } : {}),
               // Phase 23.19: the stored project settings document (the runtime starts with it).
               ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, playSaveNamespace) } : {}),
             },
@@ -915,6 +922,8 @@ export function bootstrapPreviewM3(): void {
           frameDrops: bridge.drops,
           // Phase 22.0: where the simulation runs.
           simulation: { ...h.threading },
+          // Phase 23.10: the current game mode (the Play toolbar shows it).
+          ...modeDiagnostics(h),
         },
       });
     });
@@ -974,6 +983,9 @@ export function bootstrapPreviewM3(): void {
         ...debugCommandsObservation(h),
         ...savesObservationOf(h.host),
         ...uiObservation(h, o.ui),
+        // Phase 23.10: the game modes, the engine pause and its panel.
+        ...(o.mode !== undefined ? { mode: structuredClone(o.mode), paused: o.paused === true } : {}),
+        ...(o.pausePanel !== undefined ? { pausePanel: { ...o.pausePanel } } : {}),
       };
     }
     const v = gv.view;
@@ -1041,6 +1053,8 @@ export function bootstrapPreviewM3(): void {
       ...savesObservationOf(h.host),
       // Phase 23.9a: the project UI (shown documents, the flow screen's document, the focus, the view model).
       ...uiObservation(h, obs.observation.ui),
+      // Phase 23.10: the game modes.
+      ...(obs.observation.mode !== undefined ? { mode: structuredClone(obs.observation.mode) } : {}),
     };
   };
 
@@ -1156,6 +1170,12 @@ function hostStartOf(b: PlayStartBlock): GameStartOptions | undefined {
   if (b.projectSave !== undefined) o.projectSave = b.projectSave as unknown as NonNullable<GameStartOptions['projectSave']>;
   if (b.projectSaveSlot !== undefined) o.projectSaveSlot = b.projectSaveSlot;
   return Object.keys(o).length > 0 ? o : undefined;
+}
+
+/** Phase 23.10: `mode` {current, name} for the Play toolbar (a project with modes). */
+function modeDiagnostics(h: M3PreviewHandle): { mode?: { current: string; name: string } } {
+  const mv = h.host.runtime.modeView?.() ?? null;
+  return mv === null ? {} : { mode: { current: mv.current, name: mv.name } };
 }
 
 /** A relayed §20 control request (phase 23.8: `debugCommand` with its name and arguments). */

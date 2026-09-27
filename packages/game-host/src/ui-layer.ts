@@ -1029,6 +1029,10 @@ class LayerImpl implements UiLayer {
         case 'play':
           v.play(a.tween, a.widget);
           break;
+        case 'mode':
+          // Phase 23.10: a game mode switch rides on the next input frame (applied before that step's scripts).
+          this.deps.queueEvent({ kind: 'mode', doc, widget, name: '', value: a.mode });
+          break;
       }
     }
   }
