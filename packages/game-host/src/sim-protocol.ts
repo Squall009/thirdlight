@@ -161,6 +161,8 @@ export interface FrameState {
    * committed view (null: no virtual camera).
    */
   readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
+  /** Phase 23.5: block-layer chunks to re-mesh (their cells now). */
+  readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };

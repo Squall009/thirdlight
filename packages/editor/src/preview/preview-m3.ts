@@ -141,6 +141,9 @@ export interface PreviewManifestV2 {
   rigs?: Record<string, unknown>;
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: unknown[];
+  /** Phase 23.5: the block types and cell fields block layers use. */
+  blockTypes?: unknown[];
+  cellFields?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
@@ -384,7 +387,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -426,7 +429,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // Phase 9.7: the animator controllers come from the verified manifest.
   const withAnimators0 = manifest.animators !== undefined ? ({ ...authored, animators: manifest.animators } as RuntimeSnapshot) : authored;
   // Phase 14.1: the prefabs scripts spawn (from the verified manifest).
-  const withAnimators = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
+  const withPrefabs = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
+  // Phase 23.5: the block types and cell fields of the block layers (from the verified manifest).
+  const withAnimators = { ...withPrefabs, ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}), ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}) } as RuntimeSnapshot;
   // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
   const modelBounds = modelBoundsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
   const withBounds0 = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;

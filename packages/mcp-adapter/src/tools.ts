@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -233,6 +233,19 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'naming the script if one no longer compiles, or behavior_trust_unacknowledged {sourceDigest} until acknowledgeBehaviorTrust acknowledges the library\'s new digest); ' +
       'deleteScriptLibrary {libraryId} (refused while a published script imports it). A script may also import .json files of its own source (import data from "./data.json"). ' +
       'The libraries are in tl_content_query target="game" (scriptLibraries). ' +
+      'Block layers (grid levels built from blocks): setBlockType {block: {blockId, name, variants: [{model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, weight?], ' +
+      'shape: full|half|ramp|stairs|custom|none (collision; ramps/stairs rise toward +Z), boxes? (custom: [x0,y0,z0,x1,y1,z1] in 0-1), solid?, footprint? [x,y,z] cells, ' +
+      'rotations? [0,90,180,270], metadata? {field: value}, materials?}} / deleteBlockType {blockId}; setCellFields {fields: [{key, type: bool|enum|int|float|string, default?, values? (enum), min?, max?, color?, label?}]} ' +
+      '(the cell metadata schema); an entity gets setComponent "blockLayer" {cellSize: [x,y,z] m, bounds: {min: [x,y,z], max: [x,y,z]} cells (max exclusive), metadataOnly?, collision?} ' +
+      '(its position is the min corner of cell 0; a root at identity rotation and unit scale). editBlocks {entityId, edits: [...]} edits one layer as one undo step (cells are {block?, rot? 90|180|270, variant?, meta?}; ' +
+      'boxes are [x0,y0,z0,x1,y1,z1] max exclusive): {kind:"fill", box, cell|null, mode?: set|keep|replace}, {kind:"cells", at: [x,y,z,...], cell|null}, ' +
+      '{kind:"array", origin, size: [w,h,d], palette: [cell|null,...], data: [count, index, ...] run-length, x fastest then z then y, index -1 leaves a cell}, ' +
+      '{kind:"replace", match: {block: id|null, rot?, variant?}, cell|null, box?}, {kind:"meta", set: {field: value|null}, box?|at?, occupiedOnly?} (paint metadata; empty cells become metadata-only cells), ' +
+      '{kind:"flood", at, cell|null, connectivity?: xz|xyz}, {kind:"column", at: [x,z,...], delta: ±n, cell?} (raise/lower), {kind:"stamp", stampId, at, rot?, mirror?: x|z, mode?}, ' +
+      '{kind:"copy", box, to, rot?, mirror?, move?, mode?} (copy/move/mirror a selection), {kind:"region", regionId, op: set|add|remove|delete|rename, boxes?, to?} (named regions), ' +
+      '{kind:"heightmap", png: base64 greyscale PNG, origin: [x,z], y, scale (cells for white), cell, keepAbove?, colors?: {png, map: [{color, cell}]}} (import a heightmap; the colour map picks each column\'s cell). ' +
+      'The change names the chunks [cx,cz] (16×16 columns) and regions touched; read cells back with tl_content_query target="blocks". Keep each request under 64 KiB (use boxes and runs). ' +
+      'setBlockStamp {stamp} or {stampId, name, entityId, box} (save a selection) / deleteBlockStamp {stampId}. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
@@ -260,11 +273,19 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'component and content descriptor registry: every field\'s type, unit, range, default, label, tooltip and ' +
       'Scene handle, ~120 KB); target="projectFiles" lists one ' +
       'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.fbx/.wav ' +
-      'files) for tl_content_upload projectPath. Never returns bytes.',
+      'files) for tl_content_upload projectPath; target="blocks" reads block layers: without entityId the layers ' +
+      '(component, cell count, chunks, regions; sceneId optional), with entityId one layer — chunks [[cx,cz],…] in their stored ' +
+      'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
+      'boxes and cells). Never returns bytes.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles'] },
+        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks'] },
+        sceneId: { type: 'string', description: 'target="blocks": the scene whose layers are listed' },
+        entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer)' },
+        chunks: { type: 'array', items: { type: 'array', items: { type: 'integer' } }, description: 'target="blocks": [[cx, cz], …] chunks to read' },
+        box: { type: 'array', items: { type: 'integer' }, description: 'target="blocks": [x0, y0, z0, x1, y1, z1] cells to read' },
+        region: { type: 'string', description: 'target="blocks": a region id of the layer' },
         dir: { type: 'string', description: 'target="projectFiles": a folder relative to the game folder ("" = the game folder)' },
         assetId: { type: 'string' },
         prefabId: { type: 'string' },
@@ -819,7 +840,14 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const res = await ctx.client.command(ctx.projectId, { op: 'queryBehaviors', args: { ...args, ...paged.args } });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
-  return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", "game", or "projectFiles"');
+  // Phase 23.5: block-layer cells and regions.
+  if (target === 'blocks') {
+    const args: Record<string, unknown> = {};
+    for (const k of ['sceneId', 'entityId', 'chunks', 'box', 'region'] as const) if (a[k] !== undefined) args[k] = a[k];
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryBlocks', args });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", "game", "projectFiles" or "blocks"');
 }
 
 function pageArgs(a: Record<string, unknown>): { ok: true; args: Record<string, unknown> } | { ok: false; error: CallToolResult } {

@@ -2343,6 +2343,63 @@ and camera path points are Scene handles (one undo step per drag).
 export) reports `camera: { live, blend: {from, progress, style} | null,
 position, rotation, fovY, near, far, letterbox, shake }` while the game has
 virtual cameras.
+## Block layers (phase 23.5)
+
+A **block layer** builds a level from blocks on a grid (terrain, buildings, a
+tactics map, a dungeon, a voxel sandbox). The core — data, storage,
+rendering, collision, script API and bulk commands — is in; the editor's
+brushes, overlays and stamp UI come with 23.6.
+
+- **Block types** (`content.blockTypes`, `setBlockType` / `deleteBlockType`):
+  up to 8 weighted **looks** each — a model (asset and optional piece), a
+  prefab's root model, or a coloured stand-in shaped like the collision
+  shape; a **collision shape** (`full`, `half`, `ramp`, `stairs` — both rising
+  toward +Z —, `custom` boxes, `none`); `solid` (hides the faces of
+  neighbours touching it; default for `full`); a **footprint** of several
+  cells (stored at its min corner, the covered cells stay empty); the allowed
+  **rotations**; default cell metadata; a material mapping.
+- **Cell metadata schema** (`content.cellFields`, `setCellFields`): fields of
+  type bool, enum, int, float or string with defaults, ranges and an overlay
+  colour. The schema is the project's own; the engine knows no field names.
+  A cell's effective metadata is the schema default, then its block's
+  default, then the cell's own value. Cells may hold metadata only.
+- **The `blockLayer` component** (Rendering): cell size per axis (e.g.
+  `[1, 0.5, 1]`), bounds in cells (at most 1024 × 256 × 1024), metadata-only,
+  collision and shadow flags. The object's position is the min corner of cell
+  `[0, 0, 0]`; a layer is a root (a folder may hold it) at identity rotation
+  and unit scale. Deleting the layer object deletes its cells (undo restores
+  them). Several layers per scene (up to 16 with cells).
+- **Storage**: each chunk of 16 × 16 columns is its own diff-friendly file,
+  `scenes/<sceneId>.blocks/<entityId>.<cx>.<cz>.json` (the palette and one
+  run-length column per line); the scene file lists them. External-edit
+  detection and the recovery snapshots cover these files like any project file.
+- **Editing** (`editBlocks {entityId, edits}`, one undo step, each request
+  under 64 KiB): `fill` a box (set / keep / replace), `cells`, `array`
+  (run-length data), `replace` a block type, `meta` (paint metadata), `flood`,
+  `column` (raise / lower), `stamp`, `copy` (copy / move / mirror / turn a
+  selection), `region` (named cell sets: set / add / remove / rename /
+  delete), `heightmap` (a greyscale PNG → column heights, an optional colour
+  PNG → blocks). Stamps: `setBlockStamp` (whole, or a layer selection) /
+  `deleteBlockStamp`. The change names the chunks and regions touched;
+  `queryBlocks` (MCP `tl_content_query target="blocks"`) reads layers, chunks,
+  a box of cells (with effective metadata) or a region.
+- **Rendering**: one merged mesh per block look and material per chunk; faces
+  between neighbours are left out (a solid neighbour, or the same face
+  profile — two half blocks, two ramps side by side); whole chunks are culled
+  outside the view. The Scene view, Play and exports draw layers through the
+  same code (WebGPU and WebGL 2).
+- **Collision** (3D projects): one triangle-mesh collider per chunk built from
+  the collision shapes, rebuilt when cells change, before the step's physics
+  sweep. A 2D-plane project draws layers but they do not collide.
+- **Scripts** (`ctx.grid`): `layers`, `get`, `set`, `clear`, `columnTop`,
+  `worldToCell`, `cellToWorld`, `meta`, `setMeta`, `pick` (a ray → cell and
+  entered face; a deterministic walk over cells, independent of physics),
+  `neighbours`, `regions` / `region` / `inRegion`, `changes` (last step's
+  writes), `diff` / `applyDiff` (plain data for a save). Writes are refused
+  (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
+  exist for the calls.
+- **Lightmaps**: block layers shade baked objects (occluders) but keep
+  realtime lighting themselves.
 
 ## Sockets (objects on model nodes)
 

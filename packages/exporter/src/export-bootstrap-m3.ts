@@ -106,6 +106,9 @@ interface ExportManifestV2 {
   rigs?: Record<string, unknown>;
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: unknown[];
+  /** Phase 23.5: the block types and cell fields block layers use. */
+  blockTypes?: unknown[];
+  cellFields?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
@@ -142,7 +145,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -259,6 +262,9 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(modelBounds !== undefined ? { modelBounds } : {}),
     // Phase 23.11: the model rigs sockets are resolved on (bound by the buildId).
     ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
+    // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
+    ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}),
+    ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when

@@ -46,6 +46,7 @@ import { DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_I
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
+import { BLOCK_LIMITS } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
 import { MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
@@ -441,6 +442,7 @@ const model: ComponentDescriptor = {
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],
   excludes: [
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'box', reason: 'an object shows one model, box or camera' },
     { component: 'camera', reason: 'an object shows one model, box or camera' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
@@ -463,6 +465,7 @@ const box: ComponentDescriptor = {
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
   excludes: [
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'model', reason: 'an object shows one model, box or camera' },
     { component: 'camera', reason: 'an object shows one model, box or camera' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
@@ -486,6 +489,7 @@ const camera: ComponentDescriptor = {
   handles: [],
   excludes: [
     { component: 'socketAttach', reason: 'a socket poses the object every step; the scene camera is posed by its camera module' },
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'model', reason: 'an object shows one model, box or camera' },
     { component: 'box', reason: 'an object shows one model, box or camera' },
     { component: 'instances', reason: 'an instance set is scenery, not a camera' },
@@ -592,6 +596,7 @@ const collider: ComponentDescriptor = {
   ],
   excludes: [
     { component: 'socketAttach', reason: 'a socket poses the object every step; a physics body is posed by physics' },
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'controller', reason: 'the player controller has its own capsule' },
     { component: 'enemy', reason: 'an enemy\'s size is its body' },
     { component: 'gameZone', reason: 'a zone never blocks movement' },
@@ -656,6 +661,7 @@ const controller: ComponentDescriptor = {
   ],
   excludes: [
     { component: 'socketAttach', reason: 'a socket poses the object every step; the player is moved by its controller' },
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'collider', reason: 'the player controller has its own capsule' },
     { component: 'mover', reason: 'the player moves by input, not along waypoints' },
     { component: 'enemy', reason: 'the player is not an enemy' },
@@ -988,7 +994,10 @@ const instances: ComponentDescriptor = {
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],
-  excludes: ['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'gameZone', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
+  excludes: [
+    ...['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'gameZone', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
+  ],
   prefab: false,
 };
 
@@ -1065,6 +1074,28 @@ const fogVolume: ComponentDescriptor = {
   excludes: [],
   prefab: false,
   rules: ['At most 16 fog volumes per scene.'],
+};
+
+// Phase 23.5 (E8): a grid of blocks (its cells are scene data written by editBlocks).
+const blockLayer: ComponentDescriptor = {
+  name: 'blockLayer',
+  label: 'Block layer',
+  tooltip: 'A grid of blocks for building levels (terrain, buildings, a tactics map); its cells are painted and edited with block commands.',
+  category: 'Rendering',
+  value: obj('blockLayer', 'Block layer', 'The grid: cell size and bounds. The object\'s position is the min corner of cell [0, 0, 0].', [
+    vec3('cellSize', 'Cell size', 'Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]).', { required: true, min: 0.05, max: 64, step: 0.05, unit: 'm', default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
+    json('bounds', 'Bounds', 'The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024).', { required: true }),
+    bool('metadataOnly', 'Metadata only', 'Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn.', { default: false }),
+    bool('collision', 'Collision', 'The blocks\' collision shapes are colliders (3D projects).', { default: true }),
+    bool('castShadow', 'Cast shadows', 'The blocks cast the directional light\'s shadow.', { default: true }),
+    bool('receiveShadow', 'Receive shadows', 'Shadows fall on the blocks.', { default: true }),
+  ]),
+  // Phase 23.5: 1 m cells over 64 × 16 × 64 — a common kit module over the E8 interactive-editing target; no genre assumed.
+  add: { kind: 'menu', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } },
+  handles: [],
+  excludes: ['model', 'box', 'camera', 'collider', 'controller', 'instances'].map((c) => ({ component: c, reason: 'a block layer is its own level geometry' })),
+  prefab: false,
+  rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.'],
 };
 
 const animator: ComponentDescriptor = {
@@ -1701,6 +1732,57 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'effects', label: 'Effects', tooltip: 'Visual effects: particle systems authored as node graphs.', required: false, value: list('effects', 'Effects', `Up to ${EFFECT_LIMITS.effects} effects.`, EFFECT_ITEM, { maxItems: EFFECT_LIMITS.effects, default: [] }), ops: ['setEffect', 'deleteEffect', 'renameEffect', 'graphEdit'] },
   // Phase 23.7: shared script libraries; their files are edited in the script editor (Library tab).
   { key: 'scriptLibraries', label: 'Script libraries', tooltip: 'Shared TypeScript and JSON modules every script can import as @lib/<id>.', required: false, value: list('scriptLibraries', 'Script libraries', `Up to ${SCRIPT_LIBRARY_LIMITS.libraries} libraries.`, json('*', 'Library', 'A script library: { libraryId, name, files: [{ path, text }] }.', { readOnly: true }), { maxItems: SCRIPT_LIBRARY_LIMITS.libraries, default: [] }), ops: ['setScriptLibrary', 'deleteScriptLibrary'] },
+  // Phase 23.5 (E8): block types, the cell metadata schema and stamps for block layers.
+  {
+    key: 'blockTypes',
+    label: 'Block types',
+    tooltip: 'The blocks block layers are built from: their looks, collision shape, footprint, rotations and default cell metadata.',
+    required: false,
+    value: list('blockTypes', 'Block types', `Up to ${BLOCK_LIMITS.blockTypes} block types.`, obj('*', 'Block type', 'One block.', [
+      str('blockId', 'Id', 'The stable block id cells name.', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in the block palette.', { ...NAME, required: true }),
+      json('variants', 'Looks', `1–${BLOCK_LIMITS.variants} weighted looks: {model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, each with an optional weight (a cell without a variant picks one by weight, stably by position).`, { required: true }),
+      enm('shape', 'Collision shape', 'The collision shape (and the coloured stand-in\'s shape): full, half, ramp, stairs (rising toward +Z), custom boxes or none.', ['full', 'half', 'ramp', 'stairs', 'custom', 'none'], { required: true }),
+      json('boxes', 'Custom boxes', `1–${BLOCK_LIMITS.customBoxes} boxes [x0, y0, z0, x1, y1, z1] in footprint units (0–1).`, { required: true, when: when('shape', 'custom') }),
+      bool('solid', 'Solid', 'Fills its cell and hides the faces of neighbours touching it (absent: a full shape is solid).'),
+      vec3('footprint', 'Footprint', 'Cells along x, y and z (a 2 × 1 × 2 well); the cells it covers stay empty.', { min: 1, max: BLOCK_LIMITS.footprint, step: 1, default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
+      json('rotations', 'Rotations', 'The allowed rotations in degrees: a set of 0, 90, 180, 270 (absent: all).'),
+      json('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field key → value).'),
+      json('materials', 'Materials', 'Model material mapping: source material name (or "*") → materialId.'),
+    ]), { maxItems: BLOCK_LIMITS.blockTypes, default: [] }),
+    ops: ['setBlockType', 'deleteBlockType'],
+  },
+  {
+    key: 'cellFields',
+    label: 'Cell fields',
+    tooltip: 'The project\'s cell metadata schema (walkable, hazard, move cost, terrain…): what every block-layer cell can carry.',
+    required: false,
+    value: list('cellFields', 'Cell fields', `Up to ${BLOCK_LIMITS.cellFields} fields.`, obj('*', 'Cell field', 'One metadata field.', [
+      str('key', 'Key', 'The field name scripts read (an identifier).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
+      enm('type', 'Type', 'Boolean, choice, whole number, number or text.', ['bool', 'enum', 'int', 'float', 'string'], { required: true }),
+      json('default', 'Default', 'The value a cell has when neither its block nor the cell sets one (absent: false / the first choice / 0 / "").'),
+      list('values', 'Choices', `The choices (1–${BLOCK_LIMITS.enumValues}).`, str('*', 'Choice', 'One choice.', { minLength: 1, maxLength: BLOCK_LIMITS.stringLength }), { required: true, minItems: 1, maxItems: BLOCK_LIMITS.enumValues, unique: true, when: when('type', 'enum') }),
+      num('min', 'Min', 'The smallest value.', { when: when('type', 'int', 'float') }),
+      num('max', 'Max', 'The largest value.', { when: when('type', 'int', 'float') }),
+      color('color', 'Overlay colour', 'The colour the editor paints this field with.'),
+      str('label', 'Label', 'Shown in the editor.', { minLength: 1, maxLength: 64 }),
+    ]), { maxItems: BLOCK_LIMITS.cellFields, default: [] }),
+    ops: ['setCellFields'],
+  },
+  {
+    key: 'blockStamps',
+    label: 'Block stamps',
+    tooltip: 'Saved patterns of cells (a cottage footprint, a bridge span) placed on block layers.',
+    required: false,
+    value: list('blockStamps', 'Block stamps', `Up to ${BLOCK_LIMITS.stamps} stamps.`, obj('*', 'Stamp', 'A saved pattern.', [
+      str('stampId', 'Id', 'The stable stamp id.', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in the stamp list.', { ...NAME, required: true }),
+      vec3('size', 'Size', 'The pattern\'s extent in cells.', { required: true, min: 1, max: BLOCK_LIMITS.stampSize, step: 1, labels: ['x', 'y', 'z'] }),
+      json('palette', 'Palette', 'The cell values the runs name.', { required: true, readOnly: true }),
+      json('columns', 'Cells', `Run-length columns [x, z, y, n, p, …] (at most ${BLOCK_LIMITS.stampCells} cells).`, { required: true, readOnly: true }),
+    ]), { maxItems: BLOCK_LIMITS.stamps, default: [] }),
+    ops: ['setBlockStamp', 'deleteBlockStamp'],
+  },
   // Phase 16.1: standalone node graphs; their body is edited in the graph editor (graphEdit ops).
   { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', `Up to ${MAX_GRAPH_DOCUMENTS} graphs.`, json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { maxItems: MAX_GRAPH_DOCUMENTS, default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },
@@ -1797,6 +1879,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   behavior,
   prefab,
   folder,
+  blockLayer,
 ];
 
 function deepFreeze<T>(v: T): T {

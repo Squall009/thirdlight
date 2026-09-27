@@ -493,6 +493,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   cameraPath: CAMERA_PATH_FIELDS,
   // Phase 23.11: sockets.
   socketAttach: SOCKET_ATTACH_FIELDS,
+  // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
+  blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -524,6 +526,7 @@ const OWNED: readonly OwnedComponent[] = [
   'virtualCamera',
   'cameraPath',
   'socketAttach',
+  'blockLayer',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -556,6 +559,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'virtualCamera',
   'cameraPath',
   'socketAttach',
+  'blockLayer',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -732,6 +736,7 @@ export function validateSetComponentArgs(
     component === 'virtualCamera' ||
     component === 'cameraPath' ||
     component === 'socketAttach' ||
+    component === 'blockLayer' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||

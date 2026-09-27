@@ -275,6 +275,9 @@ export class FrameEncoder {
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
+    // Phase 23.5: block-layer chunks the simulation changed.
+    const grid = rt.takeGridChanges?.() ?? [];
+    if (grid.length > 0) out.grid = grid;
     // Diagnostics: on a change of state or error count, on request, and now and then.
     this.framesSinceDiag += 1;
     if (diag !== null && (this.diagWanted || diag.state !== this.diagState || diag.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
@@ -358,6 +361,8 @@ export class FrameMirror {
   effects: unknown[] = [];
   /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
+  /** Phase 23.5: block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
+  grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   debugCommands: DebugCommandState | null = null;
@@ -426,6 +431,7 @@ export class FrameMirror {
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
     if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;
