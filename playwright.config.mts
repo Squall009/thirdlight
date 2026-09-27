@@ -6,10 +6,17 @@
  * On hosts without the system libraries Chromium needs, point
  * TL_BROWSER_LIBS at an extracted library tree (see tests/e2e/browser-env.mjs).
  *
+ * GPU (2026-09-27): where the render node is usable (see `gpuAvailable` in
+ * tests/e2e/browser-env.mjs) every project runs on the host's GPU — WebGL 2
+ * through ANGLE on Vulkan and a real WebGPU adapter — so `default` runs the
+ * product's own default renderer (`auto` → WebGPU). Without a GPU (or with
+ * TL_E2E_SOFTWARE=1) everything falls back to SwiftShader as before.
+ *
  * Projects (phase 17.1, docs/plan-phase-17.md §6):
- *  - `default` — every spec, WebGL 2 on SwiftShader (no WebGPU adapter:
- *    `auto`, the default since phase 17.4, takes the WebGL 2 backend here, so
- *    the whole suite covers the fallback).
+ *  - `default` — every spec. On a GPU: `auto` takes WebGPU; the forced
+ *    `webgl2` variants run only with TL_E2E_ALL_VARIANTS=1 (the gate's
+ *    `--both-renderers`). On SwiftShader (no WebGPU adapter): `auto` takes
+ *    the WebGL 2 backend, so the whole suite covers the fallback.
  *  - `webgpu` — the renderer-sensitive specs again with headless WebGPU
  *    (Dawn's SwiftShader adapter through Vulkan): renderer, shader parity
  *    (17.2), environment parity (17.3) and the materials/textures/lightmaps
@@ -19,19 +26,21 @@
  */
 import { defineConfig } from '@playwright/test';
 
-import { browserLaunchEnv } from './tests/e2e/browser-env.mjs';
+import { browserLaunchEnv, GPU_ARGS, gpuAvailable, SOFTWARE_GL_ARGS, SOFTWARE_WEBGPU_ARGS } from './tests/e2e/browser-env.mjs';
 
-/** WebGL 2 through ANGLE on SwiftShader (this server has no GPU). */
-const GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
-/** Headless WebGPU (17.0 spike): without the Vulkan pair the device dies at first use. */
-const WEBGPU_ARGS = ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader'];
+const GPU = gpuAvailable();
+/** The default project's flags: the GPU when usable, else WebGL 2 on SwiftShader. */
+const GL_ARGS = GPU ? GPU_ARGS : SOFTWARE_GL_ARGS;
+/** The webgpu project's extra flags (none on a GPU: GPU_ARGS already give WebGPU). */
+const WEBGPU_ARGS = GPU ? [] : SOFTWARE_WEBGPU_ARGS;
 
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.e2e.ts',
   globalSetup: './tests/e2e/global-setup.ts',
   // TL_E2E_WORKERS (default 1): tests run in parallel files when > 1 — each test starts its own
-  // backend and data root; SwiftShader is CPU-bound, so more workers than ~cores/3 slows every test.
+  // backend and data root; on SwiftShader (no GPU) rendering is CPU-bound, so more workers than
+  // ~cores/3 slows every test.
   workers: Number(process.env['TL_E2E_WORKERS'] ?? 1),
   timeout: 60_000,
   reporter: [['list']],

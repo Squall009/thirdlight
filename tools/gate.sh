@@ -3,9 +3,12 @@
 #
 #   tools/gate.sh fast [e2e files or dirs…]   per commit: build + vitest + the smoke set + the
 #                                             e2e files named (the ones for the area you changed)
-#   tools/gate.sh full                        per phase item / before STATUS says done: build +
-#                                             vitest + every e2e spec in both projects, the leak
-#                                             test included (TL_MEMORY=1)
+#   tools/gate.sh full [--both-renderers]     per phase item / before STATUS says done: build +
+#                                             vitest + every e2e spec, the leak test included
+#                                             (TL_MEMORY=1). On a GPU (2026-09-27) one pass in the
+#                                             product's own renderer; --both-renderers (for shader /
+#                                             rendering changes) adds the forced WebGL 2 variants and
+#                                             the webgpu project
 #   tools/gate.sh rerun                       the fix loop: only the tests that failed last time
 #                                             (Playwright --last-failed), nothing else
 #
@@ -65,7 +68,10 @@ case "$mode" in
   full)
     build_and_unit
     export TL_MEMORY=1
-    if e2e e2e.log; then done_ GREEN; fi
+    PROJECTS=(--project=default)
+    if [ "${1:-}" = "--both-renderers" ]; then export TL_E2E_ALL_VARIANTS=1; PROJECTS=(); fi
+    say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]:-both projects, all variants}"
+    if e2e e2e.log "${PROJECTS[@]}"; then done_ GREEN; fi
     grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
     say "rerunning the failed tests alone"
     TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed && done_ "GREEN (failed once, passed alone: see e2e.log)"
@@ -76,5 +82,5 @@ case "$mode" in
     export TL_MEMORY=1
     e2e e2e.log --last-failed && done_ GREEN
     done_ "RED e2e" ;;
-  *) echo "usage: tools/gate.sh fast [e2e files…] | full | rerun"; exit 2 ;;
+  *) echo "usage: tools/gate.sh fast [e2e files…] | full [--both-renderers] | rerun"; exit 2 ;;
 esac

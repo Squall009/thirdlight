@@ -12,6 +12,7 @@
  * `auto` is the default everywhere; the archived WebGL renderer's `legacy`
  * flag value and setting value 0 mean `auto`.
  */
+import { gpuAvailable } from './browser-env.mjs';
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer, type Server } from 'node:http';
@@ -41,8 +42,8 @@ async function backend(template?: string): Promise<E2EBackend> {
   return be;
 }
 
-/** Does this Playwright project give the page a working WebGPU adapter? */
-const hasWebGpu = (): boolean => test.info().project.name === 'webgpu';
+/** Does this Playwright project give the page a working WebGPU adapter? (2026-09-27: every project does on a GPU.) */
+const hasWebGpu = (): boolean => test.info().project.name === 'webgpu' || gpuAvailable();
 /** The backend a preference ends up on in this project. */
 const expected = (preference: 'auto' | 'webgpu' | 'webgl2'): string => (preference === 'webgl2' ? 'webgl2' : hasWebGpu() ? 'webgpu' : 'webgl2');
 

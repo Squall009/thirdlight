@@ -19,7 +19,7 @@
  * `<dataRoot>/.browser-stubs` (gcc). WebGL runs on SwiftShader.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface HeadlessConfig {
@@ -63,6 +63,23 @@ interface Opened {
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const SWIFTSHADER_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+/** 2026-09-27: hardware WebGL 2 (ANGLE on the Vulkan driver) and WebGPU on the host's GPU. */
+const GPU_ARGS = ['--use-angle=vulkan', '--enable-features=Vulkan', '--enable-unsafe-webgpu'];
+
+/**
+ * The headless editor's Chromium flags: the GPU when the DRM render node can
+ * be opened (the service account needs the video/render groups), else
+ * SwiftShader. THIRDLIGHT_HEADLESS_SOFTWARE=1 forces SwiftShader.
+ */
+function chromiumArgs(): string[] {
+  if (process.env['THIRDLIGHT_HEADLESS_SOFTWARE'] === '1') return SWIFTSHADER_ARGS;
+  try {
+    accessSync('/dev/dri/renderD128', fsConstants.R_OK | fsConstants.W_OK);
+    return GPU_ARGS;
+  } catch {
+    return SWIFTSHADER_ARGS;
+  }
+}
 
 const AVAHI_STUB_SOURCE = `
 void *avahi_client_new(void*a,unsigned b,void*c,void*d,void*e){(void)a;(void)b;(void)c;(void)d;(void)e;return 0;}
@@ -142,7 +159,7 @@ export function createHeadlessEditors(deps: HeadlessDeps): HeadlessEditors {
     if (ld !== null) env['LD_LIBRARY_PATH'] = [ld, env['LD_LIBRARY_PATH']].filter(Boolean).join(':');
     let browser: Awaited<ReturnType<typeof pw.chromium.launch>>;
     try {
-      browser = await pw.chromium.launch({ headless: true, env, args: SWIFTSHADER_ARGS });
+      browser = await pw.chromium.launch({ headless: true, env, args: chromiumArgs() });
     } catch (e) {
       return { ok: false, reason: `Chromium did not start: ${(e instanceof Error ? e.message : String(e)).split('\n')[0]}` };
     }

@@ -5,7 +5,7 @@
  * no-op libavahi stubs that libcups references. Hosts with the libraries
  * installed (`npx playwright install-deps chromium`) need neither.
  */
-import { existsSync } from 'node:fs';
+import { accessSync, constants, existsSync } from 'node:fs';
 
 import { ensureStubLibs } from '../evaluations/m3-browser/lib/stublibs.mjs';
 
@@ -27,3 +27,26 @@ export function browserLaunchEnv() {
   env.LD_LIBRARY_PATH = [stubs, libs, env.LD_LIBRARY_PATH].filter(Boolean).join(':');
   return env;
 }
+
+/**
+ * GPU rendering (2026-09-27, owner: the gate runs on the host's GPU): true when
+ * the DRM render node can be opened (the account needs the video/render
+ * groups) and TL_E2E_SOFTWARE is not 1. Then Chromium draws WebGL 2 through
+ * ANGLE on Vulkan and gets a real WebGPU adapter; otherwise SwiftShader (CPU).
+ */
+export function gpuAvailable() {
+  if (process.env.TL_E2E_SOFTWARE === '1') return false;
+  try {
+    accessSync(process.env.TL_E2E_RENDER_NODE ?? '/dev/dri/renderD128', constants.R_OK | constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Hardware WebGL 2 (ANGLE on the Vulkan driver) and WebGPU on the same device. */
+export const GPU_ARGS = ['--use-angle=vulkan', '--enable-features=Vulkan', '--enable-unsafe-webgpu'];
+/** WebGL 2 through ANGLE on SwiftShader (hosts without a usable GPU). */
+export const SOFTWARE_GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+/** Headless WebGPU on SwiftShader (17.0 spike): without the Vulkan pair the device dies at first use. */
+export const SOFTWARE_WEBGPU_ARGS = ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader'];

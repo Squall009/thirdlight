@@ -16,6 +16,11 @@
  */
 import { expect, test, type Locator } from '@playwright/test';
 
+import { gpuAvailable } from './browser-env.mjs';
+
+/** 2026-09-27: the host's GPU is in use (then `default` has a real WebGPU adapter and `auto` takes it). */
+const GPU = gpuAvailable();
+
 export type RendererVariant = 'auto' | 'webgl2' | 'webgpu';
 export const RENDERER_VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
 
@@ -23,10 +28,18 @@ export const RENDERER_VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 
 export function onlyInItsProject(variant: RendererVariant): void {
   const webgpuProject = test.info().project.name === 'webgpu';
   test.skip(webgpuProject ? variant !== 'webgpu' : variant === 'webgpu', `the ${variant} variant runs in the ${variant === 'webgpu' ? 'webgpu' : 'default'} project`);
-  // Gate speed (2026-09-26): on a host without a WebGPU adapter `auto` takes the same WebGL 2
-  // path as the `webgl2` variant, so it would repeat it step for step (~6 min per full run).
-  // `renderer.e2e.ts` still covers the `auto` default itself; TL_E2E_ALL_VARIANTS=1 runs it here too.
-  test.skip(!webgpuProject && variant === 'auto' && process.env['TL_E2E_ALL_VARIANTS'] !== '1', 'auto = webgl2 on this host (TL_E2E_ALL_VARIANTS=1 runs it)');
+  const all = process.env['TL_E2E_ALL_VARIANTS'] === '1';
+  if (GPU) {
+    // 2026-09-27 (owner): one pass by default — on a GPU `default` runs the product's own
+    // renderer (`auto` → WebGPU); the forced WebGL 2 variant and the webgpu project repeat it
+    // only for renderer/shader changes (TL_E2E_ALL_VARIANTS=1, the gate's --both-renderers).
+    test.skip(!webgpuProject && variant === 'webgl2' && !all, 'one renderer pass on a GPU (TL_E2E_ALL_VARIANTS=1 adds the WebGL 2 variant)');
+  } else {
+    // Gate speed (2026-09-26): on a host without a WebGPU adapter `auto` takes the same WebGL 2
+    // path as the `webgl2` variant, so it would repeat it step for step (~6 min per full run).
+    // `renderer.e2e.ts` still covers the `auto` default itself; TL_E2E_ALL_VARIANTS=1 runs it here too.
+    test.skip(!webgpuProject && variant === 'auto' && !all, 'auto = webgl2 on this host (TL_E2E_ALL_VARIANTS=1 runs it)');
+  }
 }
 
 /** The editor URL with the variant's `?renderer=` flag (before the token fragment); `auto` is the default (no flag). */
@@ -39,9 +52,9 @@ export function exportQueryFor(variant: RendererVariant): string {
   return variant === 'auto' ? '' : `?renderer=${variant}`;
 }
 
-/** The backend a variant draws with in the running project (`auto` takes WebGL 2 in `default`, which has no WebGPU adapter). */
+/** The backend a variant draws with in the running project (`auto` takes WebGPU on a GPU, WebGL 2 in `default` on SwiftShader). */
 export function backendOf(variant: RendererVariant): 'webgl2' | 'webgpu' {
-  if (variant === 'auto') return test.info().project.name === 'webgpu' ? 'webgpu' : 'webgl2';
+  if (variant === 'auto') return test.info().project.name === 'webgpu' || GPU ? 'webgpu' : 'webgl2';
   return variant;
 }
 
