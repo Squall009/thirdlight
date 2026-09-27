@@ -3883,6 +3883,22 @@ function EditorApp(): JSX.Element {
     [fieldContextBase, selectedSceneId],
   );
 
+  // Phase 23.9b (a hook: before the early returns below): the UI preview reads texture and font bytes through the editor's authenticated asset path.
+  const uiAssetKey = assets.filter((a) => a.kind === 'texture' || a.kind === 'font').map((a) => `${a.assetId}@${a.currentVersion}`).join('|');
+  const uiPreviewAssets = useMemo(
+    () => ({
+      paths: Object.fromEntries(uiAssetKey === '' ? [] : uiAssetKey.split('|').map((k) => [k.slice(0, k.lastIndexOf('@')), k] as const)),
+      read: async (path: string): Promise<ArrayBuffer> => {
+        const at = path.lastIndexOf('@');
+        const c = clientRef.current;
+        if (c === null || at < 0) throw new Error('not connected');
+        const bytes = await c.assetBytes(path.slice(0, at), Number(path.slice(at + 1)));
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      },
+    }),
+    [uiAssetKey],
+  );
+
   if (gate?.kind === 'token' || (gate?.kind === 'projects' && !cfg.current.ok && cfg.current.needs === 'token')) {
     return <TokenForm message={gate.message} />;
   }
@@ -3911,21 +3927,6 @@ function EditorApp(): JSX.Element {
   const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
-  // Phase 23.9b: the UI preview reads texture and font bytes through the editor's authenticated asset path.
-  const uiAssetKey = assets.filter((a) => a.kind === 'texture' || a.kind === 'font').map((a) => `${a.assetId}@${a.currentVersion}`).join('|');
-  const uiPreviewAssets = useMemo(
-    () => ({
-      paths: Object.fromEntries(uiAssetKey === '' ? [] : uiAssetKey.split('|').map((k) => [k.slice(0, k.lastIndexOf('@')), k] as const)),
-      read: async (path: string): Promise<ArrayBuffer> => {
-        const at = path.lastIndexOf('@');
-        const c = clientRef.current;
-        if (c === null || at < 0) throw new Error('not connected');
-        const bytes = await c.assetBytes(path.slice(0, at), Number(path.slice(at + 1)));
-        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-      },
-    }),
-    [uiAssetKey],
-  );
   /** Phase 15.1: a component's "+ Add component" value (the descriptor's; the GameObject presets use it too). */
   const addValueOf = (name: string): Record<string, unknown> => {
     const add = registry?.components.find((c) => c.name === name)?.add;
