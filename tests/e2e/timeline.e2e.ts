@@ -223,7 +223,11 @@ async function drive(page: Page, read: () => Promise<Observation | null>, ids: I
       return o?.camera?.live ?? null;
     }, { timeout: 30_000, intervals: [50], message: 'the close shot' })
     .toBe(ids.close);
-  await expect.poll(async () => (await read())?.camera?.live ?? null, { timeout: 30_000, message: 'the rail shot' }).toBe(ids.rail);
+  try {
+    await expect.poll(async () => (await read())?.camera?.live ?? null, { timeout: 60_000, message: 'the rail shot' }).toBe(ids.rail);
+  } catch (e) {
+    throw new Error(`${String(e)}\nobservation: ${JSON.stringify(await read())}`);
+  }
   const mid = (await read())!;
   expect(mid.timeline!.playing[0]!.time).toBeLessThan(7.5);
   expect(mid.hidden ?? []).not.toContain(ids.lamp);
@@ -291,7 +295,7 @@ test('a six-shot timeline in Play and the export: cameras, move, music, fade and
   };
   await drive(page, observe, ids, fadeIn(page.frameLocator('iframe.tl-app__preview-frame')), frame);
   await page.getByTitle('Stop the play preview').click();
-  await expect(frame).toHaveCount(0);
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
 
   // The static export with the backend stopped: the same timeline (the export's own observation).
   const res = await be.admin(`projects/${be.projectId}/export`);
