@@ -21,7 +21,7 @@
  * Pure: no I/O.
  */
 import type { ModelErrorV2 } from './errors';
-import { fieldType, withFound } from './validate';
+import { fieldType, unexpectedField, withFound } from './validate';
 
 /** Engine limits of project saves (documented in deployment.md). */
 export const SAVE_LIMITS = Object.freeze({
@@ -123,7 +123,7 @@ function validateField(f: unknown, path: string, errors: ModelErrorV2[]): void {
     errors.push(fieldType(path, f, 'object'));
     return;
   }
-  for (const k of Object.keys(f)) if (!FIELD_KEYS.has(k)) errors.push(bad(`${path}/${k}`, k, `unknown settings field member "${k}"`, [...FIELD_KEYS].join(', ')));
+  for (const k of Object.keys(f)) if (!FIELD_KEYS.has(k)) errors.push(unexpectedField(`${path}/${k}`, k, [...FIELD_KEYS].join(', ')));
   if (typeof f['key'] !== 'string' || !KEY_RE.test(f['key'])) errors.push(bad(`${path}/key`, f['key'], 'a settings key is a letter or _ then up to 31 letters, digits or _', 'an identifier'));
   const type = f['type'];
   if (type !== 'bool' && type !== 'number' && type !== 'string' && type !== 'enum') {
@@ -164,7 +164,7 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
     errors.push(fieldType(path, v, 'object'));
     return;
   }
-  for (const k of Object.keys(v)) if (!SCHEMA_KEYS.has(k)) errors.push(bad(`${path}/${k}`, k, `unknown save schema member "${k}"`, [...SCHEMA_KEYS].join(', ')));
+  for (const k of Object.keys(v)) if (!SCHEMA_KEYS.has(k)) errors.push(unexpectedField(`${path}/${k}`, k, [...SCHEMA_KEYS].join(', ')));
   const version = v['version'];
   if (!intIn(version, 1, SAVE_LIMITS.version)) errors.push(bad(`${path}/version`, version, `the save document version is an integer 1–${SAVE_LIMITS.version}`, 'an integer'));
   if (!intIn(v['slots'], 1, SAVE_LIMITS.slots)) errors.push(bad(`${path}/slots`, v['slots'], `a project offers 1–${SAVE_LIMITS.slots} save slots (engine limit)`, `an integer 1–${SAVE_LIMITS.slots}`));
@@ -175,7 +175,8 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
       const seen = new Set<number>();
       m.forEach((x, i) => {
         const p = `${path}/migrations/${i}`;
-        if (!isObj(x) || Object.keys(x).some((k) => k !== 'from' && k !== 'name')) return void errors.push(bad(p, x, 'a migration is { from, name }', '{ from, name }'));
+        if (!isObj(x)) return void errors.push(bad(p, x, 'a migration is { from, name }', '{ from, name }'));
+        for (const k of Object.keys(x)) if (k !== 'from' && k !== 'name') errors.push(unexpectedField(`${p}/${k}`, k, 'from, name'));
         if (!intIn(x['from'], 1, SAVE_LIMITS.version - 1) || (intIn(version, 1, SAVE_LIMITS.version) && (x['from'] as number) >= version)) errors.push(bad(`${p}/from`, x['from'], 'a migration upgrades from an older version (1 ≤ from < version) to from + 1', 'an integer below version'));
         else if (seen.has(x['from'] as number)) errors.push(bad(`${p}/from`, x['from'], 'one migration per version', 'a version not listed yet'));
         else seen.add(x['from'] as number);
@@ -185,13 +186,17 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
   }
   if (v['sections'] !== undefined) {
     const s = v['sections'];
-    if (!Array.isArray(s) || !s.every((x) => (SAVE_SECTIONS as readonly unknown[]).includes(x)) || new Set(s).size !== s.length) errors.push(bad(`${path}/sections`, s, `sections lists some of ${SAVE_SECTIONS.join(', ')} (each once)`, 'a list of sections'));
+    if (!Array.isArray(s) || s.length > SAVE_SECTIONS.length) errors.push(bad(`${path}/sections`, s, `sections lists some of ${SAVE_SECTIONS.join(', ')}`, 'a list of sections'));
+    else s.forEach((x, i) => {
+      if (!(SAVE_SECTIONS as readonly unknown[]).includes(x)) errors.push(bad(`${path}/sections/${i}`, x, `a section is one of ${SAVE_SECTIONS.join(', ')}`, SAVE_SECTIONS.join(' | ')));
+    });
   }
   if (v['thumbnail'] !== undefined) {
     const t = v['thumbnail'];
     const p = `${path}/thumbnail`;
-    if (!isObj(t) || Object.keys(t).some((k) => k !== 'width' && k !== 'height' && k !== 'format' && k !== 'quality')) errors.push(bad(p, t, 'a thumbnail is { width, height, format, quality? }', '{ width, height, format }'));
+    if (!isObj(t)) errors.push(bad(p, t, 'a thumbnail is { width, height, format, quality? }', '{ width, height, format }'));
     else {
+      for (const k of Object.keys(t)) if (k !== 'width' && k !== 'height' && k !== 'format' && k !== 'quality') errors.push(unexpectedField(`${p}/${k}`, k, 'width, height, format, quality'));
       if (!intIn(t['width'], 16, SAVE_LIMITS.thumbnailSide)) errors.push(bad(`${p}/width`, t['width'], `16–${SAVE_LIMITS.thumbnailSide} pixels`, 'an integer'));
       if (!intIn(t['height'], 16, SAVE_LIMITS.thumbnailSide)) errors.push(bad(`${p}/height`, t['height'], `16–${SAVE_LIMITS.thumbnailSide} pixels`, 'an integer'));
       if (t['format'] !== 'jpeg' && t['format'] !== 'webp') errors.push(bad(`${p}/format`, t['format'], 'jpeg or webp', 'jpeg | webp'));

@@ -35,7 +35,8 @@ describe('phase 23.19: the project save schema', () => {
     expect(problems({ version: 0, slots: 1 })).toEqual(['/saveSchema/version']);
     expect(problems({ version: 2, slots: 1, migrations: [{ from: 2, name: 'x' }] })).toEqual(['/saveSchema/migrations/0/from']);
     expect(problems({ version: 3, slots: 1, migrations: [{ from: 1, name: 'a' }, { from: 1, name: 'b' }] })).toEqual(['/saveSchema/migrations/1/from']);
-    expect(problems({ version: 1, slots: 1, sections: ['grid', 'grid'] })).toEqual(['/saveSchema/sections']);
+    expect(problems({ version: 1, slots: 1, sections: ['grid', 'nope'] })).toEqual(['/saveSchema/sections/1']);
+    expect(canonicalSaveSchema({ version: 1, slots: 1, sections: ['grid', 'grid'] }).sections).toEqual(['grid']);
     expect(problems({ version: 1, slots: 1, thumbnail: { width: 1024, height: 90, format: 'jpeg' } })).toEqual(['/saveSchema/thumbnail/width']);
     expect(problems({ version: 1, slots: 1, extra: 1 })).toEqual(['/saveSchema/extra']);
     // A volume binding is a 0–1 number; a default must fit its field.

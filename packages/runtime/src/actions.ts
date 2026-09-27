@@ -13,7 +13,7 @@
  * identically in the Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
-import { validateSaveEvents } from './project-saves';
+import { validateSaveEvents, type SaveEvent } from './project-saves';
 
 /** The four jump phases (input.md §2). */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -60,7 +60,7 @@ export interface ActionFrame {
    * Absent: none (every older frame and recording is unchanged).
    * @graphNode skip a script reads them through ctx.saves
    */
-  saves?: readonly import('./project-saves').SaveEvent[];
+  saves?: readonly SaveEvent[];
 }
 
 /** Phase 23.8: one debug command call carried by an input frame. */
@@ -262,7 +262,7 @@ export function validateActionFrame(
     commands = c.commands;
   }
   // Phase 23.19: storage's answers (validated and frozen; absent keeps the frame as it was).
-  let saves: readonly import('./project-saves').SaveEvent[] | undefined;
+  let saves: readonly SaveEvent[] | undefined;
   if (value['saves'] !== undefined) {
     const sv = validateSaveEvents(value['saves']);
     if (!sv.ok) return sv;
