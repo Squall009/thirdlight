@@ -800,6 +800,56 @@ for editor items, commit/push/restart, decision log).
 - 2026-09-27 (23.9a): **replaced screens** — `flow.screens` maps title / paused / settings / levelComplete / gameOver / finished / load / save to documents; the built-in panel hides for a replaced screen, the document is drawn on top and focused, and its buttons use engine actions (resume, pause, restartLevel, newGame, continue, nextLevel, quitToTitle, settings, load/save with an optional slot, back, setSetting music|sfx|ui|quality with a value or ±1 step, mute/unmute). Back/pause edges keep the flow's own meaning (pause → resume). Scene-mode games (no flow until 23.10) have project UI but no engine screen actions except mute.
 - 2026-09-27 (23.9a): **fonts and images** — a style's `font` is a font asset (loaded once with `new FontFace(family, bytes)` and added to `document.fonts`; it works under the Play page's `font-src 'none'` because no URL is fetched) or a generic family; textures become blob: URLs. Both enter the export closure through `collectAssetRefsV3` (`uiAssetRefs`); an image path bound at run time (`image: {bind}`) must name a texture some document or theme also references statically, or it is not in the export.
 - 2026-09-27 (23.9a): observation — the host observation gains `ui {shown, screen, focus, actionMap}` and Play's relay adds `values` (the view model when ≤ 4 KiB, else `valueKeys`), so `tl_game_observe` can check UI state. Graph nodes are generated for `ctx.ui` (category "UI", a new acronym rule in the generator; existing nodes unchanged).
+- 2026-09-27 (23.15): **how custom-lit is built.** A Custom-lit output
+  compiles to `MeshCustomLitNodeMaterial` (three-adapter `custom-lit.ts`), a
+  `NodeMaterial` with `lights = true` and its own `LightingModel`: in
+  `start`/`direct`/`indirect` it only gathers terms into shader variables
+  (three's own light nodes run unchanged, so shadows, point/spot falloff,
+  hemisphere, probes and the environment come from three), and in `finish`
+  — after every light — the graph's colour + emissive becomes the outgoing
+  light. The graph's colour is therefore never evaluated before the lights
+  (no stale inputs), and fog, tone mapping, the post stack and the object's
+  own emissive (selection tint, checkpoint glow) apply as for any material.
+  Works on WebGPU and the WebGL 2 backend alike (the e2e checks both). No
+  light at all (or lighting off): the graph draws with every term at "no
+  light" (0, shadow 1).
+- 2026-09-27 (23.15): **the inputs** (category *Lighting*): *Main light*
+  (direction to it in world space, colour × intensity, signed N·L −1..1),
+  *Shadow* (main light's shadow term 0..1), *Diffuse light* (total,
+  luminance of the total, direct), *Ambient light* (ambient + hemisphere +
+  light probes, environment IBL, lightmap). Scale: every colour is on the
+  diffuse scale (irradiance ÷ π, three's Lambert BRDF), so colour × term is
+  what a matte surface of that colour shows and `albedo × total` matches the
+  PBR output's diffuse part — one consistent unit for thresholds. N·L uses
+  the shading normal (the Custom-lit output's own tangent-space `normal`
+  port shapes it). Rect-area lights are not gathered (the engine creates
+  none).
+- 2026-09-27 (23.15): **"main" light** = the brightest shadow-casting
+  directional light (colour luminance × intensity), else the first
+  directional light in light id order; ties keep the earlier light. It is
+  picked per render from the build's directional lights (a uniform index),
+  so changing an intensity never recompiles. Shadow = 1 when that light
+  casts none, the renderer's shadow map is off or the object does not
+  receive shadows.
+- 2026-09-27 (23.15): **baked lightmaps** (phase 9.6) on a custom-lit
+  surface: the lightmap's light (`lightMap × lightMapIntensity`, ÷ π as the
+  standard material does) is its own term, *Ambient light → lightmap*, and
+  is added to *Diffuse light → total*, never to *ambient*; a lightmapped copy
+  whose bake holds the ambient/hemisphere lights still leaves them out (the
+  existing no-ambient hook works on the custom-lit class).
+- 2026-09-27 (23.15): **validation lives in the compiler**, not in the
+  document rules: lighting inputs under a PBR or Unlit output (a surface that
+  lights itself) are a compile error on the node, in a vertex offset a
+  warning, and they read "no light"; a Custom-lit normal that reads them is
+  an error (they are computed from it). The graph's data stays valid while
+  a user builds it (adding the input before switching the output is never
+  refused); the problems show as node badges, in the Problems tab and in the
+  preview's status. Material functions may use the inputs; misuse reports on
+  the call. Custom-lit opacity/alpha clip stay on the material (before the
+  lights, cutout shadows as usual) unless they read a lighting input, then
+  both are applied after the lights.
+- 2026-09-27 (23.15): no toon/cel template ships — the shading itself is
+  project content (the e2e graphs are neutral two-band fixtures).
 - 2026-09-27 (23.11): **sockets are resolved in the simulation, on rigs shipped as data.** The runtime's animator state machine decides clips, times and weights, but node poses were only computed by three.js in the renderer, so a socket resolved there would not exist in the worker, the export's simulation or a replay. The play/export closure (the one builder both use) now reads each model's rig from its digest-verified GLB (`readModelRig`, project-model: the default scene's nodes depth-first with rest TRS, and every clip's translation/rotation/scale channels, normalized integers scaled like three.js) and ships it in the manifest's new optional `rigs` key; the runtime poses a node from the animator pose with three.js's rules (`RigPoser`: linear/slerp, step and glTF cubic-spline sampling, PropertyMixer's weighted running mix with the rest pose making up a total weight under 1, the same-clip crossfade merge, override layers with bone masks and their Π(1 − L) factors). An integration test loads the same GLB with the real GLTFLoader, poses it with the renderer's own `createAnimatorPlayer` and matches every named node's world matrix (1e-5). Node names follow GLTFLoader's naming (sanitized, repeats `_1`, `_2` in its reservation order: scene names, then nodes depth-first with their camera and light names) — the parity test pins a clash with the scene name.
 - 2026-09-27 (23.11): **rigs only when a project uses sockets.** A rig for every model would change the manifest (and buildId) of every existing project with models; the closure adds `rigs` only when a scene or prefab entity has `socketAttach` or a compiled script names `sockets` (a false positive only ships data). Budgets: 262,144 key numbers per model, 1,048,576 per project (clips past them are dropped, the rig is `truncated`, a socket on it warns once). Clips of animation-only files ("clips for" a model) join that model's rig and bind by node name, as in the renderer.
 - 2026-09-27 (23.11): **when and how a socket is resolved.** At the end of every fixed step, right after the animators step (plain and phased steps alike; the committed copy is patched too), so an attached entity uses the pose drawn in that frame; its transform is written relative to its own parent (`W_parent⁻¹ · W_target · node · offset`, full 4×4 matrices decomposed like three.js, so non-uniform scale behaves as in the renderer). Chains (an object on an object on a socket) resolve in dependency order; a loop is refused at attach time. Authored sockets attach at load and are settled before the first frame (prev = curr, no streak); a new run (start/replay) re-attaches the authored ones and lets scripted ones go where they are. A camera following a socketed object sees it one step late (the camera brain runs before the animators) — accepted, 8 ms at 120 Hz. Removing a target lets go of what rides on it (keeping world poses).

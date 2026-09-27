@@ -178,6 +178,7 @@ export {
   resolveMaterialGraphPorts,
   COMPILER_NODES,
   COMPILER_FIELD_DEFAULTS,
+  LIGHTING_TYPES,
   type CompiledMaterialGraph,
   type GraphProblem,
   type MaterialFunctionLike,
@@ -189,6 +190,8 @@ export {
   RUNTIME_VALUES_KEY,
   type RuntimeValuesLike,
 } from './material-graph';
+// Phase 23.15: the Custom-lit surface (a graph's own shading from the gathered lights).
+export { mainLightIndex, MeshCustomLitNodeMaterial } from './custom-lit';
 // Phase 23.12: the simulation's material parameter changes on the objects.
 export { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 // Phase 17.2: node-material (TSL) helpers and the per-mesh looks (selection tint, checkpoint glow).

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
 
-import { COMPILER_NODES, compileMaterialGraph, digestOf, materialGraphCanonical, materialGraphProblems, OVERRIDES_KEY, resolveMaterialGraphPorts, type GraphCompileEnv, type MaterialFunctionLike, type MaterialGraphLike } from './material-graph';
+import { buildGraphMaterial, COMPILER_NODES, compileMaterialGraph, LIGHTING_TYPES, digestOf, materialGraphCanonical, materialGraphProblems, OVERRIDES_KEY, resolveMaterialGraphPorts, type GraphCompileEnv, type MaterialFunctionLike, type MaterialGraphLike } from './material-graph';
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike } from './material-library';
 
 const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -20,7 +20,7 @@ const env = (fns: MaterialFunctionLike[] = [], extra: Partial<GraphCompileEnv> =
 const isNode = (n: unknown): boolean => (n as { isNode?: boolean } | null)?.isNode === true;
 
 /** Node types that are outputs, interfaces or need a declaration (tested on their own). */
-const SPECIAL = new Set(['pbr', 'unlit', 'vertexOffset', 'functionInput', 'functionOutput', 'call', 'parameter']);
+const SPECIAL = new Set(['pbr', 'unlit', 'customLit', 'vertexOffset', 'functionInput', 'functionOutput', 'call', 'parameter']);
 const SAMPLING = new Set(['sampleTexture', 'normalMap', 'triplanar']);
 
 describe('material graph compiler: every node kind', () => {
@@ -28,9 +28,11 @@ describe('material graph compiler: every node kind', () => {
     it(`${type} compiles in the fragment and the vertex stage`, () => {
       const spec = COMPILER_NODES[type]!;
       const out = spec.outputs[0]!;
+      // Phase 23.15: lighting inputs read light under a Custom-lit output.
+      const lit = LIGHTING_TYPES.has(type);
       const graph: MaterialGraphLike = {
         nodes: [
-          { id: 'out', type: 'pbr', position: [400, 0] },
+          { id: 'out', type: lit ? 'customLit' : 'pbr', position: [400, 0] },
           { id: 'vo', type: 'vertexOffset', position: [400, 200] },
           { id: 'x', type, position: [0, 0], ...(SAMPLING.has(type) ? { data: { texture: 'tex' } } : {}) },
         ],
@@ -42,13 +44,14 @@ describe('material graph compiler: every node kind', () => {
       const c = compileMaterialGraph({ graph }, env());
       const errors = c.problems.filter((p) => p.severity === 'error');
       expect(errors, JSON.stringify(errors)).toEqual([]);
-      expect(c.surface).toBe('pbr');
-      expect(isNode(c.slots.emissive)).toBe(true);
+      expect(c.surface).toBe(lit ? 'customLit' : 'pbr');
+      expect(isNode(lit ? c.slots.litEmissive : c.slots.emissive)).toBe(true);
       expect(isNode(c.slots.position)).toBe(true);
-      expect(isNode(c.slots.color)).toBe(true);
+      expect(isNode(lit ? c.slots.litColor : c.slots.color)).toBe(true);
       expect(c.slots.normal).toBeNull();
+      expect(c.usesLight).toBe(lit);
       // Pixel-only inputs say so in a vertex offset (a warning, with a stand-in value).
-      if (['screenUV', 'dither', 'parallax'].includes(type)) expect(c.problems.some((p) => p.nodeId === 'x' && p.severity === 'warning')).toBe(true);
+      if (['screenUV', 'dither', 'parallax', ...LIGHTING_TYPES].includes(type)) expect(c.problems.some((p) => p.nodeId === 'x' && p.severity === 'warning')).toBe(true);
       if (SAMPLING.has(type)) expect(c.textures).toEqual(['tex']);
     });
   }
@@ -120,6 +123,120 @@ describe('material graph compiler: every node kind', () => {
     const probs = materialGraphProblems({ graph }, [], new Set(['later']));
     expect(probs.some((p) => p.nodeId === 's')).toBe(true);
     expect(probs.some((p) => p.nodeId === 'l')).toBe(false);
+  });
+});
+
+describe('material graph compiler: lighting inputs and the Custom-lit output (phase 23.15)', () => {
+  /** A two-band cel graph: N·L of the main light stepped at 0 picks one of two colours; the shadow darkens it. */
+  const bands = (surface: string, extra: Partial<MaterialGraphLike> = {}): MaterialGraphLike => ({
+    nodes: [
+      { id: 'out', type: surface, position: [600, 0] },
+      { id: 'main', type: 'mainLight', position: [0, 0] },
+      { id: 'sh', type: 'lightShadow', position: [0, 100] },
+      { id: 'st', type: 'step', position: [200, 0] },
+      { id: 'dark', type: 'color', position: [200, 100], data: { color: '#202020' } },
+      { id: 'lite', type: 'color', position: [200, 200], data: { color: '#e0e0e0' } },
+      { id: 'mix', type: 'lerp', position: [400, 0] },
+      { id: 'dim', type: 'multiply', position: [500, 0] },
+      ...(extra.nodes ?? []),
+    ],
+    edges: [
+      { id: 'e1', from: { node: 'main', port: 'ndotl' }, to: { node: 'st', port: 'x' } },
+      { id: 'e2', from: { node: 'dark', port: 'rgb' }, to: { node: 'mix', port: 'a' } },
+      { id: 'e3', from: { node: 'lite', port: 'rgb' }, to: { node: 'mix', port: 'b' } },
+      { id: 'e4', from: { node: 'st', port: 'out' }, to: { node: 'mix', port: 't' } },
+      { id: 'e5', from: { node: 'mix', port: 'out' }, to: { node: 'dim', port: 'a' } },
+      { id: 'e6', from: { node: 'sh', port: 'shadow' }, to: { node: 'dim', port: 'b' } },
+      { id: 'e7', from: { node: 'dim', port: 'out' }, to: { node: 'out', port: 'color' } },
+      ...(extra.edges ?? []),
+    ],
+  });
+
+  it('a Custom-lit output fills the lit colour (not the base colour) and reads light', () => {
+    const c = compileMaterialGraph({ graph: bands('customLit') }, env());
+    expect(c.problems).toEqual([]);
+    expect(c.surface).toBe('customLit');
+    expect(c.usesLight).toBe(true);
+    expect(isNode(c.slots.litColor)).toBe(true);
+    for (const k of ['color', 'metalness', 'roughness', 'emissive', 'ao', 'opacity', 'alphaTest', 'litEmissive', 'litOpacity', 'litAlphaTest', 'normal'] as const) expect(c.slots[k], k).toBeNull();
+    expect(c.flags).toEqual({ doubleSided: false, transparent: false, castShadows: true });
+  });
+
+  it('lighting inputs under a PBR or Unlit output are errors on their nodes (they read no light)', () => {
+    for (const surface of ['pbr', 'unlit']) {
+      const port = surface === 'pbr' ? 'baseColor' : 'color';
+      const g = bands(surface);
+      const graph = { nodes: g.nodes, edges: g.edges.map((e) => (e.to.node === 'out' ? { ...e, to: { node: 'out', port } } : e)) };
+      const c = compileMaterialGraph({ graph }, env());
+      const errs = c.problems.filter((p) => p.severity === 'error');
+      expect(errs.map((p) => p.nodeId).sort(), surface).toEqual(['main', 'sh']);
+      expect(errs[0]!.message).toContain('Custom-lit output');
+      expect(c.usesLight).toBe(false);
+    }
+  });
+
+  it('a lighting input inside a function reports on the call; a Custom-lit caller is fine', () => {
+    const fn: MaterialFunctionLike = {
+      graphId: 'lum',
+      kind: 'material-function',
+      graph: { nodes: [{ id: 'd', type: 'diffuseLight', position: [0, 0] }, { id: 'o', type: 'functionOutput', position: [200, 0], data: { name: 'l', type: 'float' } }], edges: [{ id: 'e', from: { node: 'd', port: 'luminance' }, to: { node: 'o', port: 'value' } }] },
+    };
+    const graph = (surface: string, port: string): MaterialGraphLike => ({
+      nodes: [{ id: 'out', type: surface, position: [400, 0] }, { id: 'call', type: 'call', position: [0, 0], data: { function: 'lum' } }],
+      edges: [{ id: 'e', from: { node: 'call', port: 'o' }, to: { node: 'out', port } }],
+    });
+    const bad = compileMaterialGraph({ graph: graph('pbr', 'roughness') }, env([fn]));
+    expect(bad.problems.map((p) => [p.nodeId, p.severity])).toEqual([['call', 'error']]);
+    expect(bad.problems[0]!.message).toMatch(/^in the function: lighting inputs need/);
+    const good = compileMaterialGraph({ graph: graph('customLit', 'color') }, env([fn]));
+    expect(good.problems).toEqual([]);
+    expect(good.usesLight).toBe(true);
+  });
+
+  it('a normal that reads lighting inputs is refused (they are computed from it); a plain normal map is used', () => {
+    const loop = bands('customLit', { edges: [{ id: 'n', from: { node: 'main', port: 'direction' }, to: { node: 'out', port: 'normal' } }] });
+    const c = compileMaterialGraph({ graph: loop }, env());
+    expect(c.problems.map((p) => [p.nodeId, p.severity])).toEqual([['out', 'error']]);
+    expect(c.slots.normal).toBeNull();
+    const map = bands('customLit', { nodes: [{ id: 'nm', type: 'normalMap', position: [0, 300], data: { texture: 'tex' } }], edges: [{ id: 'n', from: { node: 'nm', port: 'normal' }, to: { node: 'out', port: 'normal' } }] });
+    const ok = compileMaterialGraph({ graph: map }, env());
+    expect(ok.problems).toEqual([]);
+    expect(isNode(ok.slots.normal)).toBe(true);
+  });
+
+  it('alpha: plain values stay on the material (before the lights); values that read light move after them, together', () => {
+    const plain = bands('customLit', { nodes: [{ id: 'a', type: 'float', position: [0, 300], data: { value: 0.5 } }], edges: [{ id: 'o', from: { node: 'a', port: 'value' }, to: { node: 'out', port: 'alphaClip' } }] });
+    const p = compileMaterialGraph({ graph: plain }, env());
+    expect(isNode(p.slots.alphaTest)).toBe(true);
+    expect(p.slots.litAlphaTest).toBeNull();
+    const litAlpha = bands('customLit', { nodes: [{ id: 'a', type: 'float', position: [0, 300], data: { value: 0.5 } }], edges: [{ id: 'o', from: { node: 'a', port: 'value' }, to: { node: 'out', port: 'alphaClip' } }, { id: 'q', from: { node: 'sh', port: 'shadow' }, to: { node: 'out', port: 'opacity' } }] });
+    const l = compileMaterialGraph({ graph: litAlpha }, env());
+    expect(l.slots.alphaTest).toBeNull();
+    expect(l.slots.opacity).toBeNull();
+    expect(isNode(l.slots.litAlphaTest)).toBe(true);
+    expect(isNode(l.slots.litOpacity)).toBe(true);
+  });
+
+  it('the library builds a custom-lit node material that follows three\'s pipeline (lights on, own emissive, lightmap slot, clones keep the graph)', async () => {
+    const lib = createMaterialLibrary({ loadTexture: async () => null });
+    const def: MaterialDefLike = { materialId: 'cel', name: 'Cel', shader: 'standard', params: {}, textures: {}, graph: bands('customLit') };
+    lib.setMaterials([def]);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    lib.apply(mesh, { '*': 'cel' });
+    const m = mesh.material as THREE.Material & { isMeshCustomLitNodeMaterial?: boolean; lights?: boolean; litColorNode?: unknown; emissive?: THREE.Color; lightMap?: unknown; customProgramCacheKey(): string };
+    expect(m.isMeshCustomLitNodeMaterial).toBe(true);
+    expect(m.type).toBe('MeshCustomLitNodeMaterial');
+    expect(m.lights).toBe(true);
+    expect(isNode(m.litColorNode)).toBe(true);
+    expect(m.emissive?.getHex()).toBe(0);
+    expect('lightMap' in m).toBe(true);
+    const copy = m.clone() as typeof m;
+    expect(copy.litColorNode).toBe(m.litColorNode);
+    expect(copy.isMeshCustomLitNodeMaterial).toBe(true);
+    // Two graphs never share a program: the lit colour is part of the cache key.
+    const g2 = bands('customLit');
+    const other = buildGraphMaterial(compileMaterialGraph({ graph: { nodes: g2.nodes.map((n) => (n.id === 'lite' ? { ...n, data: { color: '#ff0000' } } : n)), edges: g2.edges } }, env()), 'other') as typeof m;
+    expect(other.customProgramCacheKey()).not.toBe(m.customProgramCacheKey());
   });
 });
 

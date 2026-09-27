@@ -79,6 +79,8 @@ export default defineConfig({
         '**/memory.e2e.ts',
         // Phase 23.0: a 3D project's Play and export (the 3D physics backend) on WebGPU too.
         '**/physics-3d.e2e.ts',
+        // Phase 23.15: Custom-lit graph materials (preview, Scene view, Play, export) on WebGPU.
+        '**/material-custom-lit.e2e.ts',
         // Phase 23.12: material parameters set per object by scripts (the per-object data texture) on WebGPU.
         '**/material-runtime.e2e.ts',
       ],

@@ -2,7 +2,7 @@
  * Phase 18.3: the material-graph render harness (browser code, bundled by
  * `material-graph-render.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu&case=kinds|values
+ *   index.html?backend=webgl2|webgpu&case=kinds|values|lit
  *
  * Graph materials go through the real three-adapter code
  * (`createRenderer`, `createMaterialLibrary` with graph definitions), with a
@@ -13,13 +13,16 @@
  *   must compile into a working shader on the backend;
  * - `values`: known pictures — an unlit constant colour, an unlit nearest-
  *   sampled texture, one shared material with a public parameter overridden
- *   on one object, a fresnel emissive rim and a vertex offset.
+ *   on one object, a fresnel emissive rim and a vertex offset;
+ * - `lit` (phase 23.15): Custom-lit outputs reading the lighting inputs —
+ *   two N·L bands, the shadow input, the diffuse light with a point light,
+ *   the main light's colour, fog.
  *
  * `window.__graphCase` = { ok, backend, probes: {name: [x, y]}, sharedMaterial?, problems? }.
  */
 import * as THREE from 'three';
 
-import { COMPILER_NODES, createMaterialLibrary, createRenderer, type MaterialDefLike, type MaterialGraphLike, type RendererPreference } from '@thirdlight/three-adapter';
+import { COMPILER_NODES, createMaterialLibrary, LIGHTING_TYPES, lightmappedMaterial, mainLightIndex, createRenderer, type MaterialDefLike, type MaterialGraphLike, type RendererPreference } from '@thirdlight/three-adapter';
 
 export const SIZE = 256;
 
@@ -65,9 +68,10 @@ const probe = (name: string, p: THREE.Vector3): void => {
   probes[name] = [Math.round((v.x * 0.5 + 0.5) * SIZE), Math.round((-v.y * 0.5 + 0.5) * SIZE)];
 };
 let extra: Record<string, unknown> = {};
+let renderer: THREE.WebGLRenderer | null = null;
 
 /** Node kinds fed into the emissive (value outputs) — outputs, interfaces and calls are covered elsewhere. */
-const SKIP = new Set(['pbr', 'unlit', 'vertexOffset', 'functionInput', 'functionOutput', 'call', 'parameter']);
+const SKIP = new Set(['pbr', 'unlit', 'customLit', 'vertexOffset', 'functionInput', 'functionOutput', 'call', 'parameter']);
 const SAMPLING = new Set(['sampleTexture', 'normalMap', 'triplanar']);
 
 const cases: Record<string, () => void> = {
@@ -80,7 +84,8 @@ const cases: Record<string, () => void> = {
       defs.push(
         graphDef(`k-${type}`, {
           nodes: [
-            { id: 'out', type: 'pbr', position: [0, 0] },
+            // Phase 23.15: lighting inputs read light under a Custom-lit output.
+            { id: 'out', type: LIGHTING_TYPES.has(type) ? 'customLit' : 'pbr', position: [0, 0] },
             { id: 'vo', type: 'vertexOffset', position: [0, 0] },
             { id: 'x', type, position: [0, 0], ...(SAMPLING.has(type) ? { data: { texture: 'checker' } } : {}) },
             { id: 'k', type: 'float', position: [0, 0], data: { value: 0.01 } },
@@ -196,6 +201,133 @@ const cases: Record<string, () => void> = {
     probe('liftedAt', new THREE.Vector3(0, -3.4 + 1.2, 0));
     probe('liftedFrom', new THREE.Vector3(0, -3.4 - 0.6, 0));
   },
+  /**
+   * Phase 23.15: Custom-lit outputs reading the lighting inputs (neutral
+   * greys, one sun casting shadows, a brighter red fill that casts none).
+   */
+  lit() {
+    renderer!.shadowMap.enabled = true;
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    // Brighter than the sun (colour luminance × intensity 1.9 vs 1.5) but casting no shadow: the main light stays
+    // the sun. It lights from behind-left, so no probed face sees it.
+    const fill = new THREE.DirectionalLight('#ff8080', 5);
+    fill.position.set(-6, 0, -4);
+    scene.add(fill);
+    scene.fog = new THREE.Fog('#8040c0', 12, 60);
+    const e = (id: string, from: string, fp: string, to: string, tp: string) => ({ id, from: { node: from, port: fp }, to: { node: to, port: tp } });
+    const n = (id: string, type: string, data?: Record<string, unknown>) => ({ id, type, position: [0, 0] as [number, number], ...(data !== undefined ? { data } : {}) });
+    // Two bands: step(0.5, N·L) picks dark or light (the sun is in front, so the edge at N·L = 0.5 crosses the visible half).
+    const bands: MaterialGraphLike = {
+      nodes: [n('out', 'customLit'), n('main', 'mainLight'), n('st', 'step', { type: 'float' }), n('dark', 'color', { color: '#303030' }), n('lite', 'color', { color: '#d0d0d0' }), n('mix', 'lerp'), n('zero', 'float', { value: 0.5 })],
+      edges: [e('z', 'zero', 'value', 'st', 'edge'), e('a', 'main', 'ndotl', 'st', 'x'), e('b', 'dark', 'rgb', 'mix', 'a'), e('c', 'lite', 'rgb', 'mix', 'b'), e('d', 'st', 'out', 'mix', 't'), e('f', 'mix', 'out', 'out', 'color')],
+    };
+    // The shadow input picks dark (shadowed) or light.
+    const shadowed: MaterialGraphLike = {
+      nodes: [n('out', 'customLit'), n('sh', 'lightShadow'), n('dark', 'color', { color: '#303030' }), n('lite', 'color', { color: '#d0d0d0' }), n('mix', 'lerp')],
+      edges: [e('a', 'sh', 'shadow', 'mix', 't'), e('b', 'dark', 'rgb', 'mix', 'a'), e('c', 'lite', 'rgb', 'mix', 'b'), e('f', 'mix', 'out', 'out', 'color')],
+    };
+    // A white surface lit by everything (the accumulated diffuse light).
+    const diffuse: MaterialGraphLike = { nodes: [n('out', 'customLit'), n('d', 'diffuseLight')], edges: [e('a', 'd', 'total', 'out', 'color')] };
+    // The main light's colour as it is.
+    const mainColour: MaterialGraphLike = { nodes: [n('out', 'customLit'), n('m', 'mainLight')], edges: [e('a', 'm', 'color', 'out', 'color')] };
+    // A constant colour (the fog must still apply).
+    const flat: MaterialGraphLike = { nodes: [n('out', 'customLit'), n('c', 'color', { color: '#00ff00' })], edges: [e('a', 'c', 'rgb', 'out', 'color')] };
+    // The ambient term and the lightmap term as they are.
+    const ambientOut: MaterialGraphLike = { nodes: [n('out', 'customLit'), n('a', 'ambientLight')], edges: [e('a', 'a', 'ambient', 'out', 'color')] };
+    const lightmapOut: MaterialGraphLike = { nodes: [n('out', 'customLit'), n('a', 'ambientLight')], edges: [e('a', 'a', 'lightmap', 'out', 'color')] };
+    library.setMaterials([graphDef('bands', bands), graphDef('shadowed', shadowed), graphDef('diffuse', diffuse), graphDef('main-colour', mainColour), graphDef('flat', flat), graphDef('ambient-out', ambientOut), graphDef('lightmap-out', lightmapOut)]);
+    const mesh = (g: THREE.BufferGeometry, id: string | null, at: THREE.Vector3, o: { cast?: boolean; receive?: boolean } = {}): THREE.Mesh => {
+      const m = new THREE.Mesh(g, src());
+      m.position.copy(at);
+      m.castShadow = o.cast ?? false;
+      m.receiveShadow = o.receive ?? false;
+      scene.add(m);
+      if (id !== null) library.apply(m, { '*': id });
+      return m;
+    };
+    // The banded sphere: towards the sun vs away from it.
+    const sc = new THREE.Vector3(-2.2, 1.9, 0);
+    const r = 1.3;
+    mesh(new THREE.SphereGeometry(r, 64, 48), 'bands', sc);
+    const toSun = sun.position.clone().normalize();
+    probe('bandLit', sc.clone().addScaledVector(toSun, r * 0.98));
+    probe('bandDark', sc.clone().addScaledVector(new THREE.Vector3(-0.75, -0.55, 0.37).normalize(), r * 0.98));
+    // Sphere pixels (a grid inside its outline) for the "only two tones" check.
+    const disc: [number, number][] = [];
+    for (let dy = -0.8; dy <= 0.8; dy += 0.1) for (let dx = -0.8; dx <= 0.8; dx += 0.1) {
+      if (dx * dx + dy * dy > 0.64) continue;
+      const z = Math.sqrt(1 - dx * dx - dy * dy);
+      const v = sc.clone().add(new THREE.Vector3(dx, dy, z).multiplyScalar(r)).project(camera);
+      disc.push([Math.round((v.x * 0.5 + 0.5) * SIZE), Math.round((-v.y * 0.5 + 0.5) * SIZE)]);
+    }
+    // The shadow floor (a wall facing the camera, 1 m behind), with a box between it and the sun.
+    mesh(new THREE.PlaneGeometry(5, 3.4), 'shadowed', new THREE.Vector3(-1.5, -2.3, -1), { receive: true });
+    const caster = new THREE.Vector3(-1.2, -1.3, 0.5);
+    mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), null, caster, { cast: true });
+    // The sun's ray through the caster reaches the wall at z = -1.
+    const hit = caster.clone().addScaledVector(toSun, -(caster.z + 1) / toSun.z);
+    probe('floorShadow', hit);
+    probe('floorLit', new THREE.Vector3(hit.x - 1.6, hit.y, -1));
+    // Two white diffuse boxes; a warm point light (limited range) sits in front of one only.
+    mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), 'diffuse', new THREE.Vector3(1.0, 2.3, 0));
+    mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), 'diffuse', new THREE.Vector3(3.0, 2.3, 0));
+    const glow = new THREE.PointLight('#ffa040', 1.2, 1.6, 2);
+    glow.position.set(1.0, 2.3, 1.1);
+    scene.add(glow);
+    probe('boxGlow', new THREE.Vector3(1.0, 2.3, 0.45));
+    probe('boxPlain', new THREE.Vector3(3.0, 2.3, 0.45));
+    // The main light's colour on a quad facing the camera.
+    const q = new THREE.PlaneGeometry(0.8, 0.8);
+    mesh(q, 'main-colour', new THREE.Vector3(1.9, 0.6, 0));
+    probe('mainColour', new THREE.Vector3(1.9, 0.6, 0));
+    // Fog: the same constant colour near (no fog before 12 m) and far (about 55 m away).
+    mesh(new THREE.PlaneGeometry(0.9, 0.9), 'flat', new THREE.Vector3(2.4, -1.4, 0));
+    probe('fogNear', new THREE.Vector3(2.4, -1.4, 0));
+    const far = mesh(new THREE.PlaneGeometry(5, 5), 'flat', new THREE.Vector3(16.5, -15, -40));
+    probe('fogFar', far.position);
+    // Ambient 0.4 on the diffuse scale.
+    mesh(new THREE.PlaneGeometry(0.6, 0.6), 'ambient-out', new THREE.Vector3(0, 0.3, 0));
+    probe('ambient', new THREE.Vector3(0, 0.3, 0));
+    // A baked lightmap (phase 9.6: UV1, linear 0.5 at intensity pi) on a lightmapped copy of the custom-lit material.
+    const lmGeo = new THREE.PlaneGeometry(0.6, 0.6);
+    lmGeo.setAttribute('uv1', lmGeo.getAttribute('uv').clone());
+    const lmQuad = mesh(lmGeo, 'lightmap-out', new THREE.Vector3(3.4, 0.6, 0));
+    const lm = dataTexture(1, 1, () => [128, 128, 128, 255]);
+    lm.channel = 1;
+    lm.colorSpace = THREE.NoColorSpace;
+    const lmCopy = lightmappedMaterial(lmQuad.material as THREE.Material, lm, Math.PI, false);
+    if (lmCopy === null) throw new Error('a custom-lit material takes no lightmap');
+    lmQuad.material = lmCopy;
+    probe('lightmap', new THREE.Vector3(3.4, 0.6, 0));
+    extra = { disc, mainLight: mainLightIndex([sun, fill]) };
+  },
+  /** Phase 23.15: a custom-lit surface in a scene without lights still draws its graph (every term at "no light"). */
+  dark() {
+    scene.clear();
+    const graph: MaterialGraphLike = {
+      nodes: [
+        { id: 'out', type: 'customLit', position: [0, 0] },
+        { id: 'c', type: 'color', position: [0, 0], data: { color: '#ff8000' } },
+        { id: 'd', type: 'diffuseLight', position: [0, 0] },
+        { id: 's', type: 'lightShadow', position: [0, 0] },
+        { id: 'add', type: 'add', position: [0, 0] },
+        { id: 'mul', type: 'multiply', position: [0, 0] },
+      ],
+      edges: [
+        { id: 'a', from: { node: 'c', port: 'rgb' }, to: { node: 'add', port: 'a' } },
+        { id: 'b', from: { node: 'd', port: 'total' }, to: { node: 'add', port: 'b' } },
+        { id: 'f', from: { node: 'add', port: 'out' }, to: { node: 'mul', port: 'a' } },
+        { id: 'g', from: { node: 's', port: 'shadow' }, to: { node: 'mul', port: 'b' } },
+        { id: 'h', from: { node: 'mul', port: 'out' }, to: { node: 'out', port: 'color' } },
+      ],
+    };
+    library.setMaterials([graphDef('dark', graph)]);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), src());
+    scene.add(m);
+    library.apply(m, { '*': 'dark' });
+    probe('dark', new THREE.Vector3(0, 0, 0));
+  },
 };
 
 async function main(): Promise<void> {
@@ -203,7 +335,7 @@ async function main(): Promise<void> {
   const ok = await handle.whenReady();
   const info = handle.info();
   if (!ok) throw new Error(`renderer not ready: ${info.reason}`);
-  const renderer = handle.current()!;
+  renderer = handle.current() as unknown as THREE.WebGLRenderer;
   renderer.setPixelRatio(1);
   renderer.setSize(SIZE, SIZE, false);
   const make = cases[which];

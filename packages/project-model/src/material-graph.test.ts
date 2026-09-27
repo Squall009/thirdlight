@@ -138,6 +138,39 @@ describe('material graph validation', () => {
     expect(check(mat({ nodes: nodes.slice(0, 512), edges: [] }))).toEqual([]);
   });
 
+  it('phase 23.15: the Lighting inputs and a Custom-lit output (one surface output of three)', () => {
+    const light = new Set(MATERIAL_GRAPH_KIND.nodes.filter((d) => d.category === 'Lighting').map((d) => d.type));
+    expect([...light].sort()).toEqual(['ambientLight', 'diffuseLight', 'lightShadow', 'mainLight']);
+    expect(MATERIAL_GRAPH_KIND.categories).toContain('Lighting');
+    // Material functions may read them too (a function called under a Custom-lit output).
+    for (const t of light) expect(MATERIAL_FUNCTION_GRAPH_KIND.nodes.some((d) => d.type === t), t).toBe(true);
+    const outs = (t: string): string[] => MATERIAL_GRAPH_KIND.nodes.find((d) => d.type === t)!.outputs.map((p) => `${p.id}:${p.type}`);
+    expect(outs('mainLight')).toEqual(['direction:vec3', 'color:vec3', 'ndotl:float']);
+    expect(outs('lightShadow')).toEqual(['shadow:float']);
+    expect(outs('diffuseLight')).toEqual(['total:vec3', 'luminance:float', 'direct:vec3']);
+    expect(outs('ambientLight')).toEqual(['ambient:vec3', 'environment:vec3', 'lightmap:vec3']);
+    const lit = MATERIAL_GRAPH_KIND.nodes.find((d) => d.type === 'customLit')!;
+    expect(lit.inputs.map((p) => p.id)).toEqual(['color', 'emissive', 'normal', 'opacity', 'alphaClip']);
+    expect(lit.fields!.map((f) => f.key)).toEqual(['doubleSided', 'transparent', 'castShadows']);
+    expect(MATERIAL_GRAPH_KIND.sinks).toContain('customLit');
+    // A cel graph: N·L stepped into a colour ramp, into a Custom-lit output.
+    const cel: GraphData = {
+      nodes: [
+        { id: 'out', type: 'customLit', position: [600, 0] },
+        { id: 'main', type: 'mainLight', position: [0, 0] },
+        { id: 'post', type: 'posterize', position: [200, 0] },
+        { id: 'ramp', type: 'colorRamp', position: [400, 0], data: { interpolation: 'constant' } },
+      ],
+      edges: [
+        { id: 'e1', from: { node: 'main', port: 'ndotl' }, to: { node: 'post', port: 'in' } },
+        { id: 'e2', from: { node: 'post', port: 'out' }, to: { node: 'ramp', port: 't' } },
+        { id: 'e3', from: { node: 'ramp', port: 'rgb' }, to: { node: 'out', port: 'color' } },
+      ],
+    };
+    expect(check(mat(cel))).toEqual([]);
+    expect(check(mat({ nodes: [...cel.nodes, { ...OUT, id: 'pbr' }], edges: cel.edges }))[0]!.message).toMatch(/at most one of "PBR output", "Unlit output", "Custom-lit output"/);
+  });
+
   it('refuses two surface outputs and two vertex offsets', () => {
     expect(check(mat({ nodes: [OUT, { id: 'u', type: 'unlit', position: [0, 0] }], edges: [] }))[0]!.message).toMatch(/at most one of "PBR output", "Unlit output"/);
     expect(check(mat({ nodes: [{ id: 'u', type: 'unlit', position: [0, 0] }], edges: [] }))).toEqual([]);
