@@ -611,6 +611,9 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         timelines: JSON.parse(JSON.stringify((state.content as { timelines?: unknown[] }).timelines ?? [])) as unknown,
         // Phase 23.3: the named collision layers.
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
+        // Phase 23.10: the game modes and behavior groups.
+        modes: JSON.parse(JSON.stringify((state.content as { modes?: unknown[] }).modes ?? [])) as unknown,
+        behaviorGroups: [...((state.content as { behaviorGroups?: string[] }).behaviorGroups ?? [])],
         // Phase 23.19: the project save schema (null: no project saves).
         saveSchema: (state.content as { saveSchema?: unknown }).saveSchema !== undefined ? (JSON.parse(JSON.stringify((state.content as { saveSchema?: unknown }).saveSchema)) as unknown) : null,
         // Phase 17.1: the settings map (the editor's Scene view reads render_backend at load).

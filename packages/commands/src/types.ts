@@ -58,6 +58,7 @@ import type {
   GraphOp,
   UiDocument,
   UiTheme,
+  GameMode,
   TimelineAsset,
 } from '@thirdlight/project-model';
 
@@ -142,6 +143,10 @@ export type V3MutationOp =
   | 'setUiDocument'
   | 'deleteUiDocument'
   | 'setUiTheme'
+  | 'deleteUiTheme'
+  // phase 23.10: game modes and behavior groups
+  | 'setModes'
+  | 'setBehaviorGroups'
   | 'deleteUiTheme'
   // phase 23.17: timelines
   | 'setTimeline'
@@ -318,7 +323,9 @@ export type V3OwnedComponent =
   | 'virtualCamera'
   | 'cameraPath'
   /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
-  | 'socketAttach';
+  | 'socketAttach'
+  /** Phase 23.10, v4 scenes only: the behavior group the entity's behavior belongs to. */
+  | 'behaviorGroup';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -545,6 +552,30 @@ export interface SetUiChange {
   previous: UiDocument | UiTheme | null;
   next: UiDocument | UiTheme | null;
 }
+
+/** Phase 23.10: `setModes` change data (the whole list; empty = no modes). */
+export interface SetModesChange {
+  type: 'setModes';
+  previous: GameMode[];
+  next: GameMode[];
+}
+/** Phase 23.10: undo of `setModes`: restore the previous list. */
+export interface SetModesInverse {
+  kind: 'setModes';
+  restore: GameMode[];
+}
+/** Phase 23.10: `setBehaviorGroups` change data (the whole list). */
+export interface SetBehaviorGroupsChange {
+  type: 'setBehaviorGroups';
+  previous: string[];
+  next: string[];
+}
+/** Phase 23.10: undo of `setBehaviorGroups`: restore the previous list. */
+export interface SetBehaviorGroupsInverse {
+  kind: 'setBehaviorGroups';
+  restore: string[];
+}
+
 
 /** Phase 23.17: `setTimeline`/`deleteTimeline` change data: one timeline before and after (null = none). */
 export interface SetTimelineChange {
@@ -895,6 +926,9 @@ export type ChangeData =
   | SetCellFieldsChange
   | SetBlockStampChange
   | SetUiChange
+  | SetModesChange
+  | SetBehaviorGroupsChange
+  | SetUiChange
   | SetTimelineChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
@@ -934,6 +968,9 @@ export type ForwardChange =
   | SetBlockTypeChange
   | SetCellFieldsChange
   | SetBlockStampChange
+  | SetUiChange
+  | SetModesChange
+  | SetBehaviorGroupsChange
   | SetUiChange
   | SetTimelineChange;
 
@@ -1124,6 +1161,8 @@ export type InverseSpec =
   | SetEffectInverse
   | SetScriptLibraryInverse
   | SetUiInverse
+  | SetModesInverse
+  | SetBehaviorGroupsInverse
   | SetTimelineInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
@@ -1578,6 +1617,15 @@ export interface SetUiThemeArgs {
 export interface DeleteUiThemeArgs {
   uiThemeId: string;
 }
+/** Phase 23.10: `setModes` replaces the game modes (the first is the start mode). */
+export interface SetModesArgs {
+  modes: GameMode[];
+}
+/** Phase 23.10: `setBehaviorGroups` replaces the behavior group names. */
+export interface SetBehaviorGroupsArgs {
+  groups: string[];
+}
+
 /** Phase 23.17: `setTimeline` creates or replaces one timeline (by timelineId). */
 export interface SetTimelineArgs {
   timeline: TimelineAsset;
@@ -1644,6 +1692,8 @@ export type MutationArgs =
   | DeleteUiDocumentArgs
   | SetUiThemeArgs
   | DeleteUiThemeArgs
+  | SetModesArgs
+  | SetBehaviorGroupsArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
   | SetEffectArgs

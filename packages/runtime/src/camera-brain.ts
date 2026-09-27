@@ -219,8 +219,8 @@ export class CameraBrain {
   private order = 0;
   private serialCounter = 0;
   private liveId: string | null = null;
-  /** Phase 23.17: the camera a timeline forces live (null: none). */
-  private overrideId: string | null = null;
+  /** Phase 23.17: the camera a timeline forces live (null: none); it wins over a game mode's camera. */
+  private timelineOverrideId: string | null = null;
   private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle } | null = null;
   /** A blend a script asked for with the change it made (used by the next switch). */
   private pendingBlend: { style: CameraBlendStyle; seconds: number } | null = null;
@@ -251,6 +251,11 @@ export class CameraBrain {
   private readonly lensOut = { fovY: 60, near: 0.1, far: 100, letterbox: 0 };
   /** Warnings for missing targets or paths (reported once per camera). */
   private readonly warned = new Set<string>();
+  /**
+   * Phase 23.10: the game mode's camera — live over every priority while the
+   * mode is active (null: the priority rule). Set by the mode switch.
+   */
+  private overrideId: string | null = null;
 
   constructor(
     hz: number,
@@ -291,13 +296,30 @@ export class CameraBrain {
     this.liveId = null;
     this.blend = null;
     this.pendingBlend = null;
-    this.overrideId = null;
+    this.timelineOverrideId = null;
     this.impulses = [];
     this.started = false;
     this.serialCounter = 0;
     this.impulseSerial = 0;
     this.stepCount = 0;
     this.time = 0;
+    this.overrideId = null;
+  }
+
+  /**
+   * Phase 23.10: a game mode's camera (null: back to the priority rule) and
+   * the blend into it (the incoming camera's own when absent). A camera that
+   * is not loaded is warned once and the priority rule applies.
+   */
+  setOverride(id: string | null, options?: unknown): void {
+    this.overrideId = id;
+    if (id !== null && !this.cams.has(id)) this.warnOnce(`override:${id}`, `the game mode's camera "${id}" is not a loaded virtual camera; the priority rule applies`);
+    this.noteBlend(options);
+  }
+
+  /** Phase 23.10: the game mode's camera (null: none). */
+  get override(): string | null {
+    return this.overrideId;
   }
 
   private fresh(id: string, d: VirtualCameraData, order: number): CamState {
@@ -487,26 +509,33 @@ export class CameraBrain {
   // ---- the step ------------------------------------------------------------------
 
   /**
-   * Phase 23.17: the camera a timeline forces live (over priorities), with
-   * the blend of the change; null gives the view back to the priorities.
-   * Inert unless a timeline uses it (every existing resolution unchanged).
+   * Phase 23.17: the camera a timeline forces live (over priorities and over
+   * a game mode's camera while the timeline shows it), with the blend of the
+   * change; null gives the view back (to the mode's camera, else the
+   * priorities). Inert unless a timeline uses it.
    */
-  setOverride(id: string | null, options?: unknown): boolean {
+  setTimelineOverride(id: string | null, options?: unknown): boolean {
     if (id !== null && !this.cams.has(id)) return false;
-    if (id === this.overrideId) return true;
-    this.overrideId = id;
+    if (id === this.timelineOverrideId) return true;
+    this.timelineOverrideId = id;
     this.noteBlend(options);
     return true;
   }
 
-  override(): string | null {
-    return this.overrideId;
+  timelineOverride(): string | null {
+    return this.timelineOverrideId;
   }
 
   private best(): CamState | null {
+    // Phase 23.17: a timeline's camera wins while the timeline shows one.
+    if (this.timelineOverrideId !== null) {
+      const t = this.cams.get(this.timelineOverrideId);
+      if (t !== undefined) return t;
+    }
+    // Phase 23.10: a game mode's camera is live over every priority.
     if (this.overrideId !== null) {
-      const forced = this.cams.get(this.overrideId);
-      if (forced !== undefined) return forced;
+      const o = this.cams.get(this.overrideId);
+      if (o !== undefined) return o;
     }
     let best: CamState | null = null;
     for (const s of this.cams.values()) {

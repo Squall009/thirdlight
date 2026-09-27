@@ -58,6 +58,7 @@ function fakeHost(): { host: TimelineHost; log: string[]; poses: Map<string, Tim
     emitSignal: (n) => void log.push(`signal ${n}`),
     signaled: (n) => signals.has(n),
     setMaterial: (id, p, v) => (materials.set(`${id}.${p}`, v), true),
+    switchMode: (m, t) => (log.push(`mode ${m} ${t.blend ?? ''}`), m !== 'nope'),
     warn: (m) => void log.push(`warn ${m}`),
   };
   return { host, log, poses, visible, signals, forced, progress, materials, playingSounds };
@@ -266,6 +267,18 @@ describe('phase 23.17: the system', () => {
     f.signals.clear();
     sys.step(3, null);
     expect(sys.isPlaying('a')).toBe(true);
+  });
+
+  it('mode keys switch the game mode; skip applies only the last remaining one (cut)', () => {
+    const f = fakeHost();
+    const tl = canonicalTimeline({ timelineId: 'm', name: 'M', duration: 2, tracks: [{ trackId: 'modes', type: 'mode', keys: [{ time: 0.5, mode: 'cutscene', blend: 'eased' }, { time: 1, mode: 'explore' }, { time: 1.5, mode: 'battle', blend: 'linear' }] }] });
+    const sys = new TimelineSystem([tl], HZ, f.host);
+    const h = sys.play('m');
+    for (let s = 1; s <= 32; s += 1) sys.step(s, frame(s));
+    expect(f.log).toEqual(['mode cutscene eased']);
+    sys.skip(h);
+    sys.step(33, frame(33));
+    expect(f.log.slice(1)).toEqual(['mode explore cut', 'mode battle cut']);
   });
 
   it('same inputs, same state: two systems agree step by step', () => {

@@ -30,7 +30,8 @@ export interface InputBindingLike {
 export interface InputActionLike {
   readonly name: string;
   readonly type: 'button' | 'axis1d' | 'axis2d';
-  readonly map: 'gameplay' | 'ui';
+  /** gameplay, ui or (phase 23.10) one of the project's own maps. */
+  readonly map: string;
   readonly bindings: readonly InputBindingLike[];
   readonly deadZone?: number;
   readonly invert?: boolean;

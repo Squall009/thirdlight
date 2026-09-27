@@ -30,7 +30,9 @@
  *                pressed [action, timeout];
  * - `material`   a graph-material parameter of the target (track `param`,
  *                `material`) [value, easing];
- * - `environment` switch to an environment preset [preset, blendTime].
+ * - `environment` switch to an environment preset [preset, blendTime];
+ * - `mode`       switch the game mode (phase 23.10, as `ctx.modes.switch`)
+ *                [mode, blend, blendTime].
  *
  * Validation here is the data's own rules; references to assets, effects and
  * materials are checked against the project by `validateTimelineReferences`.
@@ -63,7 +65,7 @@ export const TIMELINE_LIMITS = Object.freeze({
   params: 16,
 });
 
-export const TIMELINE_TRACK_TYPES = ['camera', 'transform', 'animator', 'audio', 'dialogue', 'effect', 'activation', 'signal', 'fade', 'letterbox', 'wait', 'material', 'environment'] as const;
+export const TIMELINE_TRACK_TYPES = ['camera', 'transform', 'animator', 'audio', 'dialogue', 'effect', 'activation', 'signal', 'fade', 'letterbox', 'wait', 'material', 'environment', 'mode'] as const;
 export type TimelineTrackType = (typeof TIMELINE_TRACK_TYPES)[number];
 
 /** How a value moves from the previous key to this one (`step`: holds the previous value, then jumps). */
@@ -119,6 +121,8 @@ export interface TimelineKey {
   timeout?: number;
   // environment
   preset?: string;
+  // mode
+  mode?: string;
 }
 
 export interface TimelineTrack {
@@ -195,6 +199,7 @@ const TRACK_EXTRA: Record<TimelineTrackType, readonly string[]> = {
   wait: [],
   material: ['target', 'param', 'material'],
   environment: [],
+  mode: [],
 };
 const KEY_FIELDS: Record<TimelineTrackType, readonly string[]> = {
   camera: ['time', 'camera', 'release', 'blend', 'blendTime', 'progress', 'easing'],
@@ -210,6 +215,7 @@ const KEY_FIELDS: Record<TimelineTrackType, readonly string[]> = {
   wait: ['time', 'action', 'timeout'],
   material: ['time', 'value', 'easing'],
   environment: ['time', 'preset', 'blendTime'],
+  mode: ['time', 'mode', 'blend', 'blendTime'],
 };
 
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
@@ -363,6 +369,11 @@ function validateKey(type: TimelineTrackType, k: unknown, path: string, duration
       break;
     case 'material':
       if (!materialValueOk(k['value'])) err(errors, 'field_value', `${path}/value`, 'value is a number, 2–4 numbers or "#rrggbb"', k['value'], 'number | [2-4] | color');
+      break;
+    case 'mode':
+      re(errors, k['mode'], `${path}/mode`, ID_RE, 'mode', true);
+      oneOf(errors, k['blend'], `${path}/blend`, ['cut', 'linear', 'eased'], 'blend');
+      num(errors, k['blendTime'], `${path}/blendTime`, 0, 30, 'blendTime (seconds)');
       break;
     case 'environment':
       re(errors, k['preset'], `${path}/preset`, ID_RE, 'preset', true);
@@ -521,7 +532,7 @@ export function validateTimelineReferences(
   list: readonly TimelineAsset[],
   path: string,
   errors: ModelErrorV2[],
-  ctx: { assetKind: (id: string) => unknown; effectIds: ReadonlySet<string>; materialIds: ReadonlySet<string>; dialogueIds?: ReadonlySet<string> | null; presetIds?: ReadonlySet<string> | null },
+  ctx: { assetKind: (id: string) => unknown; effectIds: ReadonlySet<string>; materialIds: ReadonlySet<string>; modeIds?: ReadonlySet<string>; dialogueIds?: ReadonlySet<string> | null; presetIds?: ReadonlySet<string> | null },
 ): void {
   list.forEach((tl, i) => {
     tl.tracks.forEach((t, j) => {
@@ -535,6 +546,7 @@ export function validateTimelineReferences(
         }
         if (t.type === 'effect' && k.effect !== undefined && !ctx.effectIds.has(k.effect)) err(errors, 'reference_missing', `${kp}/effect`, 'effect names a project effect', k.effect, 'an effectId');
         if (t.type === 'dialogue' && k.dialogue !== undefined && ctx.dialogueIds != null && !ctx.dialogueIds.has(k.dialogue)) err(errors, 'reference_missing', `${kp}/dialogue`, 'dialogue names a project dialogue', k.dialogue, 'a dialogue id');
+        if (t.type === 'mode' && k.mode !== undefined && !(ctx.modeIds?.has(k.mode) ?? false)) err(errors, 'reference_missing', `${kp}/mode`, 'mode names a game mode of the project (content.modes)', k.mode, 'a modeId');
         if (t.type === 'environment' && k.preset !== undefined && ctx.presetIds != null && !ctx.presetIds.has(k.preset)) err(errors, 'reference_missing', `${kp}/preset`, 'preset names a project environment preset', k.preset, 'a preset id');
       });
     });

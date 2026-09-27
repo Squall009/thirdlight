@@ -15,7 +15,7 @@ import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
 import { canonicalTimelines, validateTimelineReferences, validateTimelines, type TimelineAsset } from './timelines';
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalLighting, validateLighting } from './lighting';
-import { canonicalInput, INPUT_MAPS, validateInput } from './input';
+import { canonicalInput, projectInputMaps, validateInput } from './input';
 import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flow';
 import { canonicalGraphData, canonicalGraphDocuments, graphAssetRefs, graphDocumentsContext, validateGraphData, validateGraphDocuments, type GraphData, type GraphKindDef } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
@@ -23,6 +23,7 @@ import { BEHAVIOR_FUNCTION_ID_RE, BEHAVIOR_GRAPH_LIMITS, behaviorGraphContext } 
 import { canonicalEffectComponent, canonicalEffects, validateEffectComponent, validateEffects } from './effects';
 import { canonicalBlockFootprint, validateBlockFootprintComponent } from './block-layers';
 import { canonicalBlockStamps, canonicalBlockTypes, canonicalCellFields, composeBlockContent, validateBlockStamps, validateBlockTypes, validateCellFields, type BlockContentView } from './block-layers';
+import { canonicalBehaviorGroup, canonicalModes, validateBehaviorGroupComponent, validateBehaviorGroups, validateModeReferences, validateModes } from './modes';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiReferences, validateUiThemes } from './ui-documents';
 import { canonicalScriptLibraries, scriptLibraryDigest, validateLibraryPins, validateScriptLibraries, type ScriptLibrary } from './script-libraries';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
@@ -949,7 +950,8 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
 // Phase 18.0: `materialParams` (overrides of graph-material parameters) travels with the materials.
 // Phase 20.0: `effect` (a copy plays its effect, e.g. a torch's flame).
 // Phase 23.6: `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint'] as const;
+// Phase 23.10: `behaviorGroup` (a copy's behavior ticks with its group).
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup'] as const;
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -985,6 +987,7 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   }
   if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
   if (comps['blockFootprint'] !== undefined) validateBlockFootprintComponent(comps['blockFootprint'], `${path}/blockFootprint`, errors);
+  if (comps['behaviorGroup'] !== undefined) validateBehaviorGroupComponent(comps['behaviorGroup'], `${path}/behaviorGroup`, errors);
   for (const name of PREFAB_BLOCKS) {
     if (comps[name] !== undefined) (BLOCK_COMPONENTS[name].validate as (c: unknown, p: string, e: ModelErrorV2[]) => void)(comps[name], `${path}/${name}`, errors);
   }
@@ -1966,6 +1969,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   if (x.materialParams !== undefined) components.materialParams = canonicalMaterialParams(x.materialParams);
   if (x.effect !== undefined) components.effect = canonicalEffectComponent(x.effect);
   if (x.blockFootprint !== undefined) components.blockFootprint = canonicalBlockFootprint(x.blockFootprint);
+  if (x.behaviorGroup !== undefined) components.behaviorGroup = canonicalBehaviorGroup(x.behaviorGroup);
   return {
     localId: e.localId,
     ...(e.name !== undefined ? { name: e.name } : {}),
@@ -2185,8 +2189,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2355,11 +2359,19 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (version === 4 && doc['saveSchema'] !== undefined) validateSaveSchema(doc['saveSchema'], '/saveSchema', errors);
   validateLibraryPinReferences(doc, errors);
   // Phase 23.9a: project UI documents and themes (v4), and what they reference.
-  if (version === 4 && doc['uiDocuments'] !== undefined) validateUiDocuments(doc['uiDocuments'], '/uiDocuments', errors, INPUT_MAPS);
+  // Phase 23.10: a document's action map may be one of the project's own maps (input.maps).
+  if (version === 4 && doc['uiDocuments'] !== undefined) validateUiDocuments(doc['uiDocuments'], '/uiDocuments', errors, projectInputMaps(doc['input']));
   if (version === 4 && doc['uiThemes'] !== undefined) validateUiThemes(doc['uiThemes'], '/uiThemes', errors);
   if (version === 4 && errors.length === 0) {
     const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind']] as const));
     validateUiReferences(doc, errors, (id) => kinds.get(id));
+  }
+  // Phase 23.10: game modes and behavior groups (v4), and what the modes reference.
+  if (version === 4 && doc['behaviorGroups'] !== undefined) validateBehaviorGroups(doc['behaviorGroups'], '/behaviorGroups', errors);
+  if (version === 4 && doc['modes'] !== undefined) {
+    const before = errors.length;
+    validateModes(doc['modes'], '/modes', errors);
+    if (errors.length === before) validateModeReferences(doc, errors);
   }
   // Phase 23.17: timelines (v4) and what their keys name (audio assets, effects, materials).
   if (version === 4 && doc['timelines'] !== undefined) {
@@ -2368,7 +2380,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (errors.length === before) {
       const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind'] ?? 'model'] as const));
       const ids = (key: string, idKey: string): Set<string> => new Set((Array.isArray(doc[key]) ? (doc[key] as unknown[]) : []).filter(isPlainObject).map((x) => String(x[idKey])));
-      validateTimelineReferences(doc['timelines'] as TimelineAsset[], '/timelines', errors, { assetKind: (id) => kinds.get(id), effectIds: ids('effects', 'effectId'), materialIds: ids('materials', 'materialId') });
+      validateTimelineReferences(doc['timelines'] as TimelineAsset[], '/timelines', errors, { assetKind: (id) => kinds.get(id), effectIds: ids('effects', 'effectId'), materialIds: ids('materials', 'materialId'), modeIds: ids('modes', 'modeId') });
     }
   }
   if (version === 4) validateMaterialReferences(doc, errors);
@@ -2513,6 +2525,9 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     // Phase 23.9a: present only when there are UI documents / themes.
     ...((c as ContentCatalogV4).uiDocuments !== undefined && (c as ContentCatalogV4).uiDocuments!.length > 0 ? { uiDocuments: canonicalUiDocuments((c as ContentCatalogV4).uiDocuments!) } : {}),
     ...((c as ContentCatalogV4).uiThemes !== undefined && (c as ContentCatalogV4).uiThemes!.length > 0 ? { uiThemes: canonicalUiThemes((c as ContentCatalogV4).uiThemes!) } : {}),
+    // Phase 23.10: present only when the project has game modes / behavior groups.
+    ...((c as ContentCatalogV4).modes !== undefined && (c as ContentCatalogV4).modes!.length > 0 ? { modes: canonicalModes((c as ContentCatalogV4).modes!) } : {}),
+    ...((c as ContentCatalogV4).behaviorGroups !== undefined && (c as ContentCatalogV4).behaviorGroups!.length > 0 ? { behaviorGroups: [...(c as ContentCatalogV4).behaviorGroups!] } : {}),
     // Phase 23.3: present only when the project names collision layers.
     ...((c as ContentCatalogV4).collisionLayers !== undefined && (c as ContentCatalogV4).collisionLayers!.length > 0 ? { collisionLayers: [...(c as ContentCatalogV4).collisionLayers!] } : {}),
     // Phase 23.19: present only when the project declares a save schema.

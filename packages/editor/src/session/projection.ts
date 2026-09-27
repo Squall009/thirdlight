@@ -655,6 +655,9 @@ export class Projection {
       case 'setAnimators':
       case 'setInput':
       case 'setCollisionLayers':
+      // Phase 23.10: game modes and behavior groups (tracked by the client from the change data).
+      case 'setModes':
+      case 'setBehaviorGroups':
       case 'setSaveSchema':
       case 'setFlow':
       // Phase 16.1: graphs are tracked by the client from the change data.

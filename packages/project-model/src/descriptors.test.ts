@@ -37,6 +37,7 @@ import {
 import type { ModelErrorV2 } from './errors';
 import { validateFlow } from './flow';
 import { validateInput } from './input';
+import { validateModes } from './modes';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, validateEnvironment, validateMaterials } from './materials';
 import { validateEffects } from './effects';
 import { validateBlockStamps, validateBlockTypes, validateCellFields } from './block-layers';
@@ -466,6 +467,8 @@ const COMPONENT_BASES: Record<string, J[]> = {
   ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
+  // Phase 23.10: the behavior group an object's script belongs to.
+  behaviorGroup: [{ group: 'field' }],
   // Phase 23.11: a socket with its offset, and one a script attaches later.
   socketAttach: [
     { target: 'spawn-0001', node: 'hand_R', position: [0.1, 0, -0.05], rotation: [0, 0.7071067811865476, 0, 0.7071067811865476], scale: [1, 2, 1], attached: false },
@@ -565,7 +568,11 @@ const BINDINGS: { type: string; binding: Obj }[] = [
   { type: 'axis2d', binding: { kind: 'pointerPosition' } },
   { type: 'axis2d', binding: { kind: 'pointerDelta' } },
 ];
-const INPUT_BASES: J[] = BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' }, glyphs: { 'xbox:pad-south': 'tex-a' } } : {}) }));
+const INPUT_BASES: J[] = [
+  ...BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' }, glyphs: { 'xbox:pad-south': 'tex-a' } } : {}) })),
+  // Phase 23.10: the project's own input maps (an action of one).
+  { actions: [{ name: 'select', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'KeyE' }] }], maps: ['tactical', 'build'] },
+];
 
 // Phase 20.0: an effect with a parameter of every type and one system.
 const EFFECT_GRAPH = { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] };
@@ -789,6 +796,10 @@ function runAllProbes(): void {
   // Phase 23.9a: UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
+  // Phase 23.10: game modes (every field, the references present) and behavior groups.
+  // (The shape validator: the references to documents, maps and groups are the project's check, tested in modes.test.ts.)
+  probe('modes', (v) => errorsOf((e) => validateModes(v, '', e)), [{ modeId: 'explore', name: 'Explore', inputMaps: ['gameplay', 'tactical'], camera: 'cam-0001', ui: ['hud'], groups: ['field'], ungrouped: 'pause', pause: false, pauseScreen: 'hud', timeScale: 0.5, physics: 'hold', enter: { blend: 'eased', blendTime: 0.5, fade: 'fade', fadeTime: 0.25 } }], '', block('modes'), 'modes:');
+  probe('behaviorGroups', contentErrors, contentDoc({ behaviorGroups: ['field', 'board'] }), '/behaviorGroups', block('behaviorGroups'), 'behaviorGroups:');
   // Phase 23.17: timelines (json items).
   probe('timelines', contentErrors, contentDoc({ timelines: [{ timelineId: 'intro', name: 'Intro', duration: 2, tracks: [{ trackId: 's', type: 'signal', keys: [{ time: 1, name: 'go' }] }] }] }), '/timelines', block('timelines'), 'timelines:');
   // Phase 23.9b: the UI editor's descriptors (a document's own fields, each widget type, styles, tweens).

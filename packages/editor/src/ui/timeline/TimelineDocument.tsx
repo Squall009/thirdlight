@@ -46,6 +46,8 @@ export interface TimelineDocumentProps {
   /** The project's input action names (wait keys, the skip action). */
   actions: readonly string[];
   animators: readonly AnimatorController[];
+  /** Phase 23.10: the project's game mode ids (mode keys). */
+  modes: readonly string[];
   error: string | null;
   onSave: (timeline: TimelineAsset) => Promise<boolean>;
   onPreview: (preview: TimelinePreviewValue | null) => void;
@@ -70,6 +72,7 @@ const TYPE_LABEL: Record<TimelineTrackType, string> = {
   wait: 'Wait for input',
   material: 'Material',
   environment: 'Environment',
+  mode: 'Game mode',
 };
 
 /** A new timeline: five seconds, no slots or tracks yet. */
@@ -97,6 +100,8 @@ function keyLabel(t: TimelineTrack, k: TimelineKey): string {
       return k.active === true ? 'on' : 'off';
     case 'environment':
       return k.preset ?? '';
+    case 'mode':
+      return k.mode ?? '';
     default:
       return typeof k.value === 'number' ? String(round3(k.value)) : typeof k.value === 'string' ? k.value : '';
   }
@@ -223,6 +228,8 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
         return { time, value: 0 };
       case 'environment':
         return { time, preset: 'preset' };
+      case 'mode':
+        return props.modes.length > 0 ? { time, mode: props.modes[0]! } : 'the project has no game modes';
     }
   };
 
@@ -473,6 +480,9 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
           }),
           choice('easing', k.easing, TIMELINE_EASINGS, (v) => setKey({ easing: v as TimelineKey['easing'] })),
         );
+        break;
+      case 'mode':
+        f.push(choice('mode', k.mode, props.modes, (v) => setKey({ mode: v })), choice('blend', k.blend, ['cut', 'linear', 'eased'], (v) => setKey({ blend: v as TimelineKey['blend'] })), num('blendTime', k.blendTime, (v) => setKey({ blendTime: v })));
         break;
       case 'environment':
         f.push(text('preset', k.preset, (v) => setKey({ preset: v })), num('blendTime', k.blendTime, (v) => setKey({ blendTime: v })));

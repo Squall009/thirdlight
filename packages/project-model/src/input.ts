@@ -44,7 +44,8 @@ export const CURSOR_MODES = ['free', 'locked'] as const;
 export interface InputAction {
   name: string;
   type: InputActionType;
-  map: 'gameplay' | 'ui';
+  /** The map it belongs to: gameplay, ui, or (phase 23.10) one of the project's `maps`. */
+  map: InputMapName;
   bindings: InputBinding[];
   /** Axis values within this are 0 (then rescaled); default 0.2 for stick axes. */
   deadZone?: number;
@@ -52,8 +53,20 @@ export interface InputAction {
   scale?: number;
 }
 
+/** Phase 23.10: an input map name — the engine's gameplay and ui, or one the project declares in `input.maps`. */
+export type InputMapName = 'gameplay' | 'ui' | (string & {});
+
+/** Phase 23.10: at most this many project maps besides gameplay and ui (an engine limit). */
+export const MAX_INPUT_MAPS = 8;
+
 export interface InputConfig {
   actions: InputAction[];
+  /**
+   * Phase 23.10: the project's own input maps besides gameplay and ui (a
+   * game mode activates maps; absent: none). A map name is a letter or _,
+   * then up to 31 letters, digits or _.
+   */
+  maps?: string[];
   /**
    * Phase 23.14: the project's own glyph images — a glyph key (an icon id of
    * the engine's generic set such as `pad-south`, `mouse-left` or `key`,
@@ -66,6 +79,15 @@ export interface InputConfig {
    * a pointer-driven game needs a visible cursor; mouse-look opts in to locked).
    */
   cursor?: { gameplay?: CursorMode; ui?: CursorMode };
+}
+
+/**
+ * Phase 23.10: every input map a project has — the engine's gameplay and ui,
+ * then its own `input.maps` (an unvalidated value reads as none of its own).
+ */
+export function projectInputMaps(input: unknown): string[] {
+  const own = isPlainObject(input) && Array.isArray(input['maps']) ? input['maps'].filter((m): m is string => typeof m === 'string') : [];
+  return [...INPUT_MAPS, ...own.filter((m) => !(INPUT_MAPS as readonly string[]).includes(m))];
 }
 
 /** Phase 23.14: 64 (was 32) — a game with many abilities or hotbar slots names more actions; the frame bound follows. */
@@ -157,7 +179,19 @@ const FITS: Record<InputActionType, readonly InputBinding['kind'][]> = {
 
 export function validateInput(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'input is { actions }', value);
-  for (const k of Object.keys(value)) if (k !== 'actions' && k !== 'cursor' && k !== 'glyphs') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions, cursor, glyphs');
+  for (const k of Object.keys(value)) if (k !== 'actions' && k !== 'cursor' && k !== 'glyphs' && k !== 'maps') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions, maps, cursor, glyphs');
+  // Phase 23.10: the project's own maps (unique names, not gameplay/ui).
+  const maps = value['maps'];
+  const mapNames = new Set<string>(INPUT_MAPS);
+  if (maps !== undefined) {
+    if (!Array.isArray(maps) || maps.length > MAX_INPUT_MAPS) err(errors, 'field_value', `${path}/maps`, `maps is a list of at most ${MAX_INPUT_MAPS} names`, maps);
+    else
+      maps.forEach((m, i) => {
+        if (typeof m !== 'string' || !NAME_RE.test(m)) err(errors, 'field_value', `${path}/maps/${i}`, 'a map name is a letter or _ then up to 31 letters, digits or _', m);
+        else if (mapNames.has(m)) err(errors, 'field_value', `${path}/maps/${i}`, (INPUT_MAPS as readonly string[]).includes(m) ? `"${m}" is an engine map (always there)` : 'map names are unique', m);
+        else mapNames.add(m);
+      });
+  }
   const glyphs = value['glyphs'];
   if (glyphs !== undefined) {
     if (!isPlainObject(glyphs) || Object.keys(glyphs).length > MAX_INPUT_GLYPHS) err(errors, 'field_type', `${path}/glyphs`, `glyphs maps at most ${MAX_INPUT_GLYPHS} glyph keys to texture assets`, glyphs);
@@ -189,7 +223,7 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
     else names.add(a['name']);
     const type = a['type'] as InputActionType;
     if (!(INPUT_ACTION_TYPES as readonly unknown[]).includes(type)) return err(errors, 'field_value', `${p}/type`, 'type is button, axis1d or axis2d', type);
-    if (!(INPUT_MAPS as readonly unknown[]).includes(a['map'])) err(errors, 'field_value', `${p}/map`, 'map is gameplay or ui', a['map']);
+    if (typeof a['map'] !== 'string' || !mapNames.has(a['map'])) err(errors, 'field_value', `${p}/map`, mapNames.size > INPUT_MAPS.length ? `map is one of ${[...mapNames].join(', ')}` : 'map is gameplay or ui', a['map']);
     if (a['deadZone'] !== undefined && !(typeof a['deadZone'] === 'number' && a['deadZone'] >= 0 && a['deadZone'] < 1)) err(errors, 'field_value', `${p}/deadZone`, 'deadZone is in [0, 1)', a['deadZone']);
     if (a['invert'] !== undefined && typeof a['invert'] !== 'boolean') err(errors, 'field_type', `${p}/invert`, 'invert is true or false', a['invert']);
     if (a['scale'] !== undefined && !(typeof a['scale'] === 'number' && Number.isFinite(a['scale']) && a['scale'] > 0 && a['scale'] <= 10)) err(errors, 'field_value', `${p}/scale`, 'scale is in (0, 10]', a['scale']);
@@ -231,6 +265,7 @@ export function canonicalInput(c: InputConfig): InputConfig {
       ...(a.invert !== undefined ? { invert: a.invert } : {}),
       ...(a.scale !== undefined ? { scale: a.scale } : {}),
     })),
+    ...(c.maps !== undefined && c.maps.length > 0 ? { maps: [...c.maps] } : {}),
     ...(c.cursor !== undefined ? { cursor: { ...(c.cursor.gameplay !== undefined ? { gameplay: c.cursor.gameplay } : {}), ...(c.cursor.ui !== undefined ? { ui: c.cursor.ui } : {}) } } : {}),
     // Phase 23.14: glyph images by key (sorted, so the canonical bytes do not depend on insertion order).
     ...(c.glyphs !== undefined ? { glyphs: Object.fromEntries(Object.keys(c.glyphs).sort().map((k) => [k, c.glyphs![k]!])) } : {}),

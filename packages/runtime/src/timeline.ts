@@ -245,6 +245,8 @@ export interface TimelineHost {
   setMaterial(id: string, param: string, value: number | readonly number[] | string, materialId?: string): boolean;
   /** Phase 23.16's dialogue runner (absent until it exists): run a dialogue node, poll it, stop it. */
   dialogue?: TimelineDialoguePort;
+  /** Phase 23.10: switch the game mode (the path of `ctx.modes.switch`; false: no such mode). */
+  switchMode?(modeId: string, transition: { blend?: 'cut' | 'linear' | 'eased'; blendTime?: number }): boolean;
   /** Phase 23.18's environment presets (absent until they exist). */
   environment?: TimelineEnvironmentPort;
   warn(message: string): void;
@@ -683,6 +685,12 @@ export class TimelineSystem {
             inst.waitTimeout = k.timeout !== undefined ? Math.max(1, this.toSteps(k.timeout)) : 0;
           }
           break;
+        case 'mode': {
+          // Skip applies the remaining mode keys in order: the last one's switch is the one that happens.
+          const ok = this.host.switchMode?.(k.mode ?? '', skipping ? { blend: 'cut' } : { ...(k.blend !== undefined ? { blend: k.blend } : {}), ...(k.blendTime !== undefined ? { blendTime: k.blendTime } : {}) }) ?? false;
+          if (!ok) this.warnOnce(`mode:${k.mode}`, `timeline "${inst.tl.timelineId}": no game mode "${k.mode ?? ''}"`);
+          break;
+        }
         case 'environment': {
           const port = this.host.environment;
           if (port === undefined) {

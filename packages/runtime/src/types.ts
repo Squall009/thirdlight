@@ -115,6 +115,12 @@ export interface RuntimeSnapshot {
    * frame's show/hide entries name them. The host draws the documents.
    */
   uiDocuments?: readonly import('@thirdlight/project-model').RuntimeUiDocumentRow[];
+  /**
+   * Phase 23.10, v4 only, optional: the project's game modes (the first is
+   * the start mode) and each input action's map (the masking of inactive
+   * maps). Absent: no modes — nothing of them runs or enters the digest.
+   */
+  modes?: import('@thirdlight/project-model').RuntimeModes;
   /** Phase 23.17, v4 only, optional: the project's timelines (`content.timelines`; `ctx.timeline`). */
   timelines?: readonly import('@thirdlight/project-model').TimelineAsset[];
 }
@@ -312,6 +318,12 @@ export interface InstantiateConfig {
    * them is `config_invalid`.
    */
   variables?: Readonly<Record<string, unknown>>;
+  /**
+   * Phase 23.10: the game mode runs start in (a Play start option: "Play
+   * from…", `tl_play_start` mode) instead of the first one. A mode the
+   * snapshot does not have is `config_invalid`; ignored without modes.
+   */
+  startMode?: string;
   /** Phase 23.19: the stored project settings document (values that do not fit the save schema's fields fall back to the defaults). */
   projectSettings?: Readonly<Record<string, unknown>>;
 }
@@ -751,6 +763,16 @@ export interface StepContext {
   readonly saves?: import('./project-saves').BehaviorSaves;
   /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
   readonly ui?: BehaviorUi;
+  /** Phase 23.10: the game modes (`ctx.modes`; present while the project has modes). */
+  readonly modes?: BehaviorModes;
+  /** Phase 23.10: the run lifecycle of a game without the platformer session (`ctx.lifecycle`). */
+  readonly lifecycle?: BehaviorLifecycle;
+  /**
+   * Phase 23.10: whether the behavior on this entity runs this step (its
+   * behavior group ticks in the current game mode). Absent: every behavior
+   * runs (no modes, or the mode ticks every group).
+   */
+  readonly behaviorTicks?: (entityId: string) => boolean;
   /** Phase 23.17: timelines (`ctx.timeline`). */
   readonly timeline?: BehaviorTimeline;
 }
@@ -1221,8 +1243,8 @@ export interface BehaviorCameraState {
 
 /** Phase 23.9a: one UI event of this step (from the input frame). */
 export interface BehaviorUiEvent {
-  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle. */
-  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle';
+  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart). */
+  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart';
   /** The UI document it happened in. */
   readonly doc: string;
   /** The widget ('' for none). */
@@ -1304,6 +1326,124 @@ export interface BehaviorUi {
    * @graphNode UI event
    */
   event(name: string): BehaviorUiEvent | null;
+}
+
+/** Phase 23.10: one enter or exit of a game mode switch (`ctx.modes.events()`). */
+export interface BehaviorModeEvent {
+  /** enter (the mode became current) or exit (it ended). */
+  readonly kind: 'enter' | 'exit';
+  /** The mode entered or left. */
+  readonly mode: string;
+  /** The mode on the other side of the switch ('' at a run start). */
+  readonly other: string;
+}
+
+/** Phase 23.10: how a switch looks (absent fields: the target mode's own transition, then the camera's blend). */
+export interface BehaviorModeTransition {
+  /** The camera blend into the mode's camera: cut, linear or eased. */
+  blend?: 'cut' | 'linear' | 'eased';
+  /** Seconds of the camera blend (0–30). */
+  blendTime?: number;
+  /** A UI document shown from the switch for `fadeTime` seconds (its show/hide tweens make the fade). */
+  fade?: string;
+  /** Seconds the fade document stays (0.05–10; default 0.5). */
+  fadeTime?: number;
+}
+
+/**
+ * Phase 23.10: `ctx.modes` — the project's game modes. A mode decides the
+ * active input maps, the live camera, the UI documents shown and the behavior
+ * groups that tick; a switch changes them together in one step, without a
+ * scene load. `switch` applies at the next step boundary; the enter/exit
+ * events are read in the step the switch applied (intent phase), like UI
+ * events. A game without modes answers '' / false.
+ */
+export interface BehaviorModes {
+  /**
+   * The current game mode ('' when the project has none).
+   * @graphPure
+   * @graphNode Current mode
+   */
+  current(): string;
+  /**
+   * The mode before the current one ('' at the start of a run).
+   * @graphPure
+   * @graphNode Previous mode
+   */
+  previous(): string;
+  /**
+   * The current mode is this one.
+   * @graphPure
+   * @graphNode Mode is
+   * @graphLabel modeId mode
+   */
+  is(modeId: string): boolean;
+  /**
+   * Switch to a game mode at the next step (its input maps, camera, UI documents and ticking groups together; no scene load). `false` for a mode the project does not have or a bad transition.
+   * @graphNode Switch mode
+   * @graphLabel modeId mode
+   */
+  switch(modeId: string, transition?: BehaviorModeTransition): boolean;
+  /**
+   * This step's enter and exit events (the step a switch applied in), in order.
+   * @graphPure
+   * @graphNode Mode events
+   */
+  events(): readonly BehaviorModeEvent[];
+  /**
+   * A mode was entered this step (this one, or any when empty).
+   * @graphPure
+   * @graphNode Mode entered
+   * @graphLabel modeId mode
+   */
+  entered(modeId?: string): boolean;
+  /**
+   * A mode ended this step (this one, or any when empty).
+   * @graphPure
+   * @graphNode Mode exited
+   * @graphLabel modeId mode
+   */
+  exited(modeId?: string): boolean;
+  /**
+   * Seconds since the current mode was entered.
+   * @graphPure
+   * @graphNode Time in mode
+   */
+  time(): number;
+}
+
+/**
+ * Phase 23.10: `ctx.lifecycle` — the engine's run lifecycle for a game
+ * without the platformer session (a 3D game plays as a scene): respawn the
+ * player at a player spawn and restart the run. Lives, scores and goals are
+ * the game's own rules (scripts); this is only the mechanism. In a game with
+ * the platformer session every call answers false (the session owns
+ * respawns and restarts).
+ */
+export interface BehaviorLifecycle {
+  /**
+   * Move the player (the 3D character) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). Applied after this step's intent phase (a later phase: the next step). `false` without a 3D character or for an unknown spawn.
+   * @graphNode Respawn player
+   * @graphLabel spawnId spawn
+   */
+  respawn(spawnId?: string): boolean;
+  /**
+   * Make a player spawn (an object with the Player spawn component) the one respawn uses.
+   * @graphNode Set spawn point
+   * @graphLabel spawnId spawn
+   */
+  setSpawn(spawnId: string): boolean;
+  /**
+   * The active player spawn ('' when there is none: respawn then uses where the player started).
+   * @graphPure
+   * @graphNode Spawn point
+   */
+  spawnPoint(): string;
+  /**
+   * Restart the run at the next step: scenes, objects, scripts, cameras, UI and the start mode as at the start.
+   * @graphNode Restart run
+   */
+  restart(): boolean;
 }
 
 /** Phase 23.17: one timeline event (seen in the step after it happened). */
@@ -1810,6 +1950,8 @@ export interface Runtime {
   takeUiOutput?(): import('./ui').UiOutput | null;
   /** Phase 23.9a: the committed view model and shown documents. */
   uiView?(): import('./ui').UiStateView;
+  /** Phase 23.10: the game modes as of the last step (null: the project has none). */
+  modeView?(): import('./modes').ModeView | null;
   /** Phase 23.17: the timelines' screen overlay (fade, letterbox), plays and last events (null until one played). */
   timelineView?(): import('./timeline').TimelineView | null;
   /** Phase 23.17: the timelines' state for the step digest (null until one played). */

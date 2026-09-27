@@ -241,6 +241,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   blockLayer?: import('./block-layers').BlockLayerComponent;
   /** Phase 23.6, v4 only: the metadata a prop writes into the block cells beneath it. */
   blockFootprint?: import('./block-layers').BlockFootprintComponent;
+  /** Phase 23.10, v4 only: the behavior group the entity's behavior belongs to (game modes tick groups). */
+  behaviorGroup?: import('./modes').BehaviorGroupComponent;
 }
 
 /**
@@ -512,6 +514,10 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   uiDocuments?: import('./ui-documents').UiDocument[];
   /** Phase 23.9a: UI themes (named styles and icons documents share; absent = none). */
   uiThemes?: import('./ui-documents').UiTheme[];
+  /** Phase 23.10: game modes (the first is the start mode; absent = none). */
+  modes?: import('./modes').GameMode[];
+  /** Phase 23.10: the behavior group names entities may carry (absent = none). */
+  behaviorGroups?: string[];
   /** Phase 23.17: timelines (sequencer assets; absent = none). */
   timelines?: import('./timelines').TimelineAsset[];
   /**
