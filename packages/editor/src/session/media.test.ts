@@ -64,6 +64,17 @@ describe('validateMediaDrop — the extension decides the kind before any networ
     }
   });
 
+  it('phase 23.9a: accepts .ttf/.otf/.woff2/.woff as a font', () => {
+    for (const name of ['Title.ttf', 'Title.OTF', 'Title.woff2', 'Title.woff']) {
+      const r = validateMediaDrop(name, 1000);
+      expect(r.ok, name).toBe(true);
+      if (r.ok) {
+        expect(r.kind).toBe('font');
+        expect(r.displayName).toBe('Title');
+      }
+    }
+  });
+
   it('refuses any other extension with an actionable message', () => {
     for (const name of ['hero.txt', 'hero.mp4', 'hero', 'wav.glb.txt']) {
       const r = validateMediaDrop(name, 10);

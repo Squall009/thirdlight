@@ -236,6 +236,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'saveEvent':
         r = rt.queueSaveEvent?.(c.event) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project saves' } };
         break;
+      case 'uiEvent':
+        r = rt.queueUiEvent?.(c.event) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project UI' } };
+        break;
       case 'stop':
         rt.stop();
         break;

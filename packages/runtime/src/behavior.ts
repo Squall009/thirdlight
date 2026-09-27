@@ -63,6 +63,7 @@ import type {
   BehaviorCamera,
   BehaviorSockets,
   BehaviorDebug,
+  BehaviorUi,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -229,6 +230,8 @@ export interface BehaviorContext {
    * with title/chapter/location/play time/picture) and the project settings document.
    */
   readonly saves?: BehaviorSaves;
+  /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
+  readonly ui?: BehaviorUi;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -941,6 +944,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Phase 23.19: project saves.
         if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
+        // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
+        if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

@@ -3,7 +3,7 @@
  * the committed game view, every entity's transform (exact float bits), the
  * counters, the hidden and fading entities, the animator poses, the scene
  * set's revision and spawned entities, the run's save state and (phase 23.4)
- * the resolved camera. Two runs
+ * the resolved camera and (phase 23.9a) the project UI state. Two runs
  * with the same inputs produce the same digest at every step: the check that
  * the simulation worker computes exactly what the page computes.
  */
@@ -91,5 +91,11 @@ export function stepDigest(rt: Runtime): string {
   // Phase 23.19: the project saves state (document, play time, settings, slot list, outcomes; only with a save schema and once used).
   const saves = rt.savesState?.() ?? null;
   if (saves !== null) h.text(saves);
+  // Phase 23.9a: the project UI's view model and shown documents (only once a script or a frame used it).
+  const ui = rt.uiView?.();
+  if (ui !== undefined && (Object.keys(ui.model).length > 0 || ui.shown.length > 0)) {
+    h.text(JSON.stringify(ui.model));
+    h.text(JSON.stringify(ui.shown));
+  }
   return h.hex();
 }

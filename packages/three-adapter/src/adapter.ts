@@ -254,6 +254,14 @@ export interface SceneAdapter {
    * Presentation only (the simulation's camera does not move).
    */
   setCameraOffset?(offset: readonly [number, number, number] | null): void;
+  /**
+   * Phase 23.9a: project an entity's world position (or a world point), plus
+   * a world offset, through the camera of the last rendered frame: `out` =
+   * [x 0 (left)–1 (right), y 0 (top)–1 (bottom), 1 in front of the camera /
+   * 0 behind]. False without a camera or for an unknown entity. The game
+   * host places world-anchored UI widgets with it.
+   */
+  projectToScreen?(target: { readonly entityId?: string; readonly point?: readonly number[]; readonly offset?: readonly number[] }, out: number[]): boolean;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
@@ -1595,6 +1603,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return { ok: true };
   }
 
+  const projectScratch = new THREE.Vector3();
+  const projectScratch2 = new THREE.Vector3();
   const api: SceneAdapter = {
     renderFrame,
     captureScreenshot,
@@ -1607,6 +1617,26 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     setCameraOffset(offset: readonly [number, number, number] | null): void {
       cameraOffset = offset !== null && offset.every((v) => Number.isFinite(v)) ? [offset[0], offset[1], offset[2]] : null;
+    },
+    projectToScreen(target, out): boolean {
+      if (disposed || camera === null) return false;
+      const p = projectScratch;
+      if (typeof target.entityId === 'string') {
+        const obj = objects.get(target.entityId);
+        if (obj === undefined) return false;
+        obj.getWorldPosition(p);
+      } else if (target.point !== undefined && target.point.length === 3) p.set(target.point[0]!, target.point[1]!, target.point[2]!);
+      else return false;
+      if (target.offset !== undefined && target.offset.length === 3) p.set(p.x + target.offset[0]!, p.y + target.offset[1]!, p.z + target.offset[2]!);
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return false;
+      camera.updateMatrixWorld();
+      // In front: the point's depth in camera space is negative (cameras look down −Z).
+      const front = projectScratch2.copy(p).applyMatrix4(camera.matrixWorldInverse).z < 0;
+      p.project(camera);
+      out[0] = (p.x + 1) / 2;
+      out[1] = (1 - p.y) / 2;
+      out[2] = front ? 1 : 0;
+      return true;
     },
     setEnvironmentLayer(layer: EnvironmentLayerLike | null): void {
       if (JSON.stringify(layer) === JSON.stringify(environmentLayer)) return;

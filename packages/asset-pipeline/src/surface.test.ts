@@ -75,6 +75,12 @@ describe('public surface (dependencies.md §3)', () => {
         'MUSIC_DURATION_MS_MAX',
         'MUSIC_SOURCE_BYTES_MAX',
         'MUSIC_TOOLCHAIN',
+        // phase 23.9a: fonts
+        'FONT_FAMILY_NAME_MAX',
+        'FONT_SOURCE_BYTES_MAX',
+        'FONT_TABLES_MAX',
+        'FONT_TOOLCHAIN',
+        'inspectFont',
         'M2_GLTF_EXTENSION_ALLOWLIST',
         'M2_GLTF_IMAGE_BYTES',
         'M2_GLTF_INSPECTION_ENTRIES',

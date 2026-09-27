@@ -119,7 +119,7 @@ export function AssetBrowser(p: Props): JSX.Element {
                 onDragStart={a.kind === 'model' || a.kind === 'texture' ? (ev) => dragStart(ev, a.assetId, null) : undefined}
               >
                 <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">
-                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' || a.kind === 'music' ? 'audio' : a.kind === 'texture' ? 'empty' : 'model'}.png`} alt="" draggable={false} />
+                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' || a.kind === 'music' ? 'audio' : a.kind === 'texture' || a.kind === 'font' ? 'empty' : 'model'}.png`} alt="" draggable={false} />
                 </span>
                 <span className="tl-tile__name">{a.displayName}</span>
                 <span className="tl-tile__meta" title={`${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}`}>
@@ -182,21 +182,21 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={importInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ogg,.opus,.mp3,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onImport(f);
             e.target.value = '';
           }}
         />
-        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb, or .fbx converted by Blender), audio (.wav), texture (.png/.jpg/.webp) or music (.ogg/.mp3) asset">
+        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb, or .fbx converted by Blender), audio (.wav), texture (.png/.jpg/.webp), music (.ogg/.mp3) or font (.ttf/.otf/.woff2/.woff) asset">
           import…
         </button>
         <input
           ref={reimportInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ogg,.opus,.mp3,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onReimport(f);

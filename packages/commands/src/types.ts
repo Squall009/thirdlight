@@ -56,6 +56,8 @@ import type {
   GraphData,
   GraphDocument,
   GraphOp,
+  UiDocument,
+  UiTheme,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -134,7 +136,12 @@ export type V3MutationOp =
   | 'deleteBlockType'
   | 'setCellFields'
   | 'setBlockStamp'
-  | 'deleteBlockStamp';
+  | 'deleteBlockStamp'
+  // phase 23.9a: project UI documents and themes
+  | 'setUiDocument'
+  | 'deleteUiDocument'
+  | 'setUiTheme'
+  | 'deleteUiTheme';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -523,6 +530,26 @@ export interface SetScriptLibraryInverse {
   behaviors: { behaviorId: string; restore: BehaviorRecord }[];
 }
 
+/**
+ * Phase 23.9a: `setUiDocument`/`deleteUiDocument`/`setUiTheme`/`deleteUiTheme`
+ * change data: one document or theme before and after (null = none).
+ */
+export interface SetUiChange {
+  type: 'setUi';
+  uiKind: 'document' | 'theme';
+  id: string;
+  previous: UiDocument | UiTheme | null;
+  next: UiDocument | UiTheme | null;
+}
+
+/** Phase 23.9a: undo of a UI op: restore the previous document or theme (null = remove it). */
+export interface SetUiInverse {
+  kind: 'setUi';
+  uiKind: 'document' | 'theme';
+  id: string;
+  restore: UiDocument | UiTheme | null;
+}
+
 /** Phase 20.0: undo of an effect op: restore the previous effect (null = remove it). */
 export interface SetEffectInverse {
   kind: 'setEffect';
@@ -847,7 +874,8 @@ export type ChangeData =
   | EditBlocksChange
   | SetBlockTypeChange
   | SetCellFieldsChange
-  | SetBlockStampChange;
+  | SetBlockStampChange
+  | SetUiChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -885,7 +913,8 @@ export type ForwardChange =
   | EditBlocksChange
   | SetBlockTypeChange
   | SetCellFieldsChange
-  | SetBlockStampChange;
+  | SetBlockStampChange
+  | SetUiChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -1073,6 +1102,7 @@ export type InverseSpec =
   | SetGraphInverse
   | SetEffectInverse
   | SetScriptLibraryInverse
+  | SetUiInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
@@ -1510,6 +1540,23 @@ export interface DeleteScriptLibraryArgs {
   libraryId: string;
 }
 
+/** Phase 23.9a: `setUiDocument` creates or replaces one UI document (by uiDocumentId). */
+export interface SetUiDocumentArgs {
+  document: UiDocument;
+}
+/** Phase 23.9a: `deleteUiDocument` removes one (refused while another document or flow.screens names it). */
+export interface DeleteUiDocumentArgs {
+  uiDocumentId: string;
+}
+/** Phase 23.9a: `setUiTheme` creates or replaces one UI theme (by uiThemeId). */
+export interface SetUiThemeArgs {
+  theme: UiTheme;
+}
+/** Phase 23.9a: `deleteUiTheme` removes one (refused while a document uses it). */
+export interface DeleteUiThemeArgs {
+  uiThemeId: string;
+}
+
 /** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
   effect: EffectDef;
@@ -1561,6 +1608,10 @@ export type MutationArgs =
   | SetCellFieldsArgs
   | SetBlockStampArgs
   | DeleteBlockStampArgs
+  | SetUiDocumentArgs
+  | DeleteUiDocumentArgs
+  | SetUiThemeArgs
+  | DeleteUiThemeArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
   | SetEffectArgs

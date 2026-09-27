@@ -15,8 +15,8 @@
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
-import type { AnimatorPose, CameraViewInfo, DebugCommandState, GameView, PointerSample, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
 import { materialChangeKey } from '@thirdlight/runtime';
+import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -291,6 +291,9 @@ export class FrameEncoder {
       out.mat = mat;
       for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
     }
+    // Phase 23.9a: the project UI's diff of the steps since the last frame.
+    const ui = rt.takeUiOutput?.() ?? null;
+    if (ui !== null) out.ui = ui;
     // Phase 23.3: the cursor a script asked for, and the pointer state (each when it changed).
     const cursor = rt.cursorRequest?.() ?? null;
     if (cursor !== this.cursorSent) {
@@ -391,6 +394,10 @@ export class FrameMirror {
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
   /** Phase 23.19: project save requests not carried out yet (the host takes them every frame). */
   saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
+  /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
+  ui: UiOutput | null = null;
+  uiModel: Record<string, unknown> = {};
+  uiShown: readonly UiShownDocument[] = [];
   /** Phase 23.3: the worker's cursor request and pointer. */
   cursor: 'free' | 'locked' | null = null;
   pointer: PointerSample | null = null;
@@ -470,6 +477,11 @@ export class FrameMirror {
         this.mat.delete(k);
         this.mat.set(k, c);
       }
+    }
+    if (s.ui !== undefined) {
+      this.ui = mergeUiOutput(this.ui, s.ui);
+      this.uiModel = applyUiOutputToModel(this.uiModel, s.ui);
+      if (s.ui.shown !== undefined) this.uiShown = s.ui.shown;
     }
     if (s.cursor !== undefined) this.cursor = s.cursor;
     if (s.pointer !== undefined) this.pointer = s.pointer;

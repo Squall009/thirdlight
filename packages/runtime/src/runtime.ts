@@ -44,6 +44,7 @@ import {
   type GameZoneRole,
   type PrefabDefinition,
   type Quat,
+  type RuntimeUiDocumentRow,
 } from '@thirdlight/project-model';
 import {
   NEUTRAL_ACTION_SOURCE,
@@ -62,6 +63,7 @@ import {
 
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
+import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
 import { byEntityId, capsuleInZone, character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
@@ -170,6 +172,7 @@ import {
   type DebugCommandOptions,
   type DebugCommandSpec,
   type DebugCommandState,
+  type BehaviorUi,
 } from './types';
 
 /** Phase 23.3: the pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
@@ -1288,6 +1291,7 @@ export function instantiateRuntime(
     ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
     ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
     ...(projectSettings !== undefined ? { projectSettings } : {}),
+    uiDocuments: snap.uiDocuments,
   });
   return { ok: true, runtime: rt };
 }
@@ -1373,6 +1377,8 @@ interface RuntimeArgs {
   /** Phase 23.19: the project save schema and the stored project settings document. */
   saveSchema?: SaveSchema;
   projectSettings?: Readonly<Record<string, unknown>>;
+  /** Phase 23.9a: the project's UI documents (id, layer, modal). */
+  uiDocuments: readonly RuntimeUiDocumentRow[];
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1595,6 +1601,11 @@ class RuntimeInstance implements Runtime {
   /** Phase 23.11: sockets (entities riding on model nodes) and the script API over them. */
   private readonly sockets: SocketSystem;
   private readonly socketControl: import('./types').BehaviorSockets;
+  // ---- Phase 23.9a: the project UI (view model, shown documents, UI events) ----
+  private readonly ui: UiState;
+  /** UI events the host queued for the next sampled frame. */
+  private uiQueue: UiEventRecord[] = [];
+  private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
   /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
@@ -1879,6 +1890,8 @@ class RuntimeInstance implements Runtime {
     this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
     this.cameras.add(args.initialEntities);
     this.cameraControl = this.buildCameraControl();
+    // Phase 23.9a: the project UI (inert until a script or a frame uses it).
+    this.ui = new UiState(args.uiDocuments);
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
     const rt = this;
     this.blocks = new GameplayBlocks(
@@ -3173,6 +3186,7 @@ class RuntimeInstance implements Runtime {
     if (actionOverride !== undefined) {
       action = actionOverride;
       this.stepDebugCalls = null;
+      this.ui.deliver(undefined);
     } else {
       try {
         action = this.sampleAction(stepIndex);
@@ -3278,6 +3292,52 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
+  /** Phase 23.9a: `ctx.ui` for one phase (the UI events are read in the intent phase only, once per step). */
+  private uiControlFor(phase: SimulationPhase): BehaviorUi {
+    let c = this.uiControls.get(phase);
+    if (c !== undefined) return c;
+    const ui = this.ui;
+    const none: readonly UiEventRecord[] = Object.freeze([]);
+    const events = (): readonly UiEventRecord[] => (phase === 'intent' ? ui.events() : none);
+    c = Object.freeze({
+      set: (path: string, value: unknown): boolean => ui.set(path, value),
+      get: (path: string): unknown => ui.get(path),
+      clear: (path: string): boolean => ui.clear(path),
+      show: (docId: string, options?: { layer?: number; modal?: boolean }): boolean => ui.show(docId, options),
+      hide: (docId: string): boolean => ui.hide(docId),
+      isShown: (docId: string): boolean => ui.isShown(docId),
+      play: (docId: string, tween: string, widgetId?: string): boolean => ui.command('play', docId, tween, widgetId),
+      focus: (docId: string, widgetId: string): boolean => ui.command('focus', docId, widgetId, undefined),
+      events,
+      event: (name: string): UiEventRecord | null => events().find((e) => e.name === name) ?? null,
+    });
+    this.uiControls.set(phase, c);
+    return c;
+  }
+
+  /** Phase 23.9a: queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
+  queueUiEvent(event: UiEventRecord): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    const checked = validateUiEvent(event);
+    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `UI event: ${checked.message}`, { reason: 'ui_event', path: `/${checked.field}` }) };
+    if ((checked.event.kind === 'show' || checked.event.kind === 'hide' || checked.event.kind === 'toggle') && !this.ui.hasDocument(checked.event.doc)) {
+      return { ok: false, error: fail('game_command_invalid', `no UI document "${checked.event.doc}"`, { reason: 'ui_event' }) };
+    }
+    if (this.uiQueue.length >= MAX_FRAME_UI_EVENTS * 4) return { ok: false, error: fail('game_command_invalid', `at most ${MAX_FRAME_UI_EVENTS * 4} UI events may wait for the next step`, { reason: 'pending' }) };
+    this.uiQueue.push(checked.event);
+    return { ok: true };
+  }
+
+  /** Phase 23.9a: the UI changes since the host last took them. */
+  takeUiOutput(): UiOutput | null {
+    return this.ui.takeOutput();
+  }
+
+  /** Phase 23.9a: the committed view model and shown documents. */
+  uiView(): UiStateView {
+    return this.ui.view();
+  }
+
   private sampleAction(stepIndex: number): ActionFrame {
     let raw: unknown;
     try {
@@ -3297,6 +3357,12 @@ class RuntimeInstance implements Runtime {
       const room = Math.max(0, MAX_FRAME_COMMANDS - (Array.isArray(have) ? have.length : 0));
       if (room > 0) raw = { ...(raw as ActionFrame), commands: [...have, ...this.debugQueue.splice(0, room)] };
     }
+    // Phase 23.9a: queued UI events ride on this step's frame (so a recording keeps them).
+    if (this.uiQueue.length > 0 && typeof raw === 'object' && raw !== null) {
+      const have = (raw as ActionFrame).ui ?? [];
+      const room = Math.max(0, MAX_FRAME_UI_EVENTS - (Array.isArray(have) ? have.length : 0));
+      if (room > 0) raw = { ...(raw as ActionFrame), ui: [...have, ...this.uiQueue.splice(0, room)] };
+    }
     // Phase 21.2: equal action values of the last frame are shared (immutable).
     const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
     if (!check.ok) throw new InputFrameError(check.field, check.message);
@@ -3305,6 +3371,8 @@ class RuntimeInstance implements Runtime {
     this.deliverDebugCommands(check.frame);
     // Phase 23.19: storage's answers (the slot list, outcomes, a loaded document).
     if (check.frame.saves !== undefined) this.saves.deliver(check.frame.saves);
+    // Phase 23.9a: the frame's show/hide entries apply before any script runs.
+    this.ui.deliver(check.frame.ui);
     return this.withHeldPointer(check.frame);
   }
 
@@ -3661,6 +3729,8 @@ class RuntimeInstance implements Runtime {
       // Phase 23.19: no project save document, no play time yet.
       this.saves.reset();
     }
+    // Phase 23.9a: and starts with an empty view model and no document shown.
+    if (reset === 'replay' || reset === 'start') this.ui.resetRun();
     // Phase 9.11: a loaded save's run on top of the fresh one.
     if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
       const r = this.pendingRestore;
@@ -4563,6 +4633,8 @@ class RuntimeInstance implements Runtime {
       fields['materials'] = { value: this.materials.api, enumerable: true };
       // Phase 23.19: project saves (ctx.saves).
       fields['saves'] = { value: this.saves.api, enumerable: true };
+      // Phase 23.9a: the project UI (the step's UI events in the intent phase).
+      fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };

@@ -23,6 +23,8 @@ import type {
   RunSaveState,
   RuntimeDiagnostics,
   RuntimeSnapshot,
+  UiEventRecord,
+  UiOutput,
 } from '@thirdlight/runtime';
 import type { ManifestBehaviorRow } from './host';
 
@@ -98,6 +100,8 @@ export type SimCommand =
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   // Phase 23.19: a storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
   | { readonly op: 'saveEvent'; readonly event: import('@thirdlight/runtime').SaveEvent }
+  /** Phase 23.9a: a UI event, queued in the worker's runtime for its next sampled frame. */
+  | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
   | { readonly op: 'stop' };
 
 export type SimQuery =
@@ -170,6 +174,8 @@ export interface FrameState {
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
   /** Phase 23.12: material parameters scripts changed (one change per object, material and parameter). */
   readonly mat?: readonly import('@thirdlight/runtime').MaterialRenderChange[];
+  /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
+  readonly ui?: UiOutput;
   /** Phase 23.3: the cursor a script asked for (when it changed; null: the input map decides). */
   readonly cursor?: 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (when it changed; observers). */

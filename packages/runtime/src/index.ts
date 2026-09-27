@@ -265,3 +265,28 @@ export { applyBlockEdits, effectiveCellMeta, pickCell, type BlockEdit, type Bloc
 export { BlockGrid, CHUNK_SIZE, autoVariant, blockTypeSolid, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockType, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
 // Phase 23.12 (E9): graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
 export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
+// Phase 23.9a: the project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
+export type { BehaviorUi, BehaviorUiEvent } from './types';
+export {
+  MAX_FRAME_UI_EVENTS,
+  UI_EVENT_KINDS,
+  UI_MAX_COMMANDS,
+  UI_MAX_SHOWN,
+  UI_MODEL_MAX_BYTES,
+  UiState,
+  applyUiOutputToModel,
+  mergeUiOutput,
+  readUiPath,
+  uiPathSegments,
+  validateUiEvent,
+  validateUiEvents,
+  type UiCommand,
+  type UiEventKind,
+  type UiEventRecord,
+  type UiOutput,
+  type UiShownDocument,
+  type UiStateView,
+} from './ui';
+// The document types the game host draws (project-model's; the host reads them through the runtime).
+export { UI_LIMITS, uiDocumentsForRuntime, uiTextPlaceholders } from '@thirdlight/project-model';
+export type { RuntimeUiDocumentRow, UiAction, UiBinding, UiDocument, UiEngineAction, UiIcon, UiStyle, UiStyleValues, UiTheme, UiTween, UiWidget, UiWorldAnchor } from '@thirdlight/project-model';
