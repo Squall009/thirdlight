@@ -30,7 +30,7 @@ export type { GameZoneRole };
 import type { ActionFrame, ActionSource, DebugCommandArg, DebugCommandCall } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode, RuntimeError } from './errors';
-import type { PhysicsPort, PhysicsPort3D, PhysicsStepClient, Vec2 } from './ports';
+import type { CharacterClearanceResult3D, PhysicsPort, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
 
 /** One entity of any supported normalized scene version. */
 export type RuntimeSnapshotEntity = ResolvedSceneV3['entities'][number];
@@ -352,6 +352,19 @@ export interface ModuleConfig {
   tags?: BehaviorTagQuery;
   /** Phase 23.1: 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
   physicsDimension?: 3;
+  /**
+   * Phase 23.2 (3D projects): read-only queries of the 3D world for the
+   * character controller module (a ray; the clearance of the character's
+   * capsule at an origin) — not part of the scripts' context.
+   */
+  character3D?: Character3DQueries;
+}
+
+/** Phase 23.2: the 3D world queries the character controller uses to find a ledge and room on top of it. */
+export interface Character3DQueries {
+  raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null;
+  /** The clearance of the character capsule if its origin were at `origin` (null: the port cannot tell). */
+  clearance(origin: PhysicsVec3): CharacterClearanceResult3D | null;
 }
 
 /**
@@ -683,6 +696,13 @@ export interface StepContext {
   readonly triggerEvents?: readonly TriggerEventRecord[];
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
+  /**
+   * Phase 23.2 (3D projects): the active camera's yaw this step — radians
+   * about +Y, 0 looking along −Z (three.js' default camera) — when a camera
+   * rig provides one; the 3D character reads its move input relative to it.
+   * Absent: world axes (the input's y pushes along −Z, its x along +X).
+   */
+  readonly cameraYaw?: number;
   /** Phase 23.4: the virtual cameras (`ctx.camera`; a scene without one answers false/null). */
   readonly camera?: BehaviorCamera;
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */

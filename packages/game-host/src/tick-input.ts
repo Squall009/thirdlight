@@ -27,7 +27,8 @@ export function continuePhase(p: JumpPhase): JumpPhase {
 
 /** The frame's continuation for a further step in the same tick (no new device events). */
 export function continueFrame(f: ActionFrame): ActionFrame {
-  const out: ActionFrame = { stepIndex: f.stepIndex, moveX: f.moveX, jump: continuePhase(f.jump) };
+  // Phase 23.2: a frame's second move axis (moveY) is kept as it is (absent stays absent).
+  const out: ActionFrame = { stepIndex: f.stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: continuePhase(f.jump) };
   if (f.actions !== undefined) {
     const actions: Record<string, ActionValue> = {};
     for (const name of Object.keys(f.actions)) {
@@ -80,7 +81,7 @@ export class TickInputSource implements ActionSource {
     // The previous tick ran no step: merge, keeping its edges.
     const p = this.pending;
     const j = mergePhase(p.jump, frame.jump);
-    const merged: ActionFrame = { stepIndex: frame.stepIndex, moveX: frame.moveX, jump: j.now };
+    const merged: ActionFrame = { stepIndex: frame.stepIndex, moveX: frame.moveX, ...(frame.moveY !== undefined ? { moveY: frame.moveY } : {}), jump: j.now };
     this.owedJump = j.then;
     if (frame.actions !== undefined || p.actions !== undefined) {
       const actions: Record<string, ActionValue> = {};
@@ -101,7 +102,7 @@ export class TickInputSource implements ActionSource {
   sample(stepIndex: number): ActionFrame {
     const f = this.pending;
     if (f === null) return { stepIndex, moveX: 0, jump: 'none' };
-    const out: ActionFrame = { stepIndex, moveX: f.moveX, jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}) };
+    const out: ActionFrame = { stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}) };
     // The next step of this tick sees the continuation (or the owed edge of a merge).
     const next = continueFrame(f);
     if (this.owedJump !== null) {

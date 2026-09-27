@@ -712,7 +712,7 @@ const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape'],
   // Phase 14.0 / 15.3: the capsule, then the movement tuning (all optional; `null` goes back to the default).
-  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
+  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'],
   ...COMPONENT_FIELD_ORDER_V3,
 };
 

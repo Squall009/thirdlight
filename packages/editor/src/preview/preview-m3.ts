@@ -94,7 +94,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
-import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
+import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 
 /**
@@ -444,7 +444,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the game requires a player controller entity');
   }
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
-  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
+  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
   // Phase 21.5: what this composition attaches to the page is released with it
   // (the input listeners, the focus listener, the audio owner and its context,
   // the unlock listeners) — a new snapshot composes again on the same canvas —
@@ -615,7 +615,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       assetPaths: assetPathsById,
       // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
       ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
-      inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
+      inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
       setQuality: (level) => adapterRef.current?.setQuality?.(level),
       setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
       // Phase 14.5: the title screen's background scene and camera pan.
@@ -833,7 +833,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.input.request', (m) => {
-    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; moveX: number; jump: string }> };
+    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>> }> };
     if (handle === null) {
       bridge.sendInputResult(playId, body.requestId, notReady);
       return;

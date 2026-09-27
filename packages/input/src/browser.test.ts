@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { attachBrowserInput } from './browser';
+import { DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, type InputConfigLike } from './actions';
 import { DEFAULT_KEYBOARD_MAP } from './types';
 
 type Handler = (event: Event) => void;
@@ -93,6 +94,7 @@ interface DiagnosticEvent {
 interface HarnessOptions {
   gamepads?: (() => ArrayLike<Gamepad | null>) | null;
   secure?: boolean;
+  inputConfig?: InputConfigLike;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -113,6 +115,7 @@ function harness(options: HarnessOptions = {}) {
     navigator: win.navigator as unknown as Navigator,
     getGamepads: options.gamepads ?? null,
     onDiagnostic: (event) => diagnostics.push({ ...event }),
+    ...(options.inputConfig !== undefined ? { inputConfig: options.inputConfig } : {}),
   });
   const keyEvent = (
     code: string,
@@ -129,6 +132,26 @@ function harness(options: HarnessOptions = {}) {
 function neutralFrame(stepIndex: number) {
   return { stepIndex, moveX: 0, jump: 'none' };
 }
+
+describe('phase 23.2: a 2D move action gives the frame its move vector', () => {
+  it('with the 3D defaults W/A/S/D give moveX and moveY; the 1D defaults keep the M2 frame exactly', () => {
+    const h = harness({ inputConfig: DEFAULT_INPUT_CONFIG_3D });
+    h.target.dispatch('keydown', h.keyEvent('KeyW'));
+    h.target.dispatch('keydown', h.keyEvent('KeyD'));
+    const f = h.source.sample(5);
+    expect([f.moveX, f.moveY]).toEqual([0.7071, 0.7071]);
+    h.target.dispatch('keyup', h.keyEvent('KeyD'));
+    h.target.dispatch('keydown', h.keyEvent('ShiftLeft'));
+    const g = h.source.sample(6);
+    expect([g.moveX, g.moveY]).toEqual([0, 1]);
+    expect(g.actions?.['run']?.p).toBe('pressed');
+    const flat = harness({ inputConfig: DEFAULT_INPUT_CONFIG });
+    flat.target.dispatch('keydown', flat.keyEvent('KeyD'));
+    const m2 = flat.source.sample(5);
+    expect(m2.moveX).toBe(1);
+    expect('moveY' in m2).toBe(false);
+  });
+});
 
 describe('keyboard mapping and release', () => {
   it('maps the default codes to exact digital frames', () => {

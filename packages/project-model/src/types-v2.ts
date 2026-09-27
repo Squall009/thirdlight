@@ -158,6 +158,32 @@ export interface ControllerComponent {
   autostep?: boolean;
   /** Metres: the highest step autostep climbs. */
   autostepHeight?: number;
+  /** Phase 23.2 (3D projects): m/s walking (absent: 2). */
+  walkSpeed?: number;
+  /** Phase 23.2 (3D): m/s while the `run` action is held (absent: the project's run_speed). */
+  runSpeed?: number;
+  /** Phase 23.2 (3D): share of the acceleration available in the air (0–1, absent: 0.5). */
+  airControl?: number;
+  /** Phase 23.2 (3D): multiplies the project's gravity (absent: 1). */
+  gravityScale?: number;
+  /** Phase 23.2 (3D): whether the character can jump (absent: true). */
+  jump?: boolean;
+  /** Phase 23.2 (3D): m/s upward at a jump (absent: the project's jump_velocity). */
+  jumpSpeed?: number;
+  /** Phase 23.2 (3D): degrees, the steepest walkable slope (absent: the project's max_slope_climb_deg). */
+  slopeLimit?: number;
+  /** Phase 23.2 (3D): metres the character steps up without a jump (absent: 0.3; 0: off). */
+  stepHeight?: number;
+  /** Phase 23.2 (3D): pull up onto ledges up to `ledgeHeight` (absent: false). */
+  ledgeClimb?: boolean;
+  /** Phase 23.2 (3D): metres, the highest ledge it climbs (absent: 1.2). */
+  ledgeHeight?: number;
+  /** Phase 23.2 (3D): seconds a ledge climb takes (absent: 0.6). */
+  ledgeClimbTime?: number;
+  /** Phase 23.2 (3D): degrees per second it turns (absent: 720; 0: at once). */
+  turnSpeed?: number;
+  /** Phase 23.2 (3D): turn to face the movement direction (absent: true). */
+  faceMovement?: boolean;
 }
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */

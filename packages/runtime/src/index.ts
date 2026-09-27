@@ -78,6 +78,7 @@ export {
   type PhysicsPort3D,
   type PhysicsQuat,
   type RaycastHit3D,
+  type CharacterState3D,
   type StaticColliderSpec3D,
   type PhysicsVec3,
   // Phase 23.1: 3D shapes, kinematic poses, overlap queries and clearance.
@@ -113,6 +114,7 @@ export {
   type InterpolatedTransform,
   type InterpolatedVisitor,
   type ModuleConfig,
+  type Character3DQueries,
   type ModuleResetContext,
   type MotionSegment,
   type PlayerMotion,
@@ -193,6 +195,9 @@ export {
   type BehaviorLogLevel,
   type ControlJumpIntent,
   type ControlMoveIntent,
+  type CharacterMoveIntent,
+  type CharacterPlaceIntent,
+  type CharacterEnableIntent,
   type IntentKind,
   type IntentSet,
   type IntentTransformWrite,
@@ -224,6 +229,9 @@ export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random'
 export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';
+// Phase 23.2: the 3D kinematic character controller module.
+export { CHARACTER_3D_MODULE_ID, RUN_ACTION, character3DSpec, createCharacter3DModule, type Character3DStatus } from './character3d';
+export { character3DPhysicsOf } from './scene-set';
 // Phase 23.4: the camera framework — the script API, the brain and its pure rig maths (the editor's frustum previews use it).
 export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './types';
 export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';

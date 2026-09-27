@@ -245,3 +245,16 @@ export const DEFAULT_INPUT_CONFIG: InputConfigLike = Object.freeze({
     { name: 'navigate', type: 'axis2d', map: 'ui', bindings: [{ kind: 'keys2d', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, { kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, { kind: 'gamepadStick', x: 0, y: 1 }] },
   ],
 } as InputConfigLike);
+
+/**
+ * Phase 23.2: the default actions of a 3D project (a copy of project-model's
+ * `DEFAULT_INPUT_3D`; tests/input-defaults-parity.test.ts keeps them equal):
+ * `move` is a 2D axis (W/A/S/D, arrows, left stick) and `run` a button.
+ */
+export const DEFAULT_INPUT_CONFIG_3D: InputConfigLike = Object.freeze({
+  actions: [
+    { name: 'move', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, { kind: 'keys2d', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, { kind: 'gamepadStick', x: 0, y: 1 }] },
+    { name: 'run', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'ShiftLeft' }, { kind: 'key', code: 'ShiftRight' }, { kind: 'gamepadButton', button: 10 }] },
+    ...DEFAULT_INPUT_CONFIG.actions.filter((a) => a.name !== 'move'),
+  ],
+} as InputConfigLike);
