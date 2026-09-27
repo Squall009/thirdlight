@@ -90,7 +90,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, GameMode } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -128,6 +128,8 @@ import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
 import { LibrariesPanel } from './script/LibrariesPanel';
+import { UiPanel } from './uidoc/UiPanel';
+import { newUiDocument, newUiTheme, uniqueDocId } from '../session/ui-edit';
 import type { LibraryDraft, LibrarySaveOutcome } from './script/LibraryDocument';
 import { newLibraryFiles } from '../session/script-sources';
 import { effectPortContext, shownSystem, type EffectDocumentProps } from './effect/EffectDocument';
@@ -607,6 +609,10 @@ function EditorApp(): JSX.Element {
   // Phase 23.7: the shared script libraries and the Libraries list's last refusal.
   const [scriptLibraries, setScriptLibraries] = useState<readonly ScriptLibrary[]>([]);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  // Phase 23.9b: the project UI documents and themes (the UI list and their tabs) and the last refusal.
+  const [uiDocuments, setUiDocuments] = useState<readonly UiDocument[]>([]);
+  const [uiThemes, setUiThemes] = useState<readonly UiTheme[]>([]);
+  const [uiError, setUiError] = useState<string | null>(null);
   // Phase 15.1: the component and content descriptors the Inspector is built from.
   const [registry, setRegistry] = useState<DescriptorRegistry | null>(null);
   /** Phase 15.2: the selected copy of the selected instance set, and the copy brush. */
@@ -880,6 +886,8 @@ function EditorApp(): JSX.Element {
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
     setScriptLibraries(c.getScriptLibraries());
+    setUiDocuments(c.getUiDocuments());
+    setUiThemes(c.getUiThemes());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
     // The graphs arrive with the game block (the same full-state query).
@@ -2940,6 +2948,34 @@ function EditorApp(): JSX.Element {
     setEffectError(err);
     return err === null;
   }, []);
+  // Phase 23.9b: UI document/theme commands go out one at a time (each after the previous is applied
+  // here), so a queued edit is always made on the latest stored value. Resolves with a refusal or null.
+  const uiQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const uiCommand = useCallback((op: 'setUiDocument' | 'deleteUiDocument' | 'setUiTheme' | 'deleteUiTheme', args: Record<string, unknown>): Promise<string | null> => {
+    const run = async (): Promise<string | null> => {
+      const c = clientRef.current;
+      if (!c) return 'not connected';
+      const res = await c.command(op, args, c.projection.revision);
+      if (res.ok) {
+        for (let i = 0; i < 150 && c.projection.revision < res.revision; i++) await new Promise((r) => setTimeout(r, 20));
+      }
+      return refusal(res);
+    };
+    const next = uiQueueRef.current.then(run, run);
+    uiQueueRef.current = next;
+    return next;
+  }, []);
+  const createUiDocument = useCallback(
+    async (name: string): Promise<void> => {
+      const c = clientRef.current;
+      if (!c) return;
+      const uiDocumentId = uniqueDocId(name, c.getUiDocuments().map((d) => d.uiDocumentId), 'ui');
+      const err = await uiCommand('setUiDocument', { document: newUiDocument(uiDocumentId, name) });
+      setUiError(err);
+      if (err === null) workspaceDispatch({ type: 'open', doc: { kind: 'ui-document', id: uiDocumentId } });
+    },
+    [uiCommand, workspaceDispatch],
+  );
   const saveAnimator = useCallback(async (controller: AnimatorController) => {
     const c = clientRef.current;
     if (!c) return;
@@ -3772,6 +3808,39 @@ function EditorApp(): JSX.Element {
         return ok ? graphId : null;
       },
     },
+    ui: {
+      documents: uiDocuments,
+      themes: uiThemes,
+      document: (uiDocumentId) => ({
+        uiDocumentId,
+        documents: uiDocuments,
+        themes: uiThemes,
+        descriptors: registry?.ui ?? null,
+        current: (id) => clientRef.current?.getUiDocuments().find((d) => d.uiDocumentId === id) ?? null,
+        onSave: (document) => uiCommand('setUiDocument', { document }),
+        onSaveTheme: (theme) => uiCommand('setUiTheme', { theme }),
+        onOpenTheme: (id) => openDocument('ui-theme', id),
+        textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+        fonts: assets.filter((a) => a.kind === 'font').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+        entities: gameFieldContext.entities.map((e) => ({ id: e.id, name: e.name })),
+        fieldContext: gameFieldContext,
+        assets: uiPreviewAssets,
+        mockStorageKey: `thirdlight.uimock.v1.${cfg.current.ok ? cfg.current.config.projectId : ''}`,
+      }),
+      theme: (uiThemeId) => ({
+        uiThemeId,
+        themes: uiThemes,
+        documents: uiDocuments,
+        descriptors: registry?.ui ?? null,
+        onSave: (theme) => uiCommand('setUiTheme', { theme }),
+        onOpenDocument: (id) => openDocument('ui-document', id),
+        textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+        fonts: assets.filter((a) => a.kind === 'font').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+        fieldContext: gameFieldContext,
+        error: uiError,
+        onError: setUiError,
+      }),
+    },
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
 
@@ -3901,6 +3970,21 @@ function EditorApp(): JSX.Element {
   const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
+  // Phase 23.9b: the UI preview reads texture and font bytes through the editor's authenticated asset path.
+  const uiAssetKey = assets.filter((a) => a.kind === 'texture' || a.kind === 'font').map((a) => `${a.assetId}@${a.currentVersion}`).join('|');
+  const uiPreviewAssets = useMemo(
+    () => ({
+      paths: Object.fromEntries(uiAssetKey === '' ? [] : uiAssetKey.split('|').map((k) => [k.slice(0, k.lastIndexOf('@')), k] as const)),
+      read: async (path: string): Promise<ArrayBuffer> => {
+        const at = path.lastIndexOf('@');
+        const c = clientRef.current;
+        if (c === null || at < 0) throw new Error('not connected');
+        const bytes = await c.assetBytes(path.slice(0, at), Number(path.slice(at + 1)));
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      },
+    }),
+    [uiAssetKey],
+  );
   /** Phase 15.1: a component's "+ Add component" value (the descriptor's; the GameObject presets use it too). */
   const addValueOf = (name: string): Record<string, unknown> => {
     const add = registry?.components.find((c) => c.name === name)?.add;
@@ -4342,8 +4426,46 @@ function EditorApp(): JSX.Element {
               onReimport={(i) => void reimportIssue(i)}
             />
           )}
+          {bottomTab === 'ui' && (
+            <UiPanel
+              documents={uiDocuments}
+              themes={uiThemes}
+              error={uiError}
+              onOpenDocument={(id) => openDocument('ui-document', id)}
+              onOpenTheme={(id) => openDocument('ui-theme', id)}
+              onCreateDocument={(name) => void createUiDocument(name)}
+              onCreateTheme={(name) => {
+                const uiThemeId = uniqueDocId(name, uiThemes.map((t) => t.uiThemeId), 'theme');
+                void uiCommand('setUiTheme', { theme: newUiTheme(uiThemeId, name) }).then((err) => {
+                  setUiError(err);
+                  if (err === null) openDocument('ui-theme', uiThemeId);
+                });
+              }}
+              onRenameDocument={(id, name) => {
+                const d = uiDocuments.find((x) => x.uiDocumentId === id);
+                if (d !== undefined) void uiCommand('setUiDocument', { document: { ...d, name } }).then(setUiError);
+              }}
+              onRenameTheme={(id, name) => {
+                const t = uiThemes.find((x) => x.uiThemeId === id);
+                if (t !== undefined) void uiCommand('setUiTheme', { theme: { ...t, name } }).then(setUiError);
+              }}
+              onDeleteDocument={(id) =>
+                void uiCommand('deleteUiDocument', { uiDocumentId: id }).then((err) => {
+                  setUiError(err);
+                  if (err === null) workspaceDispatch({ type: 'close', key: docKey({ kind: 'ui-document', id }) });
+                })
+              }
+              onDeleteTheme={(id) =>
+                void uiCommand('deleteUiTheme', { uiThemeId: id }).then((err) => {
+                  setUiError(err);
+                  if (err === null) workspaceDispatch({ type: 'close', key: docKey({ kind: 'ui-theme', id }) });
+                })
+              }
+            />
+          )}
           {bottomTab === 'assets' && (
             <AssetBrowser
+              onNewUiDocument={() => void createUiDocument(`UI document ${uiDocuments.length + 1}`)}
               assets={assets}
               query={assetQuery}
               importState={importState}
@@ -4476,6 +4598,7 @@ function EditorApp(): JSX.Element {
               sounds={assets.filter((a) => a.kind === 'audio').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               gameSpawnId={gameConfig?.spawnId ?? null}
+              uiDocuments={uiDocuments.map((d) => ({ id: d.uiDocumentId, name: d.name }))}
               counters={scoreCounterNames(entities)}
               onSave={(next) => void saveFlow(next, flow)}
               onEditLook={(levelId) => {
@@ -5098,7 +5221,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'libraries' | 'modes' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'libraries' | 'modes' | 'ui' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5120,6 +5243,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'effects', label: 'Effects' },
   // Phase 23.7: shared script libraries.
   { id: 'libraries', label: 'Libraries' },
+  // Phase 23.9b: project UI documents and themes.
+  { id: 'ui', label: 'UI' },
   // Phase 23.10: game modes and behavior groups.
   { id: 'modes', label: 'Game modes' },
   // Phase 23.6: block-layer editing.

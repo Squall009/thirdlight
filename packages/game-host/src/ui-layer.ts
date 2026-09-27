@@ -66,6 +66,13 @@ export interface UiLayerDeps {
   readonly glyphKey?: () => string;
   /** The view size in CSS px (default: the window's). */
   readonly viewport?: () => { width: number; height: number };
+  /**
+   * Phase 23.9b: mark every widget element with its place in the document's
+   * tree (`data-tl-path`: `r` for the root, then child indices, `t` for a
+   * list's template: `r.0.2.t`) — the UI document editor's preview selects
+   * widgets by it. Off in Play and exports.
+   */
+  readonly annotate?: boolean;
 }
 
 export interface UiLayerObservation {
@@ -170,6 +177,8 @@ class DocView {
   private styleEl: UiNode | null = null;
   private readonly classOf = new Map<string, string>();
   private readonly ownCss = new Map<UiWidget, string>();
+  /** Phase 23.9b: each widget's tree path (only with `annotate`). */
+  private readonly pathOf = new Map<UiWidget, string>();
   private serial = 0;
   top: Rec | null = null;
   focus: Rec | null = null;
@@ -244,6 +253,14 @@ class DocView {
       if (w.template !== undefined) visit(w.template);
     };
     visit(this.doc.root);
+    if (this.layer.annotate) {
+      const mark = (w: UiWidget, p: string): void => {
+        this.pathOf.set(w, p);
+        (w.children ?? []).forEach((c, i) => mark(c, `${p}.${i}`));
+        if (w.template !== undefined) mark(w.template, `${p}.t`);
+      };
+      mark(this.doc.root, 'r');
+    }
     const css = this.cssText();
     const Sheet = (globalThis as { CSSStyleSheet?: new () => { replaceSync(t: string): void } }).CSSStyleSheet;
     const docLike = this.layer.dom as unknown as { adoptedStyleSheets?: unknown[] };
@@ -281,6 +298,8 @@ class DocView {
     const anchored = w.worldAnchor !== undefined;
     classes(el, ['tl-ui-w', `tl-ui-${w.type}`, anchored ? 'tl-ui-anchored' : '', ...styleNames.map((n) => this.styleClass(n)), this.ownCss.get(w) ?? '', w.type === 'text' && w.wrap === false ? 'is-nowrap' : '']);
     if (w.id !== undefined) el.setAttribute?.('data-widget', w.id);
+    const treePath = this.pathOf.get(w);
+    if (treePath !== undefined) el.setAttribute?.('data-tl-path', treePath);
     if (scope.index !== undefined) el.setAttribute?.('data-index', String(scope.index));
     if (tag === 'button') el.setAttribute?.('type', 'button');
     if (anchored) {
@@ -669,9 +688,11 @@ class LayerImpl implements UiLayer {
   private disposed = false;
   readonly cssAssets: CssAssets;
   private readonly out: number[] = [0, 0, 0];
+  readonly annotate: boolean;
 
   constructor(readonly deps: UiLayerDeps) {
     this.dom = deps.dom;
+    this.annotate = deps.annotate === true;
     this.docs = new Map(deps.documents.map((d) => [d.uiDocumentId, d] as const));
     this.themes = new Map((deps.themes ?? []).map((t) => [t.uiThemeId, t] as const));
     this.root = deps.dom.createElement('div') as UiNode;

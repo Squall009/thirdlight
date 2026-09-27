@@ -287,7 +287,10 @@ export const NODE_SIDE_ALLOWED = {
   },
   // §4.1 row: "… project-model (types), commands (types) …".
   editor: {
-    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands'],
+    // Phase 23.9b: + game-host, its `./ui-layer` subpath only — the UI
+    // document preview draws with the very layer Play and exports use.
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host'],
+    subpaths: { 'game-host': ['ui-layer'] },
     external: [
       'three',
       'react',
@@ -881,9 +884,10 @@ export function checkWorkspace(root) {
             addV(
               rel,
               line,
-              'backend-services-only',
-              `'${spec}' — '${pkg.name} may import only the /services subpath of ` +
-                '@thirdlight/backend (dependencies.md §3/§4.3)',
+              unit === 'backend' ? 'backend-services-only' : 'restricted-subpath',
+              unit === 'backend'
+                ? `'${spec}' — '${pkg.name} may import only the /services subpath of ` + '@thirdlight/backend (dependencies.md §3/§4.3)'
+                : `'${spec}' — '${pkg.name} may import only the ${sub.map((x) => `/${x}`).join(', ')} subpath(s) of @thirdlight/${unit}`,
             );
           }
           // §4.1 types-only qualifiers: a value import of these edges is an

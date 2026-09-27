@@ -47,6 +47,7 @@ import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { UI_LIMITS } from './ui-documents';
+import { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
@@ -64,7 +65,7 @@ export type DescriptorJson = null | boolean | number | string | readonly Descrip
 export type DescriptorScalar = string | number | boolean;
 
 /** The units a field may be in (display text; values are stored in these units). */
-export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices';
+export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices' | 'px';
 
 /** The Scene-view handle kinds (15.2 draws and drags them). */
 export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'segment1d', 'cone', 'direction', 'path', 'polygon', 'point', 'height'] as const;
@@ -96,7 +97,7 @@ export const ASSET_KINDS = ['model', 'audio', 'texture', 'music', 'font'] as con
 export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 
 /** What an `ref` field names (besides assets, entities and scenes). */
-export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'behaviorGroup' | 'inputMap' | 'mode';
+export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget' | 'behaviorGroup' | 'inputMap' | 'mode';
 
 /** String formats (validation hints and widget choices). */
 export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode';
@@ -254,7 +255,9 @@ export interface ComponentsFieldDescriptor extends FieldBase {
 export interface JsonFieldDescriptor extends FieldBase {
   readonly type: 'json';
   /** Where its type comes from, when it is typed elsewhere. */
-  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter';
+  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter' | 'uiBinding' | 'uiAction' | 'uiStyleRef' | 'uiWidget' | 'uiPadding' | 'uiStyle' | 'uiStyleState';
+  /** Phase 23.9b (`uiBinding`): the plain value a binding stands in for (the editor offers it or a view-model path). */
+  readonly valueType?: 'number' | 'text' | 'bool' | 'texture' | 'entity';
 }
 
 export type FieldDescriptor =
@@ -372,6 +375,8 @@ export interface DescriptorRegistry {
   readonly components: readonly ComponentDescriptor[];
   /** Every v4 content block. */
   readonly content: readonly ContentBlockDescriptor[];
+  /** Phase 23.9b: the fields of a UI document, a widget, a style and a tween (the UI document editor's Inspector). */
+  readonly ui?: UiDescriptors;
 }
 
 // ---- small builders ------------------------------------------------------------
@@ -2017,4 +2022,5 @@ export const DESCRIPTORS: DescriptorRegistry = deepFreeze({
   entity: { ...ENTITY, fields: ENTITY.fields.map((f) => (f.key === 'components' ? { ...f, allowed: COMPONENTS.map((c) => c.name) } : f)) },
   components: COMPONENTS,
   content: CONTENT,
+  ui: UI_DESCRIPTORS,
 });
