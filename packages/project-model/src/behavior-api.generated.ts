@@ -185,6 +185,7 @@ export const BEHAVIOR_API_NODES: readonly BehaviorApiNodeSpec[] = [
 export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] = [
   {"path":"action.commands","reason":"a script receives its debug commands with ctx.debug.command"},
   {"path":"action.saves","reason":"a script reads them through ctx.saves"},
+  {"path":"action.ui","reason":"a script reads its UI events with ctx.ui.events / ctx.ui.event"},
   {"path":"physics.stageCharacterMove","reason":"scripts never run in the controller phase"},
   {"path":"events","reason":"the event nodes (On trigger, On animator event) read them one by one"},
   {"path":"random.stream().pick","reason":"a list's random item is Seeded random integer with the list's Get item"},
