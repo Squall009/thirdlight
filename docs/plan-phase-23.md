@@ -266,6 +266,30 @@ in Thirdlight's tests. Thirdlight tests use neutral fixtures.
   Problems, per-vertex block AO, grid graph/A* helpers); `side: back`
   materials; sub-step input timestamps.
 
+### Phase 23 leftovers (from the items' "not done" notes, 2026-09-27)
+- Block layers: lightmap baking of chunk meshes (no UV1; layers only occlude),
+  chunk LOD, real-GPU 60 fps check of a 40×40×12 map (measured on this host:
+  4.9 merged meshes/chunk, 9,976 triangles, one-cell edit 8 ms).
+- Block editor: a footprint write is a second undo step; deleting a prop does
+  not clear its cells.
+- Sockets: the Scene view draws an attached object at its own transform;
+  physics bodies cannot ride sockets; no Animator-tab UI for morph bindings.
+- Material params: script-set textures must already be in the export closure.
+- Audio: no voice-volume row in the built-in settings screen.
+- Saves: no load screen binds the slot thumbnail yet; e2e WebGL2 only.
+- UI editor: a widget's type cannot be changed in place.
+- Timelines: no timeline player component; activation only hides/shows;
+  transform tracks do not move a 2D platformer player.
+- Stop latency: stopping Play takes 3–8 s on a loaded host (tests now wait
+  30 s); worth profiling.
+- Test depending on an external repo: the Sprout play-through
+  (`TL_SKIP_SPROUT=1` while ~/projects/sprout is mid-edit) — part of the
+  engine/game separation audit.
+- Owner look pending (visual/audible): 3D collider outlines, cameras (shake,
+  letterbox, blends), UI styles and the UI editor, rebinding glyph icons and pad
+  labels on real controllers, custom-lit shading, 3D audio panning and music
+  ducking, dialogue voice, pointer lock and cursor hiding.
+
 ## 4. Order and parallel work
 
 23.0 → 23.1 → 23.2 → 23.3 strictly. After 23.0: 23.4, 23.5, 23.7, 23.8 in
