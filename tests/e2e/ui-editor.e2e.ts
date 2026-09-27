@@ -82,7 +82,8 @@ async function commit(l: Locator, v: string): Promise<void> {
 
 /** The mean colour of the inner part of a preview widget (away from its edges and the text in its top left). */
 async function innerColour(page: Page, el: Locator): Promise<[number, number, number]> {
-  const png = decodePng(await el.screenshot());
+  // A page clip of the widget's box (the preview rebuilds its elements after an edit, so an element screenshot can lose it).
+  const png = decodePng(await page.screenshot({ clip: await box(el) }));
   let r = 0;
   let g = 0;
   let b = 0;
@@ -96,7 +97,6 @@ async function innerColour(page: Page, el: Locator): Promise<[number, number, nu
       n += 1;
     }
   }
-  void page;
   return [r / n, g / n, b / n];
 }
 
