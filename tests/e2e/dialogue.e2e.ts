@@ -137,7 +137,8 @@ async function setUp(page: Page): Promise<Ids> {
       graph: {
         nodes: [
           node('start', 'start', 0),
-          node('hello', 'line', 100, { speaker: 'host', expression: 'happy', text: 'Welcome to the [b]garden[/b].', voice, auto: 'on' }),
+          node('hello', 'line', 100, { speaker: 'host', expression: 'happy', text: 'Welcome to the [b]garden[/b].' }),
+          node('intro', 'line', 150, { speaker: 'host', expression: 'neutral', text: 'The water is fresh today.', voice, auto: 'on' }),
           node('ask', 'line', 200, { speaker: 'guest', text: 'May I have some water?' }),
           node('c', 'choice', 300),
           node('yes', 'option', 400, { text: 'Of course', effects: 'served = true' }),
@@ -146,7 +147,7 @@ async function setUp(page: Page): Promise<Ids> {
           node('thanks', 'line', 700, { speaker: 'host', text: 'Here you are.' }),
           node('pity', 'line', 800, { speaker: 'host', text: 'Maybe later.' }),
         ],
-        edges: [wire('w1', 'start', 'next', 'hello'), wire('w2', 'hello', 'next', 'ask'), wire('w3', 'ask', 'next', 'c'), wire('w4', 'c', 'options', 'yes'), wire('w5', 'c', 'options', 'no'), wire('w6', 'yes', 'next', 'b'), wire('w7', 'no', 'next', 'b'), wire('w8', 'b', 'true', 'thanks'), wire('w9', 'b', 'false', 'pity')],
+        edges: [wire('w1', 'start', 'next', 'hello'), wire('w2', 'hello', 'next', 'intro'), wire('w2b', 'intro', 'next', 'ask'), wire('w3', 'ask', 'next', 'c'), wire('w4', 'c', 'options', 'yes'), wire('w5', 'c', 'options', 'no'), wire('w6', 'yes', 'next', 'b'), wire('w7', 'no', 'next', 'b'), wire('w8', 'b', 'true', 'thanks'), wire('w9', 'b', 'false', 'pity')],
       },
     },
   });
@@ -203,7 +204,65 @@ async function colourOf(loc: Locator): Promise<[number, number, number]> {
  * the game's DOM, `click` clicks an element (by coordinates: an export's
  * overlay may cover it), `observe` reads the host's observation.
  */
-async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Promise<void>, observe: () => Promise<Obs | null>, ids: Ids): Promise<void> {
+/** What the audio observation showed while the voice played (sampled all along: the clip lasts 2 s). */
+export interface AudioSampler {
+  start(): Promise<void>;
+  result(): Promise<{ voiceBus: string | null; minDuck: number; minSfx: number; portraits: Record<string, string> }>;
+}
+
+/** Sample through an observation reader in a loop (Play: the backend relay). */
+function loopSampler(observe: () => Promise<Obs | null>, voice: string): AudioSampler {
+  const r = { voiceBus: null as string | null, minDuck: 1, minSfx: 1, portraits: {} as Record<string, string> };
+  let running = false;
+  let loop: Promise<void> = Promise.resolve();
+  return {
+    start: async () => {
+      running = true;
+      loop = (async () => {
+        while (running) {
+          const o = await observe().catch(() => null);
+          if (o?.dialogue?.line) r.portraits[o.dialogue.line.id] = o.dialogue.line.portrait;
+          const a = o?.audio;
+          if (a === undefined) continue;
+          r.minDuck = Math.min(r.minDuck, a.music.duck);
+          r.minSfx = Math.min(r.minSfx, a.sfxDuck);
+          const v = a.voices.find((x) => x.assetId === voice);
+          if (v !== undefined) r.voiceBus = v.bus;
+        }
+      })();
+    },
+    result: async () => {
+      running = false;
+      await loop;
+      return { ...r };
+    },
+  };
+}
+
+/** Sample inside the game page (the export's own observation, every 30 ms). */
+function pageSampler(game: Page, voice: string): AudioSampler {
+  return {
+    start: () =>
+      game.evaluate((id) => {
+        const w = window as unknown as { __tlSamples: { voiceBus: string | null; minDuck: number; minSfx: number; portraits: Record<string, string> }; __thirdlightObserve?: () => { audio?: { voices: { assetId: string; bus: string }[]; music: { duck: number }; sfxDuck: number }; dialogue?: { line: { id: string; portrait: string } | null } } | null };
+        w.__tlSamples = { voiceBus: null, minDuck: 1, minSfx: 1, portraits: {} };
+        setInterval(() => {
+          const o = w.__thirdlightObserve?.();
+          const s = w.__tlSamples;
+          if (o?.dialogue?.line) s.portraits[o.dialogue.line.id] = o.dialogue.line.portrait;
+          const a = o?.audio;
+          if (a === undefined) return;
+          s.minDuck = Math.min(s.minDuck, a.music.duck);
+          s.minSfx = Math.min(s.minSfx, a.sfxDuck);
+          const v = a.voices.find((x) => x.assetId === id);
+          if (v !== undefined) s.voiceBus = v.bus;
+        }, 30);
+      }, voice),
+    result: () => game.evaluate(() => (window as unknown as { __tlSamples: { voiceBus: string | null; minDuck: number; minSfx: number; portraits: Record<string, string> } }).__tlSamples),
+  };
+}
+
+async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Promise<void>, observe: () => Promise<Obs | null>, ids: Ids, sampler: AudioSampler): Promise<void> {
   const doc = root.locator('[data-tl-ui-doc="tl-dialogue"]');
   const line = async () => (await observe())?.dialogue?.line ?? null;
   await page.keyboard.press('t');
@@ -211,17 +270,9 @@ async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Prom
   await expect.poll(async () => (await line())?.id ?? null, { timeout: 40_000 }).toBe('hello');
   await expect(doc.locator('[data-widget="name"]')).toHaveText('Host');
   await expect(doc.locator('[data-widget="text"]')).toContainText('Welcome to the garden.');
-  // The typewriter: the reveal grows over time.
-  const first = (await line())!.reveal;
-  await expect.poll(async () => (await line())?.reveal ?? 0, { timeout: 30_000 }).toBeGreaterThan(first);
-  // The voice on the voice bus; music and SFX ducked while it plays.
-  try {
-    await expect.poll(async () => (await observe())?.audio?.voices.find((v) => v.assetId === ids.voice)?.bus ?? null, { timeout: 30_000, message: 'the voice plays' }).toBe('voice');
-    await expect.poll(async () => (await observe())?.audio?.music.duck ?? 1, { timeout: 30_000, message: 'music ducked' }).toBeCloseTo(0.3, 2);
-    await expect.poll(async () => (await observe())?.audio?.sfxDuck ?? 1, { timeout: 30_000, message: 'SFX ducked' }).toBeCloseTo(0.3, 2);
-  } catch (e) {
-    throw new Error(`${String(e)}\nobservation: ${JSON.stringify(await observe()).slice(0, 2000)}`);
-  }
+  // The typewriter: the reveal grows over time (or is already whole on a slow host).
+  const first = (await line())!;
+  if (first.id === 'hello' && first.reveal < first.total) await expect.poll(async () => (await line())?.reveal ?? 99, { timeout: 30_000 }).toBeGreaterThan(first.reveal);
   const portrait = doc.locator('[data-widget="portrait"]');
   // The portrait's image colour, read once the element shows a new image (a busy host makes every page call slow).
   const colour = async (channel: number, label: string, not?: string): Promise<string> => {
@@ -233,15 +284,34 @@ async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Prom
     return bg;
   };
   const happyImage = await colour(0, 'happy'); // the host's happy portrait (red)
-  expect((await line())!).toMatchObject({ name: 'Host', expression: 'happy', portrait: ids.happy });
+  expect((await line())!).toMatchObject({ id: 'hello', name: 'Host', expression: 'happy', portrait: ids.happy });
+  // Clicks: the rest of the line, then the voiced line (the host's neutral expression).
+  await sampler.start();
+  const box = doc.locator('[data-widget="box"]');
+  await expect
+    .poll(
+      async () => {
+        if ((await line())?.id === 'hello') await click(box);
+        return (await line())?.id ?? null;
+      },
+      { timeout: 40_000, intervals: [400] },
+    )
+    .not.toBe('hello');
+  // The host's neutral portrait (blue) — its pixels while the voiced line is still up (a slow host may be past it; the observation records it anyway).
+  const neutralImage = (await line())?.id === 'intro' ? await colour(2, 'neutral', happyImage) : happyImage;
   // Auto-advance after the 2 s clip and the delay; the ducks come back up.
   await expect.poll(async () => (await line())?.id ?? null, { timeout: 30_000, message: 'auto-advance after the voice' }).toBe('ask');
+  // While the voice played: on the voice bus, music and SFX ducked to the settings' 0.3.
+  const heard = await sampler.result();
+  expect(heard.voiceBus, `the voice plays on the voice bus (${JSON.stringify(heard)})`).toBe('voice');
+  expect(heard.minDuck, 'music ducked').toBeCloseTo(0.3, 2);
+  expect(heard.minSfx, 'SFX ducked').toBeCloseTo(0.3, 2);
+  expect(heard.portraits['intro'], 'the voiced line showed the host\'s neutral portrait').toBe(ids.neutral);
   await expect.poll(async () => (await observe())?.audio?.music.duck ?? 0, { timeout: 30_000 }).toBeCloseTo(1, 2);
   await expect.poll(async () => (await observe())?.audio?.sfxDuck ?? 0, { timeout: 30_000 }).toBeCloseTo(1, 2);
   await expect(doc.locator('[data-widget="name"]')).toHaveText('Guest');
-  await colour(1, 'guest', happyImage); // the guest's portrait (green)
+  await colour(1, 'guest', neutralImage); // the guest's portrait (green)
   // Clicks: reveal the rest, then go on to the choice.
-  const box = doc.locator('[data-widget="box"]');
   await expect
     .poll(
       async () => {
@@ -262,8 +332,8 @@ async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Prom
   await expect.poll(async () => (await observe())?.dialogue?.backlogOpen ?? false, { timeout: 30_000 }).toBe(true);
   const backlog = doc.locator('[data-widget="backlog"]');
   await expect(backlog).toBeVisible();
-  for (const t of ['Welcome to the garden.', 'May I have some water?', '> Of course', 'Here you are.']) await expect(backlog).toContainText(t);
-  expect((await observe())!.dialogue!.backlogTail.map((b) => b.text)).toEqual(['Welcome to the [b]garden[/b].', 'May I have some water?', '> Of course', 'Here you are.']);
+  for (const t of ['Welcome to the garden.', 'The water is fresh today.', 'May I have some water?', '> Of course', 'Here you are.']) await expect(backlog).toContainText(t);
+  expect((await observe())!.dialogue!.backlogTail.map((b) => b.text)).toEqual(['Welcome to the [b]garden[/b].', 'The water is fresh today.', 'May I have some water?', '> Of course', 'Here you are.']);
   await page.screenshot({ path: `test-results/dialogue-backlog-${root === page ? 'page' : 'frame'}.png` }).catch(() => undefined);
   await click(doc.locator('[data-widget="backlogClose"]'));
   await expect.poll(async () => (await observe())?.dialogue?.backlogOpen ?? true, { timeout: 30_000 }).toBe(false);
@@ -316,8 +386,19 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
   await expect(pdoc.locator('[data-widget="name"]')).toHaveText('Host');
   const ppor = pdoc.locator('[data-widget="portrait"]');
   await expect.poll(async () => (await colourOf(ppor))[0], { timeout: 30_000 }).toBeGreaterThan(180);
-  // The voice's length was measured in the page: the line auto-advances after it.
-  await expect(pdoc.locator('[data-widget="name"]')).toHaveText('Guest', { timeout: 15_000 });
+  // Clicks go on to the voiced line (the host's neutral portrait, blue) …
+  await expect
+    .poll(
+      async () => {
+        const t = (await pdoc.locator('[data-widget="text"]').textContent()) ?? '';
+        if (t.includes('Welcome')) await pdoc.locator('[data-widget="box"]').click();
+        return t.includes('Welcome') ? 'hello' : 'past';
+      },
+      { timeout: 30_000, intervals: [400] },
+    )
+    .toBe('past');
+  // … whose voice length was measured in the page: it auto-advances after the clip.
+  await expect(pdoc.locator('[data-widget="name"]')).toHaveText('Guest', { timeout: 30_000 });
   await expect
     .poll(
       async () => {
@@ -353,7 +434,7 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
     if (b === null) throw new Error('not visible');
     await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   };
-  await drive(page, playFrame, clickIn, observe, ids);
+  await drive(page, playFrame, clickIn, observe, ids, loopSampler(observe, ids.voice));
   await page.getByTitle('Stop the play preview').click();
   await expect(iframe).toHaveCount(0, { timeout: 40_000 });
 
@@ -376,7 +457,7 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
       if (b === null) throw new Error('not visible');
       await game.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
     };
-    await drive(game, game, clickGame, read, ids);
+    await drive(game, game, clickGame, read, ids, pageSampler(game, ids.voice));
     expect(errors).toEqual([]);
   } finally {
     await game.close();
