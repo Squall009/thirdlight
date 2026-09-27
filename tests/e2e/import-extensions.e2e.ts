@@ -162,7 +162,8 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   exported.on('pageerror', (e) => exportErrors.push(e.message));
   try {
     await exported.goto(site.url);
-    await expect.poll(async () => litBands(decodePng(await exported.screenshot())), { timeout: 15_000 }).toBe(3);
+    // The exported page loads, decodes three textures and compiles its shaders: tens of seconds on a loaded CPU-rendered host.
+    await expect.poll(async () => litBands(decodePng(await exported.screenshot())), { timeout: 45_000 }).toBe(3);
     await exported.waitForTimeout(1000);
     await exported.screenshot({ path: join(SHOTS, '3-export.png') });
     expect(exportErrors).toEqual([]);

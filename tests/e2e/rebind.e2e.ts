@@ -59,7 +59,8 @@ async function startPlay(page: Page): Promise<{ frame: Frame; observe: () => Pro
   const stop = page.getByTitle('Stop the play preview');
   if (await stop.isVisible().catch(() => false)) {
     await stop.click();
-    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible();
+    // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
   }
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

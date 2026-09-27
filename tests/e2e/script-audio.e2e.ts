@@ -242,7 +242,8 @@ test('script audio in Play and the export: a loop with pitch, fade and stop, a f
   await expect.poll(async () => ((await observe())?.['sound'] as { unlocked?: boolean } | undefined)?.unlocked ?? false, { timeout: 30_000 }).toBe(true);
   await drive(page, async () => ((await observe())?.['audio'] as Audio | undefined) ?? null, ids);
   await page.getByTitle('Stop the play preview').click();
-  await expect(frame).toHaveCount(0);
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
 
   // The static export with the backend stopped: the same script sounds (the export's own observation).
   const res = await be.admin(`projects/${be.projectId}/export`);

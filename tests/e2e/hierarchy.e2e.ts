@@ -205,7 +205,8 @@ test('folder flags pass down: inherited values in the inspector, locked is not p
   expect(redPixels(decodePng(await frame.screenshot()))).toBe(0);
   await page.screenshot({ path: 'test-results/hierarchy-play-inactive.png' });
   await page.getByTitle('Stop the play preview').click();
-  await expect(frame).toHaveCount(0);
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
 
   // Active again + locked: visible, but clicking it in the viewport does not pick it.
   await row(page, 'Hazards').click();

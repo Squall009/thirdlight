@@ -90,7 +90,8 @@ test('Play opens in the Game tab; the Scene tab shows the viewport while the gam
   await expect(frame).toBeVisible();
 
   await page.getByTitle('Stop the play preview').click();
-  await expect(frame).toHaveCount(0);
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByRole('tab', { name: 'Scene' })).toHaveAttribute('aria-selected', 'true');
 });
 
