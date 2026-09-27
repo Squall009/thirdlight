@@ -149,9 +149,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
       'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. A graph material adds graph: {nodes, edges, groups?, comments?} (graph kind ' +
       '"material": the graph replaces shader/params/textures at render time: it compiles to a node material in the Scene view, Play and exports; the file\'s own material is not used) and ' +
-      'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture, default, min?, max?, visibility?: public|private, label?, group?, tooltip?}] ' +
+      'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture|data, default, min?, max?, size? (data: [w, h] cells 1-64; default = the RGBA bytes every cell starts with), visibility?: public|private, label?, group?, tooltip?}] ' +
       '(read by Parameter nodes {key}); its graph is then edited with graphEdit {owner: {kind: "material", id: materialId}, ops}; objects override public parameters ' +
-      'with setComponent "materialParams" {<materialId>: {<key>: value}} (private ones are refused). Material functions (reusable sub-graphs) are standalone graphs of kind ' +
+      'with setComponent "materialParams" {<materialId>: {<key>: value}} (private ones are refused; data parameters are written by scripts: ctx.materials.setData, read by Sample data nodes). Material functions (reusable sub-graphs) are standalone graphs of kind ' +
       '"material-function" (setGraph; Function input {name, type, default} / Function output {name, type} nodes are the ports of every Function call {function: graphId} node; ' +
       'calls may not form a cycle; a function whose ports are wired in a material cannot drop them). setEnvironment {environment: {wind: ' +
       '{direction: [x, z], strength, gust, gustFrequency, turbulence}, sky?: {mode: procedural|gradient|texture|color, ...}, fog?: {mode: none|linear|exp2, color, near?, far?, density?}, ' +

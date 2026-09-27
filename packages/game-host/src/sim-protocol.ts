@@ -163,6 +163,8 @@ export interface FrameState {
   readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
   /** Phase 23.5: block-layer chunks to re-mesh (their cells now). */
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
+  /** Phase 23.12: material parameters scripts changed (one change per object, material and parameter). */
+  readonly mat?: readonly import('@thirdlight/runtime').MaterialRenderChange[];
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };

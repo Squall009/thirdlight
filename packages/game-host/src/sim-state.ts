@@ -16,6 +16,7 @@
  * (the MCP observation, bots and the determinism tests compare them).
  */
 import type { AnimatorPose, CameraViewInfo, DebugCommandState, GameView, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
+import { materialChangeKey } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -276,6 +277,12 @@ export class FrameEncoder {
     // Phase 23.5: block-layer chunks the simulation changed.
     const grid = rt.takeGridChanges?.() ?? [];
     if (grid.length > 0) out.grid = grid;
+    // Phase 23.12: material parameters scripts changed (a data grid's bytes travel as a transfer).
+    const mat = rt.takeMaterialChanges?.() ?? [];
+    if (mat.length > 0) {
+      out.mat = mat;
+      for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
+    }
     // Diagnostics: on a change of state or error count, on request, and now and then.
     this.framesSinceDiag += 1;
     if (diag !== null && (this.diagWanted || diag.state !== this.diagState || diag.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
@@ -355,6 +362,8 @@ export class FrameMirror {
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
   /** Phase 23.5: block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
+  /** Phase 23.12: the latest material change per object, material and parameter, until the adapter takes them. */
+  mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   debugCommands: DebugCommandState | null = null;
@@ -422,6 +431,13 @@ export class FrameMirror {
     }
     if (s.cam !== undefined) this.cam = s.cam;
     if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
+    if (s.mat !== undefined) {
+      for (const c of s.mat) {
+        const k = materialChangeKey(c);
+        this.mat.delete(k);
+        this.mat.set(k, c);
+      }
+    }
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
     if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;

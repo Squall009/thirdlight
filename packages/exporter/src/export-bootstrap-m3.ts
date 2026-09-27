@@ -68,7 +68,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
@@ -244,6 +244,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
+  const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
   const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
     projectId: manifest.projectId,
@@ -261,6 +262,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
     ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}),
     ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
+    // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials).
+    ...(materialCatalog !== undefined ? { materialCatalog } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when

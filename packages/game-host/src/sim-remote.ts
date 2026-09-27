@@ -323,6 +323,12 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.grid.clear();
       return out;
     },
+    // Phase 23.12: the material parameters the worker's scripts changed (the latest per parameter).
+    takeMaterialChanges: () => {
+      const out = [...mirror.mat.values()];
+      mirror.mat.clear();
+      return out;
+    },
     gameCounters: () => mirror.counters,
     // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).
     readCameraView: (p: number[], r: number[]) => {

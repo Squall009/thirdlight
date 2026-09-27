@@ -531,7 +531,7 @@ export {
   type VirtualCameraRig,
 } from './cameras';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
-export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
+export { MATERIAL_BUILTIN_SOURCES, MATERIAL_DATA_MAX, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).
 export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
 // Phase 9.8: input actions.

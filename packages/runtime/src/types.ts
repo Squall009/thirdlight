@@ -89,6 +89,12 @@ export interface RuntimeSnapshot {
   blockTypes?: readonly import('@thirdlight/project-model').BlockType[];
   /** Phase 23.5, v4 only, optional: the cell metadata schema (`content.cellFields`). */
   cellFields?: readonly import('@thirdlight/project-model').CellField[];
+  /**
+   * Phase 23.12, optional: the graph materials' parameters, the model assets'
+   * default mappings and the closure's textures (`ctx.materials` checks script
+   * values against them; built from the manifest by `materialCatalogOf`).
+   */
+  materialCatalog?: import('./material-params').RuntimeMaterialCatalog;
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -709,6 +715,8 @@ export interface StepContext {
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
   /** Phase 23.5: the block layers of the loaded scenes (`ctx.grid`). */
   readonly grid?: import('./grid').BehaviorGrid;
+  /** Phase 23.12: graph-material parameters per object (`ctx.materials`). */
+  readonly materials?: import('./material-params').BehaviorMaterials;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1317,6 +1325,10 @@ export interface Runtime {
   takeGridChanges?(): import('./grid').GridRenderChange[];
   /** Phase 23.5: the block cells changed since the run started (plain data). */
   gridDiff?(): import('./grid').GridDiff;
+  /** Phase 23.12: the material parameters scripts changed since the last call (one change per parameter); the adapter applies them. */
+  takeMaterialChanges?(): import('./material-params').MaterialRenderChange[];
+  /** Phase 23.12: the material parameters scripts set, as digest text (null while none is set). */
+  materialState?(): string | null;
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */

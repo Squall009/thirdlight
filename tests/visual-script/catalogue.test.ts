@@ -142,6 +142,14 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
       screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
     },
+    // Phase 23.12: graph-material parameters per object.
+    materials: {
+      set: rec('materials.set', true),
+      get: rec('materials.get', '#ff0000'),
+      reset: rec('materials.reset', true),
+      setData: rec('materials.setData', true),
+      getData: rec('materials.getData', () => [255, 0, 0, 255]),
+    },
   };
 }
 

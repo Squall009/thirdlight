@@ -587,6 +587,18 @@ const MATERIAL_BASES: J[] = [
       graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] },
     },
   ],
+  // Phase 23.12: a graph material with a data parameter (its grid size).
+  [
+    {
+      materialId: 'mat-d',
+      name: 'Data material',
+      shader: 'standard',
+      params: {},
+      textures: {},
+      parameters: [{ key: 'cells', type: 'data', default: [0, 0, 0, 0], size: [4, 4] }],
+      graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] },
+    },
+  ],
 ];
 
 const CLIP = (name: string) => ({ assetId: 'model-a', clip: name, duration: 1 });
