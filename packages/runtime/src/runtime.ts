@@ -21,6 +21,7 @@
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
+import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   GAME_TIMING_DEFAULTS,
@@ -1498,6 +1499,8 @@ class RuntimeInstance implements Runtime {
   private heldPointer: HeldPointer | null = null;
   /** Phase 23.3: the cursor a script asked for (null: the active input map decides). */
   private cursorMode: 'free' | 'locked' | null = null;
+  /** Phase 23.14: what the host last sent about bindings and devices, this step's rebind events, the scripts' requests. */
+  private readonly inputStatus = new RuntimeInputStatus();
   /** Phase 23.3: `ctx.input.setCursor` (the StepContext's cursor channel). */
   private readonly cursorControl = Object.freeze({
     request: (mode: 'free' | 'locked' | 'auto'): void => {
@@ -3103,6 +3106,8 @@ class RuntimeInstance implements Runtime {
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
     this.deliverDebugCommands(check.frame);
+    // Phase 23.14: the host's input status (device, bindings, rebind events).
+    this.inputStatus.apply(check.frame.input);
     return this.withHeldPointer(check.frame);
   }
 
@@ -3163,7 +3168,11 @@ class RuntimeInstance implements Runtime {
    */
   cursorRequest(): 'free' | 'locked' | null {
     return this.cursorMode;
+  }
 
+  /** Phase 23.14: the binding requests scripts made since the last call (see `Runtime.takeBindingRequests`). */
+  takeBindingRequests(): { readonly requests: readonly InputBindingRequest[]; readonly dropped: number } {
+    return this.inputStatus.take();
   }
 
   /**
@@ -4350,6 +4359,8 @@ class RuntimeInstance implements Runtime {
       fields['sockets'] = { value: this.socketControl, enumerable: true };
       // Phase 23.3: the cursor channel (ctx.input.setCursor).
       fields['cursor'] = { value: this.cursorControl, enumerable: true };
+      // Phase 23.14: bindings, the device in use and rebinding (ctx.input).
+      fields['inputStatus'] = { value: this.inputStatus.view, enumerable: true };
       // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
       const debugControl = this.debugControl;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };

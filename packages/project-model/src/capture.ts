@@ -138,6 +138,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     const refs = flowAssetRefs(flow);
     for (const id of [...refs.music, ...refs.textures, ...refs.menuSounds, ...refs.ambience]) setRef(id);
   }
+  // Phase 23.14: the project's glyph images (input.glyphs).
+  for (const id of Object.values((content as { input?: { glyphs?: Record<string, string> } }).input?.glyphs ?? {})) setRef(id);
   // Phase 9.5: the sky images and the grading LUT.
   const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;
   if (env?.sky?.texture !== undefined) setRef(env.sky.texture);

@@ -579,6 +579,13 @@ export {
   type CursorMode,
   type PointerAxisName,
   type PointerButtonName,
+  // Phase 23.14: the hold modifier and the project's glyph images.
+  GAMEPAD_FAMILIES,
+  GLYPH_KEY_RE,
+  HOLD_BINDING_KINDS,
+  INPUT_HOLD_MAX,
+  INPUT_HOLD_MIN,
+  MAX_INPUT_GLYPHS,
 } from './input';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';

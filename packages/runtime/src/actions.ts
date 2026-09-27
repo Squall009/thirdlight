@@ -13,6 +13,7 @@
  * identically in the Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
+import { validateInputStatus, type InputStatusEntry } from './input-status';
 
 /** The four jump phases (input.md §2). */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -52,6 +53,14 @@ export interface ActionFrame {
    * @graphNode skip a script receives its debug commands with ctx.debug.command
    */
   commands?: readonly DebugCommandCall[];
+  /**
+   * Phase 23.14, optional: the host's input status for scripts — the device
+   * used last, the player's bindings with their glyphs (each only when it
+   * changed) and the outcome of binding requests. Part of the input so a
+   * replay shows scripts what they saw live. Absent: nothing changed.
+   * @graphNode skip scripts read it with ctx.input.device, bindings and glyph
+   */
+  input?: InputStatusEntry;
 }
 
 /** Phase 23.8: one debug command call carried by an input frame. */
@@ -115,7 +124,7 @@ export const POINTER_BUTTON_BITS = Object.freeze({ left: 1, right: 2, middle: 4 
 const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked']);
 
 /** Most named actions in a frame (project-model MAX_INPUT_ACTIONS). */
-export const MAX_FRAME_ACTIONS = 32;
+export const MAX_FRAME_ACTIONS = 64;
 const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 /** Movement quantization (input.md §3.3). */
@@ -191,7 +200,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'moveY') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'moveY' || key === 'input') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -252,7 +261,14 @@ export function validateActionFrame(
     if (!c.ok) return c;
     commands = c.commands;
   }
-  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(pointer !== undefined ? { pointer } : {}) });
+  // Phase 23.14: the host's input status (validated and frozen).
+  let input: InputStatusEntry | undefined;
+  if (value['input'] !== undefined) {
+    const c = validateInputStatus(value['input']);
+    if (!c.ok) return c;
+    input = c.input;
+  }
+  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];
   // Phase 23.2 / 23.8 / 23.3: moveY, commands and the pointer only when present (a frame without them stays as it was).
   const withMoveY = moveY !== undefined ? { moveY } : {};

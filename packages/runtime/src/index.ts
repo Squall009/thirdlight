@@ -63,6 +63,31 @@ export {
   type DebugCommandArg,
   type DebugCommandCall,
 } from './actions';
+// Phase 23.14: the player's bindings, the device in use and rebinding (the frame's input entry, scripts' requests).
+export {
+  checkRebindOptions,
+  glyphOfAction,
+  mergeInputStatus,
+  validateInputStatus,
+  MAX_BINDING_REQUESTS,
+  MAX_FRAME_INPUT_EVENTS,
+  type GamepadFamily,
+  type InputActionStatus,
+  type InputBindingConflict,
+  type InputBindingDevice,
+  type InputBindingPart,
+  type InputBindingRequest,
+  type InputBindingStatus,
+  type InputDeviceKind,
+  type InputDeviceStatus,
+  type InputGlyph,
+  type InputGlyphPart,
+  type InputRebindEvent,
+  type InputRebindOptions,
+  type InputRebindTarget,
+  type InputStatusEntry,
+  type RebindConflictPolicy,
+} from './input-status';
 export {
   validateCharacterMoveResult,
   type CharacterClearanceResult,

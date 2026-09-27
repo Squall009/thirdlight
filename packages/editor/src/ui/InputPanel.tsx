@@ -257,7 +257,7 @@ export function InputPanel(p: Props): JSX.Element {
         <button
           type="button"
           className="tl-button"
-          disabled={!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(newName) || config.actions.some((a) => a.name === newName) || config.actions.length >= 32}
+          disabled={!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(newName) || config.actions.some((a) => a.name === newName) || config.actions.length >= 64}
           onClick={() => {
             save([...config.actions, { name: newName, type: newType, map: newMap, bindings: [] }]);
             setNewName('');

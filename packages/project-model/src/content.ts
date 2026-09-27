@@ -2535,6 +2535,13 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
     }
   }
+  // Phase 23.14: the input's glyph images are texture assets.
+  const input = doc['input'];
+  if (isPlainObject(input) && isPlainObject(input['glyphs'])) {
+    for (const [k, id] of Object.entries(input['glyphs'])) {
+      if (kindOf.get(id as string) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/input/glyphs/${k}`, message: 'a glyph image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    }
+  }
   // Phase 9.10: the flow's music and logo.
   const flow = doc['flow'];
   if (isPlainObject(flow) && Array.isArray(flow['levels'])) {

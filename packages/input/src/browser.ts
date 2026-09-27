@@ -23,7 +23,7 @@
  *  - cleanup → `detach()`/`dispose()` remove every listener and clear held
  *    state, idempotently.
  */
-import type { ActionFrame, ActionSource } from '@thirdlight/runtime';
+import type { ActionFrame, ActionSource, InputStatusEntry } from '@thirdlight/runtime';
 import { mapRawStep, quantizeMove, type StepState } from './mapping';
 import {
   createMenuController,
@@ -169,6 +169,22 @@ function uiKeys(cfg: InputConfigLike): { up: Set<string>; down: Set<string>; lef
   return out;
 }
 
+/** Phase 23.14: what a rebind listens to. */
+export interface CaptureInputOptions {
+  /** The devices (default all). */
+  readonly devices?: readonly ('keyboard' | 'mouse' | 'gamepad')[];
+  /** Keys that cancel (default Escape). */
+  readonly cancelKeys?: readonly string[];
+}
+
+/** Phase 23.14: the input a rebind heard. */
+export type CapturedInput =
+  | { readonly device: 'keyboard'; readonly code: string }
+  | { readonly device: 'mouse'; readonly button: 'left' | 'right' | 'middle' }
+  | { readonly device: 'mouse'; readonly wheel: 1 | -1 }
+  | { readonly device: 'gamepad'; readonly button: number }
+  | { readonly device: 'gamepad'; readonly axis: number; readonly sign: 1 | -1 };
+
 export function attachBrowserInput(
   target: EventTarget | null,
   options: InputBindingOptions = {},
@@ -205,6 +221,25 @@ export function attachBrowserInput(
   capturePadButton(onButton: (button: number | null) => void): () => void;
   /** Phase 15.5: the device the player used last (a key press, or a pad button/stick) — the HUD names its bindings. */
   activeDevice(): 'keyboard' | 'gamepad';
+  /**
+   * Phase 23.14: the device used last with the active gamepad's id (the
+   * browser's `Gamepad.id`, clipped; null without an active pad) — glyphs
+   * name the pad family from it.
+   */
+  activeDeviceInfo(): { device: 'keyboard' | 'gamepad'; gamepadId: string | null };
+  /**
+   * Phase 23.14: listen for the next input for a rebind — a key (not
+   * auto-repeat), a mouse button or wheel notch over the view, a fresh pad
+   * button press or a pad axis pushed past half way from where it rested —
+   * from the devices asked for. A cancel key gives null. Returns a cancel
+   * function (the host times the listening out).
+   */
+  captureInput(options: CaptureInputOptions, onInput: (input: CapturedInput | null) => void): () => void;
+  /**
+   * Phase 23.14: what the host adds to the next sampled frame (`ActionFrame.input`:
+   * the device, the bindings, rebind outcomes) — called once per sample; null removes it.
+   */
+  setFrameInput(source: (() => InputStatusEntry | undefined) | null): void;
   /**
    * Phase 23.3: the cursor the game wants now (the host resolves it every
    * frame from the input map and a script's request): locked → pointer lock
@@ -281,6 +316,19 @@ export function attachBrowserInput(
   let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
   /** Phase 15.5: the device used last (keyboard until a pad button or stick moves). */
   let lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
+  /** Phase 23.14: the id of the pad used last (null: none yet). */
+  let lastPadId: string | null = null;
+  /** Phase 23.14: a rebind listening for input, and the pad's buttons/axes when it started (a press is a change from there). */
+  type Capture = { devices: ReadonlySet<string>; cancel: ReadonlySet<string>; cb: (input: CapturedInput | null) => void; buttons: boolean[] | null; axes: number[] | null };
+  let inputCapture: Capture | null = null;
+  /** Phase 23.14: the host's frame entry source. */
+  let frameInput: (() => InputStatusEntry | undefined) | null = null;
+  const clock: () => number = options.now ?? (() => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()));
+  const finishCapture = (input: CapturedInput | null): void => {
+    const c = inputCapture;
+    inputCapture = null;
+    c?.cb(input);
+  };
 
   let detached = false;
   let unavailableState: { reason: 'gamepad' | 'environment'; message: string } | null = null;
@@ -400,6 +448,39 @@ export function attachBrowserInput(
     };
   };
 
+  /** Phase 23.14: the pad part of a rebind: a fresh button press or an axis pushed past half way from its rest. */
+  const pollCapture = (pads: ArrayLike<Gamepad | null> | null): void => {
+    const c = inputCapture;
+    if (c === null || !c.devices.has('gamepad') || pads === null) return;
+    const pad = Array.from(pads).find((g) => g !== null && g.mapping === 'standard') ?? null;
+    if (pad === null) return;
+    const buttons = padButtons(pad);
+    const axes = padAxes(pad);
+    if (c.buttons === null || c.axes === null) {
+      c.buttons = buttons;
+      c.axes = axes;
+      return;
+    }
+    const hit = buttons.findIndex((d, i) => d && c.buttons![i] !== true);
+    if (hit >= 0 && hit <= 31) {
+      lastDevice = 'gamepad';
+      lastPadId = clipDeviceId(pad.id);
+      finishCapture({ device: 'gamepad', button: hit });
+      return;
+    }
+    for (let i = 0; i < axes.length && i <= 7; i += 1) {
+      const d = axes[i]! - (c.axes[i] ?? 0);
+      if (Math.abs(d) > 0.5 && Math.abs(axes[i]!) > 0.5) {
+        lastDevice = 'gamepad';
+        lastPadId = clipDeviceId(pad.id);
+        finishCapture({ device: 'gamepad', axis: i, sign: axes[i]! > 0 ? 1 : -1 });
+        return;
+      }
+    }
+    // A button let go is ready to be pressed again.
+    c.buttons = c.buttons.map((b, i) => b && buttons[i] === true);
+  };
+
   const deviceHasActivity = (gp: Gamepad): boolean => {
     const r = readPlatformerPad(PAD, padButtons(gp), padAxes(gp));
     if (Math.abs(r.axis) > GAMEPAD_DEAD_ZONE) return true;
@@ -502,6 +583,12 @@ export function attachBrowserInput(
       padCaptureBase = null;
       if (typeof e.preventDefault === 'function') e.preventDefault();
       cb(null);
+      return;
+    }
+    if (inputCapture !== null && e.repeat !== true && (inputCapture.devices.has('keyboard') || inputCapture.cancel.has(code))) {
+      // Phase 23.14: a rebind takes this key (nothing else sees it); a cancel key gives null.
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      finishCapture(inputCapture.cancel.has(code) ? null : { device: 'keyboard', code });
       return;
     }
     if (capture !== null && e.repeat !== true) {
@@ -650,6 +737,12 @@ export function attachBrowserInput(
     movePointer(e);
     pointerOver = true;
     lastDevice = 'keyboard';
+    if (inputCapture !== null && inputCapture.devices.has('mouse') && buttonBit(e.button) !== 0) {
+      // Phase 23.14: a rebind takes this mouse button.
+      finishCapture({ device: 'mouse', button: e.button === 0 ? 'left' : e.button === 2 ? 'right' : 'middle' });
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      return;
+    }
     const bit = buttonBit(e.button);
     if (bit !== 0 && (pointerButtons & bit) === 0) {
       pointerButtons |= bit;
@@ -679,6 +772,15 @@ export function attachBrowserInput(
   const onWheel = (event: Event): void => {
     if (detached) return;
     const e = event as unknown as PointerEventLike;
+    if (inputCapture !== null && inputCapture.devices.has('mouse')) {
+      const n = wheelNotches(e.deltaY, e.deltaMode);
+      if (n !== 0) {
+        // Phase 23.14: a rebind takes the wheel (positive towards the user).
+        finishCapture({ device: 'mouse', wheel: n > 0 ? 1 : -1 });
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        return;
+      }
+    }
     pointerWheel += wheelNotches(e.deltaY, e.deltaMode);
     pointerSeen = true;
     if (SUPPRESS_WHEEL && typeof e.preventDefault === 'function') e.preventDefault();
@@ -818,7 +920,14 @@ export function attachBrowserInput(
     return false;
   };
 
+  /** Phase 23.14: the frame with the host's input entry (device, bindings, rebind outcomes) when it has one. */
   const sample = (stepIndex: number): ActionFrame => {
+    const frame = sampleDevices(stepIndex);
+    const extra = frameInput?.();
+    return extra === undefined ? frame : { ...frame, input: extra };
+  };
+
+  const sampleDevices = (stepIndex: number): ActionFrame => {
     if (detached) return neutral(stepIndex);
     if (suspendPending) {
       suspendPending = false;
@@ -831,9 +940,13 @@ export function attachBrowserInput(
     if (gamepadEnabled && pollGamepads) {
       try {
         const list = pollGamepads();
+        pollCapture(list);
         active = pickActiveGamepad(list);
         lastPad = active ? { buttons: padButtons(active), axes: padAxes(active) } : null;
-        if (active !== null && (active.buttons.some((b) => b?.pressed === true) || active.axes.some((v) => Math.abs(v ?? 0) > 0.5))) lastDevice = 'gamepad';
+        if (active !== null && (active.buttons.some((b) => b?.pressed === true) || active.axes.some((v) => Math.abs(v ?? 0) > 0.5))) {
+          lastDevice = 'gamepad';
+          lastPadId = clipDeviceId(active.id);
+        }
       } catch (error) {
         markUnavailable('gamepad', `getGamepads failed: ${messageOf(error)}; keyboard-only`);
         active = null;
@@ -884,7 +997,7 @@ export function attachBrowserInput(
       clearPointerEdges();
       return pointer === null ? frame : { ...frame, pointer };
     }
-    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null, pointer: rawPointer });
+    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null, pointer: rawPointer, now: clock() });
     actionPressed.clear();
     clearPointerEdges();
     // Phase 23.2: a 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the M2 mapping exactly.
@@ -944,6 +1057,35 @@ export function attachBrowserInput(
     activeDevice(): 'keyboard' | 'gamepad' {
       return lastDevice;
     },
+    activeDeviceInfo(): { device: 'keyboard' | 'gamepad'; gamepadId: string | null } {
+      return { device: lastDevice, gamepadId: lastPadId };
+    },
+    captureInput(opts: CaptureInputOptions, onInput: (input: CapturedInput | null) => void): () => void {
+      const prev = inputCapture;
+      inputCapture = null;
+      prev?.cb(null);
+      const devices = new Set<string>(opts.devices ?? ['keyboard', 'mouse', 'gamepad']);
+      const cancel = new Set<string>(opts.cancelKeys ?? ['Escape']);
+      const entry: Capture = { devices, cancel, cb: onInput, buttons: null, axes: null };
+      inputCapture = entry;
+      if (devices.has('gamepad') && gamepadEnabled && pollGamepads && !detached) {
+        try {
+          const pad = Array.from(pollGamepads()).find((g) => g !== null && g.mapping === 'standard') ?? null;
+          if (pad !== null) {
+            entry.buttons = padButtons(pad);
+            entry.axes = padAxes(pad);
+          }
+        } catch {
+          /* a failed poll: the next poll takes the rest state */
+        }
+      }
+      return () => {
+        if (inputCapture === entry) inputCapture = null;
+      };
+    },
+    setFrameInput(source: (() => InputStatusEntry | undefined) | null): void {
+      frameInput = source;
+    },
     applyCursor(mode: 'free' | 'locked'): void {
       if (detached) return;
       const next = mode === 'locked' ? 'locked' : 'free';
@@ -964,8 +1106,21 @@ export function attachBrowserInput(
     sampleUi(): UiSample {
       if (gamepadEnabled && pollGamepads && !detached) {
         try {
-          const pad = Array.from(pollGamepads()).find((g) => g !== null && g.mapping === 'standard') ?? null;
+          const list = pollGamepads();
+          const pad = Array.from(list).find((g) => g !== null && g.mapping === 'standard') ?? null;
           const now = pad === null ? [] : Array.from(pad.buttons, (b) => b?.pressed === true);
+          // Phase 23.14: the pad counts as the device used last while a menu is open too; a rebind listens.
+          if (pad !== null && (now.some((d) => d) || Array.from(pad.axes).some((v) => Math.abs(v ?? 0) > 0.5))) {
+            lastDevice = 'gamepad';
+            lastPadId = clipDeviceId(pad.id);
+          }
+          if (inputCapture !== null) {
+            pollCapture(list);
+            // What is held now waits for its release before the menus see it.
+            const ax = pad === null ? [0, 0] : [pad.axes[0] ?? 0, pad.axes[1] ?? 0];
+            prevUiPad = [now[12] === true || ax[1]! < -0.6, now[13] === true || ax[1]! > 0.6, now[14] === true || ax[0]! < -0.6, now[15] === true || ax[0]! > 0.6, now[0] === true, now[1] === true, now[9] === true];
+            return { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+          }
           if (padCapture !== null) {
             // Phase 14.5: a pad rebinding takes the next fresh button press
             // (nothing else sees the pad meanwhile).
