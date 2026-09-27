@@ -18,7 +18,8 @@
  * batchable this frame: hidden, transparent (it needs back-to-front sorting),
  * skinned or morphed, several materials, a custom `onBeforeRender`, a render
  * order, other layers, per-object material parameters (a graph material's
- * `materialParams` are per-object uniforms), or no partner. A per-object
+ * `materialParams` are per-object uniforms, as are the values scripts set
+ * while the game runs), or no partner. A per-object
  * override that gives a mesh its own material copy (the selection highlight,
  * the checkpoint glow, a fade, a lightmap) takes it out of its group by
  * itself — the material is part of the key.
@@ -37,7 +38,7 @@
  */
 import * as THREE from 'three';
 
-import { OVERRIDES_KEY } from './material-graph';
+import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { disposeObjectTree, releaseNodeAttributes } from './dispose';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
@@ -96,6 +97,8 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   const layers = (mesh.userData[LAYERS_KEY] as number | undefined) ?? mesh.layers.mask;
   if (layers !== 1) return 'layers';
   if (mesh.userData[OVERRIDES_KEY] !== undefined) return 'per-object material parameters';
+  // Phase 23.12: values a script set on this object (per-object uniforms, its own data texture).
+  if (mesh.userData[RUNTIME_VALUES_KEY] !== undefined) return 'run-time material parameters';
   const geometry = hint === true ? mesh.geometry : hint.geometry;
   if (geometry === undefined || geometry.getAttribute('position') === undefined) return 'no geometry';
   return null;

@@ -184,9 +184,16 @@ export {
   type MaterialFunctionLike,
   type MaterialGraphLike,
   type MaterialParameterLike,
+  // Phase 23.12: run-time values per object (the keys on a mesh) and data textures.
+  makeDataTexture,
+  MATERIAL_IDS_KEY,
+  RUNTIME_VALUES_KEY,
+  type RuntimeValuesLike,
 } from './material-graph';
 // Phase 23.15: the Custom-lit surface (a graph's own shading from the gathered lights).
 export { mainLightIndex, MeshCustomLitNodeMaterial } from './custom-lit';
+// Phase 23.12: the simulation's material parameter changes on the objects.
+export { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 // Phase 17.2: node-material (TSL) helpers and the per-mesh looks (selection tint, checkpoint glow).
 export {
   cloneMaterial,

@@ -31,8 +31,20 @@ import type { GraphFieldDef, GraphKindDef, GraphNodeDef, GraphPortDef, GraphValu
 
 /** The value types in widening order (the `auto` rule picks the widest connected). */
 export const MATERIAL_VALUE_TYPES = ['float', 'vec2', 'vec3', 'vec4'] as const;
-/** The types an exposed material parameter may have (`color` is a vec3 edited as a colour). */
-export const MATERIAL_PARAMETER_TYPES = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture'] as const;
+/**
+ * The types an exposed material parameter may have (`color` is a vec3 edited
+ * as a colour). Phase 23.12: `data` is a small grid of RGBA8 cells (at most
+ * {@link MATERIAL_DATA_MAX} × {@link MATERIAL_DATA_MAX}) that scripts write
+ * per object at run time and Sample data nodes read — appended last so every
+ * existing list keeps its order.
+ */
+export const MATERIAL_PARAMETER_TYPES = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture', 'data'] as const;
+/**
+ * Phase 23.12: the largest data parameter, cells per side (engine limit):
+ * 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a
+ * large board or map region, small enough to send whole on every change.
+ */
+export const MATERIAL_DATA_MAX = 64;
 export type MaterialParameterType = (typeof MATERIAL_PARAMETER_TYPES)[number];
 
 /**
@@ -290,6 +302,16 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     fields: SAMPLER_FIELDS,
   },
   {
+    // Phase 23.12: reads a data parameter (a grid of RGBA8 cells scripts write per object).
+    type: 'sampleData',
+    label: 'Sample data',
+    category: 'Textures',
+    description: 'Reads one cell of a data parameter (a small grid of RGBA values scripts write per object): at a UV (cell [0, 0] at UV (0, 0), no filtering) or at integer cell coordinates. Channels are 0–1 (byte / 255); outside the grid reads the nearest edge cell.',
+    inputs: [port('data', 'data', 'data'), port('uv', 'uv', 'vec2', 'uv0'), port('cell', 'cell', 'vec2', [0, 0])],
+    outputs: SAMPLE_OUTPUTS,
+    fields: [{ key: 'address', label: 'Address by', type: 'enum', options: ['uv', 'cell'], default: 'uv' }],
+  },
+  {
     type: 'flipbook',
     label: 'Flipbook',
     category: 'Textures',
@@ -478,6 +500,8 @@ const PORT_TYPES: GraphKindDef['portTypes'] = [
   { id: 'vec3', label: 'vec3', color: '#f2b544' },
   { id: 'vec4', label: 'vec4', color: '#e67e9b' },
   { id: 'texture', label: 'texture', color: '#c792ea' },
+  // Phase 23.12: a data parameter's cell grid (feeds only Sample data).
+  { id: 'data', label: 'data', color: '#5fd3c6' },
 ];
 
 function conversions(): GraphKindDef['conversions'] {
@@ -501,7 +525,9 @@ function conversions(): GraphKindDef['conversions'] {
   return out;
 }
 
-const SHARED_NODES: readonly GraphNodeDef[] = [...INPUT_NODES.filter((n) => n.type !== 'parameter'), ...LIGHTING_NODES, ...MATH_NODES, ...VECTOR_NODES, ...TEXTURE_NODES, ...UTILITY_NODES, CALL_NODE];
+// Phase 23.12: Sample data reads a data parameter, which only a material has (not a function).
+const SHARED_NODES: readonly GraphNodeDef[] = [...INPUT_NODES.filter((n) => n.type !== 'parameter'), ...LIGHTING_NODES, ...MATH_NODES, ...VECTOR_NODES, ...TEXTURE_NODES.filter((n) => n.type !== 'sampleData'), ...UTILITY_NODES, CALL_NODE];
+const SAMPLE_DATA_NODE = TEXTURE_NODES.find((n) => n.type === 'sampleData')!;
 
 /** A material's graph (owner kind `material`). */
 export const MATERIAL_GRAPH_KIND: GraphKindDef = {
@@ -510,7 +536,7 @@ export const MATERIAL_GRAPH_KIND: GraphKindDef = {
   portTypes: PORT_TYPES,
   conversions: conversions(),
   categories: ['Inputs', 'Lighting', 'Maths', 'Vectors', 'Textures', 'Utility', 'Functions', 'Output'],
-  nodes: [INPUT_NODES.find((n) => n.type === 'parameter')!, ...SHARED_NODES, ...OUTPUT_NODES],
+  nodes: [INPUT_NODES.find((n) => n.type === 'parameter')!, ...SHARED_NODES, SAMPLE_DATA_NODE, ...OUTPUT_NODES],
   // A shader is a data flow: a value never depends on itself.
   allowCycles: false,
   // 512: the plan's bound for one material (compile time and shader size stay small).

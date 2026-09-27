@@ -17,7 +17,7 @@ import type { GraphContext, GraphData, GraphDocument, GraphEdge, GraphKindDef, G
 /** The port type a parameter feeds into a graph (a colour is a vec3) — project-model `materialParameterPortType`. */
 export function parameterPortType(type: string): string | null {
   if (type === 'color') return 'vec3';
-  return ['float', 'vec2', 'vec3', 'vec4', 'texture'].includes(type) ? type : null;
+  return ['float', 'vec2', 'vec3', 'vec4', 'texture', 'data'].includes(type) ? type : null;
 }
 
 /** Standalone graphs by kind and id (Function call nodes read their ports from them). */
@@ -64,6 +64,9 @@ export function parameterDefault(type: MaterialParameter['type']): MaterialParam
       return '#ffffff';
     case 'texture':
       return '';
+    case 'data':
+      // Phase 23.12: every cell starts transparent black (RGBA bytes).
+      return [0, 0, 0, 0];
   }
 }
 

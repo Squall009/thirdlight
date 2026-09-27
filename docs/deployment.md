@@ -946,15 +946,15 @@ power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
 step, abs, floor, fraction, sin, cos, one minus, remap; *Vectors* — split,
 combine, swizzle (mask `xyzw`/`rgba`); *Textures* — Sample texture (wrap,
 filter, colour space), Normal map, Triplanar, Flipbook, Noise (value,
-gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp;
+gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp, Sample data (a data parameter's cell);
 *Utility* — Fresnel, Rim, Posterize, Dither, World-aligned UV, Parallax,
 Vertex displacement, Alpha clip; *Functions* — Function call; *Output* —
 PBR output (base colour, metalness, roughness, normal, emissive, AO,
 opacity, alpha clip), Unlit output or Custom-lit output (colour, emissive,
 normal, opacity, alpha clip) — one of them per material —, Vertex
 offset; the render flags (double-sided, transparent, casts shadows) are
-fields of the surface output. Port types are float, vec2, vec3, vec4 and
-texture; every value width converts to every other (a float fills every
+fields of the surface output. Port types are float, vec2, vec3, vec4,
+texture and data (a data parameter, which feeds only Sample data); every value width converts to every other (a float fills every
 component, a wider vector keeps its first components, a narrower one is
 padded with 0 and w = 1 — shown dashed on the wire); a texture only feeds a
 texture input. Maths nodes have a **Type** field, `auto` by default: they
@@ -966,13 +966,39 @@ fields, compatible port types, no cycles, at most 512 nodes, one surface
 output, one vertex offset.
 
 **Exposed parameters** (left of the graph): key, type (float, vec2–4,
-colour, texture), default, range, visibility (public/private, like script
+colour, texture, data), default, range, visibility (public/private, like script
 properties). A **Parameter** node reads one (its type is the parameter's).
 Objects override the **public** ones: select an object that uses the
 material (its own material mapping or its model's default one) — the
 Inspector's **Materials** section lists each graph material's public
 parameters; a value set there is stored on the object (the
 `materialParams` component) and ↺ goes back to the material's value.
+
+**Material parameters from scripts** (phase 23.12): while the game runs a
+script sets a graph material's public parameters **per object** —
+`ctx.materials.set(entityId, 'tint', '#ff4000')` (a number, 2–4 numbers,
+`"#rrggbb"`, or a texture asset id that travels with the game — referenced
+by a material, an object override or a script property), `get`, and
+`reset(entityId, param?)` back to the object's authored value. Other objects
+wearing the material keep theirs: the material stays one shared compiled
+material and the value is read per drawn object (no recompile; a texture
+value takes the texture-override path, a compiled copy). The call applies
+to every graph material of the object that declares the key (or to one:
+the optional last argument `materialId`). A **data** parameter is a small
+grid of RGBA cells (its **size**, up to 64 × 64 — the engine limit — and a
+default: the bytes every cell starts with): scripts write cells or
+rectangles per object with `ctx.materials.setData(entityId, 'cells', x, y,
+w, h, bytes)` (w × h × 4 values 0–255, row by row; `getData` reads a cell)
+and the **Sample data** node reads one cell — at a UV (cell [0, 0] at UV
+(0, 0), no filtering) or at integer cell coordinates — so one mesh can show
+per-cell state without an object per cell. Values are part of the
+simulation (deterministic, in replays and the step digest, identical in the
+simulation worker and the page), go to the renderer only when they change
+(a data grid uploads once per change) and start from the authored values at
+every new run. At most 4,096 writes per step; a refused call returns
+`false`. The visual-script nodes are under **Materials** (Set material
+parameter, Material parameter, Reset material parameter, Write material
+data, Material data cell).
 
 **Material functions** (reusable sub-graphs) are standalone graphs of kind
 **Material function** (Graphs → pick the kind → Create graph). Their

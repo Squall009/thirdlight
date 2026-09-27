@@ -85,5 +85,8 @@ export function stepDigest(rt: Runtime): string {
     h.num(cam.letterbox);
     h.num(cam.shake);
   }
+  // Phase 23.12: the material parameters scripts set (only while any is set, so every other digest is unchanged).
+  const mat = rt.materialState?.() ?? null;
+  if (mat !== null) h.text(mat);
   return h.hex();
 }

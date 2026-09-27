@@ -81,6 +81,8 @@ export default defineConfig({
         '**/physics-3d.e2e.ts',
         // Phase 23.15: Custom-lit graph materials (preview, Scene view, Play, export) on WebGPU.
         '**/material-custom-lit.e2e.ts',
+        // Phase 23.12: material parameters set per object by scripts (the per-object data texture) on WebGPU.
+        '**/material-runtime.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

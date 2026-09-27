@@ -41,6 +41,8 @@ describe('the material node catalogue (data)', () => {
         for (const p of d.inputs) {
           // "every output connected or defaulted": an unconnected input always has a value (a texture input falls back to the node's texture field).
           if (p.type === 'texture') continue;
+          // Phase 23.12: a data input without a wire reads 0 (the compiler warns).
+          if (p.type === 'data') continue;
           expect(p.default, `${d.type}.${p.id} has a default`).toBeDefined();
           if (typeof p.default === 'string') expect(MATERIAL_BUILTIN_SOURCES as readonly string[]).toContain(p.default);
         }
