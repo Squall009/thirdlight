@@ -910,8 +910,9 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(new Set(DESCRIPTORS.components.map((c) => c.name)).size).toBe(DESCRIPTORS.components.length);
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
-    // (phase 23.9b: + the UI document vocabulary, about 20 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(220_000);
+    // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
+    // repeat the sky/fog/post descriptors, about 9 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(232_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
