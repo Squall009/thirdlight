@@ -108,14 +108,18 @@ export type UiEngineAction =
   | 'back'
   | 'setSetting'
   | 'mute'
-  | 'unmute';
+  | 'unmute'
+  // Phase 23.14: rebinding (the host's bindings API): listen for an action's input, stop listening, reset one action or all.
+  | 'rebind'
+  | 'cancelRebind'
+  | 'resetBindings';
 
 /** What a button click (or an input submit, a cancel, a focus) does. */
 export type UiAction =
   /** Raise a UI event to scripts (on the next input frame). */
   | { do: 'event'; name: string; value?: UiScalar | UiBinding }
   /** An engine action of the game flow (resume, quit to title, save, load, set a setting, …). */
-  | { do: 'engine'; action: UiEngineAction; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number }
+  | { do: 'engine'; action: UiEngineAction; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
   /** Show / hide / toggle a UI document (through the input frame, so replays hold). */
   | { do: 'show' | 'hide' | 'toggle'; doc: string }
   /** Play a tween of this document (presentation only). */
@@ -273,7 +277,7 @@ export const UI_LIMITS = Object.freeze({
 });
 
 export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid', 'text', 'image', 'bar', 'button', 'list', 'input'];
-export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute'];
+export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings'];
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];
 export const UI_GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
@@ -451,7 +455,14 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         }
         break;
       case 'engine': {
-        only(a, ['do', 'action', 'slot', 'setting', 'value', 'step'], p, errors, 'engine action');
+        only(a, ['do', 'action', 'slot', 'setting', 'value', 'step', 'input', 'device', 'index', 'part', 'policy'], p, errors, 'engine action');
+        // Phase 23.14: rebind names the input action (and optionally the device, binding index, composite part and conflict policy).
+        if (a['input'] !== undefined && !(typeof a['input'] === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(a['input']))) err(errors, 'field_value', `${p}/input`, 'input names an input action', a['input'], 'an action name');
+        if (a['action'] === 'rebind' && a['input'] === undefined) err(errors, 'field_missing', `${p}/input`, 'rebind names its input action', undefined, 'an action name');
+        oneOf(errors, a['device'], `${p}/device`, ['keyboardMouse', 'gamepad'], 'device');
+        oneOf(errors, a['part'], `${p}/part`, ['negative', 'positive', 'up', 'down', 'left', 'right'], 'part');
+        oneOf(errors, a['policy'], `${p}/policy`, ['swap', 'refuse', 'allow'], 'policy');
+        if (a['index'] !== undefined && !(Number.isInteger(a['index']) && (a['index'] as number) >= 0 && (a['index'] as number) <= 7)) err(errors, 'field_value', `${p}/index`, 'index is a binding index 0–7', a['index'], '0..7');
         oneOf(errors, a['action'], `${p}/action`, UI_ENGINE_ACTIONS, 'an engine action');
         if (a['action'] === undefined) err(errors, 'field_missing', `${p}/action`, 'an engine action names its action', undefined, UI_ENGINE_ACTIONS.join(' | '));
         oneOf(errors, a['slot'], `${p}/slot`, UI_SAVE_SLOTS, 'slot');

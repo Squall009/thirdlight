@@ -37,6 +37,8 @@
  * `sampleMenu()`/`markConfirmConsumed()` methods. No new dependency.
  */
 export { attachBrowserInput, focusGameSurface, type UiSample } from './browser';
+// Phase 23.14: listen-for-input rebinding and the frame's input entry.
+export type { CaptureInputOptions, CapturedInput } from './browser';
 export {
   createMenuController,
   MENU_CONFIRM_CODES,

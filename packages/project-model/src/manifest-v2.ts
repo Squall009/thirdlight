@@ -260,6 +260,8 @@ export interface ManifestAssetInputV2 {
   clipsFor?: string;
   /** Model only (phase 15.3): the version's recorded bounds (the runtime's pickups without a size read them). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
+  /** Audio and music (phase 23.13): the version's recorded duration, ms (script sounds' ends are computed from it). */
+  durationMs?: number;
 }
 
 /** The v2 manifest document (field order = `MANIFEST_KEYS_V2`; `buildId` last). */
@@ -375,7 +377,7 @@ export const M3_SETTINGS_KEYS = [
  * when the project sets them), in registry order — a project that never sets
  * one keeps its exact settings block and digests.
  */
-export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer'] as const;
+export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'audio_spatial'] as const;
 
 // ---------------------------------------------------------------------------
 // Media identity (delivery.md §2.3 `media`)
@@ -689,6 +691,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
       ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
+      ...(a.durationMs !== undefined && (a.kind === 'audio' || a.kind === 'music') ? { durationMs: a.durationMs } : {}),
     }))
     .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
   const behaviors = [...input.behaviors]

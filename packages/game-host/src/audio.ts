@@ -57,6 +57,8 @@
  * additive read-only method).
  */
 
+import { distanceGain, listenerRelative } from '@thirdlight/runtime';
+
 /**
  * Rule 3 — the concurrent voice cap: phase 15.3, the default of the project's
  * `audio_voices` setting (`maxVoices`), which may go up to `AUDIO_VOICE_LIMIT`.
@@ -138,9 +140,45 @@ export interface BufferSourceLike {
   onended: (() => void) | null;
   connect(target: AudioNodeLike): void;
   start(): void;
-  stop(): void;
+  stop(when?: number): void;
   /** Phase 9.10: music loops. */
   loop?: boolean;
+  /** Phase 23.13: pitch (the playback rate). */
+  readonly playbackRate?: { value: number };
+}
+
+/** Phase 23.13: an automatable parameter (Web Audio AudioParam). */
+export interface AudioParamLike {
+  value: number;
+}
+
+/** Phase 23.13: the positional sound's panner (Web Audio PannerNode). */
+export interface PannerNodeLike extends AudioNodeLike {
+  panningModel: string;
+  distanceModel: string;
+  refDistance: number;
+  maxDistance: number;
+  rolloffFactor: number;
+  readonly positionX?: AudioParamLike;
+  readonly positionY?: AudioParamLike;
+  readonly positionZ?: AudioParamLike;
+  setPosition?(x: number, y: number, z: number): void;
+  disconnect?(): void;
+}
+
+/** Phase 23.13: the context's listener (Web Audio AudioListener). */
+export interface AudioListenerLike {
+  readonly positionX?: AudioParamLike;
+  readonly positionY?: AudioParamLike;
+  readonly positionZ?: AudioParamLike;
+  readonly forwardX?: AudioParamLike;
+  readonly forwardY?: AudioParamLike;
+  readonly forwardZ?: AudioParamLike;
+  readonly upX?: AudioParamLike;
+  readonly upY?: AudioParamLike;
+  readonly upZ?: AudioParamLike;
+  setPosition?(x: number, y: number, z: number): void;
+  setOrientation?(x: number, y: number, z: number, ux: number, uy: number, uz: number): void;
 }
 
 export interface AudioContextLike {
@@ -154,10 +192,79 @@ export interface AudioContextLike {
   readonly destination: AudioNodeLike;
   /** Phase 9.10: the clock the music crossfades on (absent: gains jump). */
   readonly currentTime?: number;
+  /** Phase 23.13: positional sound (absent: positional sounds play unpanned). */
+  createPanner?(): PannerNodeLike;
+  readonly listener?: AudioListenerLike;
 }
 
-/** Phase 9.10: the mixer buses (phase 14.5: `ui`, the menu sounds). */
-export type AudioBus = 'master' | 'music' | 'sfx' | 'ui';
+/** Phase 9.10: the mixer buses (phase 14.5: `ui`, the menu sounds; phase 23.13: `voice`, dialogue). */
+export type AudioBus = 'master' | 'music' | 'sfx' | 'ui' | 'voice';
+
+/**
+ * Phase 23.13: the panning model of every positional sound. Equal-power:
+ * the same on every browser (HRTF's impulse responses differ per browser),
+ * cheap enough for every voice at once, and right on speakers as well as
+ * headphones. Logged in the phase 23 decision log.
+ */
+export const AUDIO_PANNING_MODEL = 'equalpower';
+
+/** Phase 23.13: voices listed in the audio observation (a tl_game_observe document stays within 16 KiB). */
+export const AUDIO_OBSERVED_VOICES = 24;
+
+/** Phase 23.13: how a positional sound fades (the simulation's `AudioSpatial`). */
+export interface AudioSpatialLike {
+  readonly distanceModel: 'linear' | 'inverse' | 'exponential';
+  readonly refDistance: number;
+  readonly maxDistance: number;
+  readonly rolloff: number;
+}
+
+/** Phase 23.13: one command of the simulation's audio intent log (runtime `AudioCommand`, structurally). */
+export type AudioCommandLike =
+  | { readonly op: 'play'; readonly stepIndex: number; readonly handle: number; readonly assetId: string; readonly bus: 'sfx' | 'music' | 'voice' | 'ui'; readonly volume: number; readonly loop: boolean; readonly pitch: number; readonly fadeIn: number; readonly stinger?: true; readonly entityId?: string; readonly position?: readonly [number, number, number]; readonly spatial?: AudioSpatialLike }
+  | { readonly op: 'stop'; readonly stepIndex: number; readonly handle: number; readonly fade: number }
+  | { readonly op: 'fade'; readonly stepIndex: number; readonly handle: number; readonly to: number; readonly seconds: number }
+  | { readonly op: 'set'; readonly stepIndex: number; readonly handle: number; readonly volume?: number; readonly pitch?: number; readonly loop?: boolean }
+  | { readonly op: 'music'; readonly stepIndex: number; readonly assetId: string | null; readonly fade: number; readonly release?: true }
+  | { readonly op: 'duck'; readonly stepIndex: number; readonly level: number; readonly seconds: number }
+  | { readonly op: 'bus'; readonly stepIndex: number; readonly bus: 'sfx' | 'music' | 'voice' | 'ui'; readonly volume: number; readonly seconds: number }
+  | { readonly op: 'reset'; readonly stepIndex: number };
+
+/** Phase 23.13: one live voice as the Web Audio graph has it (observation; not what is heard). */
+export interface AudioVoiceInfo {
+  /** A script sound's handle (0: an audio source's loop, see `key`). */
+  readonly handle: number;
+  readonly key?: string;
+  readonly assetId: string;
+  readonly bus: 'sfx' | 'music' | 'voice' | 'ui';
+  /** `pending`: waiting for its bytes or the sound unlock; `stopping`: fading out. */
+  readonly state: 'playing' | 'pending' | 'stopping';
+  readonly loop: boolean;
+  /** The voice gain node's value now (fades included). */
+  readonly gain: number;
+  /** The source's playback rate. */
+  readonly rate: number;
+  /** Positional: the panner's stereo pan for the listener (−1 left … 1 right) and its distance gain. */
+  readonly pan?: number;
+  readonly distanceGain?: number;
+  readonly distance?: number;
+  readonly position?: readonly [number, number, number];
+}
+
+/** Phase 23.13: the audio observation (voices, music, buses, listener). */
+export interface AudioObservation {
+  /** The first `AUDIO_OBSERVED_VOICES` voices (the observation stays bounded). */
+  readonly voices: readonly AudioVoiceInfo[];
+  /** Every live voice (script sounds and panned audio sources). */
+  readonly voiceCount: number;
+  readonly music: { readonly owner: 'script' | 'flow'; readonly assetId: string | null; readonly playing: boolean; readonly duck: number };
+  /** Each bus gain node's value (the player's volume × the scripts' mix). */
+  readonly buses: Readonly<Record<'sfx' | 'music' | 'voice' | 'ui', number>>;
+  readonly listener: { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
+  readonly panningModel: string;
+  /** The owner's newest diagnostics (at most 3, each ≤ 256 chars, log-safe). */
+  readonly diagnostics: readonly string[];
+}
 export const MUSIC_MAX_REGISTERED = 64;
 
 export interface GameAudioOwnerConfig {
@@ -232,6 +339,21 @@ export interface GameAudioOwner {
   setLoop?(key: string, assetId: string | null, gain: number): void;
   /** Phase 9.10: the live loops (key → gain), for observation. */
   loops?(): Readonly<Record<string, number>>;
+  /**
+   * Phase 23.13: execute one command of the simulation's audio intent log
+   * (handles, fades, pitch, loop, music, stingers, duck, bus mix, reset).
+   */
+  command?(c: AudioCommandLike): void;
+  /**
+   * Phase 23.13: once per frame — the listener (the active camera's pose; null:
+   * unchanged) and where each positional voice's entity is now (null: gone,
+   * the voice stays where it was). Also starts voices waiting for bytes.
+   */
+  spatialFrame?(listener: { readonly position: readonly number[]; readonly rotation: readonly number[] } | null, positionOf: (entityId: string) => readonly number[] | null): void;
+  /** Phase 23.13: a positional loop (an audio source in the panner model) — `setLoop` with a place. */
+  setSpatialLoop?(key: string, assetId: string | null, gain: number, position: readonly number[], spatial: AudioSpatialLike): void;
+  /** Phase 23.13: the audio observation, or null before scripts used audio and while nothing positional plays. */
+  observeAudio?(): AudioObservation | null;
 }
 
 export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAudioOwner {
@@ -259,13 +381,23 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   const voices = new Set<Voice>();
   const diagnostics: GameAudioDiagnostic[] = [];
   // Phase 9.10: buses (created with the context) and music.
-  const volumes: Record<AudioBus, number> = { master: 1, music: 0.8, sfx: 1, ui: 1 };
+  const volumes: Record<AudioBus, number> = { master: 1, music: 0.8, sfx: 1, ui: 1, voice: 1 };
   const played: Record<'sfx' | 'ui', number> = { sfx: 0, ui: 0 };
   let buses: Record<AudioBus, GainNodeLike> | null = null;
+  /** Phase 23.13: the music duck, between the tracks and the music bus. */
+  let duckNode: GainNodeLike | null = null;
+  let duckLevel = 1;
+  /** Phase 23.13: the scripts' mix per bus (each bus gain = the player's volume × this). */
+  const mix: Record<'sfx' | 'music' | 'voice' | 'ui', number> = { sfx: 1, music: 1, voice: 1, ui: 1 };
   const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
+  /** Phase 23.13: the flow's track and the scripts' (undefined: the flow owns the music). */
+  let flowMusic: string | null = null;
+  let scriptMusic: string | null | undefined = undefined;
   let wantedMusic: string | null = null;
   let wantedFade = 1;
   let track: { assetId: string; source: BufferSourceLike; gain: GainNodeLike } | null = null;
+
+  const busGain = (bus: Exclude<AudioBus, 'master'>): number => volumes[bus] * mix[bus];
 
   function ensureBuses(ctx: AudioContextLike): Record<AudioBus, GainNodeLike> {
     if (buses !== null) return buses;
@@ -273,15 +405,21 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     const musicBus = ctx.createGain();
     const sfx = ctx.createGain();
     const ui = ctx.createGain();
+    const voice = ctx.createGain();
     master.gain.value = muted ? 0 : volumes.master;
-    musicBus.gain.value = volumes.music;
-    sfx.gain.value = volumes.sfx;
-    ui.gain.value = volumes.ui;
+    musicBus.gain.value = busGain('music');
+    sfx.gain.value = busGain('sfx');
+    ui.gain.value = busGain('ui');
+    voice.gain.value = busGain('voice');
     musicBus.connect(master);
     sfx.connect(master);
     ui.connect(master);
+    voice.connect(master);
     master.connect(ctx.destination);
-    buses = { master, music: musicBus, sfx, ui };
+    duckNode = ctx.createGain();
+    duckNode.gain.value = duckLevel;
+    duckNode.connect(musicBus);
+    buses = { master, music: musicBus, sfx, ui, voice };
     return buses;
   }
 
@@ -299,6 +437,295 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   // Phase 9.10: looping emitters (audio sources) by key.
   const loopVoices = new Map<string, { assetId: string; source: BufferSourceLike; gain: GainNodeLike }>();
   const loopGains = new Map<string, number>();
+  /** Phase 23.13: positional loops' panners and places (key → ...). */
+  const loopSpatial = new Map<string, { panner: PannerNodeLike | null; position: [number, number, number]; spatial: AudioSpatialLike }>();
+
+  // ---- Phase 23.13: script sounds by handle ----------------------------------
+  interface HandleVoice {
+    readonly handle: number;
+    readonly assetId: string;
+    readonly bus: 'sfx' | 'music' | 'voice' | 'ui';
+    readonly stinger: boolean;
+    loop: boolean;
+    pitch: number;
+    /** The volume the simulation has now (applied as is when a pending voice starts). */
+    volume: number;
+    fadeIn: number;
+    source: BufferSourceLike | null;
+    gain: GainNodeLike | null;
+    panner: PannerNodeLike | null;
+    readonly entityId: string | null;
+    /** The offset from the entity, or the world position. */
+    readonly offset: readonly [number, number, number] | null;
+    readonly spatial: AudioSpatialLike | null;
+    /** Where it is now (positional). */
+    world: [number, number, number] | null;
+    stopping: boolean;
+    /** Frames it waited for its bytes (a one-shot gives up after PENDING_FRAMES). */
+    waited: number;
+  }
+  /** A one-shot that cannot start within this many frames (~0.5 s) is dropped: a late bark is worse than none. */
+  const PENDING_FRAMES = 30;
+  const handleVoices = new Map<number, HandleVoice>();
+  let audioUsed = false;
+  let listenerPose: { position: [number, number, number]; rotation: [number, number, number, number] } | null = null;
+
+  const clamp01 = (v: number): number => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
+
+  function setParam(p: AudioParamLike | undefined, v: number): boolean {
+    if (p === undefined) return false;
+    p.value = v;
+    return true;
+  }
+
+  function placePanner(panner: PannerNodeLike, at: readonly number[]): void {
+    const ok = setParam(panner.positionX, at[0]!) && setParam(panner.positionY, at[1]!) && setParam(panner.positionZ, at[2]!);
+    if (!ok) panner.setPosition?.(at[0]!, at[1]!, at[2]!);
+  }
+
+  function makePanner(ctx: AudioContextLike, spatial: AudioSpatialLike, at: readonly number[]): PannerNodeLike | null {
+    if (ctx.createPanner === undefined) return null;
+    const p = ctx.createPanner();
+    p.panningModel = AUDIO_PANNING_MODEL;
+    p.distanceModel = spatial.distanceModel;
+    p.refDistance = spatial.refDistance;
+    p.maxDistance = spatial.maxDistance;
+    p.rolloffFactor = spatial.rolloff;
+    placePanner(p, at);
+    return p;
+  }
+
+  function applyListener(ctx: AudioContextLike): void {
+    const l = ctx.listener;
+    if (l === undefined || listenerPose === null) return;
+    const [px, py, pz] = listenerPose.position;
+    const [x, y, z, w] = listenerPose.rotation;
+    // Forward = q·(0, 0, −1), up = q·(0, 1, 0) (a camera looks down −Z).
+    const fx = -(2 * (x * z + w * y));
+    const fy = -(2 * (y * z - w * x));
+    const fz = -(1 - 2 * (x * x + y * y));
+    const ux = 2 * (x * y - w * z);
+    const uy = 1 - 2 * (x * x + z * z);
+    const uz = 2 * (y * z + w * x);
+    const posOk = setParam(l.positionX, px) && setParam(l.positionY, py) && setParam(l.positionZ, pz);
+    if (!posOk) l.setPosition?.(px, py, pz);
+    const oriOk = setParam(l.forwardX, fx) && setParam(l.forwardY, fy) && setParam(l.forwardZ, fz) && setParam(l.upX, ux) && setParam(l.upY, uy) && setParam(l.upZ, uz);
+    if (!oriOk) l.setOrientation?.(fx, fy, fz, ux, uy, uz);
+  }
+
+  function startedHandleVoices(): number {
+    let n = 0;
+    for (const v of handleVoices.values()) if (v.source !== null) n += 1;
+    return n;
+  }
+
+  /** Start a pending voice when it can (unlocked, its bytes decoded, a free voice). */
+  function tryStart(v: HandleVoice): 'started' | 'wait' | 'drop' {
+    if (disposed || context === null || !unlocked || context.state === 'closed') return 'wait';
+    const buffer = bufferOf(v.assetId);
+    if (buffer === null) return 'wait';
+    if (voices.size + startedHandleVoices() >= maxVoices) {
+      diag('voice_cap', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: ${maxVoices} voices busy`);
+      return 'drop';
+    }
+    const ctx = context;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = v.loop;
+    if (source.playbackRate !== undefined) source.playbackRate.value = v.pitch;
+    const gain = ctx.createGain();
+    source.connect(gain);
+    let out: AudioNodeLike = gain;
+    if (v.spatial !== null && v.world !== null) {
+      v.panner = makePanner(ctx, v.spatial, v.world);
+      if (v.panner !== null) {
+        gain.connect(v.panner);
+        out = v.panner;
+      }
+    }
+    out.connect(ensureBuses(ctx)[v.bus]);
+    if (v.fadeIn > 0 && v.waited === 0) {
+      gain.gain.value = 0;
+      ramp(gain, v.volume, v.fadeIn, ctx);
+    } else gain.gain.value = v.volume;
+    source.onended = () => {
+      if (handleVoices.get(v.handle) === v) releaseHandle(v, false);
+    };
+    source.start();
+    v.source = source;
+    v.gain = gain;
+    if (v.bus === 'sfx' || v.bus === 'ui') played[v.bus] += 1;
+    return 'started';
+  }
+
+  function releaseHandle(v: HandleVoice, stop: boolean): void {
+    handleVoices.delete(v.handle);
+    if (v.source !== null) {
+      v.source.onended = null;
+      if (stop) {
+        try {
+          v.source.stop();
+        } catch {
+          // already ended
+        }
+      }
+    }
+    v.gain?.disconnect?.();
+    v.panner?.disconnect?.();
+  }
+
+  function pumpPending(): void {
+    for (const v of [...handleVoices.values()]) {
+      if (v.source !== null || v.stopping) continue;
+      const r = tryStart(v);
+      if (r === 'drop') handleVoices.delete(v.handle);
+      else if (r === 'wait') {
+        v.waited += 1;
+        if (!v.loop && v.waited > PENDING_FRAMES) {
+          diag('cue_skipped', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: not playable within ${PENDING_FRAMES} frames (sound off or still decoding)`);
+          handleVoices.delete(v.handle);
+        }
+      }
+    }
+  }
+
+  function setDuck(level: number, seconds: number): void {
+    duckLevel = clamp01(level);
+    if (duckNode !== null && context !== null) ramp(duckNode, duckLevel, seconds, context);
+  }
+
+  function setMix(bus: 'sfx' | 'music' | 'voice' | 'ui', v: number, seconds: number): void {
+    mix[bus] = clamp01(v);
+    if (buses !== null && context !== null) ramp(buses[bus], busGain(bus), seconds, context);
+  }
+
+  function refreshWantedMusic(fade: number): void {
+    wantedMusic = scriptMusic !== undefined ? scriptMusic : flowMusic;
+    wantedFade = Math.max(0, Math.min(10, fade));
+    syncMusic();
+  }
+
+  function executeCommand(c: AudioCommandLike): void {
+    audioUsed = true;
+    switch (c.op) {
+      case 'play': {
+        if (handleVoices.has(c.handle) || muted) return; // nothing plays while muted
+        const positional = c.spatial !== undefined;
+        const offset = positional ? ([...(c.position ?? [0, 0, 0])] as [number, number, number]) : null;
+        const v: HandleVoice = {
+          handle: c.handle,
+          assetId: c.assetId,
+          bus: c.bus,
+          stinger: c.stinger === true,
+          loop: c.loop,
+          pitch: c.pitch,
+          volume: clamp01(c.volume),
+          fadeIn: Math.max(0, c.fadeIn),
+          source: null,
+          gain: null,
+          panner: null,
+          entityId: positional && c.entityId !== undefined ? c.entityId : null,
+          offset,
+          spatial: c.spatial ?? null,
+          // An entity-bound voice is placed by the next spatialFrame; until then at its offset.
+          world: offset !== null ? [offset[0], offset[1], offset[2]] : null,
+          stopping: false,
+          waited: 0,
+        };
+        handleVoices.set(v.handle, v);
+        if (tryStart(v) === 'drop') handleVoices.delete(v.handle);
+        return;
+      }
+      case 'stop': {
+        const v = handleVoices.get(c.handle);
+        if (v === undefined) return;
+        if (v.source === null || v.gain === null || context === null || c.fade <= 0 || context.currentTime === undefined) {
+          releaseHandle(v, true);
+          return;
+        }
+        v.stopping = true;
+        ramp(v.gain, 0, c.fade, context);
+        try {
+          v.source.stop(context.currentTime + c.fade);
+        } catch {
+          releaseHandle(v, true);
+        }
+        return;
+      }
+      case 'fade': {
+        const v = handleVoices.get(c.handle);
+        if (v === undefined) return;
+        v.volume = clamp01(c.to);
+        if (v.gain !== null && context !== null) ramp(v.gain, v.volume, c.seconds, context);
+        return;
+      }
+      case 'set': {
+        const v = handleVoices.get(c.handle);
+        if (v === undefined) return;
+        if (c.volume !== undefined) {
+          v.volume = clamp01(c.volume);
+          if (v.gain !== null && context !== null) ramp(v.gain, v.volume, 0, context);
+        }
+        if (c.pitch !== undefined) {
+          v.pitch = c.pitch;
+          if (v.source?.playbackRate !== undefined) v.source.playbackRate.value = c.pitch;
+        }
+        if (c.loop !== undefined) {
+          v.loop = c.loop;
+          if (v.source !== null) v.source.loop = c.loop;
+        }
+        return;
+      }
+      case 'music':
+        scriptMusic = c.release === true ? undefined : c.assetId;
+        refreshWantedMusic(c.fade);
+        return;
+      case 'duck':
+        setDuck(c.level, c.seconds);
+        return;
+      case 'bus':
+        setMix(c.bus, c.volume, c.seconds);
+        return;
+      case 'reset':
+        for (const v of [...handleVoices.values()]) releaseHandle(v, true);
+        setDuck(1, 0);
+        for (const b of ['sfx', 'music', 'voice', 'ui'] as const) setMix(b, 1, 0);
+        if (scriptMusic !== undefined) {
+          scriptMusic = undefined;
+          refreshWantedMusic(wantedFade);
+        }
+        return;
+    }
+  }
+
+  const r4 = (x: number): number => Math.round(x * 10000) / 10000;
+
+  function pannerPosition(p: PannerNodeLike | null): [number, number, number] | null {
+    if (p === null || p.positionX === undefined || p.positionY === undefined || p.positionZ === undefined) return null;
+    return [p.positionX.value, p.positionY.value, p.positionZ.value];
+  }
+
+  /** The pan and distance gain the panner gives a source at `at` for the listener (computed from the graph's parameters). */
+  function spatialInfo(spatial: AudioSpatialLike, panner: PannerNodeLike | null, at: readonly [number, number, number]): { pan: number; distanceGain: number; distance: number; position: readonly [number, number, number] } {
+    const s: AudioSpatialLike = panner !== null ? { distanceModel: panner.distanceModel as AudioSpatialLike['distanceModel'], refDistance: panner.refDistance, maxDistance: panner.maxDistance, rolloff: panner.rolloffFactor } : spatial;
+    const rel = listenerRelative(listenerPose?.position ?? [0, 0, 0], listenerPose?.rotation ?? [0, 0, 0, 1], at);
+    return { pan: r4(rel.pan), distanceGain: r4(distanceGain(s, rel.distance)), distance: r4(rel.distance), position: [r4(at[0]), r4(at[1]), r4(at[2])] };
+  }
+
+  function voiceInfo(v: HandleVoice): AudioVoiceInfo {
+    const base = {
+      handle: v.handle,
+      assetId: v.assetId,
+      bus: v.bus,
+      state: v.source === null ? ('pending' as const) : v.stopping ? ('stopping' as const) : ('playing' as const),
+      loop: v.loop,
+      gain: r4(v.gain !== null ? v.gain.gain.value : 0),
+      rate: r4(v.source?.playbackRate !== undefined ? v.source.playbackRate.value : v.pitch),
+    };
+    const at = pannerPosition(v.panner) ?? v.world;
+    if (v.spatial === null || at === null) return base;
+    return { ...base, ...spatialInfo(v.spatial, v.panner, at) };
+  }
 
   /** The decoded buffer of a registered cue or music asset (music decodes on demand). */
   function bufferOf(assetId: string): AudioBufferLike | null {
@@ -341,6 +768,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       // already stopped
     }
     v.gain.disconnect?.();
+    const sp = loopSpatial.get(key);
+    sp?.panner?.disconnect?.();
+    if (sp !== undefined) sp.panner = null;
   }
 
   function stopTrack(fadeSeconds: number): void {
@@ -369,7 +799,18 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       stopTrack(wantedFade);
       return;
     }
-    const entry = music.get(wantedMusic);
+    let entry = music.get(wantedMusic);
+    if (entry === undefined) {
+      // Phase 23.13: a script may pick an audio (cue) asset as its track.
+      const cue = assets.get(wantedMusic);
+      if (cue !== undefined && cue.state !== 'failed') {
+        if (cue.state !== 'ready') {
+          if (cue.state === 'pending' && !muted) startDecode(wantedMusic);
+          return; // spatialFrame retries once it decoded
+        }
+        entry = { bytes: new Uint8Array(0), buffer: cue.buffer, decoding: false, failed: false };
+      }
+    }
     if (entry === undefined || entry.failed) {
       stopTrack(wantedFade);
       return;
@@ -406,7 +847,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     const gain = ctx.createGain();
     gain.gain.value = 0;
     source.connect(gain);
-    gain.connect(bus.music);
+    gain.connect(duckNode ?? bus.music);
     ramp(gain, 1, wantedFade, ctx);
     source.start();
     track = { assetId: wantedMusic, source, gain };
@@ -736,6 +1177,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       epoch += 1; // every in-flight decode is stale (rule 5)
       stopAllVoices();
       stopTrack(0);
+      for (const v of [...handleVoices.values()]) releaseHandle(v, true);
       for (const key of [...loopVoices.keys()]) stopLoop(key);
       music.clear();
       if (context) {
@@ -754,7 +1196,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     },
 
     liveVoices() {
-      return voices.size;
+      return voices.size + startedHandleVoices();
     },
 
     registerMusic(assetId, bytes) {
@@ -768,9 +1210,10 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
     playMusic(assetId, fadeSeconds = 1) {
       if (disposed) return;
-      wantedMusic = assetId;
-      wantedFade = Math.max(0, Math.min(10, fadeSeconds));
-      syncMusic();
+      // Phase 23.13: the flow's track; a script holding the music keeps it until it releases.
+      flowMusic = assetId;
+      if (scriptMusic !== undefined) return;
+      refreshWantedMusic(fadeSeconds);
     },
 
     setVolume(bus, value) {
@@ -779,7 +1222,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       volumes[bus] = v;
       if (buses === null) return;
       if (bus === 'master') buses.master.gain.value = muted ? 0 : v;
-      else buses[bus].gain.value = v;
+      else buses[bus].gain.value = busGain(bus);
     },
 
     volumes() {
@@ -818,6 +1261,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       if (assetId === null) {
         stopLoop(key);
         loopGains.delete(key);
+        loopSpatial.delete(key);
         return;
       }
       loopGains.set(key, g);
@@ -837,9 +1281,102 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       const gainNode = ctx.createGain();
       gainNode.gain.value = g;
       source.connect(gainNode);
-      gainNode.connect(ensureBuses(ctx).sfx);
+      // Phase 23.13: a positional loop (the panner model) goes through its panner.
+      const sp = loopSpatial.get(key);
+      if (sp !== undefined) {
+        sp.panner = makePanner(ctx, sp.spatial, sp.position);
+        if (sp.panner !== null) {
+          gainNode.connect(sp.panner);
+          sp.panner.connect(ensureBuses(ctx).sfx);
+        } else gainNode.connect(ensureBuses(ctx).sfx);
+      } else gainNode.connect(ensureBuses(ctx).sfx);
       source.start();
       loopVoices.set(key, { assetId, source, gain: gainNode });
+    },
+
+    setSpatialLoop(key, assetId, gain, position, spatial) {
+      if (disposed) return;
+      if (assetId === null) {
+        this.setLoop!(key, null, 0);
+        return;
+      }
+      const at: [number, number, number] = [position[0] ?? 0, position[1] ?? 0, position[2] ?? 0];
+      const sp = loopSpatial.get(key);
+      if (sp === undefined) loopSpatial.set(key, { panner: null, position: at, spatial });
+      else {
+        sp.position = at;
+        sp.spatial = spatial;
+        if (sp.panner !== null) {
+          placePanner(sp.panner, at);
+          sp.panner.distanceModel = spatial.distanceModel;
+          sp.panner.refDistance = spatial.refDistance;
+          sp.panner.maxDistance = spatial.maxDistance;
+          sp.panner.rolloffFactor = spatial.rolloff;
+        }
+      }
+      this.setLoop!(key, assetId, gain);
+    },
+
+    command(c) {
+      if (disposed) return;
+      executeCommand(c);
+    },
+
+    spatialFrame(listener, positionOf) {
+      if (disposed) return;
+      if (listener !== null) {
+        listenerPose = {
+          position: [listener.position[0] ?? 0, listener.position[1] ?? 0, listener.position[2] ?? 0],
+          rotation: [listener.rotation[0] ?? 0, listener.rotation[1] ?? 0, listener.rotation[2] ?? 0, listener.rotation[3] ?? 1],
+        };
+        if (context !== null) applyListener(context);
+      }
+      for (const v of handleVoices.values()) {
+        if (v.entityId === null || v.offset === null) continue;
+        const p = positionOf(v.entityId);
+        if (p === null) continue;
+        v.world = [p[0]! + v.offset[0], p[1]! + v.offset[1], p[2]! + v.offset[2]];
+        if (v.panner !== null) placePanner(v.panner, v.world);
+      }
+      pumpPending();
+      // A script's track that waited for its bytes.
+      if (wantedMusic !== null && (track === null || track.assetId !== wantedMusic)) syncMusic();
+    },
+
+    observeAudio() {
+      if (!audioUsed && loopSpatial.size === 0) return null;
+      const out: AudioVoiceInfo[] = [...handleVoices.values()].map(voiceInfo);
+      for (const [key, sp] of loopSpatial) {
+        const live = loopVoices.get(key);
+        if (live === undefined) continue;
+        out.push({
+          handle: 0,
+          key,
+          assetId: live.assetId,
+          bus: 'sfx',
+          state: 'playing',
+          loop: true,
+          gain: r4(live.gain.gain.value),
+          rate: r4(live.source.playbackRate?.value ?? 1),
+          ...spatialInfo(sp.spatial, sp.panner, pannerPosition(sp.panner) ?? sp.position),
+        });
+      }
+      const b = buses;
+      return {
+        voices: out.slice(0, AUDIO_OBSERVED_VOICES),
+        voiceCount: out.length,
+        music: { owner: scriptMusic !== undefined ? 'script' : 'flow', assetId: wantedMusic, playing: track !== null && track.assetId === wantedMusic, duck: r4(duckNode !== null ? duckNode.gain.value : duckLevel) },
+        buses: {
+          sfx: r4(b !== null ? b.sfx.gain.value : busGain('sfx')),
+          music: r4(b !== null ? b.music.gain.value : busGain('music')),
+          voice: r4(b !== null ? b.voice.gain.value : busGain('voice')),
+          ui: r4(b !== null ? b.ui.gain.value : busGain('ui')),
+        },
+        listener: listenerPose === null ? null : { position: [r4(listenerPose.position[0]), r4(listenerPose.position[1]), r4(listenerPose.position[2])], rotation: [r4(listenerPose.rotation[0]), r4(listenerPose.rotation[1]), r4(listenerPose.rotation[2]), r4(listenerPose.rotation[3])] },
+        panningModel: AUDIO_PANNING_MODEL,
+        // The newest bounded diagnostics (a sound that stays pending says why).
+        diagnostics: diagnostics.slice(-3).map((d) => `${d.code}: ${d.message}`),
+      };
     },
 
     soundsPlayed() {

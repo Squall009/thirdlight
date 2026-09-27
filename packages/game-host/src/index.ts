@@ -40,6 +40,14 @@ export {
   type AudioContextLike,
   type AudioBus,
   MUSIC_MAX_REGISTERED,
+  AUDIO_PANNING_MODEL,
+  type AudioCommandLike,
+  type AudioListenerLike,
+  type AudioObservation,
+  type AudioParamLike,
+  type AudioSpatialLike,
+  type AudioVoiceInfo,
+  type PannerNodeLike,
 } from './audio';
 export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveRecords, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
 export { counterPoints, levelScore, timeBonus, type ScoreRulesLike } from './score';
@@ -126,3 +134,7 @@ export { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBind
 // Phase 23.19: project save documents (the page owns the slots: IndexedDB; the settings document: localStorage).
 export { browserProjectSaveBackend, createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type SaveThumbnailInfo, type ThumbnailCapture } from './project-saves';
 export type { ProjectSavesObservation } from './host';
+// Phase 23.14: the rebinding API (list, listen, conflicts, reset, profiles), device detection and glyphs.
+export { createInputBindings, REBIND_DEFAULT_CANCEL, REBIND_DEFAULT_POLICY, REBIND_DEFAULT_TIMEOUT_S, type BindingsControllerDeps, type BindingsInputOwner, type InputBindingsController, type ListenOptions } from './rebind';
+export { applyOverrides, applyRebind, bindingFrom, findConflicts, overridesOf, resetBindings, resolveTarget, validBinding, type Captured, type ConfigData, type RebindResult, type RebindTarget } from './input-bindings';
+export { bindingGlyph, gamepadFamily, glyphDataUrl, glyphSvg, keyName, padAxisGlyph, padButtonGlyph, GLYPH_ICONS, type GlyphIcon, type GlyphOverrides } from './glyphs';

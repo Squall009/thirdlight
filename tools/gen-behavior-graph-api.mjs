@@ -162,6 +162,19 @@ function describe(checker, type, tags = { type: null }) {
   return { kind: 'unsupported', why: checker.typeToString(type), nullable };
 }
 
+/**
+ * Phase 23.13: a literal union's options in the order the declaration writes
+ * them (the checker's union order follows when each literal type was first
+ * created, so a literal used earlier elsewhere — `'linear'` — would reorder an
+ * unrelated choice and move its default).
+ */
+function inSourceOrder(decl, d) {
+  if (d.kind !== 'enum' || decl === undefined || decl.type === undefined || !ts.isUnionTypeNode(decl.type)) return d;
+  const written = decl.type.types.filter((n) => ts.isLiteralTypeNode(n) && ts.isStringLiteral(n.literal)).map((n) => n.literal.text);
+  if (written.length !== d.options.length || !written.every((o) => d.options.includes(o))) return d;
+  return { ...d, options: written };
+}
+
 function single(checker, t, tags) {
   if (t.__boolean === true) return { kind: 'boolean' };
   if ((t.flags & ts.TypeFlags.NumberLike) !== 0) return { kind: 'number' };
@@ -226,7 +239,7 @@ class Builder {
         continue;
       }
       const argType = tags.argTypes.get(p.getName());
-      const d = describe(checker, ptype, argType !== undefined ? { ...graphTags(decl), type: argType } : graphTags(decl));
+      const d = inSourceOrder(decl, describe(checker, ptype, argType !== undefined ? { ...graphTags(decl), type: argType } : graphTags(decl)));
       if (d.kind === 'object') {
         // An options object: one argument per option, built back into the object.
         const entries = [];
@@ -234,7 +247,7 @@ class Builder {
           const pd = prop.valueDeclaration ?? prop.declarations?.[0];
           const t = checker.getTypeOfSymbolAtLocation(prop, pd);
           const opt = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-          const arg = this.arg(prop.getName(), describe(checker, t, graphTags(pd)), opt, tags, pathText);
+          const arg = this.arg(prop.getName(), inSourceOrder(pd, describe(checker, t, graphTags(pd))), opt, tags, pathText);
           claim(arg);
           entries.push([prop.getName(), { arg: arg.id, ...(arg.axes !== undefined ? { as: 'axes' } : {}) }]);
         }

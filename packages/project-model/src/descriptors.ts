@@ -43,7 +43,7 @@ import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOV
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
-import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, POINTER_AXES, POINTER_BUTTONS } from './input';
+import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_HOLD_MIN, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_GLYPHS, POINTER_AXES, POINTER_BUTTONS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { UI_LIMITS } from './ui-documents';
@@ -1306,12 +1306,16 @@ const enemy: ComponentDescriptor = {
 const audioSource: ComponentDescriptor = {
   name: 'audioSource',
   label: 'Audio source',
-  tooltip: 'A looping sound here, louder as the player comes near (along X).',
+  tooltip: 'A looping sound here, louder as the player comes near (along X), or panned around the camera (the project\'s Audio sources setting; 3D projects).',
   category: 'Audio',
   value: obj('audioSource', 'Audio source', 'A positional loop.', [
     asset('assetId', 'Sound', 'An audio or music asset.', ['audio', 'music'], { required: true }),
     num('volume', 'Volume', 'Volume at full strength.', { required: true, min: 0, max: 1, step: 0.05, default: 0.8 }),
-    num('range', 'Range', 'Heard within this distance (full volume within a quarter of it).', { required: true, min: 0.5, max: 500, step: 0.5, unit: 'm', default: 12, handle: 'radius' }),
+    num('range', 'Range', 'Heard within this distance (full volume within a quarter of it). Panned: its max distance.', { required: true, min: 0.5, max: 500, step: 0.5, unit: 'm', default: 12, handle: 'radius' }),
+    // Phase 23.13: the panner model's distance fade (the project's Audio sources setting; 3D projects by default).
+    enm('distanceModel', 'Distance model', 'Panned: how the volume falls with distance — linear (silent at the range), inverse or exponential (natural falloff, quieter but never silent within the range).', ['linear', 'inverse', 'exponential'], { default: 'linear', group: 'Panned' }),
+    num('refDistance', 'Full volume within', 'Panned: full volume within this distance (absent: a quarter of the range).', { min: 0.01, max: 500, step: 0.25, unit: 'm', default: 3, group: 'Panned' }),
+    num('rolloff', 'Rolloff', 'Panned: how fast the volume falls (1: the model\'s natural rate).', { min: 0, max: 10, step: 0.1, default: 1, group: 'Panned' }),
   ]),
   // Phase 15.5: 0.8 volume (headroom under the effects) heard within 12 m (about a screen width at the default camera).
   add: { kind: 'pick', value: { volume: 0.8, range: 12 }, pick: ['assetId'] },
@@ -1551,6 +1555,8 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
       int('y', 'Y axis', 'The stick\'s vertical axis index.', { required: true, when: when('kind', 'gamepadStick'), min: 0, max: 7 }),
       enm('button', 'Pointer button', 'The mouse (or pen/touch) button.', POINTER_BUTTONS, { required: true, when: when('kind', 'pointerButton'), default: 'left' }),
       enm('axis', 'Pointer axis', 'The pointer\'s movement along x or y (up positive; percent of the view per step), or the wheel (notches, positive towards the user).', POINTER_AXES, { required: true, when: when('kind', 'pointerAxis'), default: 'x' }),
+      // Phase 23.14: absent = a tap counts at once; 0.5 s is a deliberate hold most players read as "hold" (a starting value the designer tunes).
+      num('hold', 'Hold', 'Hold instead of tap: the binding counts only after it has been held this long.', { when: when('kind', 'key', 'gamepadButton', 'pointerButton'), min: INPUT_HOLD_MIN, max: INPUT_HOLD_MAX, step: 0.05, unit: 's', default: 0.5 }),
     ], { rules: ['A button takes keys, buttons and pointer buttons; a 1D axis also two-key, two-button, axis and pointer-axis bindings; a 2D axis four keys, a stick, the pointer position or the pointer movement.'] }), { required: true, maxItems: MAX_INPUT_BINDINGS }),
     num('deadZone', 'Dead zone', 'Axis values within this count as 0 (then rescaled).', { min: 0, max: 1, maxExclusive: true, step: 0.05, default: 0.2 }),
     bool('invert', 'Invert', 'Flip the axis.', { default: false }),
@@ -1561,6 +1567,8 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
     enm('gameplay', 'Gameplay', 'The cursor during play: free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre).', CURSOR_MODES, { default: 'free' }),
     enm('ui', 'Menus (ui)', 'The cursor while a menu is open.', CURSOR_MODES, { default: 'free' }),
   ]),
+  // Phase 23.14: the project's own glyph images (absent: the engine's generic icons).
+  map('glyphs', 'Glyphs', 'Glyph key → an image shown instead of the engine\'s generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space).', 'Glyph', asset('*', 'Image', 'The texture shown for this glyph.', ['texture']), { maxEntries: MAX_INPUT_GLYPHS }),
 ], { default: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as DescriptorJson, rules: ['Action names are unique.'] });
 
 /** One shader parameter, as a descriptor field (the schema lives in `MATERIAL_PARAMS`). */

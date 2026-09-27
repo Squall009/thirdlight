@@ -11,6 +11,7 @@
  */
 import type {
   ActionFrame,
+  AudioCommand,
   AnimatorPose,
   CameraViewInfo,
   DebugCommandCall,
@@ -162,7 +163,8 @@ export interface FrameState {
   readonly counters?: { counters: Record<string, number>; health: { current: number; max: number } | null };
   readonly runSave?: RunSaveState;
   readonly sceneSet?: SceneSetWire;
-  readonly audio?: readonly { assetId: string; volume: number; stepIndex: number }[];
+  /** Phase 23.13: the audio intent log's commands (phase 9.10: script sound requests). */
+  readonly audio?: readonly AudioCommand[];
   readonly effects?: readonly EffectRequest[];
   /**
    * Phase 23.4: the resolved camera (virtual cameras), every frame while the game has one:
@@ -180,6 +182,8 @@ export interface FrameState {
   readonly cursor?: 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (when it changed; observers). */
   readonly pointer?: PointerSample | null;
+  /** Phase 23.14: the binding requests scripts made in this frame (and how many were dropped over the limit). */
+  readonly rb?: { readonly requests: readonly import('@thirdlight/runtime').InputBindingRequest[]; readonly dropped: number };
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };

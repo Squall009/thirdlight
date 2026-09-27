@@ -387,6 +387,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
   const assetArtifacts: ClosureArtifact[] = [];
   const assets: ManifestAssetInputV2[] = [];
+  // Phase 23.13: each audio/music version's recorded duration (the simulation computes script sounds' ends from it).
+  const durationOf = (assetId: string, version: number): number | undefined => {
+    const rec = ((input.content as { assets?: { assetId: string; versions?: { version: number; metrics?: { durationMs?: unknown } }[] }[] } | null)?.assets ?? []).find((r) => r.assetId === assetId);
+    const ms = rec?.versions?.find((v) => v.version === version)?.metrics?.durationMs;
+    return typeof ms === 'number' && Number.isInteger(ms) && ms >= 1 ? ms : undefined;
+  };
   /** Phase 23.11: the model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
   const modelBytes = new Map<string, Uint8Array>();
   for (const a of view.assets) {
@@ -431,6 +437,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a.bounds !== undefined ? { bounds: a.bounds } : {}),
+      ...((a.kind === 'audio' || a.kind === 'music') && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),
     });
   }
 

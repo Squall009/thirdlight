@@ -1741,6 +1741,33 @@ distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
 `tl_game_control` *start* begins a new game and *replay* restarts the
 level. Settings last until the page is reloaded (saving them is phase 9.11).
 
+**Script audio and 3D audio (phase 23.13).** `ctx.audio.play(assetId,
+{volume, loop, pitch, bus, fadeIn, entityId, position, distanceModel,
+refDistance, maxDistance, rolloff})` returns a handle: `stop(h, fade)`,
+`fade(h, to, seconds)`, `setVolume`, `setPitch` (the playback rate, 0.25–4),
+`setLoop`, `playing(h)`, `volumeOf(h)`, and `finished(h)` / `events()` in the
+step after a sound ended or its stop fade finished (computed in the
+simulation from the asset's recorded length, so replays and the worker agree).
+Buses: sfx, music, voice, ui (`setBusVolume(bus, v, seconds)` mixes on top of
+the player's volume). Music: `music(id | null, fade)` crossfades and holds
+the music over the game flow's level/title track until `releaseMusic(fade)`;
+`stinger(id, {duck, fade})` plays once over the music, ducked to 0.3 under it;
+`duck(level, seconds)` / `unduck` — the deepest duck alive wins. A sound with
+`entityId` or `position` is panned (equal-power) around the listener, the
+active camera, and fades by its distance model (defaults linear, 2–30 m).
+The project setting **Audio sources** (`audio_spatial`: 0 automatic, 1 by X
+distance to the player, 2 panned) decides how audio sources are heard;
+automatic keeps 2D projects exactly as before and pans in 3D, where an
+audio source's range is its max distance and **Distance model**, **Full
+volume within** and **Rolloff** are Inspector fields. Scenes without a game
+block (3D projects) now play script sounds and audio sources too. A script
+names its sounds through asset properties (the export carries only the
+assets objects and script properties reference). `tl_game_observe` and the
+export's `window.__thirdlightObserve()` report `audio`: live voices with
+gain, playback rate, pan and distance gain (the Web Audio graph's state, not
+heard sound), music owner and duck, bus gains and the listener. How it
+sounds is owner look pending.
+
 ## Saves
 
 A game with a game flow saves in the player's browser (localStorage): an
@@ -2672,6 +2699,39 @@ MCP: `setCollisionLayers {layers}`; collider `{ layers: [...] }`.
 and `hidden` (the objects scripts hid). Headless browsers may refuse pointer
 lock; the `data-tl-pointer-lock` attribute on the game canvas shows whether
 the browser granted it.
+
+## Input rebinding and glyphs (phase 23.14)
+
+- **Players rebind in the built-in settings screen**: every action is listed
+  for keys/mouse and for the pad (composites one row per direction); choose
+  a row, press the new key or button (Esc cancels, 10 s timeout). An input
+  already used by another action of the same map is swapped. "Reset controls
+  to defaults" restores the project's bindings. Changes are saved in the
+  browser per player profile (`bindings:<profile>` in the game's storage
+  namespace) and load at start.
+- **Scripts** read `ctx.input.device()` / `usingGamepad()`, `bindings()`,
+  `glyph(action)` (label, icon id, the project's image) and ask for
+  `ctx.input.rebind(action, { index, part, device, policy: 'swap' | 'refuse' |
+  'allow', cancelKey, timeout })`, `cancelRebind()`, `resetBindings(action?)`,
+  `useBindingProfile(name)`; outcomes arrive in `rebindEvents()`. A game's own
+  rebinding screen is built on these. Replays stay valid: the simulation only
+  sees action values and the binding information travels in the recorded input.
+- **Hold instead of tap**: a key, pad button or mouse button binding takes a
+  `hold` time (seconds) in the Input window.
+- **Glyphs**: the engine has a neutral SVG icon set (key caps, face buttons by
+  position, bumpers/triggers, D-pad, sticks, mouse buttons); pad labels follow
+  the pad family (Xbox, PlayStation, Switch, generic) detected from the pad.
+  Projects replace icons with their own textures in the Input window's Glyphs
+  list (e.g. `xbox:pad-south`, `pad-south`, `key:Space`).
+- Observation: Play observe and the export's `window.__thirdlightObserve()`
+  report `inputBindings` (device used last, profile, listening, changed
+  actions, each action's glyph).
+- **Project UI** (UI documents): a button's engine action `rebind` (with
+  `input`: the action, optional `device`, `index`, `part`, `policy`),
+  `cancelRebind` or `resetBindings`; `{action:jump}` in a text shows the
+  action's glyph for the device in use; `$flow.input.actions` lists every
+  action's key and pad labels for a settings document.
+- Limits: 64 actions per project; 8 binding requests per step from scripts.
 
 ## Performance
 
