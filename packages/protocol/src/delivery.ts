@@ -198,6 +198,49 @@ export interface RelayFrame {
   jump: RelayJumpPhase;
   /** Phase 9.8: named input actions this step (`{ v, x?, y?, p }` each). */
   actions?: Record<string, { v: number; x?: number; y?: number; p: RelayJumpPhase }>;
+  /** Phase 23.3: the pointer this step (a frame without one keeps the last position and buttons). */
+  pointer?: RelayPointer;
+}
+
+/**
+ * Phase 23.3: a relay frame's pointer sample — x, y in [0, 1] of the view
+ * (0,0 top left), dx/dy/wheel in [-10, 10], button masks 0–7 (1 left,
+ * 2 right, 4 middle), over/locked booleans.
+ */
+export interface RelayPointer {
+  x: number;
+  y: number;
+  dx?: number;
+  dy?: number;
+  wheel?: number;
+  buttons?: number;
+  pressed?: number;
+  released?: number;
+  over?: boolean;
+  locked?: boolean;
+}
+
+const RELAY_POINTER_KEYS = ['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked'];
+
+/** Phase 23.3: parse one relay pointer sample (null when it is malformed); x, y, dx, dy and wheel are quantized to 1e-4. */
+export function parseRelayPointer(value: unknown): RelayPointer | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (Object.keys(v).some((k) => !RELAY_POINTER_KEYS.includes(k))) return null;
+  const unit = (n: unknown): boolean => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
+  const amount = (n: unknown): boolean => n === undefined || (typeof n === 'number' && Number.isFinite(n) && n >= -10 && n <= 10);
+  const mask = (n: unknown): boolean => n === undefined || (typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 7);
+  const flag = (n: unknown): boolean => n === undefined || typeof n === 'boolean';
+  if (!unit(v['x']) || !unit(v['y']) || !amount(v['dx']) || !amount(v['dy']) || !amount(v['wheel']) || !mask(v['buttons']) || !mask(v['pressed']) || !mask(v['released']) || !flag(v['over']) || !flag(v['locked'])) return null;
+  const q = (n: number): number => {
+    const r = Math.round(n * 1e4) / 1e4;
+    return r === 0 ? 0 : r;
+  };
+  const out: RelayPointer = { x: q(v['x'] as number), y: q(v['y'] as number) };
+  for (const k of ['dx', 'dy', 'wheel'] as const) if (v[k] !== undefined && q(v[k] as number) !== 0) out[k] = q(v[k] as number);
+  for (const k of ['buttons', 'pressed', 'released'] as const) if (v[k] !== undefined && v[k] !== 0) out[k] = v[k] as number;
+  for (const k of ['over', 'locked'] as const) if (v[k] !== undefined) out[k] = v[k] as boolean;
+  return out;
 }
 export interface InputRelayRequest {
   mode: 'exclusive-test';
@@ -209,6 +252,7 @@ const RELAY_FRAME_FIELDS = new Map<string, string>([
   ['moveX', 'finite number -1..1 (quantized to 1e-4)'],
   ['jump', 'none | pressed | held | released'],
   ['actions', 'optional: { <action name>: { v, x?, y?, p } } (phase 9.8 named actions)'],
+  ['pointer', 'optional: { x, y (0-1 of the view), dx?, dy?, wheel?, buttons?, pressed?, released? (masks: 1 left, 2 right, 4 middle), over?, locked? } (phase 23.3)'],
 ]);
 const RELAY_BODY_FIELDS = new Map<string, string>([
   ['mode', '"exclusive-test"'],
@@ -312,7 +356,19 @@ export function parseInputRelayRequest(
         actions[name] = { v: v['v'] as number, ...(v['x'] !== undefined ? { x: v['x'] as number } : {}), ...(v['y'] !== undefined ? { y: v['y'] as number } : {}), p: v['p'] as RelayJumpPhase };
       }
     }
-    frames.push({ stepOffset, moveX: quantize(moveX.value as number), jump: jump.value as RelayJumpPhase, ...(actions !== undefined ? { actions } : {}) });
+    const rawPointer = (frameShape.value as Record<string, unknown>)['pointer'];
+    let pointer: RelayPointer | undefined;
+    if (rawPointer !== undefined) {
+      const parsed = parseRelayPointer(rawPointer);
+      if (parsed === null) {
+        return {
+          ok: false,
+          error: { code: 'field_value', cls: 'validation', message: 'pointer is { x, y (numbers in [0, 1]), dx?, dy?, wheel? (in [-10, 10]), buttons?, pressed?, released? (masks 0-7: 1 left, 2 right, 4 middle), over?, locked? (booleans) }', path: `/frames/${i}/pointer` },
+        };
+      }
+      pointer = parsed;
+    }
+    frames.push({ stepOffset, moveX: quantize(moveX.value as number), jump: jump.value as RelayJumpPhase, ...(actions !== undefined ? { actions } : {}), ...(pointer !== undefined ? { pointer } : {}) });
   }
   const bodyBytes = new TextEncoder().encode(JSON.stringify({ mode: INPUT_RELAY_MODE, frames })).length;
   if (bodyBytes > INPUT_RELAY_MAX_BODY_BYTES) {

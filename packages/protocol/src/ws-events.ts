@@ -192,12 +192,13 @@ export function makeDiagnosticsRequest(relayId: string): string {
  */
 export function makeInputRelayRequest(
   requestId: string,
-  frames: readonly { readonly stepOffset: number; readonly moveX: number; readonly jump: string }[],
+  frames: readonly { readonly stepOffset: number; readonly moveX: number; readonly jump: string; readonly actions?: unknown; readonly pointer?: unknown }[],
 ): string {
   return emit({
     type: 'input.request',
     requestId,
-    frames: frames.map((f) => ({ stepOffset: f.stepOffset, moveX: f.moveX, jump: f.jump })),
+    // Phase 9.8 named actions and (phase 23.3) the pointer travel with the frame (the relay parse checked them).
+    frames: frames.map((f) => ({ stepOffset: f.stepOffset, moveX: f.moveX, jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}) })),
   });
 }
 

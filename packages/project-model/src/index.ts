@@ -90,6 +90,8 @@ export type {
 
 // Phase 14.0: the character capsule (default, limits, resolved form).
 export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf } from './components';
+// Phase 23.3: collision layers.
+export { DEFAULT_COLLISION_LAYER, MAX_COLLISION_LAYERS, validateCollisionLayers } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
@@ -545,6 +547,13 @@ export {
   type InputActionType,
   type InputBinding,
   type InputConfig,
+  // Phase 23.3: pointer bindings and the cursor per map.
+  CURSOR_MODES,
+  POINTER_AXES,
+  POINTER_BUTTONS,
+  type CursorMode,
+  type PointerAxisName,
+  type PointerButtonName,
 } from './input';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';

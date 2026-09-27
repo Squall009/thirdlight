@@ -45,6 +45,7 @@ export type V3MutationOp =
   | 'setAnimator'
   | 'deleteAnimator'
   | 'setInput'
+  | 'setCollisionLayers'
   | 'setFlow'
   | 'createScene'
   | 'renameScene'
@@ -102,7 +103,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary'];
 /** The v3 query op (commands.md §4; packet 45). */
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
 
@@ -132,6 +133,7 @@ export const CHANGE_TYPES = [
   'setLighting',
   'setAnimators',
   'setInput',
+  'setCollisionLayers',
   'setFlow',
   'graphEdit',
   'setGraph',
@@ -773,6 +775,22 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
     if (!isPlainObject(c) || !(c['live'] === null || typeof c['live'] === 'string') || !nums(c['position'], 3) || !nums(c['rotation'], 4) || typeof c['fovY'] !== 'number' || typeof c['letterbox'] !== 'number') {
       return fieldError('field_type', '/camera', 'camera is { live: id|null, blend: {from, progress, style}|null, position: [x,y,z], rotation: [x,y,z,w], fovY, near, far, letterbox, shake }');
     }
+  }
+  // Phase 23.3: the optional pointer, cursor and hidden objects.
+  if (value.pointer !== undefined) {
+    const q = value.pointer;
+    if (!isPlainObject(q) || typeof q['x'] !== 'number' || typeof q['y'] !== 'number' || typeof q['buttons'] !== 'number' || typeof q['over'] !== 'boolean' || typeof q['locked'] !== 'boolean') {
+      return fieldError('field_type', '/pointer', 'pointer is { x, y, buttons, over, locked }');
+    }
+  }
+  if (value.cursor !== undefined) {
+    const c = value.cursor;
+    if (!isPlainObject(c) || (c['mode'] !== 'free' && c['mode'] !== 'locked') || typeof c['locked'] !== 'boolean' || typeof c['hidden'] !== 'boolean') {
+      return fieldError('field_type', '/cursor', 'cursor is { mode: free|locked, locked, hidden }');
+    }
+  }
+  if (value.hidden !== undefined && (!Array.isArray(value.hidden) || value.hidden.length > 64 || !value.hidden.every((x) => typeof x === 'string'))) {
+    return fieldError('field_type', '/hidden', 'hidden lists at most 64 entity ids');
   }
   // Phase 9.10: the optional game-flow block.
   if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {

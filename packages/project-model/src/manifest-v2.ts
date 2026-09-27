@@ -32,6 +32,7 @@
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalInput, validateInput, type InputConfig } from './input';
+import { validateCollisionLayers } from './components';
 import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
 import { sha256Hex, sha256HexOfText } from './sha256';
@@ -78,7 +79,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'collisionLayers', 'flow', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -106,6 +107,8 @@ export const MANIFEST_KEYS_V2 = [
   'animators',
   'prefabs',
   'input',
+  // Phase 23.3: the named collision layers (3D physics; only when the project names some).
+  'collisionLayers',
   'flow',
   'scenes',
   'buffers',
@@ -585,6 +588,8 @@ export interface CaptureManifestV2Input {
   prefabs?: readonly PrefabDefinition[];
   /** Phase 9.8: the project's input actions (only when it has its own). */
   input?: InputConfig;
+  /** Phase 23.3: the project's named collision layers (only when it names some). */
+  collisionLayers?: readonly string[];
   /** Phase 9.10: the game flow (only when the project has one). */
   flow?: GameFlow;
   /**
@@ -703,6 +708,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
     ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
+    ...(input.collisionLayers !== undefined && input.collisionLayers.length > 0 ? { collisionLayers: [...input.collisionLayers] } : {}),
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
@@ -803,7 +809,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['flow'] !== undefined) {
+  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
     // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
     if (d['materialFunctions'] !== undefined) {
@@ -820,6 +826,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);
     if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
+    if (d['collisionLayers'] !== undefined) validateCollisionLayers(d['collisionLayers'], '/collisionLayers', matErrors);
     if (d['flow'] !== undefined) validateFlow(d['flow'], '/flow', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };
   }

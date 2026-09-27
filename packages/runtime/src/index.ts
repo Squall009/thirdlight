@@ -49,6 +49,10 @@ export {
   type ActionSource,
   type ActionSourceDiagnostics,
   type JumpPhase,
+  // Phase 23.3: pointer samples in the frame.
+  POINTER_BUTTON_BITS,
+  validatePointerSample,
+  type PointerSample,
 } from './actions';
 export {
   validateCharacterMoveResult,
@@ -76,6 +80,10 @@ export {
   type ColliderShape3D,
   type KinematicPose3D,
   type OverlapShape3D,
+  // Phase 23.3: 3D queries for scripts (filters by tag and collision layer).
+  type PhysicsHit,
+  type PhysicsQueryFilter,
+  type PhysicsQueryFilter3D,
 } from './ports';
 export { DuplicateMoveError, PhaseViolationError } from './guard';
 export {

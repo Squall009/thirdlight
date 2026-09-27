@@ -120,6 +120,68 @@ export interface PhysicsStepClient {
    * @graphDefault radius 0.5
    */
   overlapCircle?(center: Vec2, radius: number): string[];
+  /**
+   * Phase 23.3 (3D projects): the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
+   * @graphNode Raycast 3D
+   * @graphDefault direction [0, -1, 0]
+   * @graphDefault maxDistance 100
+   */
+  raycast3d?(origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
+  /**
+   * Phase 23.3 (3D projects): the objects whose colliders overlap a sphere (sorted ids, at most 64).
+   * @graphNode Overlap sphere
+   * @graphDefault radius 0.5
+   */
+  overlapSphere?(center: readonly number[], radius: number, filter?: PhysicsQueryFilter): string[];
+  /**
+   * Phase 23.3 (3D projects): the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w].
+   * @graphNode Overlap box 3D
+   * @graphDefault half [0.5, 0.5, 0.5]
+   */
+  overlapBox3d?(center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
+  /**
+   * Phase 23.3 (3D projects): the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
+   * @graphNode Overlap capsule
+   * @graphDefault radius 0.3
+   * @graphDefault height 1.8
+   */
+  overlapCapsule?(center: readonly number[], radius: number, height: number, rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
+  /**
+   * Phase 23.3 (3D projects): what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
+   * @graphNode Pick at screen point
+   * @graphDefault x 0.5
+   * @graphDefault y 0.5
+   * @graphDefault maxDistance 1000
+   */
+  pickAt?(x: number, y: number, maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
+  /**
+   * Phase 23.3 (3D projects): what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
+   * @graphNode Pick at pointer
+   * @graphDefault maxDistance 1000
+   */
+  pickAtPointer?(maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
+}
+
+/** Phase 23.3: which objects a 3D query sees (every part optional; absent: all colliders). */
+export interface PhysicsQueryFilter {
+  /** Only objects carrying at least one of these tags. */
+  tags?: readonly string[];
+  /** Only colliders in at least one of these collision layers ("default": colliders that list no layers). */
+  layers?: readonly string[];
+  /** Objects to skip (their ids). */
+  exclude?: readonly string[];
+}
+
+/** Phase 23.3: a 3D ray or pick hit. */
+export interface PhysicsHit {
+  /** The object whose collider was hit. */
+  entityId: string;
+  /** Where the ray hit [x, y, z]. */
+  point: [number, number, number];
+  /** The surface normal there [x, y, z] (unit). */
+  normal: [number, number, number];
+  /** Metres from the ray's origin. */
+  distance: number;
 }
 
 /** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */
@@ -259,6 +321,20 @@ export interface StaticColliderSpec3D {
   rotation: PhysicsQuat;
   /** Phase 23.1: a mover's collider (a kinematic body posed every step with `setKinematicPoses`). */
   kinematic?: boolean;
+  /** Phase 23.3: the collision layers the collider is in (absent: "default"); names the config's `layers` resolve. */
+  layers?: readonly string[];
+}
+
+/**
+ * Phase 23.3: what a 3D query sees. `layers`: only colliders in at least one
+ * of these collision layers ("default" — colliders without layers; a name
+ * the project does not have matches nothing); `accept`: called with each
+ * candidate collider's entity, false skips it (tags, exclusions — the
+ * runtime's filter). Absent: every collider (the character excluded).
+ */
+export interface PhysicsQueryFilter3D {
+  layers?: readonly string[];
+  accept?: (entityId: string) => boolean;
 }
 
 /**
@@ -315,6 +391,8 @@ export interface RaycastHit3D {
   entityId: string;
   distance: number;
   normal: PhysicsVec3;
+  /** Phase 23.3: where the ray hit (origin + unit direction × distance). */
+  point?: PhysicsVec3;
 }
 
 /**
@@ -331,6 +409,17 @@ export interface PhysicsInitConfig3D {
   solver: { hz: number; gravityY: number };
   /** The character controller's tuning (the 2D controller's fields: skin, snap, slope angles, autostep). */
   controller: { offsetSkin: number; groundSnap: number; maxSlopeClimbRad: number; minSlopeSlideRad: number; autostep: boolean; autostepHeight?: number };
+  /**
+   * Phase 23.3: the project's named collision layers, in order (bit 1 + index;
+   * bit 0 is "default"). Absent: only "default".
+   */
+  layers?: readonly string[];
+  /**
+   * Phase 23.3: the scene has no controller entity — the world holds colliders
+   * for queries (picking, rays, overlaps) and movers, but no character capsule
+   * (`character` is then a placeholder the port ignores; its step moves nothing).
+   */
+  noCharacter?: true;
 }
 
 /**
@@ -349,12 +438,12 @@ export interface PhysicsPort3D {
   /** A loaded / unloaded scene's static colliders (at a step boundary). */
   addStaticColliders?(specs: readonly StaticColliderSpec3D[]): void;
   removeStaticColliders?(entityIds: readonly string[]): void;
-  /** The nearest collider hit by a ray (the character excluded). */
-  raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null;
+  /** The nearest collider hit by a ray (the character excluded; phase 23.3: only those the filter lets through). */
+  raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
   /** Phase 23.1: where the kinematic (mover) colliders go with this step's world update (after the character's sweep). */
   setKinematicPoses?(poses: readonly KinematicPose3D[]): void;
   /** Phase 23.1: the entities whose colliders overlap `shape` at `center` turned by `rotation` (the character excluded), sorted, at most 64. */
-  overlap?(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat): string[];
+  overlap?(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[];
   /** Phase 23.1: query only — the clearance of the character capsule if its origin were at `origin`. */
   characterClearance?(origin: PhysicsVec3): CharacterClearanceResult3D;
   /** Phase 23.1: re-place the character (its origin) and return its clearance there; clears its motion caches. */

@@ -203,6 +203,8 @@ export {
   manifestBuildIdInput,
   orderManifest,
   parseInputRelayRequest,
+  parseRelayPointer,
+  type RelayPointer,
   redactContentId,
   validateInputRelayResult,
   type InputRelayRequest,

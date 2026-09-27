@@ -52,3 +52,5 @@ export type { InputBindingOptions, RawInputSnapshot } from './types';
 export { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, type InputActionLike, type InputBindingLike, type InputConfigLike, type RawDeviceState } from './actions';
 // Phase 14.5: the platformer's pad controls (rebindable).
 export { platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type PlatformerPad } from './actions';
+// Phase 23.3: pointer bindings and the cursor (free/locked per map, a script's request, hidden while a gamepad drives).
+export { bindsPointerButton, bindsWheel, cursorPresentation, type RawPointerState } from './actions';

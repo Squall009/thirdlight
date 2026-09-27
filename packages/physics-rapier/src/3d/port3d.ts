@@ -24,7 +24,7 @@
  * phase 23.2; scripts' rays and overlaps are wired in 23.3.
  */
 import * as RAPIER from '@dimforge/rapier3d-compat';
-import type { CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPort3D, PhysicsQuat, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
+import type { CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, GROUND_NORMAL_TOLERANCE, MAX_SHAPE_VALUE } from '../constants';
 
@@ -70,9 +70,9 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   readonly implementation: string;
   addStaticColliders(specs: readonly StaticColliderSpec3D[]): void;
   removeStaticColliders(entityIds: readonly string[]): void;
-  raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null;
+  raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
   setKinematicPoses(poses: readonly KinematicPose3D[]): void;
-  overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat): string[];
+  overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[];
   characterClearance(origin: PhysicsVec3): CharacterClearanceResult3D;
   placeCharacter(origin: PhysicsVec3): CharacterClearanceResult3D;
   diagnostics(): Rapier3DDiagnostics;
@@ -209,6 +209,7 @@ function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'inv
   const shape = validateColliderShape3D(spec.shape);
   if (!shape.ok) return { reason: 'invalid_shape', message: `${label}: ${shape.detail}` };
   if (spec.kinematic !== undefined && typeof spec.kinematic !== 'boolean') return { reason: 'invalid_config', message: `${label}: kinematic must be true, false or absent` };
+  if (spec.layers !== undefined && !(Array.isArray(spec.layers) && spec.layers.length >= 1 && spec.layers.length <= 16 && spec.layers.every((n) => typeof n === 'string'))) return { reason: 'invalid_config', message: `${label}: layers must be 1-16 layer names or absent` };
   if (spec.kinematic === true && shape.shape.type === 'mesh') return { reason: 'invalid_shape', message: `${label}: a mesh collider is static (a moving collider uses box, sphere, capsule or convex)` };
   return null;
 }
@@ -234,6 +235,9 @@ function validateConfig(config: PhysicsInitConfig3D): { reason: 'invalid_config'
   if (!finite(cc.maxSlopeClimbRad) || cc.maxSlopeClimbRad <= 0 || cc.maxSlopeClimbRad >= Math.PI / 2) return { reason: 'invalid_config', message: 'controller.maxSlopeClimbRad must be a finite angle in (0, pi/2)' };
   if (!finite(cc.minSlopeSlideRad) || cc.minSlopeSlideRad < 0 || cc.minSlopeSlideRad >= Math.PI / 2) return { reason: 'invalid_config', message: 'controller.minSlopeSlideRad must be a finite angle in [0, pi/2)' };
   if (!Array.isArray(config.statics)) return { reason: 'invalid_config', message: 'statics must be an array of static collider specs' };
+  // Phase 23.3: the named collision layers (bit 1 + index; "default" is bit 0 and never listed) and a world without a character.
+  if (config.layers !== undefined && !(Array.isArray(config.layers) && config.layers.length <= 15 && config.layers.every((n) => typeof n === 'string' && n !== 'default') && new Set(config.layers).size === config.layers.length)) return { reason: 'invalid_config', message: 'layers must be up to 15 unique layer names (not "default")' };
+  if (config.noCharacter !== undefined && config.noCharacter !== true) return { reason: 'invalid_config', message: 'noCharacter must be true or absent' };
   const seen = new Set<string>();
   for (let i = 0; i < config.statics.length; i += 1) {
     const spec = config.statics[i]!;
@@ -367,7 +371,39 @@ function topOf(shape: ColliderShape3D, q: PhysicsQuat): number {
   }
 }
 
-function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D): { body: RAPIER.RigidBody; collider: RAPIER.Collider; info: Collider3DInfo } {
+/**
+ * Phase 23.3: collision layers as Rapier interaction groups. Bit 0 is
+ * "default" (a collider without layers), bit 1 + i the config's i-th named
+ * layer. A collider is a member of its layers and filters nothing (the upper
+ * 16 bits are memberships, the lower 16 the filter), so contacts and the
+ * character's sweep are unchanged; a query's groups are every membership with
+ * the filter = the layers it names. Unknown names add no bit.
+ */
+export type LayerBits = ReadonlyMap<string, number>;
+export function layerBitsOf(layers: readonly string[] | undefined): LayerBits {
+  const out = new Map<string, number>([['default', 0]]);
+  (layers ?? []).forEach((name, i) => out.set(name, i + 1));
+  return out;
+}
+function layerMask(bits: LayerBits, names: readonly string[] | undefined, fallback: number): number {
+  if (names === undefined) return fallback;
+  let m = 0;
+  for (const n of names) {
+    const b = bits.get(n);
+    if (b !== undefined) m |= 1 << b;
+  }
+  return m;
+}
+/** A collider's groups: member of its layers ("default" when it lists none), filtering nothing. */
+export function colliderGroups(bits: LayerBits, layers: readonly string[] | undefined): number {
+  return ((layerMask(bits, layers, 1) << 16) | 0xffff) >>> 0;
+}
+/** A query's groups: every membership, filtering to the named layers. */
+export function queryGroups(bits: LayerBits, layers: readonly string[]): number {
+  return ((0xffff << 16) | layerMask(bits, layers, 0)) >>> 0;
+}
+
+function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: LayerBits): { body: RAPIER.RigidBody; collider: RAPIER.Collider; info: Collider3DInfo } {
   const shape = validateColliderShape3D(spec.shape);
   if (!shape.ok) throw new Error(`statics(${spec.entityId}): ${shape.detail}`);
   const desc = colliderDescOf(shape.shape);
@@ -376,11 +412,22 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D): { body:
   const rotation = { x: spec.rotation.x, y: spec.rotation.y, z: spec.rotation.z, w: spec.rotation.w };
   const bodyDesc = kinematic ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
   const body = world.createRigidBody(bodyDesc.setTranslation(spec.position.x, spec.position.y, spec.position.z).setRotation(rotation));
-  const collider = world.createCollider(desc, body);
+  const collider = world.createCollider(desc.setCollisionGroups(colliderGroups(bits, spec.layers)), body);
   return { body, collider, info: { entityId: spec.entityId, body, kinematic, top: topOf(shape.shape, rotation) } };
 }
 
-function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, controller: RAPIER.KinematicCharacterController, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>): RapierPhysicsPort3D {
+function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, controller: RAPIER.KinematicCharacterController, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
+  const noCharacter = config.noCharacter === true;
+  /** Phase 23.3: a query filter as Rapier's groups and predicate. */
+  const groupsOf = (filter: PhysicsQueryFilter3D | undefined): number | undefined => (filter?.layers !== undefined ? queryGroups(bits, filter.layers) : undefined);
+  const predicateOf = (filter: PhysicsQueryFilter3D | undefined): ((c: RAPIER.Collider) => boolean) | undefined => {
+    const accept = filter?.accept;
+    if (accept === undefined) return undefined;
+    return (c) => {
+      const id = infoByHandle.get(c.handle)?.entityId;
+      return id !== undefined && accept(id) === true;
+    };
+  };
   const ch = config.character;
   const off = { x: ch.offset.x, y: ch.offset.y, z: ch.offset.z };
   const feetOffset = ch.halfHeight + ch.radius;
@@ -461,6 +508,23 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
     return { ok: true, supportNormal: support, penetration: 0 };
   }
 
+  /** Phase 23.3: the step of a world without a character — the movers are posed and the world updates; nothing is swept. */
+  function stepWithoutCharacter(): CharacterMoveResult3D {
+    staged = null;
+    for (const pose of kinematicPoses) {
+      const body = bodies.get(pose.entityId);
+      if (body === undefined || !body.isKinematic()) continue;
+      kinematicAt.set(pose.entityId, { x: pose.position.x, y: pose.position.y, z: pose.position.z });
+      body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y, z: pose.position.z });
+      body.setNextKinematicRotation({ x: pose.rotation.x, y: pose.rotation.y, z: pose.rotation.z, w: pose.rotation.w });
+    }
+    kinematicPoses = [];
+    world.step();
+    steps += 1;
+    const zero = { x: 0, y: 0, z: 0 };
+    return { requested: zero, applied: { ...zero }, position: { x: position.x, y: position.y, z: position.z }, grounded: false, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: false, wall: false, head: false, steepSlope: false }, snapped: false, groundEntityId: null };
+  }
+
   return {
     dimension: 3,
     implementation: PHYSICS_3D_IMPLEMENTATION,
@@ -472,6 +536,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
 
     step(): CharacterMoveResult3D {
       assertLive('step');
+      if (noCharacter) return stepWithoutCharacter();
       const requested: PhysicsVec3 = staged ?? { x: 0, y: 0, z: 0 };
       staged = null;
       if (!isVec3(requested)) throw new Error(`staged movement must be a finite { x, y, z } (got ${JSON.stringify(requested)})`);
@@ -609,17 +674,21 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       kinematicPoses = poses.map((p) => ({ entityId: p.entityId, position: { x: p.position.x, y: p.position.y, z: p.position.z }, rotation: { x: p.rotation.x, y: p.rotation.y, z: p.rotation.z, w: p.rotation.w } }));
     },
 
-    raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null {
+    raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null {
       assertLive('raycast');
       const len = Math.hypot(direction.x, direction.y, direction.z);
       if (!(len > 0) || !finite(maxDistance) || maxDistance <= 0 || !isVec3(origin)) return null;
-      const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y, z: origin.z }, { x: direction.x / len, y: direction.y / len, z: direction.z / len }), Math.min(maxDistance, 1000), true, undefined, undefined, characterCollider);
+      const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+      // Phase 23.3: a script's filter (collision layers as groups; tags and exclusions as the predicate); a ray reaches 10 km.
+      const reach = Math.min(maxDistance, 10000);
+      const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y, z: origin.z }, u), reach, true, undefined, groupsOf(filter), characterCollider, undefined, predicateOf(filter));
       if (hit === null) return null;
       const entityId = infoByHandle.get(hit.collider.handle)?.entityId;
-      return entityId === undefined ? null : { entityId, distance: hit.timeOfImpact, normal: { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z } };
+      const t = hit.timeOfImpact;
+      return entityId === undefined ? null : { entityId, distance: t, normal: { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z }, point: { x: origin.x + u.x * t, y: origin.y + u.y * t, z: origin.z + u.z * t } };
     },
 
-    overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat): string[] {
+    overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[] {
       assertLive('overlap');
       if (!isVec3(center) || (rotation !== undefined && !isQuat(rotation))) return [];
       const ok = (v: unknown): v is number => finite(v) && v > 0;
@@ -633,7 +702,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         const id = infoByHandle.get(c.handle)?.entityId;
         if (id !== undefined) ids.add(id);
         return ids.size < 64;
-      }, undefined, undefined, characterCollider);
+      }, undefined, groupsOf(filter), characterCollider, undefined, predicateOf(filter));
       return [...ids].sort();
     },
 
@@ -666,7 +735,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       const added: { id: string; body: RAPIER.RigidBody }[] = [];
       try {
         for (const spec of specs) {
-          const a = addStaticBody(world, spec);
+          const a = addStaticBody(world, spec, bits);
           bodies.set(spec.entityId, a.body);
           infoByHandle.set(a.collider.handle, a.info);
           added.push({ id: spec.entityId, body: a.body });
@@ -732,14 +801,17 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     world.timestep = 1 / config.solver.hz;
     const bodies = new Map<string, RAPIER.RigidBody>();
     const infoByHandle = new Map<number, Collider3DInfo>();
+    const bits = layerBitsOf(config.layers);
     for (const spec of config.statics) {
-      const added = addStaticBody(world, spec);
+      const added = addStaticBody(world, spec, bits);
       bodies.set(spec.entityId, added.body);
       infoByHandle.set(added.collider.handle, added.info);
     }
     // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
     const ch = config.character;
     const characterCollider = world.createCollider(RAPIER.ColliderDesc.capsule(ch.halfHeight, ch.radius).setTranslation(ch.position.x + ch.offset.x, ch.position.y + ch.offset.y, ch.position.z + ch.offset.z));
+    // Phase 23.3: a world without a character keeps its placeholder capsule disabled (no contacts, no query sees it).
+    if (config.noCharacter === true) characterCollider.setEnabled(false);
     const controller = world.createCharacterController(config.controller.offsetSkin);
     // Up is +Y (gravity along −Y), as in the 2D plane.
     controller.setUp({ x: 0, y: 1, z: 0 });
@@ -749,7 +821,7 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     if (config.controller.autostep) controller.enableAutostep(config.controller.autostepHeight ?? 0.25, ch.radius, false);
     // One pipeline update so the first sweep and any ray see every collider (no dynamic bodies: nothing moves).
     world.step();
-    return { ok: true, port: createAdapter(world, characterCollider, controller, config, bodies, infoByHandle) };
+    return { ok: true, port: createAdapter(world, characterCollider, controller, config, bodies, infoByHandle, bits) };
   } catch (error) {
     world?.free();
     return { ok: false, error: { code: 'physics_init_failed', reason: 'wasm_unavailable', message: `Rapier 3D world construction failed: ${error instanceof Error ? error.message : String(error)}` } };

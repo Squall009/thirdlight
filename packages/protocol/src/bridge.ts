@@ -13,7 +13,7 @@
  * job, §13.3 — they cannot be verified from the message body). Pure: no I/O.
  */
 import { isContentId, isNonce, isPlaySessionId, isRelayId, isRequestId } from './ids';
-import { validateInputRelayResult } from './delivery';
+import { parseRelayPointer, validateInputRelayResult } from './delivery';
 
 /** The exhaustive allowlists (sessions.md §13.5, v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -172,7 +172,8 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       for (let i = 0; i < frames.length; i += 1) {
         const f = frames[i];
         if (!isPlainObject(f)) return { ok: false, reason: 'every frame must be an object', path: `/frames/${i}` };
-        const b2 = rejectUnknown(f, ['stepOffset', 'moveX', 'jump']);
+        // Phase 9.8 named actions and (phase 23.3) the pointer ride along (the relay body parse checked their shapes).
+        const b2 = rejectUnknown(f, ['stepOffset', 'moveX', 'jump', 'actions', 'pointer']);
         if (b2) return { ok: false, reason: b2.reason, path: `/frames/${i}${b2.path ?? ''}` };
         if (!int(f['stepOffset'], 0, 2 ** 53 - 1)) return { ok: false, reason: 'stepOffset must be an integer ≥ 0', path: `/frames/${i}/stepOffset` };
         if ((f['stepOffset'] as number) <= previous) return { ok: false, reason: 'frames must be strictly ascending by stepOffset', path: `/frames/${i}/stepOffset` };
@@ -183,6 +184,8 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
         if (typeof f['jump'] !== 'string' || !JUMP_PHASES.includes(f['jump'])) {
           return { ok: false, reason: 'jump must be one of none | pressed | held | released', path: `/frames/${i}/jump` };
         }
+        if (f['actions'] !== undefined && !isPlainObject(f['actions'])) return { ok: false, reason: 'actions must be an object of action values', path: `/frames/${i}/actions` };
+        if (f['pointer'] !== undefined && parseRelayPointer(f['pointer']) === null) return { ok: false, reason: 'pointer must be { x, y, dx?, dy?, wheel?, buttons?, pressed?, released?, over?, locked? }', path: `/frames/${i}/pointer` };
       }
       const size = JSON.stringify(m).length;
       if (size > BRIDGE_INPUT_MAX_BYTES) return { ok: false, reason: `tl.input.request exceeds the ${BRIDGE_INPUT_MAX_BYTES}-byte bound` };

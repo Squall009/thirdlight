@@ -15,7 +15,7 @@
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
-import type { AnimatorPose, CameraViewInfo, GameView, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
+import type { AnimatorPose, CameraViewInfo, GameView, PointerSample, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -45,6 +45,9 @@ export class FrameEncoder {
   private readonly camPos: number[] = [0, 0, 0];
   private readonly camRot: number[] = [0, 0, 0, 1];
   private camSent = false;
+  /** Phase 23.3: the cursor request and the pointer last sent. */
+  private cursorSent: 'free' | 'locked' | null = null;
+  private pointerSent: unknown = null;
   private runSaveKey = '';
   private runSaveStep = -1;
   private sceneSetRef: SceneSetView | null = null;
@@ -272,6 +275,17 @@ export class FrameEncoder {
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
+    // Phase 23.3: the cursor a script asked for, and the pointer state (each when it changed).
+    const cursor = rt.cursorRequest?.() ?? null;
+    if (cursor !== this.cursorSent) {
+      out.cursor = cursor;
+      this.cursorSent = cursor;
+    }
+    const pointer = rt.readPointer?.() ?? null;
+    if (pointer !== this.pointerSent) {
+      out.pointer = pointer;
+      this.pointerSent = pointer;
+    }
     // Diagnostics: on a change of state or error count, on request, and now and then.
     this.framesSinceDiag += 1;
     if (diag !== null && (this.diagWanted || diag.state !== this.diagState || diag.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
@@ -343,6 +357,9 @@ export class FrameMirror {
   effects: unknown[] = [];
   /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
+  /** Phase 23.3: the worker's cursor request and pointer. */
+  cursor: 'free' | 'locked' | null = null;
+  pointer: PointerSample | null = null;
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   private sharedSab: SharedArrayBuffer | null = null;
@@ -408,6 +425,8 @@ export class FrameMirror {
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.cursor !== undefined) this.cursor = s.cursor;
+    if (s.pointer !== undefined) this.pointer = s.pointer;
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
   }
