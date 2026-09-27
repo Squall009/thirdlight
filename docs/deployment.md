@@ -1401,9 +1401,15 @@ a coin, an enemy and a trigger. Any object can get these in the Inspector
   sound (an audio asset) if wanted.
 - **Enemy** — walks between two x offsets or until a ledge/wall, hurts on
   contact, can be defeated by jumping on it (the player bounces; the enemy
-  squashes, then vanishes). With "chases the player within" it walks toward
-  a player that near (still inside its range / not off a ledge); its
-  Animator gets `speed`, `attacking` (chasing), `hurt` and `defeated`.
+  squashes, then vanishes). With "chases the player within" it goes after a
+  player that near; **chase speed** is how fast it runs (0: its walking
+  speed), **needs sight** only notices a player nothing solid stands between
+  it and, **in front only** only one in the direction it is walking, **chase
+  memory** keeps it coming for that long after it last noticed the player,
+  and **leaves its post** lets it leave its patrol range (it walks back when
+  it gives up). It never walks through a wall or off a ledge, chasing or not.
+  Its Animator gets `speed` (its current speed), `attacking` (chasing), `hurt`
+  and `defeated`.
 - A collider's **one-way** flag: jump up through it, land on it from above,
   Down + Jump drops through. A spawn or checkpoint inside one is not
   blocked (the player drops to what is below). A hazard zone's **damage** takes health instead

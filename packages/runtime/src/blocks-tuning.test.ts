@@ -23,7 +23,7 @@ interface Harness {
   deaths: number;
 }
 
-function harness(entities: EntityV3[], o: { player?: { x: number; y: number }; bounds?: Record<string, ModelBounds>; skin?: number; floor?: boolean } = {}): Harness {
+function harness(entities: EntityV3[], o: { player?: { x: number; y: number }; bounds?: Record<string, ModelBounds>; skin?: number; floor?: boolean; blocked?: boolean } = {}): Harness {
   const curr = new Map<string, TransformState>();
   for (const e of entities) {
     const t = e.components.transform;
@@ -36,6 +36,7 @@ function harness(entities: EntityV3[], o: { player?: { x: number; y: number }; b
       raycast: (origin: { x: number; y: number }, direction: { x: number; y: number }, max: number) => {
         h.rays.push({ origin, direction, max });
         // a floor everywhere (the ledge probe finds it), no walls
+        if (direction.y >= 0 && o.blocked === true) return { entityId: 'wall', point: { x: origin.x + 0.5, y: origin.y }, normal: { x: -1, y: 0 }, distance: 0.5 };
         return direction.y < 0 && o.floor !== false ? { entityId: 'floor', point: { x: origin.x, y: 0 }, normal: { x: 0, y: 1 }, distance: 0.1 } : null;
       },
     } as unknown as BlocksHost['physics'],
@@ -147,6 +148,58 @@ describe('enemy tuning', () => {
     expect(x(chaser({}, 1.5))).toBeLessThan(0);
     expect(x(chaser({}, 2.5))).toBeGreaterThan(0);
     expect(x(chaser({ chaseHeight: 3 }, 2.5))).toBeLessThan(0);
+  });
+
+  it('chase speed, sight, facing, memory and leaving the post (phase 24.0)', () => {
+    type EnemyState = { x: number; dir: number };
+    const at = (h: Harness): EnemyState => (h.blocks as unknown as { enemies: Map<string, EnemyState> }).enemies.get('enemy-0001')!;
+    const mk = (extra: Record<string, unknown>, player: { x: number; y: number }, blocked?: boolean) =>
+      harness([ent('enemy-0001', { enemy: { patrol: 'points', range: [-1, 1], speed: 1, size: [1, 1], contactDamage: 0, stompable: false, health: 1, chase: 10, ...extra } })], { player, ...(blocked !== undefined ? { blocked } : {}) });
+
+    // chaseSpeed: it runs at 4 m/s instead of its 1 m/s walk
+    const fast = mk({ chaseSpeed: 4 }, { x: -3, y: 0.5 });
+    step(fast, 10);
+    expect(at(fast).x).toBeCloseTo((-10 * 4) / HZ, 9);
+    const walk = mk({}, { x: -3, y: 0.5 });
+    step(walk, 10);
+    expect(at(walk).x).toBeCloseTo((-10 * 1) / HZ, 9);
+
+    // chaseFacing: a player behind it is ignored (it keeps walking right)
+    const facing = mk({ chaseFacing: true }, { x: -3, y: 0.5 });
+    step(facing, 10);
+    expect(at(facing).x).toBeGreaterThan(0);
+    const behind = mk({}, { x: -3, y: 0.5 });
+    step(behind, 10);
+    expect(at(behind).x).toBeLessThan(0);
+
+    // chaseSight: a wall between them hides the player
+    const walled = mk({ chaseSight: true }, { x: -3, y: 0.5 }, true);
+    step(walled, 10);
+    expect(at(walled).x).toBeGreaterThan(0);
+    const clear = mk({ chaseSight: true }, { x: -3, y: 0.5 });
+    step(clear, 10);
+    expect(at(clear).x).toBeLessThan(0);
+
+    // chaseMemory: it keeps running them down after they are gone, then walks back
+    const withMem = mk({ chaseSpeed: 3, chaseMemory: 0.5, chaseBeyondPatrol: true }, { x: 3, y: 0.5 });
+    const noMem = mk({ chaseSpeed: 3, chaseBeyondPatrol: true }, { x: 3, y: 0.5 });
+    step(withMem, 1);
+    step(noMem, 1);
+    withMem.player = { x: 100, y: 0.5 };
+    noMem.player = { x: 100, y: 0.5 };
+    step(withMem, 30);
+    step(noMem, 30);
+    expect(at(withMem).x).toBeGreaterThan(at(noMem).x + 0.3);
+    step(withMem, 40); // 0.5 s of memory runs out
+    expect(at(withMem).dir).toBe(-1);
+
+    // chaseBeyondPatrol: it passes its range while chasing, else it stops at the range
+    const bound = mk({ chaseSpeed: 3 }, { x: -9, y: 0.5 });
+    step(bound, 120);
+    expect(at(bound).x).toBeCloseTo(-1, 9);
+    const free = mk({ chaseSpeed: 3, chaseBeyondPatrol: true }, { x: -9, y: 0.5 });
+    step(free, 120);
+    expect(at(free).x).toBeLessThan(-2.5);
   });
 
   it('the edge walker probes walls and ledges at its wallProbe / ledgeProbe distances', () => {

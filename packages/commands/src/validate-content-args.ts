@@ -485,7 +485,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   switch: ['mode', 'signal', 'size', 'once'],
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
   // Phase 20.0: the effect played from the entity.
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
   // Phase 23.4: the camera framework.
