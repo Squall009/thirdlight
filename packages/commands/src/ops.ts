@@ -9,6 +9,7 @@
  * project-model; any failure means no state change, no revision change.
  */
 
+import { withoutLayersOf } from './block-ops';
 import {
   serializeCanonical,
   validateContentV3,
@@ -752,7 +753,9 @@ export function applyDeleteEntity(
 
   const closureSet = new Set(closure);
   const nextEntities = scene.entities.filter((e) => !closureSet.has(e.id));
-  const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
+  // Phase 23.5: a deleted block layer takes its cells along (and its undo brings them back).
+  const layers = withoutLayersOf(scene, closureSet);
+  const result = { ...layers.scene, revision: scene.revision + 1, entities: nextEntities };
   // The result is validated together with the (unchanged) content block so
   // the §23.5 game composition rules run.
   const gate = gateResultState({ scene, content }, result, content);
@@ -772,6 +775,7 @@ export function applyDeleteEntity(
         kind: 'restoreSubtree',
         entries: entries.map((e) => ({ index: e.index, entity: deepClone(e.entity) })),
         restoredParentId: root.parentId ?? null,
+        ...(layers.removed.length > 0 ? { blocks: layers.removed } : {}),
       },
     },
   };

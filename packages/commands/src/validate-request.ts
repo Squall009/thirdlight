@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { validateGraphOps, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
+import { validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
 import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type GameFlow, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
@@ -152,6 +152,13 @@ const OPS: readonly MutationOp[] = [
   // phase 23.7: shared script libraries
   'setScriptLibrary',
   'deleteScriptLibrary',
+  // phase 23.5: block layers
+  'editBlocks',
+  'setBlockType',
+  'deleteBlockType',
+  'setCellFields',
+  'setBlockStamp',
+  'deleteBlockStamp',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -189,11 +196,13 @@ const CREATE_COMPONENTS: readonly string[] = [
   'enemy',
   'audioSource',
   'faceMovement',
+  // Phase 23.5: v4 scenes only.
+  'blockLayer',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1189,7 +1198,82 @@ export type ValidatedOpArgs =
   | { op: 'deleteEffect'; args: { effectId: string } }
   | { op: 'renameEffect'; args: { effectId: string; name: string } }
   | { op: 'setScriptLibrary'; args: import('@thirdlight/project-model').ScriptLibraryPatch }
-  | { op: 'deleteScriptLibrary'; args: { libraryId: string } };
+  | { op: 'deleteScriptLibrary'; args: { libraryId: string } }
+  | { op: 'editBlocks'; args: { entityId: string; edits: import('@thirdlight/project-model').BlockEdit[] } }
+  | { op: 'setBlockType'; args: { block: import('@thirdlight/project-model').BlockType } }
+  | { op: 'deleteBlockType'; args: { blockId: string } }
+  | { op: 'setCellFields'; args: { fields: import('@thirdlight/project-model').CellField[] } }
+  | { op: 'setBlockStamp'; args: { stamp?: import('@thirdlight/project-model').BlockStamp; stampId?: string; name?: string; entityId?: string; box?: number[] } }
+  | { op: 'deleteBlockStamp'; args: { stampId: string } };
+
+/** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
+function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
+  const allowed: Record<string, string[]> = {
+    editBlocks: ['entityId', 'edits'],
+    setBlockType: ['block'],
+    deleteBlockType: ['blockId'],
+    setCellFields: ['fields'],
+    setBlockStamp: ['stamp', 'stampId', 'name', 'entityId', 'box'],
+    deleteBlockStamp: ['stampId'],
+  };
+  const keys = allowed[op]!;
+  for (const k of Object.keys(args)) if (!keys.includes(k)) return fieldUnexpected(`/args/${pointerSegment(k)}`, k, keys.join(', '));
+  const id = (k: string): CommandError | null => {
+    if (args[k] === undefined) return fieldMissing(`/args/${k}`, k);
+    if (typeof args[k] !== 'string' || !ID_RE.test(args[k] as string)) return fieldType(`/args/${k}`, args[k], `string (an id: [a-z0-9][a-z0-9_-]{0,63})`);
+    return null;
+  };
+  const modelErr = (errors: ModelErrorV2[], prefix: string): CommandError | null => {
+    const e = errors[0];
+    if (e === undefined) return null;
+    return { ...fieldValue(`${prefix}${e.path ?? ''}`, e.found, e.expected ?? 'a valid value', e.message), code: e.code === 'field_missing' ? 'field_missing' : e.code === 'field_unexpected' ? 'field_unexpected' : e.code === 'field_type' ? 'field_type' : 'field_value' } as CommandError;
+  };
+  switch (op) {
+    case 'editBlocks': {
+      const r = id('entityId');
+      if (r !== null) return r;
+      if (args['edits'] === undefined) return fieldMissing('/args/edits', 'edits');
+      const shape = blockEditsShapeError(args['edits']);
+      if (shape !== null) return { ...fieldValue(shape.path, undefined, 'a valid block edit', shape.message), code: shape.code } as CommandError;
+      return null;
+    }
+    case 'setBlockType': {
+      if (args['block'] === undefined) return fieldMissing('/args/block', 'block');
+      const errors: ModelErrorV2[] = [];
+      validateBlockType(args['block'], '', errors);
+      return modelErr(errors, '/args/block');
+    }
+    case 'deleteBlockType':
+      return id('blockId');
+    case 'setCellFields': {
+      if (args['fields'] === undefined) return fieldMissing('/args/fields', 'fields');
+      const errors: ModelErrorV2[] = [];
+      validateCellFields(args['fields'], '', errors);
+      return modelErr(errors, '/args/fields');
+    }
+    case 'setBlockStamp': {
+      if (args['stamp'] !== undefined) {
+        for (const k of ['stampId', 'name', 'entityId', 'box']) if (args[k] !== undefined) return fieldUnexpected(`/args/${k}`, k, 'stamp alone (or stampId, name, entityId, box without stamp)');
+        const errors: ModelErrorV2[] = [];
+        validateBlockStamp(args['stamp'], '', errors);
+        return modelErr(errors, '/args/stamp');
+      }
+      for (const k of ['stampId', 'entityId']) {
+        const r = id(k);
+        if (r !== null) return r;
+      }
+      if (typeof args['name'] !== 'string' || args['name'].length < 1 || args['name'].length > 128) return args['name'] === undefined ? fieldMissing('/args/name', 'name') : fieldType('/args/name', args['name'], 'string (1-128 characters)');
+      const box = args['box'];
+      if (box === undefined) return fieldMissing('/args/box', 'box');
+      if (!Array.isArray(box) || box.length !== 6 || !box.every((v) => Number.isSafeInteger(v)) || !((box[3] as number) > (box[0] as number) && (box[4] as number) > (box[1] as number) && (box[5] as number) > (box[2] as number))) return fieldType('/args/box', box, '[x0, y0, z0, x1, y1, z1] integers with max > min');
+      if ((box[3] as number) - (box[0] as number) > BLOCK_LIMITS.stampSize || (box[4] as number) - (box[1] as number) > BLOCK_LIMITS.stampSize || (box[5] as number) - (box[2] as number) > BLOCK_LIMITS.stampSize) return fieldValue('/args/box', box, `at most ${BLOCK_LIMITS.stampSize} cells per axis`, 'a stamp spans at most 64 cells per axis');
+      return null;
+    }
+    case 'deleteBlockStamp':
+      return id('stampId');
+  }
+  return null;
+}
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -1293,6 +1377,17 @@ export function validateOpArgs(
           return { ok: false, error: fieldType(`/args/${k}`, args[k], k === 'effect' ? 'object ({ effectId, name, duration, loop, seed, bounds, parameters?, systems })' : `string (${k})`) };
         }
       }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'editBlocks':
+    case 'setBlockType':
+    case 'deleteBlockType':
+    case 'setCellFields':
+    case 'setBlockStamp':
+    case 'deleteBlockStamp': {
+      // Phase 23.5: block layers (the values are the model's; here the shapes).
+      const r = blockArgsError(op, args);
+      if (r !== null) return { ok: false, error: r };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setScriptLibrary':

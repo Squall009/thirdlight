@@ -253,6 +253,12 @@ export interface ModelsRealization {
   /** Phase 9.7: the entity's attached model instance (its asset id and root), or null. */
   instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
   /**
+   * Phase 23.5: a model instance a block look is built from (one per asset and
+   * piece, kept while the realization lives) — null while the asset loads
+   * (`onReady` runs once when it is ready) or when it is not a model row.
+   */
+  blockInstance?(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
+  /**
    * Phase 14.6: the clips of `clipAssetId` for a model of `rigAssetId`: its
    * own clips, or an animation-only asset's marked "clips for" that rig
    * (loaded on first ask; null until it is ready, or when the asset is
@@ -487,6 +493,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const resources = new Map<string, PreparedVisualResource>();
   /** Assets being prepared (bytes resolving or the store load running). */
   const loading = new Set<string>();
+  /** Phase 23.5: model assets block looks use (kept loaded), their instances and the looks waiting for them. */
+  const blockAssets = new Set<string>();
+  const blockInstances = new Map<string, ModelInstance>();
+  const blockWaiters = new Map<string, (() => void)[]>();
   /** Instance-set buffers by digest (decoded once, dropped when unused). */
   const buffers = new Map<string, Float32Array>();
   const bufferLoads = new Set<string>();
@@ -557,6 +567,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   /** Whether any live entity still uses the asset. */
   function assetInUse(assetId: string): boolean {
     if (clipAssets.has(assetId)) return true;
+    if (blockAssets.has(assetId)) return true;
     for (const a of modelEntities.values()) if (a === assetId) return true;
     for (const r of instanceEntities.values()) if (r.assetId === assetId) return true;
     return false;
@@ -797,6 +808,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
           } else {
             resources.set(row.assetId, res.resource);
             attachForAsset(row.assetId, res.resource);
+            // Phase 23.5: block looks waiting for this model.
+            const waiting = blockWaiters.get(row.assetId);
+            blockWaiters.delete(row.assetId);
+            for (const cb of waiting ?? []) cb();
           }
           settleIfComplete();
         });
@@ -824,6 +839,25 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   initial = false;
 
   const realization: ModelsRealization = {
+    blockInstance(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null {
+      if (disposed || !rowsByAsset.has(assetId)) return null;
+      const key = `${assetId}|${piece ?? ''}`;
+      const hit = blockInstances.get(key);
+      if (hit !== undefined) return hit;
+      blockAssets.add(assetId);
+      const resource = resources.get(assetId);
+      if (resource === undefined) {
+        let list = blockWaiters.get(assetId);
+        if (list === undefined) blockWaiters.set(assetId, (list = []));
+        list.push(onReady);
+        ensureAsset(assetId);
+        return null;
+      }
+      const made = resource.createInstance(instanceOptions(assetId, piece));
+      if (!made.ok) return null;
+      blockInstances.set(key, made.instance);
+      return made.instance;
+    },
     instanceOf(entityId: string) {
       const rec = attached.get(entityId);
       if (rec === undefined || rec.disposed) return null;
@@ -926,6 +960,9 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       }
       for (const set of [...attachedSets.values()]) disposeInstanceSet(set);
       for (const rec of [...attached.values()]) disposeAttached(rec);
+      for (const inst of blockInstances.values()) inst.dispose();
+      blockInstances.clear();
+      blockWaiters.clear();
       for (const resource of resources.values()) {
         try {
           resource.dispose();

@@ -102,6 +102,7 @@ import {
   type PlayerSpawnFacing,
 } from './types-v3';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
+import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
 
 export const COLOR_RE_V3 = /^#[0-9a-fA-F]{6}$/; // §23.3.1a/§23.3.4/§23.3.5
 export const MAX_ABS_V3 = 1e6; // §23.10 numbers bound
@@ -119,7 +120,8 @@ export const SURFACE_DEFAULTS = Object.freeze({
 });
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
-const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
+// Phase 23.5: `blocks` — the scene's block-layer cells and regions (absent = none).
+const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'entities', 'blocks']);
 /** Phase 12 (c): the v4 per-scene entity cap (instance sets hold dense detail). */
 export const MAX_ENTITIES_V4 = 16_384;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
@@ -131,7 +133,8 @@ export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer'];
+// Phase 23.5: `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 /** Phase 15.3 (v4): the follow distance and the speed cap. */
@@ -742,6 +745,24 @@ const EMPTY_COUNTS: EntityV3Counts = {
   points3d: 0,
 };
 
+/**
+ * Phase 23.5: a block layer is axis-aligned level geometry — a root object
+ * (its position is the layer origin) at identity rotation and unit scale
+ * (the cell size carries the scale).
+ */
+function validateBlockLayerTransform(comps: Record<string, unknown>, parentId: unknown, path: string, errors: ModelErrorV3[]): void {
+  const t = canonicalTransform(comps['transform']);
+  if (parentId !== undefined && parentId !== null) {
+    errors.push(withFound({ code: 'component_conflict', path: `${path}/parentId`, message: 'a block layer is a root object (in a folder at most): its position is the layer origin', reason: 'block_layer_parented', expected: 'parentId absent, or a folder' }, parentId));
+  }
+  if (!(t.scale[0] === 1 && t.scale[1] === 1 && t.scale[2] === 1)) {
+    errors.push(withFound({ code: 'component_conflict', path: `${path}/components/transform/scale`, message: 'a block layer is at unit scale (its cellSize sets the size of the cells)', reason: 'block_layer_scale', expected: '[1, 1, 1]' }, t.scale));
+  }
+  if (!(t.rotation[0] === 0 && t.rotation[1] === 0 && t.rotation[2] === 0 && t.rotation[3] === 1)) {
+    errors.push(withFound({ code: 'component_conflict', path: `${path}/components/transform/rotation`, message: 'a block layer is axis-aligned (identity rotation); turn blocks per cell instead', reason: 'block_layer_rotation', expected: '[0, 0, 0, 1]' }, t.rotation));
+  }
+}
+
 /** §23.3.1/§23.3.2 zone and spawn transform rules (distinct codes). */
 function validateZoneSpawnTransform(
   comps: Record<string, unknown>,
@@ -810,6 +831,7 @@ function validateEntityComponentsV3(
   ePath: string,
   errors: ModelErrorV3[],
   version: 3 | 4 = 3,
+  merged = false,
 ): EntityV3Counts {
   const path = `${ePath}/components`;
   const registry: readonly string[] = version === 4 ? V4_REGISTRY : V3_REGISTRY;
@@ -919,6 +941,18 @@ function validateEntityComponentsV3(
   if (comps['cameraPath'] !== undefined) validateCameraPathComponent(comps['cameraPath'], `${path}/cameraPath`, errors);
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
+  if (comps['blockLayer'] !== undefined) {
+    // Phase 23.5: a block layer. A merged runtime scene carries the layer's
+    // cells on the component (`data`, attached by resolveSceneHierarchy).
+    const bl = comps['blockLayer'];
+    const data = merged && isPlainObject(bl) ? bl['data'] : undefined;
+    validateBlockLayerComponent(isPlainObject(bl) && data !== undefined ? Object.fromEntries(Object.entries(bl).filter(([k]) => k !== 'data')) : bl, `${path}/blockLayer`, errors);
+    if (data !== undefined) validateSceneBlocks([data], [{ id: isPlainObject(data) ? data['entityId'] : undefined, components: { blockLayer: bl } }], errors, true);
+    for (const other of ['model', 'box', 'camera', 'collider', 'controller', 'instances'] as const) {
+      if (comps[other] !== undefined) errors.push(collisionConflict(path, `blockLayer and ${other} are mutually exclusive on one entity (a layer is its own level geometry)`, ['blockLayer', other]));
+    }
+    validateBlockLayerTransform(comps, parentId, ePath, errors);
+  }
   // Phase 9.9: gameplay building blocks.
   for (const name of BLOCK_COMPONENT_NAMES) {
     if (comps[name] !== undefined) BLOCK_COMPONENTS[name].validate(comps[name], `${path}/${name}`, errors as unknown as Parameters<(typeof BLOCK_COMPONENTS)[typeof name]["validate"]>[2]);
@@ -1212,6 +1246,11 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   // Phase 23.4: last, so every existing entity keeps its exact canonical bytes.
   if (comps['virtualCamera'] !== undefined) (components as { virtualCamera?: VirtualCameraComponent }).virtualCamera = canonicalVirtualCamera(comps['virtualCamera'] as VirtualCameraComponent);
   if (comps['cameraPath'] !== undefined) (components as { cameraPath?: CameraPathComponent }).cameraPath = canonicalCameraPath(comps['cameraPath'] as CameraPathComponent);
+  if (comps['blockLayer'] !== undefined) {
+    // Phase 23.5 (a merged runtime scene keeps the attached `data`).
+    const bl = comps['blockLayer'] as BlockLayerComponent & { data?: BlockLayerData };
+    (components as { blockLayer?: BlockLayerComponent }).blockLayer = { ...canonicalBlockLayerComponent(bl), ...(bl.data !== undefined ? { data: bl.data } : {}) } as BlockLayerComponent;
+  }
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean };
     components.instances = {
@@ -1339,7 +1378,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
       } else if (!isPlainObject(comps)) {
         errors.push(fieldType(`${base}/components`, comps, 'object'));
       } else {
-        const c = validateEntityComponentsV3(comps, objectParent(pid) ?? undefined, base, errors, version);
+        const c = validateEntityComponentsV3(comps, objectParent(pid) ?? undefined, base, errors, version, merged);
         counts.zones += c.zones;
         counts.spawns += c.spawns;
         counts.directional += c.directional;
@@ -1498,6 +1537,8 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
   for (const k of Object.keys(doc)) {
     if (!knownScene.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...knownScene].join(', ')));
   }
+  // Phase 23.5: the scene's block-layer cells and regions.
+  if (version === 4 && doc['blocks'] !== undefined && entities !== null) validateSceneBlocks(doc['blocks'], entities, errors, merged);
   if (errors.length > 0) return { errors };
   const canonical = canonicalSceneV3(doc, entities as unknown[], version);
   checkFolderHierarchy(canonical, errors);
@@ -1561,11 +1602,14 @@ function checkFolderHierarchy(scene: SceneV3, errors: ModelErrorV3[]): void {
 
 function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[], version: 3 | 4 = 3): SceneV3 {
   if (version === 4) {
+    // Phase 23.5: `blocks` present only when a layer holds cells or regions.
+    const blocks = Array.isArray(doc['blocks']) ? canonicalSceneBlocks(doc['blocks'] as BlockLayerData[]) : null;
     return {
       schemaVersion: 4,
       sceneId: doc['sceneId'] as string,
       revision: canonNum(doc['revision']),
       entities: (ents as Record<string, unknown>[]).map(canonicalEntityV3),
+      ...(blocks !== null ? { blocks } : {}),
     } as unknown as SceneV3;
   }
   return {
