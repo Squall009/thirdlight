@@ -15,6 +15,7 @@
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
+import { materialChangeKey } from '@thirdlight/runtime';
 import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
@@ -60,6 +61,8 @@ export class FrameEncoder {
   private diagWanted = true;
   private memoryBytes = -1;
   private debugRevision = 0;
+  /** Phase 23.11: the socket list last sent (the runtime keeps one array while nothing changes). */
+  private socketsRef: readonly unknown[] | null = null;
   private shared: { sab: SharedArrayBuffer; slotFloats: number; slot: number; fresh: boolean } | null = null;
   private readonly useShared: boolean;
   private readonly visit: (id: string, p: readonly number[], r: readonly number[], s: readonly number[]) => void;
@@ -279,6 +282,12 @@ export class FrameEncoder {
     // Phase 23.5: block-layer chunks the simulation changed.
     const grid = rt.takeGridChanges?.() ?? [];
     if (grid.length > 0) out.grid = grid;
+    // Phase 23.12: material parameters scripts changed (a data grid's bytes travel as a transfer).
+    const mat = rt.takeMaterialChanges?.() ?? [];
+    if (mat.length > 0) {
+      out.mat = mat;
+      for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
+    }
     // Phase 23.9a: the project UI's diff of the steps since the last frame.
     const ui = rt.takeUiOutput?.() ?? null;
     if (ui !== null) out.ui = ui;
@@ -309,6 +318,12 @@ export class FrameEncoder {
     if (dbg !== undefined && dbg.revision !== this.debugRevision) {
       this.debugRevision = dbg.revision;
       out.debugCommands = dbg;
+    }
+    // Phase 23.11: the objects riding on sockets (only when the list changed; never for a game without them).
+    const sockets = rt.socketAttachments?.();
+    if (sockets !== undefined && sockets !== this.socketsRef && (sockets.length > 0 || this.socketsRef !== null)) {
+      this.socketsRef = sockets;
+      out.sockets = sockets;
     }
     if (typeof extra.memoryBytes === 'number' && extra.memoryBytes !== this.memoryBytes) {
       this.memoryBytes = extra.memoryBytes;
@@ -372,6 +387,8 @@ export class FrameMirror {
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
   /** Phase 23.5: block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
+  /** Phase 23.12: the latest material change per object, material and parameter, until the adapter takes them. */
+  mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
   /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
   ui: UiOutput | null = null;
   uiModel: Record<string, unknown> = {};
@@ -382,6 +399,8 @@ export class FrameMirror {
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   debugCommands: DebugCommandState | null = null;
+  /** Phase 23.11: the objects riding on sockets. */
+  sockets: readonly { readonly entityId: string; readonly target: string; readonly node: string }[] = Object.freeze([]);
   private sharedSab: SharedArrayBuffer | null = null;
   /** The previous full transform buffer (returned to the worker for reuse). */
   spare: ArrayBuffer | null = null;
@@ -446,6 +465,13 @@ export class FrameMirror {
     }
     if (s.cam !== undefined) this.cam = s.cam;
     if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
+    if (s.mat !== undefined) {
+      for (const c of s.mat) {
+        const k = materialChangeKey(c);
+        this.mat.delete(k);
+        this.mat.set(k, c);
+      }
+    }
     if (s.ui !== undefined) {
       this.ui = mergeUiOutput(this.ui, s.ui);
       this.uiModel = applyUiOutputToModel(this.uiModel, s.ui);
@@ -456,6 +482,7 @@ export class FrameMirror {
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
     if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;
+    if (s.sockets !== undefined) this.sockets = deepFreeze(s.sockets);
   }
 }
 

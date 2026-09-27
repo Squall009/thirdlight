@@ -204,6 +204,8 @@ const CREATE_COMPONENTS: readonly string[] = [
   'faceMovement',
   // Phase 23.5: v4 scenes only.
   'blockLayer',
+  // Phase 23.6: v4 scenes only.
+  'blockFootprint',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */

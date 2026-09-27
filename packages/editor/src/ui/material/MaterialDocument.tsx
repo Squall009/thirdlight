@@ -25,6 +25,9 @@ import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { materialPortContext, parameterDefault } from '../../session/material-graph';
 import { MaterialPreview, type PreviewShape } from '../../viewport/material-preview';
 
+/** Phase 23.12: the largest data parameter per side (project-model `MATERIAL_DATA_MAX`; the editor imports project-model types only). */
+const MATERIAL_DATA_MAX = 64;
+
 export interface MaterialDocumentProps {
   materialId: string;
   materials: readonly MaterialDef[];
@@ -50,7 +53,9 @@ export interface MaterialDocumentProps {
   loadModel: (assetId: string) => Promise<{ root: THREE.Object3D; dispose: () => void } | null>;
 }
 
-const PARAM_TYPES: readonly MaterialParameter['type'][] = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture'];
+const PARAM_TYPES: readonly MaterialParameter['type'][] = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture', 'data'];
+/** Phase 23.12: a new data parameter's grid (8 × 8 cells; any size up to MATERIAL_DATA_MAX per side). */
+const NEW_DATA_SIZE: [number, number] = [8, 8];
 
 export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   const m = p.materials.find((x) => x.materialId === p.materialId) ?? null;
@@ -252,9 +257,10 @@ function ParameterEditor({ material, textures, onSave }: { material: MaterialDef
             onChange={(e) => {
               // A new type starts at its default; a colour or texture has no range.
               const type = e.target.value as MaterialParameter['type'];
-              const { min: _a, max: _b, ...rest } = x;
+              const { min: _a, max: _b, size: _c, ...rest } = x;
+              const { size: _d, ...ranged } = x;
               const numeric = type === 'float' || type.startsWith('vec');
-              save(list.map((y, j) => (j === i ? { ...(numeric ? x : rest), type, default: parameterDefault(type) } : y)));
+              save(list.map((y, j) => (j === i ? { ...(numeric ? ranged : rest), type, default: parameterDefault(type), ...(type === 'data' ? { size: NEW_DATA_SIZE } : {}) } : y)));
             }}
           >
             {PARAM_TYPES.map((t) => (
@@ -264,6 +270,7 @@ function ParameterEditor({ material, textures, onSave }: { material: MaterialDef
             ))}
           </select>
           <ParameterValue param={x} textures={textures} onCommit={(v) => setAt(i, { default: v })} />
+          {x.type === 'data' && <DataSize value={x.size ?? NEW_DATA_SIZE} name={`parameter ${x.key} size`} onCommit={(size) => setAt(i, { size })} />}
           <select className="tl-input" aria-label={`parameter ${x.key} visibility`} value={x.visibility ?? 'public'} onChange={(e) => setAt(i, { visibility: e.target.value as 'public' | 'private' })}>
             <option value="public">public</option>
             <option value="private">private</option>
@@ -294,7 +301,8 @@ export function ParameterValue({ param, textures, onCommit, label }: { param: Pi
       </select>
     );
   }
-  const n = param.type === 'float' ? 1 : Number(param.type.slice(3));
+  // Phase 23.12: a data parameter's default is the RGBA bytes every cell starts with.
+  const n = param.type === 'float' ? 1 : param.type === 'data' ? 4 : Number(param.type.slice(3));
   const commit = (): void => {
     const parts = draft.split(',').map((s) => Number(s.trim()));
     if (parts.length !== n || parts.some((x) => !Number.isFinite(x))) {
@@ -305,4 +313,18 @@ export function ParameterValue({ param, textures, onCommit, label }: { param: Pi
     if (JSON.stringify(v) !== JSON.stringify(param.default)) onCommit(v);
   };
   return <input className="tl-input tl-input--num" aria-label={name} title={n === 1 ? 'a number' : `${n} numbers, comma separated`} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
+}
+
+/** Phase 23.12: a data parameter's grid size (cells per side, 1–64; committed on blur / Enter). */
+function DataSize({ value, name, onCommit }: { value: readonly [number, number]; name: string; onCommit: (v: [number, number]) => void }): JSX.Element {
+  const [draft, setDraft] = useState(`${value[0]}, ${value[1]}`);
+  const commit = (): void => {
+    const parts = draft.split(/[,x×]/).map((s) => Number(s.trim()));
+    if (parts.length !== 2 || !parts.every((x) => Number.isInteger(x) && x >= 1 && x <= MATERIAL_DATA_MAX)) {
+      setDraft(`${value[0]}, ${value[1]}`);
+      return;
+    }
+    if (parts[0] !== value[0] || parts[1] !== value[1]) onCommit([parts[0]!, parts[1]!]);
+  };
+  return <input className="tl-input tl-input--num" aria-label={name} title={`cells: width, height (1–${MATERIAL_DATA_MAX} each)`} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
 }

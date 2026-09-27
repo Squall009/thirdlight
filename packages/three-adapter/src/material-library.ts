@@ -26,6 +26,13 @@
  * texture override gets its own compiled variant; shared materials never
  * change for one object (phase 9.4 rule).
  *
+ * Phase 23.12: scripts set public parameters per object while the game runs
+ * (`setRuntimeValue` / `setRuntimeData`): a number, vector or colour goes on
+ * the object for the shared material's per-object uniforms (nothing
+ * recompiles, the material stays shared); a texture takes the variant path
+ * of a texture override; a data parameter's grid is the object's own data
+ * texture, swapped in per drawn object by its Sample data nodes.
+ *
  * Phase 17.4: node materials only (every view draws with `WebGPURenderer`);
  * the `onBeforeCompile` twins of phases 9.4–17.3 are archived in
  * `archive/webgl-renderer-17/`. The pixel-parity e2e compares the node
@@ -43,8 +50,11 @@ import {
   buildGraphMaterial,
   compileMaterialGraph,
   digestOf,
+  MATERIAL_IDS_KEY,
   materialGraphCanonical,
   OVERRIDES_KEY,
+  RUNTIME_VALUES_KEY,
+  type RuntimeValuesLike,
   type CompiledMaterialGraph,
   type GraphProblem,
   type MaterialFunctionLike,
@@ -108,6 +118,16 @@ export interface MaterialLibrary {
   apply(root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides?: MaterialOverridesLike | null): () => void;
   /** Phase 18.3: a graph material's compile problems (null: no such graph material, or not built yet). */
   graphProblems(materialId: string): readonly GraphProblem[] | null;
+  /**
+   * Phase 23.12: set (a value) or clear (`undefined`) a run-time value of a
+   * public parameter of `materialId` on these meshes (one object's): a
+   * number, 2–4 numbers, "#rrggbb" (colour) or a texture asset id.
+   */
+  setRuntimeValue(meshes: readonly THREE.Object3D[], materialId: string, key: string, value: number | readonly number[] | string | undefined): void;
+  /** Phase 23.12: an object's own data texture for a data parameter (`undefined`: none — the material's starting cells). */
+  setRuntimeData(meshes: readonly THREE.Object3D[], materialId: string, key: string, texture: THREE.Texture | undefined): void;
+  /** Phase 23.12: the compiled graph materials alive (objects with different values share one). */
+  graphMaterialCount(): number;
   dispose(): void;
 }
 
@@ -496,9 +516,17 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   const compileEntry = (def: MaterialDefLike, digest: string): CompiledMaterialGraph =>
     compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture: samplerTexture, fn: fnOf, overrideKey: digest });
   function recompile(e: GraphEntry): void {
+    const old = e.compiled;
     e.compiled = compileEntry(e.def, e.digest);
     applyGraphNodes(e.material as unknown as MeshStandardNodeMaterial, e.compiled);
+    // Phase 23.12: the previous compile's data placeholders go with it.
+    for (const t of old.ownedTextures) t.dispose();
   }
+  /** A compiled graph material and what its compile made. */
+  const disposeEntry = (e: GraphEntry): void => {
+    e.material.dispose();
+    for (const t of e.compiled.ownedTextures) t.dispose();
+  };
 
   /** The shared compiled material of a graph material (a texture override makes a variant). */
   const graphMaterial = (def: MaterialDefLike): GraphEntry => {
@@ -506,7 +534,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const digest = digestOf(canonical);
     const have = graphEntries.get(digest);
     if (have !== undefined && have.canonical === canonical) return have;
-    if (have !== undefined) have.material.dispose();
+    if (have !== undefined) disposeEntry(have);
     const compiled = compileEntry(def, digest);
     const material = buildGraphMaterial(compiled, def.name);
     const e: GraphEntry = { canonical, digest, def, material, compiled };
@@ -546,11 +574,20 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** Digests in use by applied meshes (the rest are dropped after a material change). */
   let usedDigests = new Set<string>();
 
+  /** Phase 23.12: the apply each mesh was last assigned under (a run-time texture re-assigns just that mesh). */
+  const meshApply = new WeakMap<THREE.Object3D, { mapping: Readonly<Record<string, string>> | null; overrides: MaterialOverridesLike | null }>();
   const assign = (root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides: MaterialOverridesLike | null = null): void => {
-    root.traverse((o) => {
+    root.traverse((o) => assignMesh(o, mapping, overrides));
+  };
+  const assignMesh = (o: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides: MaterialOverridesLike | null): void => {
+    {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
+      meshApply.set(mesh, { mapping, overrides });
       const data = mesh.userData as Record<string, unknown>;
+      /** Phase 23.12: the run-time values scripts set on this object (texture ones choose a variant). */
+      const runtime = data[RUNTIME_VALUES_KEY] as RuntimeValuesLike | undefined;
+      const ids: Record<string, string> = {};
       const original = (data[SOURCE] as THREE.Material | THREE.Material[] | undefined) ?? mesh.material;
       const list = Array.isArray(original) ? original : [original];
       let changed = false;
@@ -563,8 +600,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         const def = id === undefined ? undefined : defs.get(id);
         if (def?.graph !== undefined) {
           const own = overrides?.[def.materialId];
-          const e = graphMaterial(textureVariant(def, own) ?? def);
+          const live = runtime?.values[def.materialId];
+          const e = graphMaterial(textureVariant(def, live !== undefined ? { ...(own ?? {}), ...live } : own) ?? def);
           usedDigests.add(e.digest);
+          ids[e.digest] = def.materialId;
           if (own !== undefined) values[e.digest] = own;
           if (!e.compiled.flags.castShadows) noShadow = true;
           changed = true;
@@ -584,6 +623,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       else heldKeys.delete(mesh);
       if (Object.keys(values).length > 0) data[OVERRIDES_KEY] = values;
       else delete data[OVERRIDES_KEY];
+      if (Object.keys(ids).length > 0) data[MATERIAL_IDS_KEY] = ids;
+      else delete data[MATERIAL_IDS_KEY];
       // The graph's "casts shadows" flag (the object's own flag is kept to restore).
       if (noShadow && data[MATERIAL_NO_SHADOW_KEY] === undefined) {
         data[MATERIAL_NO_SHADOW_KEY] = mesh.castShadow;
@@ -599,7 +640,18 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         mesh.material = original;
         delete data[SOURCE];
       }
-    });
+    }
+  };
+
+  /** Phase 23.12: an object's run-time entry (made on first use, dropped when empty). */
+  const runtimeOf = (mesh: THREE.Object3D, create: boolean): RuntimeValuesLike | undefined => {
+    let rt = mesh.userData[RUNTIME_VALUES_KEY] as RuntimeValuesLike | undefined;
+    if (rt === undefined && create) mesh.userData[RUNTIME_VALUES_KEY] = rt = { values: {}, data: {} };
+    return rt;
+  };
+  const pruneRuntime = (mesh: THREE.Object3D, rt: RuntimeValuesLike): void => {
+    for (const k of ['values', 'data'] as const) for (const [id, o] of Object.entries(rt[k])) if (Object.keys(o).length === 0) delete rt[k][id];
+    if (Object.keys(rt.values).length === 0 && Object.keys(rt.data).length === 0) delete mesh.userData[RUNTIME_VALUES_KEY];
   };
 
   return {
@@ -620,7 +672,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       // Phase 18.3: compiled graphs no applied mesh uses any more (a later apply recompiles).
       for (const [digest, e] of [...graphEntries]) {
         if (usedDigests.has(digest)) continue;
-        e.material.dispose();
+        disposeEntry(e);
         graphEntries.delete(digest);
       }
       options.onChange?.();
@@ -653,6 +705,45 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         assign(root, null);
       };
     },
+    setRuntimeValue(meshes, materialId, key, value) {
+      const p = defs.get(materialId)?.parameters?.find((x) => x.key === key);
+      if (p === undefined || p.visibility === 'private' || p.type === 'data') return;
+      // A colour is kept linear (the uniform reads [r, g, b] without parsing each frame).
+      const stored = value === undefined ? undefined : p.type === 'color' && typeof value === 'string' ? (() => {
+        const c = new THREE.Color();
+        c.set(value);
+        return [c.r, c.g, c.b] as const;
+      })() : value;
+      for (const mesh of meshes) {
+        const rt = runtimeOf(mesh, stored !== undefined);
+        if (rt === undefined) continue;
+        const own = (rt.values[materialId] ??= {});
+        const before = own[key];
+        if (stored === undefined) delete own[key];
+        else own[key] = stored;
+        pruneRuntime(mesh, rt);
+        // A texture chooses the compiled variant (as an authored texture override does).
+        if (p.type === 'texture' && before !== stored) {
+          const a = meshApply.get(mesh);
+          if (a !== undefined) assignMesh(mesh, a.mapping, a.overrides);
+        }
+      }
+      options.onChange?.();
+    },
+    setRuntimeData(meshes, materialId, key, texture) {
+      for (const mesh of meshes) {
+        const rt = runtimeOf(mesh, texture !== undefined);
+        if (rt === undefined) continue;
+        const own = (rt.data[materialId] ??= {});
+        if (texture === undefined) delete own[key];
+        else own[key] = texture;
+        pruneRuntime(mesh, rt);
+      }
+      options.onChange?.();
+    },
+    graphMaterialCount() {
+      return graphEntries.size;
+    },
     graphProblems(materialId) {
       const def = defs.get(materialId);
       if (def?.graph === undefined) return null;
@@ -664,7 +755,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       for (const b of built.values()) disposeBuilt(b.material);
       built.clear();
       builtRefs.clear();
-      for (const e of graphEntries.values()) e.material.dispose();
+      for (const e of graphEntries.values()) disposeEntry(e);
       graphEntries.clear();
       // Phase 21.5: the sampler copies are the library's (the loaded textures belong to the loader).
       for (const t of samplerTextures.values()) t.dispose();

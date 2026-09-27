@@ -559,8 +559,31 @@ export {
   type VirtualCameraComponent,
   type VirtualCameraRig,
 } from './cameras';
+// Phase 23.11: sockets (an entity on a node of another entity's model) and model rigs as simulation data.
+export {
+  SOCKET_ATTACH_CONFLICTS,
+  SOCKET_ATTACH_FIELDS,
+  SOCKET_ATTACH_LIMITS,
+  canonicalSocketAttach,
+  validateSocketAttachComponent,
+  type SocketAttachComponent,
+} from './sockets';
+export {
+  MODEL_RIG_LIMITS,
+  quatFromRotation,
+  readModelRig,
+  rigNodeNames,
+  sanitizeRigNodeName,
+  validateModelRig,
+  type ModelRig,
+  type ModelRigChannel,
+  type ModelRigClip,
+  type ModelRigNode,
+  type RigInterpolation,
+  type RigPath,
+} from './model-rig';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
-export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
+export { MATERIAL_BUILTIN_SOURCES, MATERIAL_DATA_MAX, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).
 export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
 // Phase 9.8: input actions.
@@ -740,6 +763,10 @@ export {
   canonicalBlockCell,
   canonicalBlockChunk,
   canonicalBlockLayerComponent,
+  canonicalBlockFootprint,
+  validateBlockFootprintComponent,
+  BLOCK_FOOTPRINT_MAX,
+  type BlockFootprintComponent,
   canonicalBlockStamp,
   canonicalBlockStamps,
   canonicalBlockType,

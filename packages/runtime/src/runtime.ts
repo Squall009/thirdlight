@@ -20,6 +20,7 @@
  *   action sampling and fail-stop with no rollback.
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
+import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   GAME_TIMING_DEFAULTS,
@@ -74,6 +75,7 @@ import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
+import { SocketSystem } from './sockets';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
@@ -1260,9 +1262,11 @@ export function instantiateRuntime(
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
     modelBounds: snap.modelBounds,
+    ...(snap.rigs !== undefined ? { rigs: snap.rigs } : {}),
     ...(variables !== undefined ? { variables } : {}),
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
+    ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
     uiDocuments: snap.uiDocuments,
   });
   return { ok: true, runtime: rt };
@@ -1337,11 +1341,15 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
   modelBounds: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.11: model rigs (sockets are resolved on them). */
+  rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
   /** Phase 23.8: injected script variables (validated; ctx.save from step 0). */
   variables?: Readonly<Record<string, unknown>>;
   /** Phase 23.5: the block types and cell fields of the project's block layers. */
   blockTypes: readonly BlockType[];
   cellFields: readonly CellField[];
+  /** Phase 23.12: the graph materials' parameters (ctx.materials). */
+  materialCatalog?: RuntimeMaterialCatalog;
   /** Phase 23.9a: the project's UI documents (id, layer, modal). */
   uiDocuments: readonly RuntimeUiDocumentRow[];
 }
@@ -1563,6 +1571,9 @@ class RuntimeInstance implements Runtime {
   // ---- Phase 23.4: the camera brain (virtual cameras; inert without one) ----
   private readonly cameras: CameraBrain;
   private readonly cameraControl: import('./types').BehaviorCamera;
+  /** Phase 23.11: sockets (entities riding on model nodes) and the script API over them. */
+  private readonly sockets: SocketSystem;
+  private readonly socketControl: import('./types').BehaviorSockets;
   // ---- Phase 23.9a: the project UI (view model, shown documents, UI events) ----
   private readonly ui: UiState;
   /** UI events the host queued for the next sampled frame. */
@@ -1572,6 +1583,8 @@ class RuntimeInstance implements Runtime {
   private blocks: GameplayBlocks | null = null;
   /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
   private readonly grid: RuntimeGrid;
+  /** Phase 23.12: graph-material parameters scripts set per object (`ctx.materials`). */
+  private readonly materials: RuntimeMaterials;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
   /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
@@ -1835,6 +1848,9 @@ class RuntimeInstance implements Runtime {
     this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
+    // Phase 23.12: the start set's graph materials (the values scripts set per object).
+    this.materials = new RuntimeMaterials(args.materialCatalog);
+    this.materials.addEntities(args.initialEntities);
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
     // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
@@ -1902,7 +1918,74 @@ class RuntimeInstance implements Runtime {
           trigger: (name: string) => m.trigger(String(name)),
           get: (name: string) => m.get(String(name)),
           state: (layer?: number) => m.stateName(typeof layer === 'number' && Number.isInteger(layer) && layer >= 0 ? layer : 0),
+          // Phase 23.11: per-instance playback speed and morph weights.
+          setSpeed: (speed: number) => m.setSpeed(speed),
+          speed: () => m.speed(),
+          setMorph: (name: string, weight: number) => m.setMorph(String(name), weight),
+          morph: (name: string) => m.morph(String(name)),
         });
+      },
+    });
+    // Phase 23.11: sockets — the start set's authored ones attach now and sit on their nodes from the first frame.
+    this.sockets = new SocketSystem(args.rigs, {
+      get curr() {
+        return rt.curr;
+      },
+      parentOf: (id: string) => rt.entities.get(id)?.parentId ?? (rt.entities.has(id) ? null : undefined),
+      componentsOf: (id: string) => rt.entities.get(id)?.componentKinds ?? (rt.entities.has(id) ? [] : undefined),
+      poseOf: (id: string) => rt.animatorMachines.get(id)?.machine.pose() ?? null,
+      warn: (message: string) => rt.recordBehaviorLog('thirdlight.runtime:sockets', 'warn', message),
+    });
+    this.sockets.add(args.initialEntities);
+    this.settleSockets();
+    this.socketControl = this.buildSocketControl();
+  }
+
+  // ---- Phase 23.11: sockets ---------------------------------------------------------
+
+  /**
+   * Pose the attached entities now and make `prev` (and the committed copy)
+   * agree, so the next frame draws them on their nodes without a streak from
+   * where they were (the start of a game or a run).
+   */
+  private settleSockets(): void {
+    if (!this.sockets.active) return;
+    this.sockets.resolve(this.committed);
+    for (const a of this.sockets.list()) {
+      const c = this.curr.get(a.entityId);
+      const p = this.prev.get(a.entityId);
+      if (c === undefined || p === undefined || p === c) continue;
+      for (let k = 0; k < 3; k += 1) p.position[k] = c.position[k]!;
+      for (let k = 0; k < 4; k += 1) p.rotation[k] = c.rotation[k]!;
+      for (let k = 0; k < 3; k += 1) p.scale[k] = c.scale[k]!;
+    }
+  }
+
+  /** The step's socket pass (after the animators stepped): attached entities follow their nodes. */
+  private stepSockets(mirror: Map<string, TransformState> | null): void {
+    if (this.sockets.active) this.sockets.resolve(mirror);
+  }
+
+  socketAttachments(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[] {
+    return this.sockets.list();
+  }
+
+  private buildSocketControl(): import('./types').BehaviorSockets {
+    const sockets = this.sockets;
+    const vec = (v: unknown): readonly number[] | undefined => (Array.isArray(v) ? (v as number[]) : undefined);
+    return Object.freeze({
+      attach: (entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean =>
+        sockets.attach(String(entityId), targetId === undefined || targetId === null ? undefined : String(targetId), node === undefined || node === null ? undefined : String(node), vec(position), vec(rotation), vec(scale)),
+      detach: (entityId: string, keepWorld?: boolean): boolean => sockets.detach(String(entityId), keepWorld !== false),
+      attachedTo: (entityId: string) => {
+        const a = sockets.attachedTo(String(entityId));
+        return a === null ? null : Object.freeze({ target: a.target, nodeName: a.node });
+      },
+      nodePose: (targetId: string, node: string) => {
+        const p: number[] = [0, 0, 0];
+        const r: number[] = [0, 0, 0, 1];
+        if (!sockets.nodeWorld(String(targetId), String(node), p, r)) return null;
+        return Object.freeze({ position: Object.freeze([p[0]!, p[1]!, p[2]!] as const), rotation: Object.freeze([r[0]!, r[1]!, r[2]!, r[3]!] as const) });
       },
     });
   }
@@ -2081,6 +2164,20 @@ class RuntimeInstance implements Runtime {
   /** Phase 23.5: the cells changed since the run started (tests, saves). */
   gridDiff(): import('./grid').GridDiff {
     return this.grid.api.diff();
+  }
+
+  /**
+   * Phase 23.12: the material parameters scripts changed since the last call
+   * (the latest value of each, a cleared one, a data parameter's grid) — the
+   * renderer applies them per object. Taking them changes nothing the simulation computes.
+   */
+  takeMaterialChanges(): MaterialRenderChange[] {
+    return this.materials.takeRenderChanges();
+  }
+
+  /** Phase 23.12: the values scripts set, as digest text (null while none is set). */
+  materialState(): string | null {
+    return this.materials.digestText();
   }
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
@@ -2781,6 +2878,7 @@ class RuntimeInstance implements Runtime {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
     this.grid.beginStep(this.stepIndex + 1);
+    this.materials.beginStep(this.stepIndex + 1);
     // §5.1: copy curr before the step; restore it if any module throws
     // (no partial module application). Phase 23.0: into the reused step
     // buffer `prev` does not hold (as the M2 step does since phase 21.2) — a
@@ -2852,6 +2950,8 @@ class RuntimeInstance implements Runtime {
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
     this.stepAnimators();
+    // Phase 23.11: attached entities follow their nodes (posed by the animators just stepped).
+    this.stepSockets(null);
     // Phase 23.5: cells written after the physics phase collide from the next step.
     this.grid.flushCollision(this.physics3d);
     return true;
@@ -2889,6 +2989,7 @@ class RuntimeInstance implements Runtime {
     if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
     this.respawnRequested = false;
     this.grid.beginStep(ordinal);
+    this.materials.beginStep(ordinal);
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
@@ -2984,6 +3085,8 @@ class RuntimeInstance implements Runtime {
       this.lastGameView = this.buildGameView(this.stepIndex, this.simTime);
     }
     this.stepAnimators();
+    // Phase 23.11: attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
+    this.stepSockets(this.committed);
     // Phase 12 (c): the step's scene requests commit with it; exit zones are
     // checked on the committed motion.
     if (this.stepSceneOps.length > 0) {
@@ -3408,12 +3511,19 @@ class RuntimeInstance implements Runtime {
     });
     // Phase 9.7: a replay or a new run starts the animators over.
     if (reset === 'replay' || reset === 'start') this.resetAnimators();
+    // Phase 23.11: and the authored sockets attach again (on their nodes from the first frame).
+    if (reset === 'replay' || reset === 'start') {
+      this.sockets.reset();
+      this.settleSockets();
+    }
     // Phase 9.9: a new run resets the level's blocks; a respawn restores health.
     if (reset === 'replay' || reset === 'start') this.blocks?.resetRun();
     // Phase 23.5: a new run starts from the authored cells (colliders rebuilt now).
     if (reset === 'replay' || reset === 'start') {
       this.grid.reset();
       this.grid.flushCollision(this.physics3d);
+      // Phase 23.12: and from the authored material values.
+      this.materials.reset();
     }
     // Phase 23.9a: and starts with an empty view model and no document shown.
     if (reset === 'replay' || reset === 'start') this.ui.resetRun();
@@ -3762,6 +3872,7 @@ class RuntimeInstance implements Runtime {
    * tags, animators and gameplay blocks (a loaded scene, a spawned copy).
    */
   private attachEntities(frozen: readonly EntityV3[]): void {
+    this.materials.addEntities(frozen);
     for (const e of frozen) {
       const t = e.components.transform;
       const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
@@ -3783,6 +3894,8 @@ class RuntimeInstance implements Runtime {
     this.addAnimators(frozen);
     this.blocks?.add(frozen);
     this.cameras.add(frozen);
+    // Phase 23.11: their models and authored sockets (resolved at the end of the step).
+    this.sockets.add(frozen);
   }
 
   /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
@@ -3839,6 +3952,9 @@ class RuntimeInstance implements Runtime {
 
   /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
   private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
+    // Phase 23.11: sockets of (and on) these entities let go.
+    this.sockets.remove(ids);
+    this.materials.removeEntities(ids);
     for (const id of ids) {
       this.colliderComponents3D.delete(id);
       this.scriptColliders3D.delete(id);
@@ -4300,6 +4416,8 @@ class RuntimeInstance implements Runtime {
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
       // Phase 23.4: the virtual cameras (ctx.camera).
       fields['camera'] = { value: this.cameraControl, enumerable: true };
+      // Phase 23.11: sockets (ctx.sockets).
+      fields['sockets'] = { value: this.socketControl, enumerable: true };
       // Phase 23.3: the cursor channel (ctx.input.setCursor).
       fields['cursor'] = { value: this.cursorControl, enumerable: true };
       // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
@@ -4307,6 +4425,8 @@ class RuntimeInstance implements Runtime {
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
       // Phase 23.5: the block layers.
       fields['grid'] = { value: this.grid.api, enumerable: true };
+      // Phase 23.12: graph-material parameters per object.
+      fields['materials'] = { value: this.materials.api, enumerable: true };
       // Phase 23.9a: the project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).

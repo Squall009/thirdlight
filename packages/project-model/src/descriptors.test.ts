@@ -463,6 +463,11 @@ const COMPONENT_BASES: Record<string, J[]> = {
   ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
+  // Phase 23.11: a socket with its offset, and one a script attaches later.
+  socketAttach: [
+    { target: 'spawn-0001', node: 'hand_R', position: [0.1, 0, -0.05], rotation: [0, 0.7071067811865476, 0, 0.7071067811865476], scale: [1, 2, 1], attached: false },
+    { target: 'spawn-0001', node: 'Armature Bone.001' },
+  ],
   virtualCamera: [
     { rig: 'follow', priority: 5, enabled: false, target: 'spawn-0001', targetOffset: [0, 1.5, 0], distance: 6, minDistance: 1, maxDistance: 20, yaw: 30, pitch: 25, pitchMin: -20, pitchMax: 60, yawAction: 'look', pitchAction: 'tilt', rotateSpeed: 90, zoomAction: 'zoom', zoomSpeed: 5, collision: false, collisionRadius: 0.3, damping: 0.2, fovY: 50, near: 0.2, far: 500, blend: 'linear', blendTime: 1, letterbox: 0.1, shakeAmplitude: 0.05, shakeFrequency: 6, shakeRotation: 1 },
     { rig: 'orbitPoint', distance: 15, minDistance: 5, maxDistance: 40, yaw: 45, pitch: 45, pitchMin: 20, pitchMax: 70, pitchAction: 'tilt', rotateSpeed: 60, zoomAction: 'zoom', zoomSpeed: 10, turnLeftAction: 'left', turnRightAction: 'right', yawStep: 90, turnTime: 0.3, point: [1, 0, 2], damping: 0.1, blend: 'cut' },
@@ -507,6 +512,8 @@ const COMPONENT_BASES: Record<string, J[]> = {
   folder: [{}],
   // Phase 23.5: a block layer (every optional flag set to its non-default value).
   blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false }],
+  // Phase 23.6: a prop's block footprint.
+  blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
 
 const SKY_PROCEDURAL = { mode: 'procedural', turbidity: 6, rayleigh: 1.5, mieCoefficient: 0.005, mieDirectionalG: 0.8, sunFromLight: false, sunElevation: 35, sunAzimuth: 160, intensity: 1, environmentIntensity: 1 };
@@ -592,6 +599,18 @@ const MATERIAL_BASES: J[] = [
       graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] },
     },
   ],
+  // Phase 23.12: a graph material with a data parameter (its grid size).
+  [
+    {
+      materialId: 'mat-d',
+      name: 'Data material',
+      shader: 'standard',
+      params: {},
+      textures: {},
+      parameters: [{ key: 'cells', type: 'data', default: [0, 0, 0, 0], size: [4, 4] }],
+      graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] },
+    },
+  ],
 ];
 
 const CLIP = (name: string) => ({ assetId: 'model-a', clip: name, duration: 1 });
@@ -618,6 +637,8 @@ function animatorBase(o: { firstParam: 'float' | 'int' | 'bool' | 'trigger'; fir
       transitions: [{ from: 'idle', to: 'run', conditions: [cond], duration: 0.2, exitTime: 0.5, interruption: 'source' }],
       entry: 'idle',
       events: [{ assetId: 'model-a', clip: 'run', time: 0.1, name: 'step' }],
+      // Phase 23.11: a morph target driven by a float parameter.
+      morphs: [{ target: 'smile', parameter: 'speed' }],
       layers: [
         {
           name: 'Upper body',

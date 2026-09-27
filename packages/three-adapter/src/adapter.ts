@@ -35,6 +35,7 @@ import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type Auto
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
+import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -201,6 +202,12 @@ export interface SceneAdapterDiagnostics {
   batching?: AutoBatcherDiagnostics;
   /** Phase 23.5: the block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
+  /**
+   * Phase 23.12: graph materials — the compiled ones alive (objects with
+   * different parameter values share one) and the objects carrying values
+   * scripts set, with their data textures; ABSENT without project materials.
+   */
+  materials?: { graphMaterials: number } & RuntimeMaterialsDiagnostics;
   /** Phase 21.3: draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
 }
@@ -364,6 +371,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
+  /** Phase 23.12: the values scripts set per object (the simulation's material changes). */
+  let runtimeMaterials: RuntimeMaterialView | null = null;
   /** Phase 9.6: lightmaps of the baked static objects; the lights a bake holds are not realtime. */
   const lightmaps: LightmapSet | null =
     opts.lighting !== undefined && Object.keys(opts.lighting.bakes).length > 0
@@ -468,6 +477,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const objects = new Map<string, THREE.Object3D>();
   /** Phase 21.5: which entity an object is (a release stops at other entities' objects parented below). */
   const ownerOf = new WeakMap<THREE.Object3D, string>();
+  /** Phase 23.12: one object's own meshes (its child objects' are theirs). */
+  const ownMeshes = (entityId: string): THREE.Object3D[] => {
+    const root = objects.get(entityId);
+    const out: THREE.Object3D[] = [];
+    const visit = (o: THREE.Object3D): void => {
+      if (o !== root && ownerOf.get(o) !== undefined) return;
+      if ((o as THREE.Mesh).isMesh === true) out.push(o);
+      for (const c of o.children) visit(c);
+    };
+    if (root !== undefined) visit(root);
+    return out;
+  };
+  if (materialLibrary !== null) runtimeMaterials = new RuntimeMaterialView(materialLibrary, ownMeshes);
   // --- Phase 20.2: visual effects --------------------------------------------
   /** A project material for particles shaded with one (the library's compiled material, taken from a holder mesh). */
   const effectMaterials = new Map<string, THREE.Mesh>();
@@ -706,6 +728,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const releaseEntity = (id: string): void => {
     blockView.removeLayer(id);
+    runtimeMaterials?.release(id);
     if (effects !== null) {
       effects.detach(id);
       effectEntities.delete(id);
@@ -860,6 +883,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       onAttached: (entityId: string, root: THREE.Object3D) => {
         // Phase 17.4: models and instance sets cast and receive the key light's shadow (their data).
         applyShadowFlags(root, shadowFlagsOf(entityDocs.get(entityId)?.components));
+        // Phase 23.12: values a script set before the model arrived.
+        runtimeMaterials?.reapply(entityId);
         // Phase 21.3: a model's meshes may be drawn together with other placements' (instance sets already are).
         markBatchable(root);
         lightmaps?.apply(entityId, root);
@@ -1317,6 +1342,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
+    // Phase 23.12: material parameters scripts changed, on the objects before the draw (and before regrouping).
+    const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
+    if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
     // Phase 21.3: regroup the repeated objects and copy their matrices (after every transform and look change).
     batcher?.update(camera!);
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
@@ -1467,6 +1495,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (effects !== null && !disposed) d.effects = effects.diagnostics();
     if (batcher !== null && !disposed && lastFrameDrawn) d.batching = batcher.diagnostics();
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
+    if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...runtimeMaterials.diagnostics() };
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     return {
       ok: true,
@@ -1484,6 +1513,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     fades.dispose();
     animatorPlayers.clear();
     lightmaps?.dispose();
+    runtimeMaterials?.dispose();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();
     // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization

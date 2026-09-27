@@ -29,6 +29,7 @@
  * three.js, no authoring/backend edge.
  */
 import type { BehaviorGrid } from './grid';
+import type { BehaviorMaterials } from './material-params';
 import type {
   DeclaredProperty,
   PropertyDeclaration,
@@ -59,6 +60,7 @@ import type {
   BehaviorAnimatorHandle,
   BehaviorAudio,
   BehaviorCamera,
+  BehaviorSockets,
   BehaviorDebug,
   BehaviorUi,
   BehaviorEffects,
@@ -214,7 +216,15 @@ export interface BehaviorContext {
    */
   log(level: BehaviorLogLevel, message: string): void;
   /** Phase 23.4: the virtual cameras — activate, priorities, rig values, shake, screen↔world. */
-  readonly camera?: BehaviorCamera;  /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
+  readonly camera?: BehaviorCamera;
+  /** Phase 23.11: objects riding on named nodes of other objects' models — attach, detach, node poses. */
+  readonly sockets?: BehaviorSockets;
+  /**
+   * Phase 23.12: graph-material parameters per object — set a value (number, vector, colour,
+   * texture) or write the cells of a data parameter on one object; others wearing the material keep theirs.
+   */
+  readonly materials?: BehaviorMaterials;
+  /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
 }
 
@@ -918,10 +928,14 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
         // Phase 23.4: the virtual cameras (resolved by the camera brain at the end of the step).
         if (src.camera !== undefined) fields['camera'] = { value: src.camera, enumerable: true };
+        // Phase 23.11: sockets (resolved by the runtime at the end of the step, after the animators).
+        if (src.sockets !== undefined) fields['sockets'] = { value: src.sockets, enumerable: true };
         // Phase 23.8: debug commands (the handler, when given, runs once per call of this step).
         if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
         // Phase 23.5: the block layers.
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
+        // Phase 23.12: graph-material parameters per object.
+        if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         // Phase 14.1: prefab copies in the running game.

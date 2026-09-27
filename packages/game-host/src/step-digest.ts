@@ -85,6 +85,9 @@ export function stepDigest(rt: Runtime): string {
     h.num(cam.letterbox);
     h.num(cam.shake);
   }
+  // Phase 23.12: the material parameters scripts set (only while any is set, so every other digest is unchanged).
+  const mat = rt.materialState?.() ?? null;
+  if (mat !== null) h.text(mat);
   // Phase 23.9a: the project UI's view model and shown documents (only once a script or a frame used it).
   const ui = rt.uiView?.();
   if (ui !== undefined && (Object.keys(ui.model).length > 0 || ui.shown.length > 0)) {

@@ -226,7 +226,13 @@ export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3
 export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
 // Phase 9.7/9.8: animators and ctx.input.
-export { AnimatorMachine, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
+export { AnimatorMachine, ANIMATOR_SPEED_LIMITS, MAX_SCRIPT_MORPHS, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
+// Phase 23.11: sockets and the rig poser (model nodes posed by an animator pose, as three.js poses them).
+export { MAX_SOCKET_ATTACHMENTS, SocketSystem, type SocketAttachment, type SocketHost } from './sockets';
+export { RigPoser, composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, sampleChannel, type Mat4 } from './rig-pose';
+export type { BehaviorSockets } from './types';
+// Phase 23.11: the rig reader (hosts and the editor read the node names the game resolves sockets on).
+export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
 export { inputView, type BehaviorInputView } from './behavior';
 // Phase 14.1: ctx.spawn / ctx.destroy (prefab copies in the running game).
 export { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions, type SpawnOptions, type SpawnPlacement } from './spawn';
@@ -250,7 +256,11 @@ export { debugCallProblem } from './debug-commands';
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 // Phase 23.5 (E8): block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
 export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridDiff, type GridPick, type GridRenderChange, type GridVec3 } from './grid';
+// Phase 23.6: the editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).
+export { applyBlockEdits, effectiveCellMeta, pickCell, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
 export { BlockGrid, CHUNK_SIZE, autoVariant, blockTypeSolid, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockType, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
+// Phase 23.12 (E9): graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
+export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // Phase 23.9a: the project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
 export type { BehaviorUi, BehaviorUiEvent } from './types';
 export {

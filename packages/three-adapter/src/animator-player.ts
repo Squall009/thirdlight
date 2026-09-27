@@ -32,6 +32,8 @@ export interface AnimatorPoseLike {
   readonly clips: readonly AnimatorPoseClipLike[];
   /** Phase 14.6: override layers, in order (absent = the base layer only). */
   readonly layers?: readonly { readonly mask: readonly string[]; readonly weight: number; readonly clips: readonly AnimatorPoseClipLike[] }[];
+  /** Phase 23.11: morph target weights by target name (the model's meshes that have that target). */
+  readonly morphs?: Readonly<Record<string, number>>;
 }
 
 export interface AnimatorPlayer {
@@ -167,10 +169,37 @@ export function createAnimatorPlayer(root: THREE.Object3D, clips: readonly THREE
     mixer.update(0);
   };
 
+  // ---- phase 23.11: morph target weights ----------------------------------------------
+  let applyMorphsAfter: Readonly<Record<string, number>> | undefined;
+  /** The meshes with morph targets (found once). */
+  let morphMeshes: THREE.Mesh[] | null = null;
+  /** The target names the last pose set (a name that goes away returns to 0). */
+  let morphNames: string[] = [];
+  const applyMorphs = (morphs: Readonly<Record<string, number>> | undefined): void => {
+    if (morphs === undefined && morphNames.length === 0) return;
+    if (morphMeshes === null) {
+      morphMeshes = [];
+      root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh === true && m.morphTargetDictionary !== undefined && m.morphTargetInfluences !== undefined) morphMeshes!.push(m);
+      });
+    }
+    const next = morphs === undefined ? [] : Object.keys(morphs);
+    for (const m of morphMeshes) {
+      const dict = m.morphTargetDictionary!;
+      const inf = m.morphTargetInfluences!;
+      for (const name of morphNames) if (morphs?.[name] === undefined && dict[name] !== undefined) inf[dict[name]!] = 0;
+      if (morphs !== undefined) for (const name of next) if (dict[name] !== undefined) inf[dict[name]!] = morphs[name]!;
+    }
+    morphNames = next;
+  };
+
   return {
     apply(pose) {
+      applyMorphsAfter = pose.morphs;
       if (pose.layers !== undefined && pose.layers.length > 0) {
         applyLayered(pose as AnimatorPoseLike & { layers: NonNullable<AnimatorPoseLike['layers']> });
+        applyMorphs(applyMorphsAfter);
         return;
       }
       if (layoutKey !== null) {
@@ -207,6 +236,7 @@ export function createAnimatorPlayer(root: THREE.Object3D, clips: readonly THREE
         if (w !== undefined) a.time = Math.min(w.time, a.getClip().duration);
       }
       mixer.update(0);
+      applyMorphs(applyMorphsAfter);
     },
     dispose() {
       mixer.stopAllAction();

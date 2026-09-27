@@ -25,7 +25,8 @@
  * Doc tags in the runtime typings steer it (see project-model
  * behavior-api.ts): `@graphNode <label>` / `@graphNode skip <reason>`,
  * `@graphPure`, `@graphDefault <arg> <value>`, `@graphLabel <arg> <label>`, `@graphAsset <arg> <kind>`, `@graphPhase <phase>`,
- * `@graphType list` (a number array that is not a vector).
+ * `@graphType list` (a number array that is not a vector; on a method,
+ * `@graphType <arg> list` types one of its parameters).
  *
  * Output: `packages/project-model/src/behavior-api.generated.ts` (checked
  * in). `node tools/gen-behavior-graph-api.mjs` rewrites it; `--check` exits 1
@@ -68,7 +69,7 @@ function tagText(tag) {
 
 /** The `@graph…` tags of a declaration. */
 function graphTags(decl) {
-  const out = { node: null, skip: null, pure: false, defaults: new Map(), labels: new Map(), assets: new Map(), phase: null, type: null };
+  const out = { node: null, skip: null, pure: false, defaults: new Map(), labels: new Map(), assets: new Map(), argTypes: new Map(), phase: null, type: null };
   if (decl === undefined) return out;
   for (const tag of ts.getJSDocTags(decl)) {
     const name = tag.tagName.text;
@@ -93,7 +94,12 @@ function graphTags(decl) {
     } else if (name === 'graphPhase') {
       if (text !== 'intent' && text !== 'transform') throw new Error(`gen-behavior-graph-api: @graphPhase is intent or transform (got "${text}")`);
       out.phase = text;
-    } else if (name === 'graphType') out.type = text;
+    } else if (name === 'graphType') {
+      // Phase 23.12: `@graphType <arg> list` on a method types one of its parameters (a parameter carries no tags of its own).
+      const m = /^(\S+)\s+(list|map)$/.exec(text);
+      if (m !== null) out.argTypes.set(m[1], m[2]);
+      else out.type = text;
+    }
   }
   return out;
 }
@@ -219,7 +225,8 @@ class Builder {
         values.push({ rest: p.getName() });
         continue;
       }
-      const d = describe(checker, ptype, graphTags(decl));
+      const argType = tags.argTypes.get(p.getName());
+      const d = describe(checker, ptype, argType !== undefined ? { ...graphTags(decl), type: argType } : graphTags(decl));
       if (d.kind === 'object') {
         // An options object: one argument per option, built back into the object.
         const entries = [];

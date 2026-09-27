@@ -168,6 +168,8 @@ export interface FrameState {
   readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
   /** Phase 23.5: block-layer chunks to re-mesh (their cells now). */
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
+  /** Phase 23.12: material parameters scripts changed (one change per object, material and parameter). */
+  readonly mat?: readonly import('@thirdlight/runtime').MaterialRenderChange[];
   /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
   readonly ui?: UiOutput;
   /** Phase 23.3: the cursor a script asked for (when it changed; null: the input map decides). */
@@ -180,6 +182,8 @@ export interface FrameState {
   readonly memoryBytes?: number;
   /** Phase 23.8: the debug commands (registered, applied) when they changed. */
   readonly debugCommands?: DebugCommandState;
+  /** Phase 23.11: the objects riding on sockets (entity, target, node) when that changed. */
+  readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
 }
 
 export type WorkerToMain =

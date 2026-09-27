@@ -291,6 +291,8 @@ export type V3OwnedComponent =
   | 'fogVolume'
   /** Phase 23.5, v4 scenes only: a grid of blocks. */
   | 'blockLayer'
+  /** Phase 23.6, v4 scenes only: the metadata a prop writes into the block cells beneath it. */
+  | 'blockFootprint'
   /** Phase 9.7, v4 scenes only: an animator controller on a model. */
   | 'animator'
   /** Phase 9.9, v4 scenes only: gameplay building blocks. */
@@ -308,7 +310,9 @@ export type V3OwnedComponent =
   | 'effect'
   /** Phase 23.4, v4 scenes only: a virtual camera shot and a camera path. */
   | 'virtualCamera'
-  | 'cameraPath';
+  | 'cameraPath'
+  /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
+  | 'socketAttach';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

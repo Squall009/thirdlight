@@ -23,7 +23,7 @@ import type { DescriptorJson, DescriptorRegistry, FieldCondition, FieldDescripto
 
 import { applies, deepEqual, fieldAt, setAt, type FieldPath, type Level } from './descriptor-fields';
 import type { ProjectedEntity } from './projection';
-import { SNAP_TRANSLATE_M } from './snapping';
+import { getSnapSettings } from './snapping';
 
 /** The size snapping step (m): fine enough for a character's or a trigger's size in any genre, still round numbers. */
 export const SNAP_SIZE_M = 0.05;
@@ -454,7 +454,7 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
     }
     case 'bounds': {
       const r = L['minX'];
-      const g = (v: number): number => round3(clamp(snapTo(v, SNAP_TRANSLATE_M, snap), r));
+      const g = (v: number): number => round3(clamp(snapTo(v, getSnapSettings().translateM, snap), r));
       if (id === 'left') return { ...s, model: { ...m, minX: Math.min(g(p.x), round3(m.maxX - MIN_GAP_M)) } };
       if (id === 'right') return { ...s, model: { ...m, maxX: Math.max(g(p.x), round3(m.minX + MIN_GAP_M)) } };
       if (id === 'bottom') return { ...s, model: { ...m, minY: Math.min(g(p.y), round3(m.maxY - MIN_GAP_M)) } };
@@ -508,14 +508,14 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
     case 'points': {
       const i = Number(id.slice(1));
       if (!id.startsWith('p') || !Number.isInteger(i) || m.pts[i] === undefined) return s;
-      const step = s.kind === 'path' ? SNAP_TRANSLATE_M : SNAP_SIZE_M;
+      const step = s.kind === 'path' ? getSnapSettings().translateM : SNAP_SIZE_M;
       const r = L[s.kind === 'path' ? 'points' : 'vertices'];
       const pts = m.pts.map((q, j) => (j === i ? p3(round3(clamp(snapTo(p.x, step, snap), r)), round3(clamp(snapTo(p.y, step, snap), r)), q.z) : q));
       return withError({ ...s, model: { ...m, pts } });
     }
     case 'point': {
       const r = L['point'];
-      return { ...s, model: { ...m, p: p3(round3(clamp(snapTo(p.x, SNAP_TRANSLATE_M, snap), r)), round3(clamp(snapTo(p.y, SNAP_TRANSLATE_M, snap), r)), m.p.z) } };
+      return { ...s, model: { ...m, p: p3(round3(clamp(snapTo(p.x, getSnapSettings().translateM, snap), r)), round3(clamp(snapTo(p.y, getSnapSettings().translateM, snap), r)), m.p.z) } };
     }
     case 'height':
       return { ...s, model: { ...m, h: round3(clamp(size(p.y - m.base.y), L['height'])) } };
