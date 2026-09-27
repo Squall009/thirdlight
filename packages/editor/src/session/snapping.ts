@@ -5,12 +5,17 @@
  * Snapping is a **local preview option**, never a second authority: it is
  * applied to the local preview transform only, it changes no server message,
  * it adds no command, and nothing about it is observable to another client
- * before the single release commit. There is no persistent snapping setting —
- * no project field, no backend configuration, no `localStorage` write
- * (sessions.md §9).
+ * before the single release commit.
  *
- * The increments/spaces/rounding below are the contract's fixed M2 constants
- * (acceptance A08 and the packet-27 tests reference their exact values):
+ * Phase 23.6 (E8): the increments are editor settings (Edit → Snapping
+ * settings…), remembered per project in this browser (`localStorage`); they
+ * are editor preferences, not project data, so they never reach the game,
+ * its build id or other users. The defaults are the contract's M2 constants
+ * below, and `getSnapSettings()` is what the gizmo, drops, handles and the
+ * gesture maths read.
+ *
+ * The default increments/spaces/rounding (acceptance A08 and the packet-27
+ * tests reference their exact values):
  *
  *  - translate: `SNAP_TRANSLATE_M = 0.25` independently per **world axis**;
  *    the gesture **delta** is snapped, not the absolute position, so repeated
@@ -74,7 +79,7 @@ export function snapValue(value: number, increment: number): number {
  * moves drift-free (sessions.md §9).
  */
 export function snapTranslateDelta(delta: readonly number[]): number[] {
-  return delta.map((d) => snapValue(d, SNAP_TRANSLATE_M));
+  return delta.map((d) => snapValue(d, current.translateM));
 }
 
 /** Normalize an axis to unit length; a zero/non-finite axis falls back to +Y. */
@@ -99,7 +104,7 @@ export interface SnappedRotation {
  * the displayed value.
  */
 export function snapRotationAngle(angleRad: number, axis: readonly number[]): SnappedRotation {
-  const snappedAngle = snapValue(angleRad, SNAP_ROTATE_RAD);
+  const snappedAngle = snapValue(angleRad, (current.rotateDeg * Math.PI) / 180);
   const [ax, ay, az] = normalizeAxis(axis);
   const half = snappedAngle / 2;
   const s = Math.sin(half);
@@ -123,7 +128,7 @@ export function clampScale(value: number): number {
  * `[0.01, 100]` — a snap never produces a zero, negative or non-finite factor.
  */
 export function snapScaleFactor(factor: number): number {
-  return clampScale(snapValue(factor, SNAP_SCALE));
+  return clampScale(snapValue(factor, current.scale));
 }
 
 /**
@@ -186,3 +191,76 @@ export const SNAP_INCREMENTS = {
   scaleMax: SCALE_MAX,
   quantum: SNAP_QUANTUM,
 } as const;
+
+// ---- Phase 23.6: the snapping settings ----------------------------------------------------
+
+/** The editor's snapping settings (per project, in this browser). */
+export interface SnapSettings {
+  /** Translate step in metres (world axes). */
+  translateM: number;
+  /** Rotate step in degrees. */
+  rotateDeg: number;
+  /** Uniform scale-factor step. */
+  scale: number;
+  /** Moved and dropped objects land on the top of the block-layer cells under them. */
+  cellTops: boolean;
+}
+
+/** The defaults: the contract's M2 constants; cell-top snapping off (an object keeps the height it is moved to). */
+export const DEFAULT_SNAP_SETTINGS: Readonly<SnapSettings> = Object.freeze({ translateM: SNAP_TRANSLATE_M, rotateDeg: SNAP_ROTATE_DEG, scale: SNAP_SCALE, cellTops: false });
+
+/** The accepted ranges (a millimetre to 100 m, a tenth of a degree to 180°, 0.001 to 10). */
+export const SNAP_SETTING_RANGES = Object.freeze({ translateM: [0.001, 100], rotateDeg: [0.1, 180], scale: [0.001, 10] } as const);
+
+/** A reason the value is refused (null: fine). */
+export function snapSettingError(key: 'translateM' | 'rotateDeg' | 'scale', value: number): string | null {
+  const [lo, hi] = SNAP_SETTING_RANGES[key];
+  if (!Number.isFinite(value) || value < lo || value > hi) return `${key === 'translateM' ? 'Move step' : key === 'rotateDeg' ? 'Rotate step' : 'Scale step'} is ${lo}–${hi}`;
+  return null;
+}
+
+/** Settings read back from storage (anything malformed falls back to its default). */
+export function sanitizeSnapSettings(v: unknown): SnapSettings {
+  const o = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {};
+  const num = (k: 'translateM' | 'rotateDeg' | 'scale'): number => (typeof o[k] === 'number' && snapSettingError(k, o[k] as number) === null ? (o[k] as number) : DEFAULT_SNAP_SETTINGS[k]);
+  return { translateM: num('translateM'), rotateDeg: num('rotateDeg'), scale: num('scale'), cellTops: o['cellTops'] === true };
+}
+
+let current: SnapSettings = { ...DEFAULT_SNAP_SETTINGS };
+
+/** The settings in force (the gizmo, drops, handles and gesture maths read them). */
+export function getSnapSettings(): Readonly<SnapSettings> {
+  return current;
+}
+
+export function setSnapSettings(s: SnapSettings): void {
+  current = sanitizeSnapSettings(s);
+}
+
+export function snapStorageKey(projectId: string): string {
+  return `thirdlight.snapping.${projectId}`;
+}
+
+/** Load a project's settings from storage into force (none stored: the defaults). */
+export function loadSnapSettings(storage: Pick<Storage, 'getItem'> | null, projectId: string): SnapSettings {
+  let raw: unknown = null;
+  try {
+    const text = storage?.getItem(snapStorageKey(projectId)) ?? null;
+    raw = text !== null ? JSON.parse(text) : null;
+  } catch {
+    raw = null;
+  }
+  setSnapSettings(sanitizeSnapSettings(raw));
+  return { ...current };
+}
+
+/** Put settings in force and remember them for the project. */
+export function saveSnapSettings(storage: Pick<Storage, 'setItem'> | null, projectId: string, s: SnapSettings): SnapSettings {
+  setSnapSettings(s);
+  try {
+    storage?.setItem(snapStorageKey(projectId), JSON.stringify(current));
+  } catch {
+    // no storage: the settings last for this page
+  }
+  return { ...current };
+}

@@ -1042,6 +1042,25 @@ const blockLayer: ComponentDescriptor = {
   rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.'],
 };
 
+// Phase 23.6 (E8): a prop's occupancy footprint (the editor writes it into the block cells beneath the prop).
+const blockFootprint: ComponentDescriptor = {
+  name: 'blockFootprint',
+  label: 'Block footprint',
+  tooltip: 'The cell metadata this object writes into the block-layer cells beneath it when it is placed or moved (a house marks its cells blocked).',
+  category: 'Gameplay',
+  value: obj('blockFootprint', 'Block footprint', 'Which cells (a rectangle centred on the object, turned with it) take which metadata.', [
+    entity('layer', 'Layer', 'The block layer written (none: every layer under the object).', { component: 'blockLayer' }),
+    vec2('size', 'Size', 'Cells along x and z, centred on the object and turned with its quarter turns.', { min: 1, max: 64, step: 1, default: [1, 1], labels: ['x', 'z'] }),
+    json('set', 'Metadata', 'The metadata the cells take: field key → value (fields of the project\'s cell schema).', { required: true }),
+  ]),
+  // Starts empty (writes nothing) until its metadata is chosen.
+  add: { kind: 'menu', value: { set: {} } },
+  handles: [],
+  excludes: [],
+  prefab: true,
+  rules: ['The cells are written when the object is placed or moved in the editor (one metadata edit of the layer); moving it clears the fields it wrote where it stood.'],
+};
+
 const animator: ComponentDescriptor = {
   name: 'animator',
   label: 'Animator',
@@ -1819,6 +1838,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   prefab,
   folder,
   blockLayer,
+  blockFootprint,
 ];
 
 function deepFreeze<T>(v: T): T {

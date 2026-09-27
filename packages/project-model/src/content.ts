@@ -19,6 +19,7 @@ import { canonicalGraphData, canonicalGraphDocuments, graphAssetRefs, graphDocum
 import { GRAPH_KINDS } from './graph-kinds';
 import { BEHAVIOR_FUNCTION_ID_RE, BEHAVIOR_GRAPH_LIMITS, behaviorGraphContext } from './behavior-graph';
 import { canonicalEffectComponent, canonicalEffects, validateEffectComponent, validateEffects } from './effects';
+import { canonicalBlockFootprint, validateBlockFootprintComponent } from './block-layers';
 import { canonicalBlockStamps, canonicalBlockTypes, canonicalCellFields, composeBlockContent, validateBlockStamps, validateBlockTypes, validateCellFields, type BlockContentView } from './block-layers';
 import { canonicalScriptLibraries, scriptLibraryDigest, validateLibraryPins, validateScriptLibraries, type ScriptLibrary } from './script-libraries';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
@@ -906,7 +907,8 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
  */
 // Phase 18.0: `materialParams` (overrides of graph-material parameters) travels with the materials.
 // Phase 20.0: `effect` (a copy plays its effect, e.g. a torch's flame).
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect'] as const;
+// Phase 23.6: `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint'] as const;
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -939,6 +941,7 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
     if (comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/animator`, message: 'an animator sits only on an entity with a model', expected: 'model' });
   }
   if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
+  if (comps['blockFootprint'] !== undefined) validateBlockFootprintComponent(comps['blockFootprint'], `${path}/blockFootprint`, errors);
   for (const name of PREFAB_BLOCKS) {
     if (comps[name] !== undefined) (BLOCK_COMPONENTS[name].validate as (c: unknown, p: string, e: ModelErrorV2[]) => void)(comps[name], `${path}/${name}`, errors);
   }
@@ -1890,6 +1893,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   }
   if (x.materialParams !== undefined) components.materialParams = canonicalMaterialParams(x.materialParams);
   if (x.effect !== undefined) components.effect = canonicalEffectComponent(x.effect);
+  if (x.blockFootprint !== undefined) components.blockFootprint = canonicalBlockFootprint(x.blockFootprint);
   return {
     localId: e.localId,
     ...(e.name !== undefined ? { name: e.name } : {}),

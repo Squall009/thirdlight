@@ -316,6 +316,8 @@ export interface PrefabComponentsV4Extra {
   materialParams?: EntityComponentsV3['materialParams'];
   /** Phase 20.0: a visual effect played from the entity. */
   effect?: EntityComponentsV3['effect'];
+  /** Phase 23.6: a copy writes its footprint into the block cells beneath it. */
+  blockFootprint?: EntityComponentsV3['blockFootprint'];
   animator?: EntityComponentsV3['animator'];
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];

@@ -2302,7 +2302,7 @@ virtual cameras.
 A **block layer** builds a level from blocks on a grid (terrain, buildings, a
 tactics map, a dungeon, a voxel sandbox). The core — data, storage,
 rendering, collision, script API and bulk commands — is in; the editor's
-brushes, overlays and stamp UI come with 23.6.
+brushes, overlays and stamp UI are below (23.6).
 
 - **Block types** (`content.blockTypes`, `setBlockType` / `deleteBlockType`):
   up to 8 weighted **looks** each — a model (asset and optional piece), a
@@ -2354,6 +2354,56 @@ brushes, overlays and stamp UI come with 23.6.
   exist for the calls.
 - **Lightmaps**: block layers shade baked objects (occluders) but keep
   realtime lighting themselves.
+
+## Block layer editing (phase 23.6)
+
+The **Blocks** tab (bottom dock) edits block layers in the Scene view. Every
+action is an ordinary command — `editBlocks` for cells and regions,
+`setBlockType` / `setCellFields` / `setBlockStamp` for content — so each
+stroke or button is one undo step, and MCP can do the same.
+
+- **Layer**: choose the layer the tools edit (+ Layer makes a 64 × 16 × 64
+  layer of 1 m cells); Hide and Lock are the object's Active and Locked flags
+  (the Hierarchy shows the same). **Slice**: the row the tools use where no
+  block is under the pointer — PageUp / PageDown or ] / [, or the − / + and
+  number box. The grid of that row and the layer's bounds are drawn.
+- **Tools** (the left button; Alt+drag or the right button orbits while
+  "Edit cells" is on): Paint and Erase (drag, cell by cell), Line,
+  Rectangle, Box (the rectangle raised to the box height), Flood, Raise /
+  lower (Ctrl held or "Lower / remove" lowers), Pick (the eyedropper takes a
+  cell's block, rotation and look), Replace all (every block of the clicked
+  type becomes the brush block), Metadata, Select, Paste, Stamp and Region.
+  Adding tools place on the face under the pointer. A stroke previews at once
+  and is stored when the button is released (Esc drops it).
+- **Brush**: Rotate (Q) steps through the block type's allowed rotations;
+  "Random look" lets every cell show a look picked by the variants' weights
+  (stable by position); off paints the chosen look.
+- **Palette**: the project's block types as colour swatches (a model's
+  thumbnail when it has one); + Block type makes one; clicking a type opens
+  its form (looks, collision shape, footprint, rotations, default metadata,
+  materials) — the same fields as its content descriptor.
+- **Metadata**: pick a cell field and a value (or Clear), Cells or Rectangle,
+  "Occupied only"; the overlay toggles colour the fields on the cells (the
+  field's colour, a palette per choice for an enum, a shade along the range
+  for numbers) with a legend. "Cell fields" edits the schema.
+- **Selection**: Select drags a box; Copy (Ctrl+C) / Move (Ctrl+X) then click
+  with Paste (another layer works too); Mirror X / Z, Rotate 90°, Delete
+  (Del); "Save as stamp". **Stamps**: the library places a stamp (turned or
+  mirrored) with the Stamp tool, or deletes it.
+- **Regions**: the layer's named regions are outlined; click one to paint it
+  with the Region tool (Ctrl removes), + Region makes one (from the selection
+  when there is one), Rename, delete, "Add / Remove selection".
+- **Props on blocks**: Edit → Snapping settings… sets the move, rotate and
+  scale steps (per project, in this browser; defaults 0.25 m, 15°, 0.25) and
+  "Snap objects to block cell tops": moved and dropped objects land on the
+  top of the columns under them. The **Block footprint** component (`layer?`,
+  `size` [x, z] cells, `set` {field: value}) writes its metadata into the
+  cells beneath the object whenever it is moved in the editor (clearing them
+  where it stood); the Inspector's "Write to cells" and "Snap to cell top" do
+  it on demand. The runtime ignores the component (scripts read the cells).
+- **Measured**: a stroke on a 64 × 64 × 16 layer holding 32,768 cells
+  previews in about 40–55 ms per pointer move and is stored about
+  110–160 ms after release on the test host.
 
 ## Performance
 

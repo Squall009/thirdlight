@@ -950,3 +950,51 @@ function footprintErrors(entry: BlockLayerData, comp: BlockLayerComponent, types
         }
   }
 }
+
+// ---- Phase 23.6: the block footprint component ------------------------------------------
+
+/**
+ * Phase 23.6 (E8 "prop integration"): a prop's occupancy footprint — the
+ * metadata it writes into the block-layer cells beneath it (a house marks its
+ * cells blocked, a market stall a shop). Which fields and values it writes is
+ * data (`set`, fields of the project's cell schema); the engine knows no
+ * field names. The editor writes the cells when the prop is placed or moved
+ * (an `editBlocks` meta edit); the component itself changes nothing at run
+ * time.
+ */
+export interface BlockFootprintComponent {
+  /** The block layer written (its entity id; absent: every layer under the prop). */
+  layer?: string;
+  /** Cells along x and z, centred on the prop and turned with its quarter turns about +Y (absent: [1, 1]). */
+  size?: [number, number];
+  /** The metadata the cells beneath take (field key → value). */
+  set: Record<string, CellMetaValue>;
+}
+
+/** Largest footprint side in cells (a building lot, not a district). */
+export const BLOCK_FOOTPRINT_MAX = 64;
+
+export function validateBlockFootprintComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockFootprint is an object {layer?, size?, set}', v, 'object');
+  onlyKeys(v, ['layer', 'size', 'set'], path, errors, 'blockFootprint');
+  if (v['layer'] !== undefined && (typeof v['layer'] !== 'string' || !ID_RE.test(v['layer']))) err(errors, 'id_invalid', `${path}/layer`, 'layer is the id of a block layer object', v['layer']);
+  const s = v['size'];
+  if (s !== undefined && !(Array.isArray(s) && s.length === 2 && s.every((x) => isInt(x) && x >= 1 && x <= BLOCK_FOOTPRINT_MAX))) err(errors, 'field_value', `${path}/size`, `size is [x, z] cells, each 1-${BLOCK_FOOTPRINT_MAX}`, s);
+  const set = v['set'];
+  if (set === undefined) return err(errors, 'field_missing', `${path}/set`, 'blockFootprint needs set (the metadata its cells take: field key → value)');
+  // An empty map is allowed (a new footprint before its fields are chosen writes nothing).
+  validateMetaMap(set, `${path}/set`, errors);
+}
+
+export function canonicalBlockFootprint(c: BlockFootprintComponent): BlockFootprintComponent {
+  const set: Record<string, CellMetaValue> = {};
+  for (const k of sortedKeys(c.set)) {
+    const x = c.set[k] as CellMetaValue;
+    set[k] = typeof x === 'number' ? canonNum(x) : x;
+  }
+  return {
+    ...(c.layer !== undefined ? { layer: c.layer } : {}),
+    ...(c.size !== undefined && !(c.size[0] === 1 && c.size[1] === 1) ? { size: [c.size[0], c.size[1]] as [number, number] } : {}),
+    set,
+  };
+}

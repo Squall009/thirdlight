@@ -282,6 +282,8 @@ export type V3OwnedComponent =
   | 'fogVolume'
   /** Phase 23.5, v4 scenes only: a grid of blocks. */
   | 'blockLayer'
+  /** Phase 23.6, v4 scenes only: the metadata a prop writes into the block cells beneath it. */
+  | 'blockFootprint'
   /** Phase 9.7, v4 scenes only: an animator controller on a model. */
   | 'animator'
   /** Phase 9.9, v4 scenes only: gameplay building blocks. */

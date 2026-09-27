@@ -237,6 +237,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   instances?: InstancesComponent;
   /** Phase 23.5, v4 only: a grid of blocks (its cells are the scene's `blocks`). */
   blockLayer?: import('./block-layers').BlockLayerComponent;
+  /** Phase 23.6, v4 only: the metadata a prop writes into the block cells beneath it. */
+  blockFootprint?: import('./block-layers').BlockFootprintComponent;
 }
 
 /**

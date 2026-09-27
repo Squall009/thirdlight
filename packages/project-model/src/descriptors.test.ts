@@ -507,6 +507,8 @@ const COMPONENT_BASES: Record<string, J[]> = {
   folder: [{}],
   // Phase 23.5: a block layer (every optional flag set to its non-default value).
   blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false }],
+  // Phase 23.6: a prop's block footprint.
+  blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
 
 const SKY_PROCEDURAL = { mode: 'procedural', turbidity: 6, rayleigh: 1.5, mieCoefficient: 0.005, mieDirectionalG: 0.8, sunFromLight: false, sunElevation: 35, sunAzimuth: 160, intensity: 1, environmentIntensity: 1 };

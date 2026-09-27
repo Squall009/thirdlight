@@ -102,6 +102,7 @@ import {
   type PlayerSpawnFacing,
 } from './types-v3';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
+import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
 
 export const COLOR_RE_V3 = /^#[0-9a-fA-F]{6}$/; // §23.3.1a/§23.3.4/§23.3.5
@@ -133,8 +134,9 @@ export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint'];
 // Phase 23.5: `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
+// Phase 23.6: `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 /** Phase 15.3 (v4): the follow distance and the speed cap. */
@@ -953,6 +955,8 @@ function validateEntityComponentsV3(
     }
     validateBlockLayerTransform(comps, parentId, ePath, errors);
   }
+  // Phase 23.6: a prop's block footprint (any entity may carry one).
+  if (comps['blockFootprint'] !== undefined) validateBlockFootprintComponent(comps['blockFootprint'], `${path}/blockFootprint`, errors);
   // Phase 9.9: gameplay building blocks.
   for (const name of BLOCK_COMPONENT_NAMES) {
     if (comps[name] !== undefined) BLOCK_COMPONENTS[name].validate(comps[name], `${path}/${name}`, errors as unknown as Parameters<(typeof BLOCK_COMPONENTS)[typeof name]["validate"]>[2]);
@@ -1251,6 +1255,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     const bl = comps['blockLayer'] as BlockLayerComponent & { data?: BlockLayerData };
     (components as { blockLayer?: BlockLayerComponent }).blockLayer = { ...canonicalBlockLayerComponent(bl), ...(bl.data !== undefined ? { data: bl.data } : {}) } as BlockLayerComponent;
   }
+  if (comps['blockFootprint'] !== undefined) (components as { blockFootprint?: BlockFootprintComponent }).blockFootprint = canonicalBlockFootprint(comps['blockFootprint'] as BlockFootprintComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean };
     components.instances = {
