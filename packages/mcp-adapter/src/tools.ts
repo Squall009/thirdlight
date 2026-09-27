@@ -180,7 +180,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '3D queries (physics_dimension 3): ctx.physics.raycast3d/overlapSphere/overlapBox3d/overlapCapsule/pickAt/pickAtPointer with a filter ' +
       '{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to 15 collision layers ("default" is implicit) that ' +
       'collider {layers: [...]} lists. ' +
-      'Project saves (v4): setSaveSchema {schema: {version (1+), slots (1-99), migrations?: [{from, name}], sections?: [grid|materials|spawned|storage], ' +
+      'Project saves (v4): setSaveSchema {schema: {version (1+), slots (1-99), migrations?: [{from, name}], sections?: [grid|materials|spawned|storage|dialogue], ' +
       'thumbnail?: {width, height (16-512 px), format: jpeg|webp, quality?}, settings?: [{key, type: bool|number|string|enum, default, label?, min?, max?, values?, ' +
       'engine?: music|sfx|ui|quality}]} | null}; scripts use ctx.saves.write(doc)/read()/save(slot, {title?, chapter?, location?, thumbnail?})/load(slot)/' +
       'delete(slot)/slots()/results()/migration(name, fn)/setting(key)/setSetting(key, value) (1 MiB per slot; saves live in the browser). ' +

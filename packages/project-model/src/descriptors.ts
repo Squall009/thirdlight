@@ -1849,7 +1849,7 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
         int('from', 'From version', 'The version it upgrades from (to from + 1; below the schema version).', { required: true, min: 1 }),
         str('name', 'Function', 'The name a script registers with ctx.saves.migration.', { required: true, minLength: 1, maxLength: 64 }),
       ], { rules: ['one migration per version; from < version'] }), { maxItems: SAVE_LIMITS.migrations }),
-      list('sections', 'Included state', 'Engine state every save includes: block cells, material values, spawned objects, script storage.', enm('*', 'Section', 'One kind of engine state.', [...SAVE_SECTIONS]), { maxItems: SAVE_SECTIONS.length }),
+      list('sections', 'Included state', 'Engine state every save includes: block cells, material values, spawned objects, script storage, dialogue variables and seen lines.', enm('*', 'Section', 'One kind of engine state.', [...SAVE_SECTIONS]), { maxItems: SAVE_SECTIONS.length }),
       obj('thumbnail', 'Slot picture', 'The size and format of a slot\'s picture of the view (absent: 256 × 144 JPEG).', [
         int('width', 'Width', 'Pixels.', { required: true, min: 16, max: SAVE_LIMITS.thumbnailSide }),
         int('height', 'Height', 'Pixels.', { required: true, min: 16, max: SAVE_LIMITS.thumbnailSide }),
