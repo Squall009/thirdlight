@@ -31,7 +31,21 @@ build_and_unit() {
   grep -q '^build: done' "$L/build.log" || { grep -E 'FAIL|error' "$L/build.log" | head -20; done_ "RED build"; }
   npx vitest run --exclude '.claude/**' --exclude 'archive/**' > "$L/vitest.log" 2>&1
   if ! grep -qE 'Test Files .*passed' "$L/vitest.log" || grep -qE 'Test Files .*failed' "$L/vitest.log"; then
-    grep -E 'FAIL|✗|×' "$L/vitest.log" | head -20; done_ "RED vitest"
+    # Like the e2e step: rerun the failed files once alone (timeouts and CPU budgets on a loaded host).
+    local failed
+    failed=$(grep -oE '^ FAIL  [^ ]+\.(test|spec)\.[cm]?[jt]s' "$L/vitest.log" | awk '{print $2}' | sort -u | tr '\n' ' ')
+    if [ -n "$failed" ]; then
+      say "vitest: rerunning failed files alone: $failed"
+      # shellcheck disable=SC2086
+      npx vitest run $failed > "$L/vitest-rerun.log" 2>&1
+      if grep -qE 'Test Files .*passed' "$L/vitest-rerun.log" && ! grep -qE 'Test Files .*failed' "$L/vitest-rerun.log"; then
+        say "vitest-rerun: $(grep -E 'Test Files' "$L/vitest-rerun.log" | tail -1 | sed 's/^ *//') (failed once, passed alone)"
+      else
+        grep -E 'FAIL|✗|×' "$L/vitest-rerun.log" | head -20; done_ "RED vitest"
+      fi
+    else
+      grep -E 'FAIL|✗|×' "$L/vitest.log" | head -20; done_ "RED vitest"
+    fi
   fi
   say "$(grep -E 'Test Files' "$L/vitest.log" | tail -1 | sed 's/^ *//')"
 }

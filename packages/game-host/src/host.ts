@@ -68,7 +68,7 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { DEFAULT_PROMPT_INPUT, hudPrompts, withSavedBindings, type InputConfigLike } from './bindings';
+import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, withSavedBindings, type InputConfigLike } from './bindings';
 import { createFlowController, PAD_REBINDABLE, REBINDABLE, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
 import { createDebugConsole, type DebugConsole } from './debug-console';
@@ -111,6 +111,23 @@ export interface HostInputOwner {
   configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
   /** Phase 15.5: the device the player used last (the classic HUD names its bindings; absent: keyboard). */
   activeDevice?(): 'keyboard' | 'gamepad';
+  /** Phase 23.3: the cursor the game wants (free / locked); the owner locks, releases and hides it. */
+  applyCursor?(mode: 'free' | 'locked'): void;
+  /** Phase 23.3: the cursor as it is (observers). */
+  cursorState?(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
+}
+
+/**
+ * Phase 23.3, additive: the pointer and the cursor as an observer sees them —
+ * the pointer the simulation read last (position in the view, held buttons,
+ * over the view, locked), the cursor mode in effect and whether the browser
+ * holds the lock / hides it; and the objects scripts hid.
+ */
+export interface GameHostInputObservation {
+  readonly pointer?: { readonly x: number; readonly y: number; readonly buttons: number; readonly over: boolean; readonly locked: boolean };
+  readonly cursor?: { readonly mode: 'free' | 'locked'; readonly locked: boolean; readonly hidden: boolean };
+  /** The ids of the objects scripts hid (`ctx.game.setVisible`), sorted, at most 64. */
+  readonly hidden?: readonly string[];
 }
 
 /** The host's structural render-adapter surface (the three-adapter
@@ -160,6 +177,10 @@ export interface GameHostObservation {
   readonly camera?: CameraViewInfo;
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
+  /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
+  readonly pointer?: GameHostInputObservation['pointer'];
+  readonly cursor?: GameHostInputObservation['cursor'];
+  readonly hidden?: readonly string[];
 }
 
 /**
@@ -178,6 +199,10 @@ export interface GameHostSceneObservation {
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
+  readonly pointer?: GameHostInputObservation['pointer'];
+  readonly cursor?: GameHostInputObservation['cursor'];
+  readonly hidden?: readonly string[];
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
 }
@@ -273,7 +298,7 @@ export interface GameHostConfig {
   /** Phase 9.10: the manifest's game flow (levels, lives, menus, music). v4 games only. */
   readonly flow?: FlowConfigLike;
   /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
-  readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
+  readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { gameplay?: 'free' | 'locked'; ui?: 'free' | 'locked' } };
   /** Phase 9.10: each declared asset's kind (the host registers every audio cue for scripts and audio sources). */
   readonly assetKinds?: Readonly<Record<string, string>>;
   /** Phase 9.11: where saves go (localStorage in the browser) and this game's key prefix. */
@@ -726,6 +751,29 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let hostDom: HostDom | null = null;
   const lbPos: number[] = [0, 0, 0];
   const lbRot: number[] = [0, 0, 0, 1];
+  /**
+   * Phase 23.3: the cursor mode in effect, handed to the input owner every
+   * frame: the ui map's setting while a menu is open or the game is paused,
+   * else a script's request or the gameplay map's setting.
+   */
+  const serviceCursor = (rt: Runtime): void => {
+    if (config.input.applyCursor === undefined) return;
+    const menu = (flowCtl !== null && flowCtl.screen !== 'playing') || rt.isPaused === true;
+    config.input.applyCursor(resolveCursorMode(config.inputConfig as InputConfigLike | undefined, menu ? 'ui' : 'gameplay', rt.cursorRequest?.() ?? null));
+  };
+
+  /** Phase 23.3: the pointer and cursor as an observer sees them, and the objects scripts hid. */
+  const inputObservation = (rt: Runtime): GameHostInputObservation => {
+    const p = rt.readPointer?.() ?? null;
+    const cursor = config.input.cursorState?.();
+    const hidden = rt.hiddenEntities?.();
+    return {
+      ...(p !== null ? { pointer: { x: p.x, y: p.y, buttons: p.buttons ?? 0, over: p.over !== false, locked: p.locked === true } } : {}),
+      ...(cursor !== undefined ? { cursor: { mode: cursor.mode, locked: cursor.locked, hidden: cursor.hidden } } : {}),
+      ...(hidden !== undefined && hidden.size > 0 ? { hidden: [...hidden].sort().slice(0, 64) } : {}),
+    };
+  };
+
   const serviceLetterbox = (rt: Runtime): void => {
     const lens = rt.readCameraView?.(lbPos, lbRot) ?? null;
     const amount = lens === null || !Number.isFinite(lens.letterbox) ? 0 : Math.max(0, Math.min(0.5, lens.letterbox));
@@ -938,6 +986,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // no game view: it only renders.
     // Phase 23.4: the live camera's letterbox (an overlay the host draws over the view).
     serviceLetterbox(runtime);
+    // Phase 23.3: the cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
+    serviceCursor(runtime);
     // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
     const view = gameViewOf(runtime);
     if (view === null) {
@@ -1307,6 +1357,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
         ...socketsObservation(runtime),
+        ...inputObservation(runtime),
       },
     };
   };
@@ -1373,6 +1424,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...scenesObservation(runtime),
         ...cameraObservation(runtime),
         ...socketsObservation(runtime),
+        ...inputObservation(runtime),
       },
     };
   };

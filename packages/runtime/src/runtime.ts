@@ -45,7 +45,9 @@ import {
   type ActionSource,
   type DebugCommandCall,
   type JumpPhase,
+  type PointerSample,
 } from './actions';
+
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
@@ -71,6 +73,7 @@ import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { SocketSystem } from './sockets';
+import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { MotionSegments, TransformMirror } from './step-buffers';
@@ -92,6 +95,10 @@ import {
   type PhysicsPort,
   type PhysicsPort3D,
   type PhysicsVec3,
+  type PhysicsHit,
+  type PhysicsQueryFilter3D,
+  type OverlapShape3D,
+  type PhysicsQuat,
   type StaticColliderSpec3D,
   type PhysicsResetPort,
   type PhysicsStepClient,
@@ -152,6 +159,57 @@ import {
   type DebugCommandSpec,
   type DebugCommandState,
 } from './types';
+
+/** Phase 23.3: the pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
+export interface HeldPointer extends PointerSample {
+  readonly entered?: boolean;
+  readonly left?: boolean;
+}
+
+
+/**
+ * Phase 23.3: at most this many 3D physics queries (rays, overlaps, picks) a
+ * step, for every script together — twice the 2D plane's 32, because a 3D
+ * scene's scripts pick, test line of sight and probe volumes around several
+ * objects each step; beyond it a query finds nothing (warned once).
+ */
+export const QUERY_LIMIT_3D = 64;
+
+/** Phase 23.3: a query's [x, y, z] (a script error when it is not three finite numbers). */
+function queryVec3(v: unknown, what: string): [number, number, number] {
+  if (!Array.isArray(v) || v.length < 3 || !v.slice(0, 3).every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is [x, y, z] (finite numbers)`);
+  return [v[0] as number, v[1] as number, v[2] as number];
+}
+
+/** Phase 23.3: a query's optional rotation quaternion [x, y, z, w] (normalized; absent: none). */
+function queryQuat(v: unknown, what: string): PhysicsQuat | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is a quaternion [x, y, z, w]`);
+  const len = Math.hypot(v[0] as number, v[1] as number, v[2] as number, v[3] as number);
+  if (!(len > 1e-9)) throw new Error(`${what} is a quaternion [x, y, z, w] of non-zero length`);
+  return { x: (v[0] as number) / len, y: (v[1] as number) / len, z: (v[2] as number) / len, w: (v[3] as number) / len };
+}
+
+function queryPositive(v: unknown, what: string): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${what} is a positive number (m)`);
+  return v;
+}
+
+/**
+ * Phase 23.3: the entity a physics collider belongs to — a block layer's
+ * chunk collider (`<layer>#blocks:<chunk>:<piece>`, phase 23.5) is its layer.
+ */
+function colliderEntityOf(colliderId: string): string {
+  const i = colliderId.indexOf('#blocks:');
+  return i > 0 ? colliderId.slice(0, i) : colliderId;
+}
+
+/** Phase 23.3: a query's reach (absent: `fallback`; at most 10 km). */
+function queryDistance(v: unknown, fallback: number, what: string): number {
+  if (v === undefined || v === null) return fallback;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${what} maxDistance is a positive number (m)`);
+  return Math.min(v, 10_000);
+}
 
 /** runtime.md §3.1 default (the M1 constant). */
 const DEFAULT_FIXED_STEP_HZ = 120;
@@ -1194,6 +1252,8 @@ export function instantiateRuntime(
     sceneRows,
     startBatches,
     liveTags,
+    // Phase 23.3: the tag index 3D queries filter by (the live one when the project has a scene catalog).
+    queryTags: liveTags ?? (physics3d !== undefined ? createTagQuery(frozenSnapshot) : null),
     animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
@@ -1267,6 +1327,7 @@ interface RuntimeArgs {
   sceneRows: readonly RuntimeSceneRow[] | null;
   startBatches: readonly { sceneId: string; entities: EntityV3[] }[];
   liveTags: LiveTagIndex | null;
+  queryTags: LiveTagIndex | null;
   /** Phase 9.7: the controllers, and the snapshot scene's entities (their `animator` components). */
   animatorControllers: readonly AnimatorControllerLike[];
   initialEntities: readonly EntityV3[];
@@ -1429,6 +1490,16 @@ class RuntimeInstance implements Runtime {
   private phaseAction: ActionFrame = neutralFrame(0);
   /** Phase 21.2: the last validated input frame (its frozen action values are reused when equal). */
   private lastInputFrame: ActionFrame | null = null;
+  /** Phase 23.3: the pointer state after the last sampled step (null before the first pointer sample). */
+  private heldPointer: HeldPointer | null = null;
+  /** Phase 23.3: the cursor a script asked for (null: the active input map decides). */
+  private cursorMode: 'free' | 'locked' | null = null;
+  /** Phase 23.3: `ctx.input.setCursor` (the StepContext's cursor channel). */
+  private readonly cursorControl = Object.freeze({
+    request: (mode: 'free' | 'locked' | 'auto'): void => {
+      this.cursorMode = mode === 'auto' ? null : mode;
+    },
+  });
   private frozenOrderSource: readonly string[] | null = null;
   private frozenOrderCopy: readonly string[] = Object.freeze([]);
   /** Accepted intents committed in this runtime instance. */
@@ -1477,6 +1548,8 @@ class RuntimeInstance implements Runtime {
   private sceneRevision = 0;
   private sceneSetCache: SceneSetView | null = null;
   private readonly liveTags: LiveTagIndex | null;
+  /** Phase 23.3: the tag index 3D queries filter by. */
+  private readonly queryTags: LiveTagIndex | null;
   // ---- Phase 9.7: animators ----
   private readonly animatorControllers = new Map<string, AnimatorControllerLike>();
   private readonly animatorMachines = new Map<string, { machine: AnimatorMachine; entity: EntityV3 }>();
@@ -1497,6 +1570,8 @@ class RuntimeInstance implements Runtime {
   private readonly grid: RuntimeGrid;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
+  /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
+  private queryLimitWarned = false;
   private readonly signalControl = Object.freeze({
     emit: (name: string): void => {
       if (typeof name === 'string' && name.length > 0 && name.length <= 64) this.blocks?.emit(name);
@@ -1730,6 +1805,7 @@ class RuntimeInstance implements Runtime {
       this.recordBehaviorLog(moduleId, level, message);
     this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
+    this.queryTags = args.queryTags;
     this.startBatchSource = new Map(args.startBatches.map((b) => [b.sceneId, b.entities]));
     const pinned = new Set<string>([args.cameraInfo.id]);
     if (args.controllerEntityId !== undefined) pinned.add(args.controllerEntityId);
@@ -2407,8 +2483,9 @@ class RuntimeInstance implements Runtime {
       live: (): string | null => brain.live(),
       blending: (): boolean => brain.blending(),
       get: (cameraId: string) => brain.get(String(cameraId)),
-      worldToScreen: (position: readonly number[]) => brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]),
-      screenToRay: (x: number, y: number) => brain.screenToRay(Number(x), Number(y)),
+      // Phase 23.3: without a live virtual camera the projection is the scene camera's (it was a fixed default pose).
+      worldToScreen: (position: readonly number[]) => (this.brainHasView() ? brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]) : this.baseWorldToScreen(Array.isArray(position) ? position : [0, 0, 0])),
+      screenToRay: (x: number, y: number) => this.screenRay(Number(x), Number(y)),
     }) as import('./types').BehaviorCamera;
   }
 
@@ -3001,7 +3078,67 @@ class RuntimeInstance implements Runtime {
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
     this.deliverDebugCommands(check.frame);
-    return check.frame;
+    return this.withHeldPointer(check.frame);
+  }
+
+  /**
+   * Phase 23.3: the frame modules see carries the complete pointer state —
+   * the sample's own values, or (a frame without a sample) the last
+   * position, buttons and over/locked state with no movement — and its edges:
+   * a button pressed/released when the held mask changed (or the sample says
+   * so: a click between two samples), `entered`/`left` when `over` changed.
+   * Before the first sample there is no pointer (the frame is unchanged, so
+   * every recorded replay without pointer samples plays exactly as before).
+   */
+  private withHeldPointer(frame: ActionFrame): ActionFrame {
+    const sample = frame.pointer;
+    const prev = this.heldPointer;
+    if (sample === undefined && prev === null) return frame;
+    const prevButtons = prev?.buttons ?? 0;
+    const prevOver = prev === null ? false : prev.over !== false;
+    let next: HeldPointer;
+    if (sample === undefined) {
+      const p = prev!;
+      // No new sample: the same state without this step's movement and edges (reused when it had none).
+      if (p.dx === undefined && p.dy === undefined && p.wheel === undefined && p.pressed === undefined && p.released === undefined && p.entered === undefined && p.left === undefined) return { ...frame, pointer: p };
+      next = { x: p.x, y: p.y, buttons: prevButtons, over: prevOver, locked: p.locked === true };
+    } else {
+      const buttons = sample.buttons ?? 0;
+      const over = sample.over !== false;
+      const pressed = (sample.pressed ?? 0) | (buttons & ~prevButtons);
+      const released = (sample.released ?? 0) | (prevButtons & ~buttons);
+      next = {
+        x: sample.x,
+        y: sample.y,
+        buttons,
+        over,
+        locked: sample.locked === true,
+        ...(sample.dx !== undefined && sample.dx !== 0 ? { dx: sample.dx } : {}),
+        ...(sample.dy !== undefined && sample.dy !== 0 ? { dy: sample.dy } : {}),
+        ...(sample.wheel !== undefined && sample.wheel !== 0 ? { wheel: sample.wheel } : {}),
+        ...(pressed !== 0 ? { pressed } : {}),
+        ...(released !== 0 ? { released } : {}),
+        ...(over && !prevOver ? { entered: true } : {}),
+        ...(!over && prevOver ? { left: true } : {}),
+      };
+    }
+    this.heldPointer = Object.freeze(next);
+    return { ...frame, pointer: this.heldPointer };
+  }
+
+  /** Phase 23.3: the pointer state as of the last step (null before the first sample; observers, the host). */
+  readPointer(): Readonly<HeldPointer> | null {
+    return this.heldPointer;
+  }
+
+  /**
+   * Phase 23.3: the cursor a script asked for (`ctx.input.setCursor`): 'free',
+   * 'locked', or null — the active input map decides. Simulation state: a new
+   * run starts with none.
+   */
+  cursorRequest(): 'free' | 'locked' | null {
+    return this.cursorMode;
+
   }
 
   /**
@@ -3094,6 +3231,8 @@ class RuntimeInstance implements Runtime {
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 23.4: and with its cameras as authored.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
+    // Phase 23.3: and with the cursor its input map gives (a script's request ends with the run).
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.cursorMode = null;
     // Phase 12 (c): a replay starts from the start scenes again.
     if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
     if (outcome.reset !== null) {
@@ -4180,6 +4319,8 @@ class RuntimeInstance implements Runtime {
       fields['camera'] = { value: this.cameraControl, enumerable: true };
       // Phase 23.11: sockets (ctx.sockets).
       fields['sockets'] = { value: this.socketControl, enumerable: true };
+      // Phase 23.3: the cursor channel (ctx.input.setCursor).
+      fields['cursor'] = { value: this.cursorControl, enumerable: true };
       // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
       const debugControl = this.debugControl;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
@@ -4435,6 +4576,35 @@ class RuntimeInstance implements Runtime {
     // Phase 23.2: in 3D the 3D result (its vectors carry z too).
     characterResult: (): CharacterMoveResult | undefined => (this.physics3d !== undefined ? (this.lastCharacterResult3D as unknown as CharacterMoveResult | undefined) : this.lastCharacterResult),
     characterState: (): CharacterState3D | undefined => this.characterState3D(),
+    // Phase 23.3 (3D): rays, overlaps and picks with filters; at most QUERY_LIMIT_3D a step.
+    raycast3d: (origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: unknown) => {
+      const o = queryVec3(origin, 'raycast3d origin');
+      const d = queryVec3(direction, 'raycast3d direction');
+      return this.castRay3D(o, d, queryDistance(maxDistance, 100, 'raycast3d'), filter);
+    },
+    overlapSphere: (center: readonly number[], radius: number, filter?: unknown): string[] =>
+      this.overlap3D({ type: 'sphere', radius: queryPositive(radius, 'overlapSphere radius') }, queryVec3(center, 'overlapSphere center'), undefined, filter),
+    overlapBox3d: (center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: unknown): string[] => {
+      const h = queryVec3(half, 'overlapBox3d half');
+      return this.overlap3D({ type: 'box', hx: queryPositive(h[0], 'overlapBox3d half x'), hy: queryPositive(h[1], 'overlapBox3d half y'), hz: queryPositive(h[2], 'overlapBox3d half z') }, queryVec3(center, 'overlapBox3d center'), queryQuat(rotation, 'overlapBox3d rotation'), filter);
+    },
+    overlapCapsule: (center: readonly number[], radius: number, height: number, rotation?: readonly number[], filter?: unknown): string[] => {
+      const r = queryPositive(radius, 'overlapCapsule radius');
+      const h = queryPositive(height, 'overlapCapsule height');
+      return this.overlap3D({ type: 'capsule', radius: r, halfHeight: Math.max(0, h / 2 - r) }, queryVec3(center, 'overlapCapsule center'), queryQuat(rotation, 'overlapCapsule rotation'), filter);
+    },
+    pickAt: (x: number, y: number, maxDistance?: number, filter?: unknown) => {
+      if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) throw new Error('pickAt takes a screen point x, y (numbers, 0-1 from the top left)');
+      const ray = this.screenRay(x, y);
+      return this.castRay3D(ray.origin, ray.direction, queryDistance(maxDistance, 1000, 'pickAt'), filter);
+    },
+    pickAtPointer: (maxDistance?: number, filter?: unknown) => {
+      const max = queryDistance(maxDistance, 1000, 'pickAtPointer');
+      const p = this.heldPointer;
+      if (p === null || (p.over === false && p.locked !== true)) return null;
+      const ray = p.locked === true ? this.screenRay(0.5, 0.5) : this.screenRay(p.x, p.y);
+      return this.castRay3D(ray.origin, ray.direction, max, filter);
+    },
     // Phase 9.9: at most 32 queries (rays and overlaps) per step for modules and scripts.
     raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
       if (this.raycastsThisStep >= 32 || this.physics?.raycast === undefined) return null;
@@ -4452,6 +4622,113 @@ class RuntimeInstance implements Runtime {
       return this.physics.overlap({ type: 'circle', radius: Number(radius) }, { x: Number(center?.x), y: Number(center?.y) });
     },
   };
+
+  /** Phase 23.3: one query from the step's 3D budget (null past it — warned once — or without a 3D port). */
+  private takeQuery3D(): PhysicsPort3D | null {
+    const port = this.physics3d;
+    if (port === undefined) return null;
+    if (this.raycastsThisStep >= QUERY_LIMIT_3D) {
+      if (!this.queryLimitWarned) {
+        this.queryLimitWarned = true;
+        this.recordBehaviorLog('thirdlight.runtime:physics', 'warn', `more than ${QUERY_LIMIT_3D} physics queries in one step (step ${this.stepIndex}): the rest of the step's queries find nothing (warned once)`);
+      }
+      return null;
+    }
+    this.raycastsThisStep += 1;
+    return port;
+  }
+
+  /** Phase 23.3: a script's query filter as the port takes it (tags and exclusions become the accept test). */
+  private queryFilter3D(filter: unknown): PhysicsQueryFilter3D | undefined {
+    if (filter === undefined || filter === null) return undefined;
+    if (typeof filter !== 'object' || Array.isArray(filter)) throw new Error('a query filter is { tags?, layers?, exclude? }');
+    const f = filter as Record<string, unknown>;
+    for (const k of Object.keys(f)) if (k !== 'tags' && k !== 'layers' && k !== 'exclude') throw new Error(`unknown query filter field "${k.slice(0, 32)}" (tags, layers, exclude)`);
+    const names = (v: unknown, what: string): string[] | undefined => {
+      if (v === undefined) return undefined;
+      if (!Array.isArray(v) || v.length > 64 || !v.every((s) => typeof s === 'string')) throw new Error(`query filter ${what} is a list of up to 64 names`);
+      return v as string[];
+    };
+    const tags = names(f['tags'], 'tags');
+    const layers = names(f['layers'], 'layers');
+    const exclude = names(f['exclude'], 'exclude');
+    // Tag names resolve like ctx.tags.mask (an unknown name is a script error).
+    const tagIndex = this.queryTags;
+    const mask = tags === undefined ? undefined : tags.length === 0 ? 0 : tagIndex === null ? 0 : tagIndex.mask(...tags);
+    const skip = exclude === undefined || exclude.length === 0 ? null : new Set(exclude);
+    const accept =
+      mask === undefined && skip === null
+        ? undefined
+        : (colliderId: string): boolean => {
+            const id = colliderEntityOf(colliderId);
+            return (skip === null || !skip.has(id)) && (mask === undefined || (mask !== 0 && tagIndex !== null && tagIndex.has(id, mask)));
+          };
+    return { ...(layers !== undefined ? { layers } : {}), ...(accept !== undefined ? { accept } : {}) };
+  }
+
+  /** Phase 23.3: a filtered 3D ray (origin, direction not normalized) into a script's hit. */
+  private castRay3D(origin: readonly number[], direction: readonly number[], maxDistance: number, filter: unknown): PhysicsHit | null {
+    const f = this.queryFilter3D(filter);
+    const len = Math.hypot(direction[0]!, direction[1]!, direction[2]!);
+    if (!(len > 0)) return null;
+    const port = this.takeQuery3D();
+    if (port === null || typeof port.raycast !== 'function') return null;
+    const u = [direction[0]! / len, direction[1]! / len, direction[2]! / len];
+    const hit = port.raycast({ x: origin[0]!, y: origin[1]!, z: origin[2]! }, { x: u[0]!, y: u[1]!, z: u[2]! }, maxDistance, f);
+    if (hit === null) return null;
+    const p = hit.point ?? { x: origin[0]! + u[0]! * hit.distance, y: origin[1]! + u[1]! * hit.distance, z: origin[2]! + u[2]! * hit.distance };
+    const entityId = colliderEntityOf(hit.entityId);
+    // A block layer's chunk: the layer, and the cell just inside the surface the ray hit (1 mm behind it).
+    let cell: [number, number, number] | undefined;
+    if (entityId !== hit.entityId) {
+      const c = this.grid.api.worldToCell(entityId, [p.x - hit.normal.x * 1e-3, p.y - hit.normal.y * 1e-3, p.z - hit.normal.z * 1e-3]);
+      if (c !== null) cell = [c.x, c.y, c.z];
+    }
+    return Object.freeze({ entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance, ...(cell !== undefined ? { cell } : {}) }) as PhysicsHit;
+  }
+
+  /** Phase 23.3: a filtered 3D overlap (sorted ids, at most 64). */
+  private overlap3D(shape: OverlapShape3D, center: readonly number[], rotation: PhysicsQuat | undefined, filter: unknown): string[] {
+    const f = this.queryFilter3D(filter);
+    const port = this.takeQuery3D();
+    if (port === null || typeof port.overlap !== 'function') return [];
+    // A block layer's chunk colliders are reported as their layer (once).
+    return [...new Set(port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f).map(colliderEntityOf))].sort();
+  }
+
+  /** Phase 23.3: the camera brain has resolved a view (a virtual camera is loaded and it has stepped). */
+  private brainHasView(): boolean {
+    return this.cameras.active && this.cameras.hasView();
+  }
+
+  /** Phase 23.3: the scene camera's pose now (its world transform and lens) — the view when no virtual camera is live. */
+  private basePose(): CameraPose {
+    const pos = [0, 0, 0];
+    const rot = [0, 0, 0, 1];
+    if (!this.worldTransformOf(this.cameraInfo.id, pos, rot)) {
+      pos.fill(0);
+      rot[0] = 0;
+      rot[1] = 0;
+      rot[2] = 0;
+      rot[3] = 1;
+    }
+    return { position: [pos[0]!, pos[1]!, pos[2]!], rotation: [rot[0]!, rot[1]!, rot[2]!, rot[3]!], fovY: this.cameraInfo.fovY, near: this.cameraInfo.near, far: this.cameraInfo.far, letterbox: 0 };
+  }
+
+  /**
+   * Phase 23.3: the ray from the active camera through a screen point
+   * (normalized, 0,0 top left): the camera brain's resolved view when a
+   * virtual camera is live, else the scene camera's.
+   */
+  private screenRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] } {
+    if (this.brainHasView()) return this.cameras.screenToRay(x, y);
+    return poseScreenToRay(this.basePose(), this.cameras.viewportSize().aspect, Number.isFinite(x) ? x : 0.5, Number.isFinite(y) ? y : 0.5);
+  }
+
+  private baseWorldToScreen(position: readonly number[]): { x: number; y: number; depth: number; onScreen: boolean } {
+    const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    return poseWorldToScreen(this.basePose(), this.cameras.viewportSize().aspect, n(position[0]), n(position[1]), n(position[2]));
+  }
 
   private stageMove(entityId: string, delta: unknown): void {
     if (this.currentPhase !== 'controller') {
@@ -4539,7 +4816,11 @@ class RuntimeInstance implements Runtime {
     const previous: PhysicsVec3 = t ? { x: t.position[0], y: t.position[1], z: t.position[2] } : { x: 0, y: 0, z: 0 };
     const dt = 1 / this.hz;
     let requested = controllerId !== undefined ? this.staged3d.get(controllerId) : undefined;
-    if (requested === undefined) {
+    if (requested === undefined && controllerId === undefined) {
+      // Phase 23.3: a world without a character (colliders for queries and movers): nothing falls.
+      requested = { x: 0, y: 0, z: 0 };
+      port.stageCharacterMove(requested);
+    } else if (requested === undefined) {
       const grounded = this.lastCharacterResult3D?.grounded === true;
       this.fallSpeed3d = grounded ? 0 : Math.max(this.settings.max_fall_speed, this.fallSpeed3d + this.settings.gravity_y * dt);
       // Phase 23.1: plus the platform it stands on (a mover's or script-driven collider's motion) and a mover's push.

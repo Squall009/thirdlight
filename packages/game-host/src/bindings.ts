@@ -16,6 +16,19 @@ export interface InputActionLike {
 }
 export interface InputConfigLike {
   readonly actions: readonly InputActionLike[];
+  /** Phase 23.3: the cursor while each map is active (absent: free). */
+  readonly cursor?: { readonly gameplay?: 'free' | 'locked'; readonly ui?: 'free' | 'locked' };
+}
+
+/**
+ * Phase 23.3: the cursor mode in effect — while a menu is open (the `ui` map)
+ * the project's `ui` setting; during play a script's request
+ * (`ctx.input.setCursor`), else the project's `gameplay` setting; free when
+ * nothing says otherwise (a pointer-driven game needs a visible cursor).
+ */
+export function resolveCursorMode(config: InputConfigLike | undefined, map: 'gameplay' | 'ui', request: 'free' | 'locked' | null): 'free' | 'locked' {
+  if (map === 'ui') return config?.cursor?.ui ?? 'free';
+  return request ?? config?.cursor?.gameplay ?? 'free';
 }
 
 /** The standard layout's button for a pad action with no pad binding (what the platformer reads then). */

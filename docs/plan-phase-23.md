@@ -280,10 +280,10 @@ for editor items, commit/push/restart, decision log).
 |---|---|
 | 23.0 Dimensional model | done 2026-09-26 — two backends (rapier2d untouched for plane2d, rapier3d 0.20.0 for 3d), `physics_dimension`, box `hz`, PhysicsPort3D; 2D rotated-collider bug fixed (no pinned values moved) |
 | 23.1 3D physics world, colliders, triggers | done 2026-09-26 — sphere/capsule/hull/mesh colliders (3D), `_COL`/model-derived colliders stored as data, 3D triggers, kinematic movers carry, scripts may own colliders in 3D; gameZone/respawn in 3D wait for 23.10 |
-| 23.2 3D character controller | in progress |
+| 23.2 3D character controller | done 2026-09-27 — built-in module `thirdlight.character3d:controller` (walk/run, accel, air control, jump, slope, step-up, optional ledge climb, facing), camera-relative input, `ActionFrame.moveY`, script intents |
 | 23.3 Pointer input and 3D queries | in progress |
 | 23.4 Camera framework | done 2026-09-26 — `virtualCamera` (follow/orbit, orbit-point snapped, top-down, fixed/look-at, rail on `cameraPath`), priority + cut/linear/eased blends, seeded shake, letterbox, `ctx.camera` + VS nodes; brain in the sim step; `depth_buffer` setting; owner look pending |
-| 23.5 Block layers — core | in progress |
+| 23.5 Block layers — core | done 2026-09-27 — block types, schema-driven cell fields, stamps, chunked per-file storage, `editBlocks` bulk ops incl. heightmap, merged chunk meshes with hidden-face removal, per-chunk trimesh colliders, `ctx.grid`; block-layer lightmaps and chunk LOD not done |
 | 23.6 Block layers — editor | planned |
 | 23.7 Scripting conveniences | done 2026-09-26 — `@lib/<id>` shared libraries (recompile dependents atomically), `.json` imports, seeded `ctx.random` + streams, `ctx.world.find/findAll/withComponent`, quaternion/facing on intents |
 | 23.8 Test and debug entry points | done 2026-09-26 — one Play-start path (editor "Play from…" and `tl_play_start`: scene, variables, save/slot, mode noted until 23.10); `ctx.debug.command` on input frames, `tl_game_control debugCommand`, in-game console (exports only with `debug_console`) |
@@ -782,3 +782,91 @@ for editor items, commit/push/restart, decision log).
 - 2026-09-27 (23.11): **morph targets** (optional in the plan, done because it was small): a controller's optional `morphs: [{target, parameter}]` (≤ 32, float parameters, clamped 0–1) and `setMorph/morph` on the script handle (≤ 64 names per animator; a script value overrides a binding of the same target). The pose carries `morphs` only when there are some (existing digests unchanged); the renderer's animator player sets `morphTargetInfluences` by name on every mesh of the model after the mixer. The binding list has no dedicated Animator-tab UI yet (MCP `setAnimator` and the content descriptor carry it).
 - 2026-09-27 (23.11): **the Inspector's node list** comes from `readModelRig` on the GLB bytes the editor already reads (re-exported by the runtime: the editor's project-model edge is types-only), so it lists exactly the names the game resolves; a `socketNode` string format shows a select when the target's model is known, a text field otherwise. The Scene view still draws an attached object at its own authored transform (Play places it on the node) — not built.
 - 2026-09-27 (23.11): **observing sockets.** `tl_game_observe` / `__thirdlightObserve()` report `sockets: [{entityId, target, node, position}]` (the drawn world position) while any object rides on a socket; the worker sends the list in the frame state only when it changes (`FrameState.sockets`).
+- 2026-09-27 (23.3): **pointer samples are input.** `ActionFrame.pointer`
+  (optional: `x, y` 0–1 of the view from the top left — the camera's screen
+  coordinates — `dx, dy` in view fractions, `wheel` in notches, `buttons` /
+  `pressed` / `released` masks 1 left, 2 right, 4 middle, `over`, `locked`),
+  quantized to 1e-4 by the browser owner and strictly validated (old frames
+  and replays stay valid; nothing changes until a pointer is seen). The
+  runtime keeps the pointer between samples (a relay or recording may be
+  sparse: position and held buttons hold, no movement, no edges) and derives
+  the edges (pressed/released from the held mask as well as from the sample —
+  a click between two samples still counts; `entered`/`left` from `over`), so
+  modules and scripts see a complete pointer. The worker's tick source spends
+  movement, wheel and edges on the first step of a tick and adds them up when
+  two samples meet before a step; action values that are amounts per sample
+  carry `i: 1` for the same rule (a mouse-look axis would otherwise count
+  twice at 120 Hz steps).
+- 2026-09-27 (23.3): **pointer bindings and hover edges.** Binding kinds
+  `pointerButton {button}`, `pointerAxis {axis: x|y|wheel}` (movement in
+  percent of the view per step, so 1 % a step drives like a full stick; up
+  positive like a stick), `pointerPosition` and `pointerDelta` (axis2d, not
+  clipped to length 1). "Hover edges" in the engine are the pointer entering
+  or leaving the view; which object is hovered is a pick the script compares
+  with its last one — a per-object hover state in the engine would need a
+  pick every step for every project and one filter for all scripts.
+- 2026-09-27 (23.3): **cursor.** `content.input.cursor {gameplay?, ui?}`
+  (free/locked, absent free: a pointer-driven game needs a visible cursor;
+  mouse-look opts in). The host resolves the mode every frame: the ui map's
+  while a menu is open or the game is paused, else a script's request
+  (`ctx.input.setCursor`, simulation state carried per frame from the worker,
+  cleared at a run start), else the gameplay map's. The browser owner locks
+  (pointer lock, asked again on the next click in the view because browsers
+  want a gesture), releases and hides the cursor (locked, or a gamepad used
+  last — pointer movement counts as the keyboard/mouse device) and reports
+  `data-tl-cursor` / `data-tl-pointer-lock` / `data-tl-cursor-hidden`. A
+  locked pointer's position is the view's centre. Real pointer lock was not
+  exercised in a browser (unit tests with fake DOM; owner look pending on a
+  desktop).
+- 2026-09-27 (23.3): **script queries (3D).** New `PhysicsStepClient`
+  members appended after the 2D ones (the 2D methods, their graph nodes and
+  types are unchanged): `raycast3d`, `overlapSphere`, `overlapBox3d`
+  (rotation), `overlapCapsule`, `pickAt`, `pickAtPointer`; vectors as
+  `[x, y, z]` arrays so `ctx.camera.screenToRay` chains into them; hits
+  `{entityId, point, normal, distance}` — the hit collider's entity, so a
+  23.5 block-layer chunk collider is reported by its entity and `ctx.grid`
+  can map it to a cell later. Filters `{tags?, layers?, exclude?}`: tag
+  names resolve like `ctx.tags.mask` (unknown = script error). Budget 64
+  queries a step for all scripts (twice the 2D plane's 32: a 3D scene picks,
+  tests line of sight and probes several objects a step), then nothing,
+  warned once. Without a live virtual camera `pickAt` and
+  `ctx.camera.screenToRay/worldToScreen` use the scene camera's current pose
+  (the brain answered with a default pose before). Graph nodes generated
+  (Raycast 3D, Overlap sphere / box 3D / capsule, Pick at screen point /
+  pointer, Pointer, Pointer pressed / released / held, Set cursor); no
+  existing node changed.
+- 2026-09-27 (23.3): **collision layers** are project data:
+  `content.collisionLayers` (≤ 15 names; "default" implicit — bit 0), op
+  `setCollisionLayers {layers}` (whole list, undoable), collider `layers`
+  (v4, 1–16 names, checked against the list in the project composition;
+  refused on the 2D plane, which is unchanged). The manifest carries the list
+  (`collisionLayers`, after `input`; absent keeps every existing buildId).
+  Rapier groups: a collider is a member of its layers and filters nothing,
+  so contacts and the character's sweep are unchanged; a query's groups are
+  all memberships filtering to the named layers; tags and exclusions are the
+  query's predicate. Editor: a Collision layers list under the tags
+  (File → Project tags); the collider's field comes from its descriptor.
+- 2026-09-27 (23.3): **a 3D world without a player.** `physics3DConfigOf`
+  returns a `noCharacter` config (a disabled placeholder capsule; its step
+  poses movers and updates the world) when the start scene has colliders but
+  no controller — a pointer-picked scene need not have a player; with
+  neither it stays null. Module resolution wants the 3D backend for a
+  collider in 3D too. Colliders that only arrive with a later-loaded scene
+  do not make a physics world (as before).
+- 2026-09-27 (23.3): **relay fixes found on the way:** the MCP
+  `tl_input_exercise` dropped `actions`, and the backend→editor relay event
+  and the preview bridge stripped/refused them; `actions` and `pointer` now
+  travel end to end (validated by the backend's relay parse). Observations
+  gain `pointer`, `cursor` and `hidden` (the objects scripts hid).
+- 2026-09-27 (23.3, after 23.5): **a 3D hit on a block layer maps to its
+  cell.** A block layer's chunk colliders (`<layer>#blocks:<chunk>:<piece>`)
+  are reported by the layer's entity id in every 3D query (hits, overlaps —
+  once — and the tag/exclude filters), and a hit carries `cell: [x, y, z]`,
+  the cell just inside the surface (1 mm behind the hit along the normal —
+  `ctx.grid` coordinates, the same cell `ctx.grid.pick` finds on that ray).
+  So `ctx.physics.pickAtPointer()` picks cells too (no separate
+  `ctx.grid.pickAtPointer`: `ctx.grid.pick(ctx.camera.screenToRay(...))`
+  covers grid-only picks). Chunk colliders are triangle meshes, so an
+  overlap finds a layer where the volume crosses its surface, not deep
+  inside it. A 3D scene whose only collision is a block layer gets a physics
+  world (and the 3D backend) too.
