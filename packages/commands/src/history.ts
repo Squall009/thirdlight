@@ -25,6 +25,7 @@
 
 import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
+import { withCollisionLayers } from './layer-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
@@ -523,6 +524,12 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withFlow(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setCollisionLayers') {
+    const before = (content as { collisionLayers?: string[] }).collisionLayers ?? [];
+    const change: ChangeData = { type: 'setCollisionLayers', previous: [...before], next: [...inv.restore] };
+    return finish(state, bumped(scene), withCollisionLayers(content, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setInput') {
     const before = (content as { input?: InputConfig }).input ?? null;
     const change: ChangeData = { type: 'setInput', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
@@ -957,6 +964,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { flow?: GameFlow }).flow ?? null;
     const change: ChangeData = { type: 'setFlow', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withFlow(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setCollisionLayers') {
+    const before = (content as { collisionLayers?: string[] }).collisionLayers ?? [];
+    const change: ChangeData = { type: 'setCollisionLayers', previous: [...before], next: [...f.next] };
+    return finish(state, bumped(scene), withCollisionLayers(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setInput') {

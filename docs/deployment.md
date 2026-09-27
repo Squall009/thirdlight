@@ -2427,6 +2427,68 @@ brushes, overlays and stamp UI come with 23.6.
 - **Lightmaps**: block layers shade baked objects (occluders) but keep
   realtime lighting themselves.
 
+## Pointer input and 3D queries
+
+Since phase 23.3 the mouse (or pen/touch) is part of the game's input.
+
+**Pointer bindings.** In the **Input** window, **+ pointer** adds what fits
+the action: a mouse button (left/right/middle) to a button or 1D axis, the
+pointer's movement along x or y (up positive, percent of the view per step)
+or the wheel (notches) to a 1D axis, the pointer's **position** (x, y 0–1
+from the top left) or **movement** to a 2D axis. Movement and wheel are
+amounts per step (a second step in the same frame sees 0). A binding of the
+right button keeps the browser's context menu off the view; a wheel binding
+keeps the wheel from scrolling the page.
+
+**Cursor.** Each map has a **cursor** setting (free or locked; default free).
+While a menu is open the ui map's setting applies; during play a script may
+ask for another with `ctx.input.setCursor('free' | 'locked' | 'auto')`
+(`auto` = the map's setting; a new run starts with none). Locked uses the
+browser's pointer lock — browsers want a click in the view first, so the
+game asks again on the next click — and the pointer then sits at the view's
+centre (only its movement counts). The cursor is hidden while locked and
+while a gamepad was used last; it shows again when the mouse moves.
+
+**Scripts.** `ctx.input.pointer()` → `{ x, y, dx, dy, wheel, over, entered,
+left, locked }` (null before the pointer is first seen);
+`pointerPressed/Released/Held(button?)` (default left; a click between two
+steps still presses). Pointer samples are part of the step's input, so a
+replay (and `tl_input_exercise`, which takes an optional `pointer: { x, y,
+dx?, dy?, wheel?, buttons?, pressed?, released?, over?, locked? }` per
+frame — masks 1 left, 2 right, 4 middle) reproduces them; a frame without a
+pointer keeps the last position and held buttons. Its `actions` are now
+passed through too.
+
+**3D queries** (physics dimension 3): `ctx.physics.raycast3d(origin,
+direction, maxDistance = 100, filter?)` → `{ entityId, point, normal,
+distance }` or null; `overlapSphere(center, radius, filter?)`,
+`overlapBox3d(center, half, rotation?, filter?)`, `overlapCapsule(center,
+radius, height, rotation?, filter?)` → sorted ids (at most 64);
+`pickAt(x, y, maxDistance = 1000, filter?)` casts the active camera's ray
+through a screen point (the scene camera's when no virtual camera is live —
+`ctx.camera.screenToRay/worldToScreen` do the same now), `pickAtPointer`
+through the pointer (null while it is off the view). A filter is `{ tags?,
+layers?, exclude? }`. At most 64 queries a step for all scripts together
+(then nothing; warned once in the play log). A 3D scene without a player
+still has physics when it has colliders (they answer the queries).
+Hover edges on objects are the script's own: compare this step's pick with
+the last one.
+A hit on a block layer names the layer (`entityId`) and carries `cell:
+[x, y, z]` (`ctx.grid` coordinates), so `pickAtPointer` picks cells too.
+
+**Collision layers.** **File → Project tags** also lists the project's
+collision layers ("default" is implicit; up to 15 more). A collider's
+**Collision layers** field lists the layers it is in (absent: "default");
+queries see only the layers their filter names. Layers do not change what
+collides with the player. A layer a collider still lists cannot be removed.
+MCP: `setCollisionLayers {layers}`; collider `{ layers: [...] }`.
+
+**Observing.** `tl_game_observe` (and `__thirdlightObserve()`) report
+`pointer: { x, y, buttons, over, locked }`, `cursor: { mode, locked, hidden }`
+and `hidden` (the objects scripts hid). Headless browsers may refuse pointer
+lock; the `data-tl-pointer-lock` attribute on the game canvas shows whether
+the browser granted it.
+
 ## Performance
 
 Phase 21 measures the engine against written budgets with generated

@@ -146,6 +146,7 @@ export type {
   MovedEntity,
   SetTagsArgs,
   SetTagsChange,
+  SetCollisionLayersChange,
   SetAssetOptionsArgs,
   SetAssetOptionsChange,
   PasteEntitiesArgs,

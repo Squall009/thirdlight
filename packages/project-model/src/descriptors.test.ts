@@ -453,7 +453,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
-    { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } },
+    { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },
     { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } },
     // Phase 23.1: the 3D shapes (their dimension rule is the project's, not the scene's).
     { shape: { type: 'sphere', radius: 0.5 } },
@@ -548,8 +548,13 @@ const BINDINGS: { type: string; binding: Obj }[] = [
   { type: 'axis1d', binding: { kind: 'gamepadButtons1d', negative: 14, positive: 15 } },
   { type: 'axis2d', binding: { kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' } },
   { type: 'axis2d', binding: { kind: 'gamepadStick', x: 0, y: 1 } },
+  // Phase 23.3: the pointer bindings.
+  { type: 'button', binding: { kind: 'pointerButton', button: 'right' } },
+  { type: 'axis1d', binding: { kind: 'pointerAxis', axis: 'wheel' } },
+  { type: 'axis2d', binding: { kind: 'pointerPosition' } },
+  { type: 'axis2d', binding: { kind: 'pointerDelta' } },
 ];
-const INPUT_BASES: J[] = BINDINGS.map((b) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }] }));
+const INPUT_BASES: J[] = BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' } } : {}) }));
 
 // Phase 20.0: an effect with a parameter of every type and one system.
 const EFFECT_GRAPH = { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] };
@@ -720,6 +725,8 @@ function runAllProbes(): void {
   probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
+  // Phase 23.3: the named collision layers.
+  probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
   // the content block's own keys (each block's inside is probed above)
