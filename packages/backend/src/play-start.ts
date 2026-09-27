@@ -11,6 +11,11 @@
  *   first player spawn when it has one (else the game's own);
  * - a save (a document, or a Play save slot) continues a game with levels —
  *   the save format is the flow's; a document's level must exist;
+ * - phase 23.19: a project save document (`format: "thirdlight.save"`), or a
+ *   save slot 1–99, in a project with a save schema (`content.saveSchema`) —
+ *   loaded at the first step (the game migrates an older version); a
+ *   document newer than the schema is refused. A project with a save schema
+ *   reads `saveSlot` as its own slots (`auto` stays the flow's autosave);
  * - variables pass through (the runtime puts them in `ctx.save` at step 0);
  * - a mode is checked against `content.modes` when the project defines game
  *   modes, and noted as ignored otherwise (modes arrive with phase 23.10).
@@ -71,13 +76,28 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
     }
   }
 
-  if (options.save !== undefined || options.saveSlot !== undefined) {
+  const schema = project.content['saveSchema'] as { version?: number; slots?: number } | undefined;
+  const projectSave = options.save !== undefined && options.save['format'] === 'thirdlight.save';
+  if (projectSave || (options.saveSlot !== undefined && options.saveSlot !== 'auto' && schema !== undefined)) {
+    // Phase 23.19: project saves.
+    if (schema === undefined || typeof schema.version !== 'number' || typeof schema.slots !== 'number') return invalid(options.save !== undefined ? '/options/save' : '/options/saveSlot', 'a project save document needs a project save schema (content.saveSchema); this project declares none');
+    if (options.save !== undefined) {
+      const version = options.save['version'] as number;
+      if (version > schema.version) return invalid('/options/save/version', `the save document is version ${version}; the project's save schema is version ${schema.version} (a newer save cannot be loaded)`);
+      out.projectSave = options.save;
+    } else {
+      const slot = Number(options.saveSlot);
+      if (!Number.isInteger(slot) || slot < 1 || slot > schema.slots) return invalid('/options/saveSlot', `the project has save slots 1-${schema.slots}`);
+      out.projectSaveSlot = slot;
+    }
+  } else if (options.save !== undefined || options.saveSlot !== undefined) {
+    if (options.saveSlot !== undefined && !['auto', '1', '2', '3'].includes(options.saveSlot)) return invalid('/options/saveSlot', 'a game flow has the save slots auto, 1, 2 and 3 (slots 4-99 are project save slots: declare a save schema)');
     if (levels.length === 0) return invalid(options.save !== undefined ? '/options/save' : '/options/saveSlot', 'a save continues a game with levels (a game flow); this project has none');
     if (options.save !== undefined) {
       const levelId = options.save['levelId'];
       if (!levels.some((l) => l.id === levelId)) return invalid('/options/save/levelId', `the save is for level "${String(levelId).slice(0, 64)}", which the game flow does not have`);
       out.save = options.save;
-    } else out.saveSlot = options.saveSlot!;
+    } else out.saveSlot = options.saveSlot as 'auto' | '1' | '2' | '3';
   }
 
   if (options.variables !== undefined) out.variables = options.variables;

@@ -46,6 +46,7 @@ export type V3MutationOp =
   | 'deleteAnimator'
   | 'setInput'
   | 'setCollisionLayers'
+  | 'setSaveSchema'
   | 'setFlow'
   | 'createScene'
   | 'renameScene'
@@ -116,7 +117,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setModes', 'setBehaviorGroups'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setModes', 'setBehaviorGroups'];
 /** The v3 query op (commands.md §4; packet 45). */
 // Phase 23.5: queryBlocks reads block-layer cells and regions.
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks'];
@@ -148,6 +149,7 @@ export const CHANGE_TYPES = [
   'setAnimators',
   'setInput',
   'setCollisionLayers',
+  'setSaveSchema',
   'setFlow',
   'graphEdit',
   'setGraph',
@@ -850,6 +852,13 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   }
   if (value.hidden !== undefined && (!Array.isArray(value.hidden) || value.hidden.length > 64 || !value.hidden.every((x) => typeof x === 'string'))) {
     return fieldError('field_type', '/hidden', 'hidden lists at most 64 entity ids');
+  }
+  // Phase 23.14: the optional bindings block (device used last, profile, listening, changed actions, glyphs).
+  if (value.inputBindings !== undefined) {
+    const b = value.inputBindings;
+    if (!isPlainObject(b) || !isPlainObject(b['device']) || (b['device']['kind'] !== 'keyboardMouse' && b['device']['kind'] !== 'gamepad') || typeof b['profile'] !== 'string' || !Array.isArray(b['changed']) || !isPlainObject(b['glyphs'])) {
+      return fieldError('field_type', '/inputBindings', 'inputBindings is { device: { kind, id?, family? }, profile, listening, changed: [action], glyphs: { action: { label, icon } } }');
+    }
   }
   // Phase 9.10: the optional game-flow block.
   if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {

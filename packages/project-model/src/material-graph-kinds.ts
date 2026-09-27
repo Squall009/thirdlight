@@ -5,8 +5,9 @@
  *
  * - `material`: a material's own graph (owner kind `material`, stored in
  *   `content.materials[].graph`) — inputs, exposed parameters, maths,
- *   vectors, textures, noise, utility, sub-graph calls and the outputs (PBR
- *   or Unlit surface, vertex offset, with the render flags as fields);
+ *   vectors, textures, noise, utility, sub-graph calls, the lighting inputs
+ *   (phase 23.15) and the outputs (PBR, Unlit or Custom-lit surface, vertex
+ *   offset, with the render flags as fields);
  * - `material-function`: a reusable sub-graph stored as its own content
  *   record (a standalone graph document, `content.graphs[]` with this kind):
  *   the same nodes minus the parameters and the outputs, plus Function input
@@ -150,6 +151,53 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     description: 'The project\'s wind (Environment): direction on the ground plane, the current strength with gusts, and turbulence.',
     inputs: [],
     outputs: [port('direction', 'direction', 'vec3'), port('strength', 'strength', 'float'), port('turbulence', 'turbulence', 'float')],
+  },
+];
+
+/**
+ * Phase 23.15: the lighting inputs — what the lights put on the surface, for a
+ * graph that computes its own shading (cel, painterly, hatching …). They read
+ * light only under a Custom-lit output (a PBR or Unlit surface lights itself;
+ * there, and in a vertex offset, they read no light and the compiler says
+ * so). Colours are on the diffuse scale: a colour × a light value is what a
+ * matte (Lambert) surface of that colour reflects, the same as the PBR
+ * output's diffuse part (three.js: irradiance ÷ π).
+ */
+const LIGHTING_NODES: readonly GraphNodeDef[] = [
+  {
+    type: 'mainLight',
+    label: 'Main light',
+    category: 'Lighting',
+    description:
+      'The main directional light — the brightest one that casts shadows, else the first: the direction from the surface to it (world space), its colour × intensity, and N·L (the shading normal · that direction, −1 to 1; quantize it for bands). Without a directional light: up, black, 0.',
+    inputs: [],
+    outputs: [port('direction', 'direction', 'vec3'), port('color', 'colour', 'vec3'), port('ndotl', 'N·L', 'float')],
+  },
+  {
+    type: 'lightShadow',
+    label: 'Shadow',
+    category: 'Lighting',
+    description: 'The main light\'s shadow on this pixel: 0 fully shadowed, 1 lit (1 when the light casts no shadow or the object receives none).',
+    inputs: [],
+    outputs: [port('shadow', 'shadow', 'float')],
+  },
+  {
+    type: 'diffuseLight',
+    label: 'Diffuse light',
+    category: 'Lighting',
+    description:
+      'The light every light source puts on the surface: total (direct + ambient + environment + lightmap), its luminance (one number to quantize), and direct — every directional, point and spot light × its N·L × its shadow and falloff.',
+    inputs: [],
+    outputs: [port('total', 'total', 'vec3'), port('luminance', 'luminance', 'float'), port('direct', 'direct', 'vec3')],
+  },
+  {
+    type: 'ambientLight',
+    label: 'Ambient light',
+    category: 'Lighting',
+    description:
+      'The indirect light: ambient, hemisphere lights and light probes (at the surface normal), the environment\'s image-based light (black without one), and a baked lightmap\'s light (black without one).',
+    inputs: [],
+    outputs: [port('ambient', 'ambient', 'vec3'), port('environment', 'environment', 'vec3'), port('lightmap', 'lightmap', 'vec3')],
   },
 ];
 
@@ -418,6 +466,23 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
     exclusive: 'surface',
   },
   {
+    type: 'customLit',
+    label: 'Custom-lit output',
+    category: 'Output',
+    description:
+      'A surface whose colour the graph computes from the Lighting inputs (toon bands, painterly, hatching); fog, tone mapping and the post stack still apply. Normal is tangent space and shapes N·L and the diffuse light (it cannot read them); emissive is added; alpha clip > 0 discards pixels below it.',
+    inputs: [
+      port('color', 'colour', 'vec3', [1, 1, 1]),
+      port('emissive', 'emissive', 'vec3', [0, 0, 0]),
+      port('normal', 'normal', 'vec3', [0, 0, 1]),
+      port('opacity', 'opacity', 'float', 1),
+      port('alphaClip', 'alpha clip', 'float', 0),
+    ],
+    outputs: [],
+    fields: SURFACE_FLAGS,
+    exclusive: 'surface',
+  },
+  {
     type: 'vertexOffset',
     label: 'Vertex offset',
     category: 'Output',
@@ -461,7 +526,7 @@ function conversions(): GraphKindDef['conversions'] {
 }
 
 // Phase 23.12: Sample data reads a data parameter, which only a material has (not a function).
-const SHARED_NODES: readonly GraphNodeDef[] = [...INPUT_NODES.filter((n) => n.type !== 'parameter'), ...MATH_NODES, ...VECTOR_NODES, ...TEXTURE_NODES.filter((n) => n.type !== 'sampleData'), ...UTILITY_NODES, CALL_NODE];
+const SHARED_NODES: readonly GraphNodeDef[] = [...INPUT_NODES.filter((n) => n.type !== 'parameter'), ...LIGHTING_NODES, ...MATH_NODES, ...VECTOR_NODES, ...TEXTURE_NODES.filter((n) => n.type !== 'sampleData'), ...UTILITY_NODES, CALL_NODE];
 const SAMPLE_DATA_NODE = TEXTURE_NODES.find((n) => n.type === 'sampleData')!;
 
 /** A material's graph (owner kind `material`). */
@@ -470,13 +535,13 @@ export const MATERIAL_GRAPH_KIND: GraphKindDef = {
   label: 'Material graph',
   portTypes: PORT_TYPES,
   conversions: conversions(),
-  categories: ['Inputs', 'Maths', 'Vectors', 'Textures', 'Utility', 'Functions', 'Output'],
+  categories: ['Inputs', 'Lighting', 'Maths', 'Vectors', 'Textures', 'Utility', 'Functions', 'Output'],
   nodes: [INPUT_NODES.find((n) => n.type === 'parameter')!, ...SHARED_NODES, SAMPLE_DATA_NODE, ...OUTPUT_NODES],
   // A shader is a data flow: a value never depends on itself.
   allowCycles: false,
   // 512: the plan's bound for one material (compile time and shader size stay small).
   maxNodes: 512,
-  sinks: ['pbr', 'unlit', 'vertexOffset'],
+  sinks: ['pbr', 'unlit', 'customLit', 'vertexOffset'],
   owner: 'material',
 };
 
@@ -486,7 +551,7 @@ export const MATERIAL_FUNCTION_GRAPH_KIND: GraphKindDef = {
   label: 'Material function',
   portTypes: PORT_TYPES,
   conversions: conversions(),
-  categories: ['Interface', 'Inputs', 'Maths', 'Vectors', 'Textures', 'Utility', 'Functions'],
+  categories: ['Interface', 'Inputs', 'Lighting', 'Maths', 'Vectors', 'Textures', 'Utility', 'Functions'],
   nodes: [
     {
       type: 'functionInput',

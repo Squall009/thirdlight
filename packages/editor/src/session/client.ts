@@ -17,7 +17,7 @@
  */
 
 import { applyGraphOpsLocal } from '../graph/model';
-import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, GameMode } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
@@ -322,6 +322,8 @@ export class SessionClient {
   /** Phase 23.10: the game modes and behavior groups (from `queryGameConfig`, then setModes / setBehaviorGroups changes). */
   private modes: GameMode[] = [];
   private behaviorGroups: string[] = [];
+  /** Phase 23.19: the project save schema (from `queryGameConfig`, then `setSaveSchema` changes). */
+  private saveSchema: SaveSchema | null = null;
   private inputDefaults: InputConfig = { actions: [] };
   /**
    * Phase 15.0: the component and content descriptor registry (the editor
@@ -549,6 +551,8 @@ export class SessionClient {
         this.modes = Array.isArray(modes) ? structuredClone(modes) : [];
         const groups = (g as { behaviorGroups?: string[] }).behaviorGroups;
         this.behaviorGroups = Array.isArray(groups) ? [...groups] : [];
+        const saveSchema = (g as { saveSchema?: SaveSchema | null }).saveSchema;
+        this.saveSchema = saveSchema !== undefined && saveSchema !== null ? structuredClone(saveSchema) : null;
         const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
         if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
         const flow = (g as { flow?: GameFlow | null }).flow;
@@ -785,6 +789,8 @@ export class SessionClient {
         this.modes = structuredClone(change.next);
       } else if (change.type === 'setBehaviorGroups') {
         this.behaviorGroups = [...change.next];
+      } else if (change.type === 'setSaveSchema') {
+        this.saveSchema = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setAnimators') {
         this.animators = structuredClone(change.next);
       } else if (change.type === 'setGraph') {
@@ -1264,6 +1270,11 @@ export class SessionClient {
   /** Phase 9.4: the environment (null = defaults). */
   getEnvironment(): EnvironmentConfig | null {
     return this.environment === null ? null : structuredClone(this.environment);
+  }
+
+  /** Phase 23.19: the project save schema (null: no project saves). */
+  getSaveSchema(): SaveSchema | null {
+    return this.saveSchema === null ? null : structuredClone(this.saveSchema);
   }
 
   /** Phase 23.3: the project's named collision layers ("default" is implicit). */

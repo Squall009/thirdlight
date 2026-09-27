@@ -21,6 +21,18 @@
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
+import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort } from './project-saves';
+import type { SaveSchema } from '@thirdlight/project-model';
+
+/** Phase 23.19: one spawned copy as a save document's `spawned` section keeps it. */
+interface SavedSpawnCopy {
+  prefabId: string;
+  ids: string[];
+  position: number[];
+  rotation: number[];
+  scale: number[];
+}
+import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   GAME_TIMING_DEFAULTS,
@@ -75,6 +87,7 @@ import { lerpVec3, lerpVec3Into, quatEqual, slerpQuat, slerpQuatInto, vec3Equal 
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { SocketSystem } from './sockets';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
@@ -546,6 +559,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     'onFrame',
     'variables',
     'startMode',
+    'projectSettings',
   ]);
   for (const key of Object.keys(config)) {
     if (!allowed.has(key)) {
@@ -674,6 +688,14 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
   if (startMode !== undefined && (typeof startMode !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(startMode))) {
     return { error: fail('config_invalid', 'config field "startMode" must be a game mode id', { reason: 'shape', path: '/startMode' }) };
   }
+  // Phase 23.19: the stored project settings document (checked field by field against the save schema by the runtime).
+  let projectSettings: Record<string, unknown> | undefined;
+  if (config.projectSettings !== undefined) {
+    if (!isPlainObject(config.projectSettings) || Object.keys(config.projectSettings).length > 64) {
+      return { error: fail('config_invalid', 'config field "projectSettings" must map at most 64 keys to values', { reason: 'shape', path: '/projectSettings' }) };
+    }
+    projectSettings = { ...(config.projectSettings as Record<string, unknown>) };
+  }
   return {
     cfg: {
       snapshot: config.snapshot,
@@ -690,6 +712,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       onFrame,
       ...(variables !== undefined ? { variables } : {}),
       ...(startMode !== undefined ? { startMode } : {}),
+      ...(projectSettings !== undefined ? { projectSettings } : {}),
     },
   };
 }
@@ -725,6 +748,7 @@ interface ParsedConfig {
   onFrame?: () => void;
   variables?: Record<string, unknown>;
   startMode?: string;
+  projectSettings?: Record<string, unknown>;
 }
 
 /**
@@ -740,7 +764,7 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, startMode } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings, startMode } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
@@ -1275,11 +1299,14 @@ export function instantiateRuntime(
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
     modelBounds: snap.modelBounds,
+    audioDurations: snap.audioDurations,
     ...(snap.rigs !== undefined ? { rigs: snap.rigs } : {}),
     ...(variables !== undefined ? { variables } : {}),
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
     ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
+    ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
+    ...(projectSettings !== undefined ? { projectSettings } : {}),
     uiDocuments: snap.uiDocuments,
     ...(snap.modes !== undefined ? { modes: snap.modes } : {}),
     ...(startMode !== undefined ? { startMode } : {}),
@@ -1356,6 +1383,8 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
   modelBounds: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.13: audio/music assetId -> its recorded duration (ms). */
+  audioDurations: Readonly<Record<string, number>>;
   /** Phase 23.11: model rigs (sockets are resolved on them). */
   rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
   /** Phase 23.8: injected script variables (validated; ctx.save from step 0). */
@@ -1365,6 +1394,9 @@ interface RuntimeArgs {
   cellFields: readonly CellField[];
   /** Phase 23.12: the graph materials' parameters (ctx.materials). */
   materialCatalog?: RuntimeMaterialCatalog;
+  /** Phase 23.19: the project save schema and the stored project settings document. */
+  saveSchema?: SaveSchema;
+  projectSettings?: Readonly<Record<string, unknown>>;
   /** Phase 23.9a: the project's UI documents (id, layer, modal). */
   uiDocuments: readonly RuntimeUiDocumentRow[];
   /** Phase 23.10: the project's game modes (absent: none) and the mode runs start in. */
@@ -1522,6 +1554,8 @@ class RuntimeInstance implements Runtime {
   private heldPointer: HeldPointer | null = null;
   /** Phase 23.3: the cursor a script asked for (null: the active input map decides). */
   private cursorMode: 'free' | 'locked' | null = null;
+  /** Phase 23.14: what the host last sent about bindings and devices, this step's rebind events, the scripts' requests. */
+  private readonly inputStatus = new RuntimeInputStatus();
   /** Phase 23.3: `ctx.input.setCursor` (the StepContext's cursor channel). */
   private readonly cursorControl = Object.freeze({
     request: (mode: 'free' | 'locked' | 'auto'): void => {
@@ -1618,6 +1652,8 @@ class RuntimeInstance implements Runtime {
   private readonly grid: RuntimeGrid;
   /** Phase 23.12: graph-material parameters scripts set per object (`ctx.materials`). */
   private readonly materials: RuntimeMaterials;
+  /** Phase 23.19: project saves (`ctx.saves`). */
+  private readonly saves: RuntimeSaves;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
   /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
@@ -1661,8 +1697,8 @@ class RuntimeInstance implements Runtime {
       if (typeof entityId === 'string' && this.curr.has(entityId)) this.blocks?.setVisible(entityId, visible === true);
     },
   });
-  /** Phase 9.10: sounds scripts asked for since the host last took them (bounded). */
-  private audioQueue: { assetId: string; volume: number; stepIndex: number }[] = [];
+  /** Phase 23.13: the audio intent log (handles, fades, music, duck; the host plays its commands). */
+  private readonly audio: AudioMixer;
   private readonly saveControl = Object.freeze({
     get: (key: string): unknown => (this.saveStore.has(String(key)) ? structuredClone(this.saveStore.get(String(key))) : undefined),
     set: (key: string, value: unknown): boolean => {
@@ -1688,6 +1724,8 @@ class RuntimeInstance implements Runtime {
   private readonly debugRegistry = new Map<string, DebugCommandSpec>();
   /** Calls queued by the host for the next sampled step. */
   private debugQueue: DebugCommandCall[] = [];
+  /** Phase 23.19: storage answers queued by the host for the next sampled step. */
+  private saveQueue: SaveEvent[] = [];
   /** This step's calls by command (from its input frame); null: none. */
   private stepDebugCalls: Map<string, DebugCommandArgs[]> | null = null;
   private debugApplied: { stepIndex: number; name: string; args: DebugCommandArgs }[] = [];
@@ -1708,13 +1746,7 @@ class RuntimeInstance implements Runtime {
       return this.stepDebugCalls?.get(name) ?? NO_DEBUG_CALLS;
     },
   });
-  private readonly audioControl = Object.freeze({
-    play: (assetId: string, options?: { volume?: number }): void => {
-      if (typeof assetId !== 'string' || assetId.length === 0 || assetId.length > 128 || this.audioQueue.length >= 16) return;
-      const v = Number(options?.volume ?? 1);
-      this.audioQueue.push({ assetId, volume: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1, stepIndex: this.stepIndex });
-    },
-  });
+  private readonly audioControl: import('./types').BehaviorAudio;
   // ---- Phase 20.2: visual effect requests (presentation only) ----
   /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
   private effectQueue: EffectRequest[] = [];
@@ -1884,8 +1916,13 @@ class RuntimeInstance implements Runtime {
     // Phase 23.12: the start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materials.addEntities(args.initialEntities);
+    // Phase 23.19: project saves (the document, slots, settings; inert without a save schema).
+    this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message));
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
+    // Phase 23.13: the audio intent log (clip lengths from the snapshot's recorded durations).
+    this.audio = new AudioMixer(this.hz, args.audioDurations, () => this.stepIndex);
+    this.audioControl = this.buildAudioControl();
     // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
     this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
     this.cameras.add(args.initialEntities);
@@ -1943,7 +1980,7 @@ class RuntimeInstance implements Runtime {
         kill: () => {
           if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
         },
-        playCue: (assetId: string) => rt.audioControl.play(assetId),
+        playCue: (assetId: string) => void rt.audio.play(assetId),
         effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
         animator: (id: string) => {
           const own = rt.animatorMachines.get(id)?.machine;
@@ -2226,11 +2263,177 @@ class RuntimeInstance implements Runtime {
     return this.materials.digestText();
   }
 
-  /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
-  takeAudioRequests(): { assetId: string; volume: number; stepIndex: number }[] {
-    const out = this.audioQueue;
-    this.audioQueue = [];
+  /** Phase 23.19: the save/load/delete/settings requests since the last call; the host (the storage owner) carries them out. */
+  takeSaveRequests(): SaveRequest[] {
+    return this.saves.takeRequests();
+  }
+
+  /**
+   * Phase 23.19: queue one storage answer (the slot list, a save/delete
+   * outcome, a loaded document) for the next sampled step — it rides on that
+   * step's input frame, so a recording replays it and the worker applies it
+   * at the same step. Refused for a project without a save schema, a bad
+   * entry, or when 64 are already waiting.
+   */
+  queueSaveEvent(event: SaveEvent): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.saves.schema === null) return { ok: false, error: fail('game_command_invalid', 'this game has no project save schema', { reason: 'saves' }) };
+    const checked = validateSaveEvents([event]);
+    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `save entry: ${checked.message}`, { reason: 'saves' }) };
+    if (this.saveQueue.length >= 64) return { ok: false, error: fail('game_command_invalid', 'at most 64 storage answers may wait for the next step', { reason: 'pending' }) };
+    this.saveQueue.push(checked.events[0]!);
+    return { ok: true };
+  }
+
+  /** Phase 23.19: the project saves state as digest text (null without a save schema or before any save activity). */
+  savesState(): string | null {
+    return this.saves.digestText();
+  }
+
+  /** Phase 23.19: the project settings document now (empty without a save schema). */
+  projectSettings(): Readonly<Record<string, boolean | number | string>> {
+    return this.saves.settingsNow();
+  }
+
+  /** Phase 23.19: the engine state a save document's sections capture and restore. */
+  private buildSaveSections(): SaveSectionsPort {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const rt = this;
+    return {
+      capture(section) {
+        switch (section) {
+          case 'grid':
+            return rt.grid.api.diff();
+          case 'materials':
+            return rt.materials.saveState();
+          case 'storage':
+            return Object.fromEntries([...rt.saveStore.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+          case 'spawned':
+            return rt.spawnedCopies();
+        }
+      },
+      check(section, value) {
+        switch (section) {
+          case 'grid':
+            return null;
+          case 'materials':
+            return rt.materials.checkState(value);
+          case 'storage': {
+            if (typeof value !== 'object' || value === null || Array.isArray(value) || Object.keys(value).length > SAVE_MAX_KEYS) return `the storage section maps at most ${SAVE_MAX_KEYS} keys to values`;
+            for (const [k, v] of Object.entries(value)) if (!SAVE_KEY_RE.test(k) || saveValueText(v) === null) return `storage key "${k.slice(0, 64)}" does not fit ctx.save's rules`;
+            return null;
+          }
+          case 'spawned':
+            return rt.spawnedCopiesProblem(value);
+        }
+      },
+      apply(section, value) {
+        switch (section) {
+          case 'grid':
+            return rt.grid.restoreDiff(value);
+          case 'materials':
+            rt.materials.restoreState(value as import('./material-params').MaterialSaveEntry[] | undefined);
+            return null;
+          case 'storage':
+            rt.saveStore.clear();
+            for (const [k, v] of Object.entries((value ?? {}) as Record<string, unknown>)) rt.saveStore.set(k, JSON.parse(saveValueText(v)!) as unknown);
+            return null;
+          case 'spawned':
+            rt.restoreSpawnedCopies((value ?? []) as SavedSpawnCopy[]);
+            return null;
+        }
+      },
+    };
+  }
+
+  /** Phase 23.19: the live spawned copies (prefab, ids in prefab order, the root's placement now). */
+  private spawnedCopies(): SavedSpawnCopy[] {
+    const out: SavedSpawnCopy[] = [];
+    const copyOf = new Map<string, string[]>();
+    const roots: string[] = [];
+    for (const e of this.spawnedEntities.values()) {
+      if (this.pendingDestroys.has(e.id)) continue;
+      const parent = e.parentId;
+      const ids = parent !== undefined ? copyOf.get(parent) : undefined;
+      // Parents come before children: a child joins its parent's copy.
+      if (ids !== undefined) {
+        ids.push(e.id);
+        copyOf.set(e.id, ids);
+      } else {
+        const own = [e.id];
+        copyOf.set(e.id, own);
+        roots.push(e.id);
+      }
+    }
+    for (const rootId of roots) {
+      const root = this.spawnedEntities.get(rootId)!;
+      const prefabId = (root.components as { prefab?: { prefabId?: string } }).prefab?.prefabId;
+      const t = this.curr.get(rootId);
+      if (prefabId === undefined || t === undefined) continue;
+      out.push({ prefabId, ids: [...copyOf.get(rootId)!], position: [t.position[0], t.position[1], t.position[2]], rotation: [t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]], scale: [t.scale[0], t.scale[1], t.scale[2]] });
+    }
     return out;
+  }
+
+  private spawnedCopiesProblem(value: unknown): string | null {
+    if (!Array.isArray(value)) return 'the spawned section is a list';
+    const seen = new Set<string>();
+    let total = 0;
+    for (const c of value as SavedSpawnCopy[]) {
+      if (typeof c !== 'object' || c === null || typeof c.prefabId !== 'string' || !Array.isArray(c.ids)) return 'a spawned copy is { prefabId, ids, position, rotation, scale }';
+      const def = this.prefabs.get(c.prefabId);
+      if (def === undefined) return `prefab "${c.prefabId.slice(0, 64)}" is not in this game`;
+      if (c.ids.length !== def.entities.length) return `the copy of "${c.prefabId}" has ${c.ids.length} ids; the prefab has ${def.entities.length} objects`;
+      for (const id of c.ids) {
+        if (typeof id !== 'string' || !/^spawn-[1-9][0-9]{0,15}$/.test(id) || seen.has(id)) return 'spawned ids are spawn-<n>, each once';
+        if (this.entities.has(id) && !this.spawnedEntities.has(id)) return `"${id}" is an object of the scene`;
+        seen.add(id);
+      }
+      total += c.ids.length;
+      const parsed = parseSpawnOptions(def, { position: c.position, rotation: c.rotation, scale: c.scale });
+      if (!parsed.ok) return `the copy of "${c.prefabId}": ${parsed.message}`;
+    }
+    if (total > MAX_LIVE_SPAWNED) return `at most ${MAX_LIVE_SPAWNED} spawned objects`;
+    return null;
+  }
+
+  /** Phase 23.19: the spawned copies become the saved ones at the next step boundary (checked with `spawnedCopiesProblem`). */
+  private restoreSpawnedCopies(copies: readonly SavedSpawnCopy[]): void {
+    this.spawnOps = [];
+    this.reservedSpawnIds.clear();
+    this.pendingDestroys.clear();
+    for (const e of this.spawnedEntities.values()) {
+      if (e.parentId !== undefined && this.spawnedEntities.has(e.parentId)) continue;
+      this.pendingDestroys.add(e.id);
+      this.spawnOps.push({ op: 'destroy', entityId: e.id });
+    }
+    for (const c of copies) {
+      const def = this.prefabs.get(c.prefabId)!;
+      const parsed = parseSpawnOptions(def, { position: c.position, rotation: c.rotation, scale: c.scale });
+      if (!parsed.ok) continue;
+      for (const id of c.ids) {
+        this.reservedSpawnIds.add(id);
+        const n = Number(id.slice(SPAWN_ID_PREFIX.length));
+        if (n > this.spawnSerial) this.spawnSerial = n;
+      }
+      this.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, c.ids, parsed.placement) });
+    }
+  }
+
+
+  /**
+   * Phase 9.10: the sounds scripts played since the last call; the host plays
+   * them. Phase 23.13: the audio intent log's commands (plays with handles,
+   * stops, fades, music, duck, bus mix, reset), in the order they were made.
+   * Taking them changes nothing the simulation computes.
+   */
+  takeAudioRequests(): AudioCommand[] {
+    return this.audio.take();
+  }
+
+  /** Phase 23.13: the audio intent log's deterministic state (null while scripts never used audio). */
+  audioState(): Record<string, unknown> | null {
+    return this.audio.state();
   }
 
   /** Phase 9.10: pause or resume the simulation (frames still render and reach onFrame). */
@@ -2548,6 +2751,31 @@ class RuntimeInstance implements Runtime {
     rotation[2] = qz / len;
     rotation[3] = qw / len;
     return true;
+  }
+
+  /** Phase 23.13: `ctx.audio` (arguments checked by the mixer; every change is a command in step order). */
+  private buildAudioControl(): import('./types').BehaviorAudio {
+    const a = this.audio;
+    return Object.freeze({
+      play: (assetId: string, options?: import('./types').AudioPlayOptions): number => a.play(assetId, options),
+      stop: (handle: number, fadeSeconds?: number): void => a.stop(handle, fadeSeconds),
+      fade: (handle: number, to: number, seconds: number): void => a.fade(handle, to, seconds),
+      setVolume: (handle: number, volume: number): void => a.setVolume(handle, volume),
+      setPitch: (handle: number, pitch: number): void => a.setPitch(handle, pitch),
+      setLoop: (handle: number, loop: boolean): void => a.setLoop(handle, loop),
+      playing: (handle: number): boolean => a.playing(handle),
+      volumeOf: (handle: number): number => a.volumeOf(handle),
+      finished: (handle: number): boolean => a.finished(handle),
+      events: () => a.events(),
+      music: (assetId: string | null, fadeSeconds?: number): void => a.music(assetId, fadeSeconds),
+      releaseMusic: (fadeSeconds?: number): void => a.releaseMusic(fadeSeconds),
+      stinger: (assetId: string, options?: import('./types').AudioStingerOptions): number => a.stinger(assetId, options),
+      duck: (level: number, seconds?: number): void => a.duck(level, seconds),
+      unduck: (seconds?: number): void => a.unduck(seconds),
+      musicState: () => a.musicState(),
+      setBusVolume: (bus: 'sfx' | 'music' | 'voice' | 'ui', volume: number, seconds?: number): void => a.setBusVolume(bus, volume, seconds),
+      busVolume: (bus: 'sfx' | 'music' | 'voice' | 'ui'): number => a.busVolume(bus),
+    });
   }
 
   /** Phase 23.4: `ctx.camera` (arguments checked here; the brain applies them in order). */
@@ -3015,6 +3243,8 @@ class RuntimeInstance implements Runtime {
     }
     // Phase 23.4: the camera brain resolves the view on the step's transforms.
     this.stepCameras(null);
+    // Phase 23.13: fades and clips advance; finished sounds are seen next step.
+    this.audio.endStep();
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
@@ -3063,6 +3293,7 @@ class RuntimeInstance implements Runtime {
     this.respawnRequested = false;
     this.grid.beginStep(ordinal);
     this.materials.beginStep(ordinal);
+    this.saves.beginStep();
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
@@ -3154,6 +3385,10 @@ class RuntimeInstance implements Runtime {
     // Phase 23.4: the camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
     this.stepCameras(action);
+    // Phase 23.19: saves asked for this step are assembled, loaded ones restored (a step boundary).
+    this.saves.endStep();
+    // Phase 23.13: fades and clips advance; finished sounds are seen next step.
+    this.audio.endStep();
     // The accepted step-end promotion (runtime.md §12.1.1) runs unchanged
     // for M3 sets too (gameplay.md §3.5 invariance; segment-source.json pins
     // `state.prev` during step n at the end of step n−2): `prev := backup`
@@ -3394,6 +3629,12 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new InputSourceError(messageOf(e));
     }
+    // Phase 23.19: storage's queued answers ride on this step's frame too.
+    if (this.saveQueue.length > 0 && typeof raw === 'object' && raw !== null) {
+      const have = (raw as ActionFrame).saves ?? [];
+      const room = Math.max(0, MAX_FRAME_SAVE_EVENTS - (Array.isArray(have) ? have.length : 0));
+      if (room > 0) raw = { ...(raw as ActionFrame), saves: [...have, ...this.saveQueue.splice(0, room)] };
+    }
     // Phase 23.8: queued debug commands ride on this step's frame (so a recording keeps them).
     if (this.debugQueue.length > 0 && typeof raw === 'object' && raw !== null) {
       const have = (raw as ActionFrame).commands ?? [];
@@ -3412,6 +3653,10 @@ class RuntimeInstance implements Runtime {
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
     this.deliverDebugCommands(check.frame);
+    // Phase 23.19: storage's answers (the slot list, outcomes, a loaded document).
+    if (check.frame.saves !== undefined) this.saves.deliver(check.frame.saves);
+    // Phase 23.14: the host's input status (device, bindings, rebind events).
+    this.inputStatus.apply(check.frame.input);
     // Phase 23.9a: the frame's show/hide entries apply before any script runs.
     this.ui.deliver(check.frame.ui);
     // Phase 23.10: a mode action switches now (before the scripts); a restart applies at the next boundary.
@@ -3479,7 +3724,11 @@ class RuntimeInstance implements Runtime {
    */
   cursorRequest(): 'free' | 'locked' | null {
     return this.cursorMode;
+  }
 
+  /** Phase 23.14: the binding requests scripts made since the last call (see `Runtime.takeBindingRequests`). */
+  takeBindingRequests(): { readonly requests: readonly InputBindingRequest[]; readonly dropped: number } {
+    return this.inputStatus.take();
   }
 
   /**
@@ -3572,6 +3821,8 @@ class RuntimeInstance implements Runtime {
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 23.4: and with its cameras as authored.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
+    // Phase 23.13: and without the last run's script sounds (the music back to the flow).
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.audio.reset();
     // Phase 23.3: and with the cursor its input map gives (a script's request ends with the run).
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.cursorMode = null;
     // Phase 12 (c): a replay starts from the start scenes again.
@@ -3772,6 +4023,8 @@ class RuntimeInstance implements Runtime {
       this.grid.flushCollision(this.physics3d);
       // Phase 23.12: and from the authored material values.
       this.materials.reset();
+      // Phase 23.19: no project save document, no play time yet.
+      this.saves.reset();
     }
     // Phase 23.9a: and starts with an empty view model and no document shown.
     if (reset === 'replay' || reset === 'start') this.ui.resetRun();
@@ -4673,6 +4926,8 @@ class RuntimeInstance implements Runtime {
       fields['sockets'] = { value: this.socketControl, enumerable: true };
       // Phase 23.3: the cursor channel (ctx.input.setCursor).
       fields['cursor'] = { value: this.cursorControl, enumerable: true };
+      // Phase 23.14: bindings, the device in use and rebinding (ctx.input).
+      fields['inputStatus'] = { value: this.inputStatus.view, enumerable: true };
       // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
       const debugControl = this.debugControl;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
@@ -4680,6 +4935,8 @@ class RuntimeInstance implements Runtime {
       fields['grid'] = { value: this.grid.api, enumerable: true };
       // Phase 23.12: graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
+      // Phase 23.19: project saves (ctx.saves).
+      fields['saves'] = { value: this.saves.api, enumerable: true };
       // Phase 23.9a: the project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
       // Phase 23.10: the game modes, the run lifecycle, and which behaviors tick in the current mode.

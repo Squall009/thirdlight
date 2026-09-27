@@ -93,7 +93,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       },
     },
     scenes: { load: rec('scenes.load'), unload: rec('scenes.unload'), status: rec('scenes.status', 'loaded'), loaded: rec('scenes.loaded', () => ['scene-main']) },
-    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor') },
+    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor'), usingGamepad: rec('input.usingGamepad', true), glyphLabel: rec('input.glyphLabel', 'A'), glyphIcon: rec('input.glyphIcon', 'pad-south'), rebinding: rec('input.rebinding', () => ({ action: 'jump', index: 0 })), cancelRebind: rec('input.cancelRebind'), resetBindings: rec('input.resetBindings'), useBindingProfile: rec('input.useBindingProfile'), bindingProfile: rec('input.bindingProfile', 'default') },
     animator: (id: string) => {
       calls.push('animator');
       // Phase 23.11: per-instance speed and morph weights.
@@ -108,7 +108,27 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     signals: { emit: rec('signals.emit'), on: rec('signals.on', true) },
     messages: { send: rec('messages.send', true), received: rec('messages.received', () => [{ name: 'x', value: 2, from: 'box-2', stepIndex: stepIndex - 1 }]) },
     game: { counter: rec('game.counter', 3), add: rec('game.add'), health: rec('game.health', { current: 2, max: 3 }), setVisible: rec('game.setVisible') },
-    audio: { play: rec('audio.play') },
+    // Phase 23.13: playback handles, music, duck, bus mix.
+    audio: {
+      play: rec('audio.play', 1),
+      stop: rec('audio.stop'),
+      fade: rec('audio.fade'),
+      setVolume: rec('audio.setVolume'),
+      setPitch: rec('audio.setPitch'),
+      setLoop: rec('audio.setLoop'),
+      playing: rec('audio.playing', true),
+      volumeOf: rec('audio.volumeOf', 0.5),
+      finished: rec('audio.finished', false),
+      events: rec('audio.events', () => []),
+      music: rec('audio.music'),
+      releaseMusic: rec('audio.releaseMusic'),
+      stinger: rec('audio.stinger', 2),
+      duck: rec('audio.duck'),
+      unduck: rec('audio.unduck'),
+      musicState: rec('audio.musicState', () => ({ owner: 'flow', track: null, duck: 1 })),
+      setBusVolume: rec('audio.setBusVolume'),
+      busVolume: rec('audio.busVolume', 1),
+    },
     effects: { play: (...a: unknown[]) => { rec('effects.play')(...a); return 1; }, stop: rec('effects.stop') },
     save: { get: rec('save.get', 4), set: rec('save.set', true), remove: rec('save.remove'), keys: rec('save.keys', () => ['k']) },
     // Phase 23.5: block layers.
@@ -164,6 +184,24 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       reset: rec('materials.reset', true),
       setData: rec('materials.setData', true),
       getData: rec('materials.getData', () => [255, 0, 0, 255]),
+    },
+    // Phase 23.19: project saves.
+    saves: {
+      version: 2,
+      slotCount: 3,
+      write: rec('saves.write', true),
+      read: rec('saves.read', () => ({ chapter: 1 })),
+      save: rec('saves.save', true),
+      load: rec('saves.load', true),
+      delete: rec('saves.delete', true),
+      slots: rec('saves.slots', () => [{ slot: 2, title: 'T', chapter: '', location: '', playSeconds: 1, savedAt: '', version: 2, bytes: 1, thumbnail: false }]),
+      ready: rec('saves.ready', true),
+      results: rec('saves.results', () => []),
+      playSeconds: rec('saves.playSeconds', 12),
+      migration: rec('saves.migration', true),
+      setting: rec('saves.setting', true),
+      settings: rec('saves.settings', () => ({ hints: true })),
+      setSetting: rec('saves.setSetting', true),
     },
     // Phase 23.9a: the project UI.
     ui: {
@@ -302,16 +340,22 @@ const CATALOGUE = [...BEHAVIOR_GRAPH_KIND.nodes.filter((d) => !d.type.startsWith
 describe('the visual-script catalogue (every node type compiles and runs)', () => {
   it('covers every ctx member of the runtime typings (generated), except the documented skips', () => {
     const members = new Set(BEHAVIOR_API_NODES.map(memberOf));
-    for (const m of ['game.add', 'game.counter', 'game.health', 'game.setVisible', 'signals.emit', 'signals.on', 'messages.send', 'messages.received', 'timers.after', 'timers.every', 'timers.fired', 'timers.cancel', 'physics.raycast', 'physics.overlapBox', 'physics.overlapCircle', 'physics.characterResult', 'tags.mask', 'tags.has', 'tags.query', 'tags.of', 'world.transform', 'world.find', 'world.findAll', 'world.withComponent', 'random.next', 'random.range', 'random.int', 'random.chance', 'random.stream.next', 'random.stream.range', 'random.stream.int', 'random.stream.chance', 'scenes.load', 'scenes.unload', 'scenes.status', 'scenes.loaded', 'input.pressed', 'input.released', 'input.held', 'input.value', 'input.vector', 'animator.set', 'animator.trigger', 'animator.get', 'animator.state', 'audio.play', 'save.get', 'save.set', 'save.remove', 'save.keys', 'spawn', 'destroy', 'emit', 'entityId', 'stepIndex']) {
+    for (const m of ['game.add', 'game.counter', 'game.health', 'game.setVisible', 'signals.emit', 'signals.on', 'messages.send', 'messages.received', 'timers.after', 'timers.every', 'timers.fired', 'timers.cancel', 'physics.raycast', 'physics.overlapBox', 'physics.overlapCircle', 'physics.characterResult', 'tags.mask', 'tags.has', 'tags.query', 'tags.of', 'world.transform', 'world.find', 'world.findAll', 'world.withComponent', 'random.next', 'random.range', 'random.int', 'random.chance', 'random.stream.next', 'random.stream.range', 'random.stream.int', 'random.stream.chance', 'scenes.load', 'scenes.unload', 'scenes.status', 'scenes.loaded', 'input.pressed', 'input.released', 'input.held', 'input.value', 'input.vector', 'animator.set', 'animator.trigger', 'animator.get', 'animator.state', 'audio.play', 'audio.stop', 'audio.fade', 'audio.setPitch', 'audio.finished', 'audio.music', 'audio.stinger', 'audio.duck', 'save.get', 'save.set', 'save.remove', 'save.keys', 'spawn', 'destroy', 'emit', 'entityId', 'stepIndex']) {
       expect(members, m).toContain(m);
     }
     // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
     // script-only rotation forms of the intents (the nodes keep their inputs).
     // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
+    // Phase 23.14: the bindings list, the device record, the glyph object, rebind (an options object) and its events are read in code.
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
+      'action.input',
+      // Phase 23.19: storage's answers arrive with the input; a migration is a function.
+      'action.saves',
       // Phase 23.9a: a frame's UI events are read with ctx.ui.events / ctx.ui.event.
       'action.ui',
+      // Phase 23.13: the finished events as a list (the Sound finished node checks one handle).
+      'audio.events',
       'debug.command',
       // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
       'emit(control_move).y',
@@ -326,10 +370,16 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'grid.applyDiff',
       'grid.changes',
       'grid.diff',
+      'input.bindings',
+      'input.device',
+      'input.glyph',
+      'input.rebind',
+      'input.rebindEvents',
       'log',
       'physics.stageCharacterMove',
       'random.pick',
       'random.stream().pick',
+      'saves.migration',
     ]);
     // Intents: one node per kind, with its phase.
     const emit = BEHAVIOR_API_NODES.filter((s) => s.type.startsWith('api.emit.'));

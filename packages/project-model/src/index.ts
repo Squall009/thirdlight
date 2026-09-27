@@ -101,6 +101,7 @@ export {
   M2_SETTINGS_KEYS,
   AUDIO_VOICE_CAP,
   PHYSICS_DIMENSIONS,
+  audioSpatialOf,
   depthBufferOf,
   physicsDimensionOf,
   type PhysicsDimension,
@@ -611,6 +612,13 @@ export {
   MAX_INPUT_MAPS,
   projectInputMaps,
   type InputMapName,
+  // Phase 23.14: the hold modifier and the project's glyph images.
+  GAMEPAD_FAMILIES,
+  GLYPH_KEY_RE,
+  HOLD_BINDING_KINDS,
+  INPUT_HOLD_MAX,
+  INPUT_HOLD_MIN,
+  MAX_INPUT_GLYPHS,
 } from './input';
 // Phase 23.10: game modes (content.modes), behavior groups and the behaviorGroup component.
 export {
@@ -866,3 +874,22 @@ export {
   type CollisionMeshPiece,
 } from './block-mesh';
 export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng } from './png-decode';
+// Phase 23.19: the project save schema (save document, slots, sections, settings document).
+export {
+  SAVE_LIMITS,
+  SAVE_SECTIONS,
+  SAVE_THUMBNAIL_DEFAULT,
+  SETTINGS_ENGINE_BINDINGS,
+  canonicalSaveSchema,
+  effectiveField,
+  settingsDocumentOf,
+  settingsValueFits,
+  validateSaveSchema,
+  type SaveMigration,
+  type SaveSchema,
+  type SaveSection,
+  type SaveThumbnail,
+  type SettingsEngineBinding,
+  type SettingsField,
+  type SettingsFieldValue,
+} from './save-schema';

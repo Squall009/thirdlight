@@ -16,7 +16,7 @@
  * (the MCP observation, bots and the determinism tests compare them).
  */
 import { materialChangeKey } from '@thirdlight/runtime';
-import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
+import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -281,6 +281,9 @@ export class FrameEncoder {
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
+    // Phase 23.19: project save requests (the page carries them out).
+    const saveReq = rt.takeSaveRequests?.() ?? [];
+    if (saveReq.length > 0) out.saveReq = saveReq;
     // Phase 23.5: block-layer chunks the simulation changed.
     const grid = rt.takeGridChanges?.() ?? [];
     if (grid.length > 0) out.grid = grid;
@@ -290,6 +293,9 @@ export class FrameEncoder {
       out.mat = mat;
       for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
     }
+    // Phase 23.14: the scripts' binding requests (the page's host carries them out).
+    const rb = rt.takeBindingRequests?.();
+    if (rb !== undefined && (rb.requests.length > 0 || rb.dropped > 0)) out.rb = rb;
     // Phase 23.9a: the project UI's diff of the steps since the last frame.
     const ui = rt.takeUiOutput?.() ?? null;
     if (ui !== null) out.ui = ui;
@@ -389,7 +395,7 @@ export class FrameMirror {
   /** Loaded scenes the runtime refuses to unload, and why. */
   pinned = new Map<string, string>();
   private spawnedByToken = new Map<number, SceneEntities[number]>();
-  audio: { assetId: string; volume: number; stepIndex: number }[] = [];
+  audio: AudioCommand[] = [];
   effects: unknown[] = [];
   /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
@@ -397,6 +403,11 @@ export class FrameMirror {
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   /** Phase 23.12: the latest material change per object, material and parameter, until the adapter takes them. */
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
+  /** Phase 23.19: project save requests not carried out yet (the host takes them every frame). */
+  saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
+  /** Phase 23.14: binding requests not taken by the host yet (at most 32 wait). */
+  bindingRequests: import('@thirdlight/runtime').InputBindingRequest[] = [];
+  bindingDropped = 0;
   /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
   ui: UiOutput | null = null;
   uiModel: Record<string, unknown> = {};
@@ -466,14 +477,18 @@ export class FrameMirror {
       this.spawnedByToken = tokens;
       this.sceneSet = Object.freeze({ revision: w.revision, batches: Object.freeze(batches), status: Object.freeze({ ...w.status }), spawned: Object.freeze(spawned) }) as unknown as SceneSetView;
     }
-    // Phase 21.5: bounded like the runtime's own queues (16 sounds, the newest 256 effect requests): a page
-    // that does not take them (scene mode has no game view to drain sounds; headless, no adapter) never grows.
-    if (s.audio !== undefined) for (const a of s.audio) if (this.audio.length < MIRROR_AUDIO_LIMIT) this.audio.push(a);
+    // Phase 21.5: bounded like the runtime's own queues (phase 23.13: the newest 256 audio commands, the newest
+    // 256 effect requests): a page that does not take them (headless, no adapter) never grows.
+    if (s.audio !== undefined) {
+      for (const a of s.audio) this.audio.push(a);
+      if (this.audio.length > MIRROR_AUDIO_LIMIT) this.audio.splice(0, this.audio.length - MIRROR_AUDIO_LIMIT);
+    }
     if (s.effects !== undefined) {
       for (const e of s.effects) this.effects.push(e);
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.saveReq !== undefined) for (const r of s.saveReq) this.saveReq.push(r);
     if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.mat !== undefined) {
       for (const c of s.mat) {
@@ -481,6 +496,13 @@ export class FrameMirror {
         this.mat.delete(k);
         this.mat.set(k, c);
       }
+    }
+    if (s.rb !== undefined) {
+      for (const r of s.rb.requests) {
+        if (this.bindingRequests.length < 32) this.bindingRequests.push(r);
+        else this.bindingDropped += 1;
+      }
+      this.bindingDropped += s.rb.dropped;
     }
     if (s.ui !== undefined) {
       this.ui = mergeUiOutput(this.ui, s.ui);
@@ -498,7 +520,7 @@ export class FrameMirror {
 }
 
 /** Phase 21.5: the runtime's own bounds for queued sound and effect requests (runtime.ts). */
-export const MIRROR_AUDIO_LIMIT = 16;
+export const MIRROR_AUDIO_LIMIT = 256;
 export const MIRROR_EFFECT_LIMIT = 256;
 
 function isShared(b: ArrayBufferLike): boolean {

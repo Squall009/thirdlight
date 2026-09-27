@@ -506,7 +506,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 2, chase: 3, chaseHeight: 3, chaseSpeed: 4, chaseSight: true, chaseFacing: true, chaseMemory: 0.5, chaseBeyondPatrol: true, stompBounce: 7, stompTolerance: 0.3, defeat: 'fade', defeatTime: 0.5, wallProbe: 0.1, ledgeProbe: 0.6, hitEffect: 'fx-a', defeatEffect: 'fx-a' },
     { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 0, stompable: false, health: 1 },
   ],
-  audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }],
+  audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }, { assetId: 'cue-a', volume: 0.8, range: 12, distanceModel: 'inverse', refDistance: 2, rolloff: 1.5 }],
   animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true } }],
   faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }],
   modelAnimation: [{ assetId: 'model-a', version: 1, roles: { idle: { clipIndex: 0 }, run: { clipIndex: 1 }, airborne: { clipIndex: 2 } } }],
@@ -551,7 +551,8 @@ const FLOW_BASE = {
 };
 
 const BINDINGS: { type: string; binding: Obj }[] = [
-  { type: 'button', binding: { kind: 'key', code: 'Space' } },
+  // Phase 23.14: a hold binding.
+  { type: 'button', binding: { kind: 'key', code: 'Space', hold: 0.5 } },
   { type: 'button', binding: { kind: 'gamepadButton', button: 0 } },
   { type: 'axis1d', binding: { kind: 'gamepadAxis', axis: 0 } },
   { type: 'axis1d', binding: { kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' } },
@@ -565,7 +566,7 @@ const BINDINGS: { type: string; binding: Obj }[] = [
   { type: 'axis2d', binding: { kind: 'pointerDelta' } },
 ];
 const INPUT_BASES: J[] = [
-  ...BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' } } : {}) })),
+  ...BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' }, glyphs: { 'xbox:pad-south': 'tex-a' } } : {}) })),
   // Phase 23.10: the project's own input maps (an action of one).
   { actions: [{ name: 'select', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'KeyE' }] }], maps: ['tactical', 'build'] },
 ];
@@ -721,7 +722,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, clipsFor: MODEL_ASSET['assetId'] };
@@ -750,6 +751,8 @@ function runAllProbes(): void {
   probe('behaviorGroups', contentErrors, contentDoc({ behaviorGroups: ['field', 'board'] }), '/behaviorGroups', block('behaviorGroups'), 'behaviorGroups:');
   // Phase 23.3: the named collision layers.
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
+  // Phase 23.19: the project save schema.
+  probe('saveSchema', contentErrors, contentDoc({ saveSchema: { version: 3, slots: 5, migrations: [{ from: 1, name: 'v1to2' }], sections: ['grid', 'storage'], thumbnail: { width: 160, height: 90, format: 'webp', quality: 0.8 }, settings: [{ key: 'hints', type: 'bool', default: true }] } }), '/saveSchema', block('saveSchema'), 'saveSchema:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
   // the content block's own keys (each block's inside is probed above)

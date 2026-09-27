@@ -30,6 +30,7 @@
  */
 import type { BehaviorGrid } from './grid';
 import type { BehaviorMaterials } from './material-params';
+import type { BehaviorSaves } from './project-saves';
 import type {
   DeclaredProperty,
   PropertyDeclaration,
@@ -37,6 +38,7 @@ import type {
   PropertyValue,
 } from '@thirdlight/project-model';
 import type { ActionFrame, PointerSample } from './actions';
+import { checkRebindOptions, glyphOfAction, isActionName, isBindingProfile, type InputActionStatus, type InputDeviceKind, type InputDeviceStatus, type InputGlyph, type InputRebindEvent, type InputRebindOptions, type InputRebindTarget, type InputStatusView } from './input-status';
 import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
 import { InstanceRandom, RandomCallError, randomSeedOf } from './random';
@@ -226,6 +228,11 @@ export interface BehaviorContext {
    * texture) or write the cells of a data parameter on one object; others wearing the material keep theirs.
    */
   readonly materials?: BehaviorMaterials;
+  /**
+   * Phase 23.19: the project's save document and numbered slots (save, load, delete, the slot list
+   * with title/chapter/location/play time/picture) and the project settings document.
+   */
+  readonly saves?: BehaviorSaves;
   /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
   /** Phase 23.10: the game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. */
@@ -869,7 +876,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (inputFrame !== frame || inputOfFrame === null) {
           inputFrame = frame;
           // Phase 23.3: `setCursor` goes to the runtime's cursor channel (one per runtime).
-          inputOfFrame = inputView(frame, src.cursor?.request);
+          inputOfFrame = inputView(frame, src.cursor?.request, src.inputStatus);
         }
         return inputOfFrame;
       };
@@ -942,6 +949,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
         // Phase 23.12: graph-material parameters per object.
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
+        // Phase 23.19: project saves.
+        if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
         // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         // Phase 23.10: the game modes and the run lifecycle.
@@ -1366,6 +1375,76 @@ export interface BehaviorInputView {
    * @graphNode Set cursor
    */
   setCursor(mode: 'free' | 'locked' | 'auto'): void;
+  /**
+   * Phase 23.14: the device the player used last — `keyboardMouse` or `gamepad` (then with the pad's id and its family: xbox, playstation, switch or generic).
+   * @graphNode skip use Using gamepad (the id and family are for glyph choices a script makes)
+   */
+  device(): InputDeviceStatus;
+  /**
+   * Phase 23.14: the player used a gamepad last (else the keyboard or mouse).
+   * @graphPure
+   * @graphNode Using gamepad
+   */
+  usingGamepad(): boolean;
+  /**
+   * Phase 23.14: every project action with the player's current bindings — per binding its device (keyboard, mouse, gamepad), kind, label and icon (and a composite's parts). A binding's position is the index `rebind` takes.
+   * @graphNode skip a list of records; a graph reads Action glyph label / icon
+   */
+  bindings(): readonly InputActionStatus[];
+  /**
+   * Phase 23.14: what to show for an action on a device (default: the device used last) — its first binding from that device as a label, an icon id of the engine's glyph set and the project's own image; null when it has none.
+   * @graphNode skip an object with parts; a graph reads Action glyph label / icon
+   */
+  glyph(action: string, device?: InputDeviceKind): InputGlyph | null;
+  /**
+   * Phase 23.14: an action's glyph label for the device used last ('' when it has no binding there) — e.g. "Space", "A", "Cross".
+   * @graphPure
+   * @graphNode Action glyph label
+   */
+  glyphLabel(action: string): string;
+  /**
+   * Phase 23.14: an action's glyph icon id for the device used last ('' when it has no binding there) — e.g. key, pad-south, mouse-left.
+   * @graphPure
+   * @graphNode Action glyph icon
+   */
+  glyphIcon(action: string): string;
+  /**
+   * Phase 23.14: what became of binding requests this step (started, rebound, cancelled, timeout, refused, reset, profile).
+   * @graphNode skip a list of records; a graph reads Rebinding
+   */
+  rebindEvents(): readonly InputRebindEvent[];
+  /**
+   * Phase 23.14: the rebind listening for input now (action, binding index, part), or null.
+   * @graphPure
+   * @graphNode Rebinding
+   */
+  rebinding(): InputRebindTarget | null;
+  /**
+   * Phase 23.14: listen for the next key, button or axis and bind it to an action (a binding index and part, the device, the conflict policy swap/refuse/allow, the cancel key and a timeout in seconds). The host listens after the step; the outcome arrives in `rebindEvents()`.
+   * @graphNode skip its options would all be set by a node (part, device); scripts call it
+   */
+  rebind(action: string, options?: InputRebindOptions): void;
+  /**
+   * Phase 23.14: stop listening for a rebind.
+   * @graphNode Cancel rebind
+   */
+  cancelRebind(): void;
+  /**
+   * Phase 23.14: reset one action's bindings (or all, without a name) to the project's defaults.
+   * @graphNode Reset bindings
+   */
+  resetBindings(action?: string): void;
+  /**
+   * Phase 23.14: use another player profile's saved bindings (a name of 1–32 letters, digits, _ or -; 'default' first).
+   * @graphNode Use binding profile
+   */
+  useBindingProfile(profile: string): void;
+  /**
+   * Phase 23.14: the player profile whose bindings are in effect.
+   * @graphPure
+   * @graphNode Binding profile
+   */
+  bindingProfile(): string;
 }
 
 /** Phase 23.3: the pointer as a script reads it (`ctx.input.pointer()`). */
@@ -1392,8 +1471,22 @@ const POINTER_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, r
 const NO_CURSOR_CONTROL = (): void => {
   /* a host without the cursor channel (tests, the 2D plane's modules) ignores the request */
 };
+/** Phase 23.14: a host without the input-status channel: the keyboard, no bindings, requests ignored. */
+const NO_INPUT_STATUS: InputStatusView = Object.freeze({
+  device: (): InputDeviceStatus => Object.freeze({ kind: 'keyboardMouse' as const }),
+  actions: (): readonly InputActionStatus[] => [],
+  events: (): readonly InputRebindEvent[] => [],
+  rebinding: (): InputRebindTarget | null => null,
+  profile: (): string => 'default',
+  request: (): void => undefined,
+});
 
-export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked' | 'auto') => void = NO_CURSOR_CONTROL): BehaviorInputView {
+export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked' | 'auto') => void = NO_CURSOR_CONTROL, status: InputStatusView = NO_INPUT_STATUS): BehaviorInputView {
+  const deviceKind = (d: unknown): InputDeviceKind => {
+    if (d === undefined) return status.device().kind;
+    if (d !== 'keyboardMouse' && d !== 'gamepad') throw new Error(`a device is 'keyboardMouse' or 'gamepad' (got ${JSON.stringify(String(d)).slice(0, 40)})`);
+    return d;
+  };
   const get = (name: string): { v: number; x?: number; y?: number; p: string } | undefined => {
     const a = frame.actions?.[name];
     if (a !== undefined) return a;
@@ -1422,6 +1515,26 @@ export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked
       if (mode !== 'free' && mode !== 'locked' && mode !== 'auto') throw new Error(`setCursor takes 'free', 'locked' or 'auto' (got ${JSON.stringify(String(mode)).slice(0, 40)})`);
       setCursor(mode);
     },
+    // Phase 23.14: bindings, the device in use and rebinding.
+    device: (): InputDeviceStatus => status.device(),
+    usingGamepad: (): boolean => status.device().kind === 'gamepad',
+    bindings: (): readonly InputActionStatus[] => status.actions(),
+    glyph: (action: string, device?: InputDeviceKind): InputGlyph | null => glyphOfAction(status.actions(), String(action), deviceKind(device)),
+    glyphLabel: (action: string): string => glyphOfAction(status.actions(), String(action), status.device().kind)?.label ?? '',
+    glyphIcon: (action: string): string => glyphOfAction(status.actions(), String(action), status.device().kind)?.icon ?? '',
+    rebindEvents: (): readonly InputRebindEvent[] => status.events(),
+    rebinding: (): InputRebindTarget | null => status.rebinding(),
+    rebind: (action: string, options?: InputRebindOptions): void => status.request({ op: 'rebind', action, options: checkRebindOptions(action, options) }),
+    cancelRebind: (): void => status.request({ op: 'cancel' }),
+    resetBindings: (action?: string): void => {
+      if (action !== undefined && !isActionName(action)) throw new Error(`resetBindings takes an action name or nothing (got ${JSON.stringify(String(action)).slice(0, 40)})`);
+      status.request(action === undefined ? { op: 'reset' } : { op: 'reset', action });
+    },
+    useBindingProfile: (profile: string): void => {
+      if (!isBindingProfile(profile)) throw new Error(`a binding profile is 1–32 letters, digits, _ or - (got ${JSON.stringify(String(profile)).slice(0, 40)})`);
+      status.request({ op: 'profile', profile });
+    },
+    bindingProfile: (): string => status.profile(),
   });
 }
 

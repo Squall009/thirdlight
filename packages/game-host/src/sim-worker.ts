@@ -183,6 +183,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         driver: { kind: 'manual' },
         ...(m.variables !== undefined ? { variables: m.variables } : {}),
         ...(m.startMode !== undefined ? { startMode: m.startMode } : {}),
+        ...(m.projectSettings !== undefined ? { projectSettings: m.projectSettings } : {}),
       });
       if (!composed.ok) {
         port?.dispose?.();
@@ -232,6 +233,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         break;
       case 'debugCommand':
         r = rt.queueDebugCommand?.(c.call) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no debug commands' } };
+        break;
+      case 'saveEvent':
+        r = rt.queueSaveEvent?.(c.event) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project saves' } };
         break;
       case 'uiEvent':
         r = rt.queueUiEvent?.(c.event) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project UI' } };

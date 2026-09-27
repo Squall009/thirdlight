@@ -18,7 +18,7 @@
  * (the runtime's bounded catch-up applies as in the page). With
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
-import { debugCallProblem, validateDebugCommandCall } from '@thirdlight/runtime';
+import { debugCallProblem, validateDebugCommandCall, validateSaveEvents, type SaveEvent } from '@thirdlight/runtime';
 import { validateUiEvent } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
@@ -333,6 +333,19 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.mat.clear();
       return out;
     },
+    // Phase 23.19: project saves — the worker's requests (the page owns storage), storage's answers queued there.
+    takeSaveRequests: () => {
+      const out = mirror.saveReq;
+      mirror.saveReq = [];
+      return out;
+    },
+    queueSaveEvent: (event: SaveEvent) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateSaveEvents([event]);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `save entry: ${checked.message}`, { reason: 'saves' }) };
+      command({ op: 'saveEvent', event: checked.events[0]! });
+      return { ok: true };
+    },
     gameCounters: () => mirror.counters,
     // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).
     readCameraView: (p: number[], r: number[]) => {
@@ -367,6 +380,13 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     modeView: () => (gone() ? null : mirror.mode),
     // Phase 23.3: the worker's cursor request and pointer (the host applies the cursor; observers read the pointer).
     cursorRequest: () => (gone() ? null : mirror.cursor),
+    // Phase 23.14: the scripts' binding requests the worker sent (taken by the page's host).
+    takeBindingRequests: () => {
+      const out = { requests: mirror.bindingRequests, dropped: mirror.bindingDropped };
+      mirror.bindingRequests = [];
+      mirror.bindingDropped = 0;
+      return out;
+    },
     readPointer: () => (gone() ? null : mirror.pointer),
     setCameraViewport: (width: number, height: number): boolean => {
       if (gone()) return false;

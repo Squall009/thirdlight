@@ -21,11 +21,11 @@ const frame = (seq: number, audio: number, effects: number) => ({
 });
 
 describe('FrameMirror request queues', () => {
-  it('stay bounded when nobody takes them (sounds: the first 16; effects: the newest 256)', () => {
+  it('stay bounded when nobody takes them (audio commands and effects: the newest 256)', () => {
     const m = new FrameMirror();
     for (let seq = 1; seq <= 100; seq += 1) m.apply(frame(seq, 5, 10) as never);
     expect(m.audio).toHaveLength(MIRROR_AUDIO_LIMIT);
-    expect(m.audio[0]!.assetId).toBe('a1-0');
+    expect((m.audio[MIRROR_AUDIO_LIMIT - 1] as { assetId: string }).assetId).toBe('a100-4');
     expect(m.effects).toHaveLength(MIRROR_EFFECT_LIMIT);
     expect((m.effects[MIRROR_EFFECT_LIMIT - 1] as { id: string }).id).toBe('e100-9');
   });

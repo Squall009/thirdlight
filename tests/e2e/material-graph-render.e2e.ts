@@ -11,6 +11,12 @@
  *   object of a shared material (both colours, one material object), a
  *   fresnel emissive rim, a world-space vertex offset.
  *
+ * - phase 23.15, Custom-lit outputs and the lighting inputs: N·L of the
+ *   main light quantized into two bands (two tones on a sphere), the main
+ *   light's shadow input (a caster's shadow on a wall), a point light in the
+ *   accumulated diffuse light (a warm glow on one box), the main light's
+ *   colour (the shadow-casting sun, not a brighter fill) and fog.
+ *
  * `default` runs WebGL 2, `webgpu` runs WebGPU.
  */
 import { resolve, join } from 'node:path';
@@ -109,4 +115,58 @@ test('known values: constant, texture, per-object parameter, fresnel, vertex off
   // The lifted quad draws 1.2 m above its place, and not where its lower half was.
   expect(near(p('liftedAt'), [255, 255, 255], 3), JSON.stringify(p('liftedAt'))).toBe(true);
   expect(near(p('liftedFrom'), BACKGROUND, 3), JSON.stringify(p('liftedFrom'))).toBe(true);
+});
+
+test('custom-lit (phase 23.15): N·L bands, the shadow input, a point light in the diffuse light, the main light, fog', async ({ page }) => {
+  test.setTimeout(120_000);
+  const { img, result, errors } = await render(page, 'lit');
+  expect(errors).toEqual([]);
+  const p = (k: string): [number, number, number] => px(img, result.probes[k]!);
+  const log = Object.fromEntries(Object.keys(result.probes).map((k) => [k, p(k)]));
+  console.log(`[material-graph-render] ${backendOf()} lit ${JSON.stringify(log)}`);
+  const DARK = [0x30, 0x30, 0x30];
+  const LIGHT = [0xd0, 0xd0, 0xd0];
+  // Two bands on the sphere: the side towards the sun is light, the far side dark, and nothing else on it.
+  expect(near(p('bandLit'), LIGHT, 3), JSON.stringify(p('bandLit'))).toBe(true);
+  expect(near(p('bandDark'), DARK, 3), JSON.stringify(p('bandDark'))).toBe(true);
+  const disc = (result as unknown as { disc: [number, number][] }).disc;
+  const tones = disc.map((q) => px(img, q));
+  const other = tones.filter((c) => !near(c, LIGHT, 3) && !near(c, DARK, 3));
+  // Antialiasing is off; only pixels exactly on the band edge may differ.
+  expect(other.length, JSON.stringify(other.slice(0, 5))).toBeLessThanOrEqual(Math.ceil(disc.length * 0.04));
+  const lightN = tones.filter((c) => near(c, LIGHT, 3)).length;
+  const darkN = tones.filter((c) => near(c, DARK, 3)).length;
+  console.log(`[material-graph-render] ${backendOf()} bands: light ${lightN}, dark ${darkN}, other ${other.length} of ${disc.length}`);
+  expect(lightN).toBeGreaterThan(disc.length * 0.2);
+  expect(darkN).toBeGreaterThan(disc.length * 0.2);
+  // The caster's shadow on the custom-lit wall reads 0 (dark); beside it 1 (light).
+  expect(near(p('floorShadow'), DARK, 4), JSON.stringify(p('floorShadow'))).toBe(true);
+  expect(near(p('floorLit'), LIGHT, 4), JSON.stringify(p('floorLit'))).toBe(true);
+  // The warm point light brightens the box it sits in front of (the accumulated diffuse light), mostly in red.
+  const glow = p('boxGlow');
+  const plain = p('boxPlain');
+  expect(glow[0], JSON.stringify([glow, plain])).toBeGreaterThan(plain[0] + 30);
+  expect(glow[1], JSON.stringify([glow, plain])).toBeGreaterThan(plain[1] + 20);
+  expect(glow[0] - plain[0], JSON.stringify([glow, plain])).toBeGreaterThan(glow[2] - plain[2]);
+  // Without it the box is sun + ambient on the diffuse scale: (1.5 × 0.8 + 0.4) ÷ π = 0.51 linear → sRGB 189.
+  expect(near(plain, [189, 189, 189], 4), JSON.stringify(plain)).toBe(true);
+  // The main light is the shadow-casting sun, not the brighter pink fill: grey, sun colour × 1.5 ÷ π (linear 0.477 → sRGB 182).
+  expect((result as unknown as { mainLight: number }).mainLight).toBe(0);
+  expect(near(p('mainColour'), [182, 182, 182], 4), JSON.stringify(p('mainColour'))).toBe(true);
+  // Ambient 0.4 / pi = 0.127 linear -> sRGB 100; the lightmap (linear 0.5 x intensity pi) / pi = 0.5 -> sRGB 188.
+  expect(near(p('ambient'), [100, 100, 100], 4), JSON.stringify(p('ambient'))).toBe(true);
+  expect(near(p('lightmap'), [188, 188, 188], 4), JSON.stringify(p('lightmap'))).toBe(true);
+  // Fog still applies: the near copy is pure green, the far one mostly the fog's purple.
+  expect(near(p('fogNear'), [0, 255, 0], 3), JSON.stringify(p('fogNear'))).toBe(true);
+  const far = p('fogFar');
+  expect(far[1], JSON.stringify(far)).toBeLessThan(120);
+  expect(far[2], JSON.stringify(far)).toBeGreaterThan(120);
+});
+
+test('custom-lit (phase 23.15) without any light draws its graph with "no light" (diffuse 0, shadow 1)', async ({ page }) => {
+  test.setTimeout(60_000);
+  const { img, result, errors } = await render(page, 'dark');
+  expect(errors).toEqual([]);
+  const c = px(img, result.probes['dark']!);
+  expect(near(c, [255, 128, 0], 2), JSON.stringify(c)).toBe(true);
 });

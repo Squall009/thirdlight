@@ -11,6 +11,7 @@
  * §4.3).
  */
 
+import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, projectInputMaps, validateInput } from './input';
@@ -1595,6 +1596,12 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // reversed-Z needs WebGPU or WebGL 2's EXT_clip_control and falls back to
   // standard without it).
   { key: 'depth_buffer', type: 'number', default: 1, values: [1, 2, 3], valueLabels: ['Standard', 'Logarithmic (far vistas)', 'Reversed Z (far vistas)'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Depth precision', tooltip: 'How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard).' },
+  // Phase 23.13: how audio sources are heard. 0, automatic: a 2D-plane project
+  // keeps the phase 9.10 model (louder as the player comes near along X, no
+  // panning) so every existing project sounds exactly as before; a 3D project
+  // gets a panner per source with the listener on the active camera. 1 and 2
+  // force one or the other (a 2D game may want stereo panning).
+  { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
 ];
 
 /** Phase 23.0: the simulation's dimension (the `physics_dimension` setting's values). */
@@ -1610,6 +1617,19 @@ export const PHYSICS_DIMENSIONS: readonly PhysicsDimension[] = [2, 3];
 export function depthBufferOf(settings: unknown): 'standard' | 'logarithmic' | 'reversed' {
   const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['depth_buffer'] : undefined;
   return v === 2 ? 'logarithmic' : v === 3 ? 'reversed' : 'standard';
+}
+
+/**
+ * Phase 23.13: how audio sources are heard (the `audio_spatial` setting):
+ * 'legacy' (the X distance to the player) or 'panner' (a panner per source,
+ * the listener on the active camera). Absent or 0: panner in 3D, legacy on
+ * the 2D plane.
+ */
+export function audioSpatialOf(settings: unknown): 'legacy' | 'panner' {
+  const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['audio_spatial'] : undefined;
+  if (v === 1) return 'legacy';
+  if (v === 2) return 'panner';
+  return physicsDimensionOf(settings) === 3 ? 'panner' : 'legacy';
 }
 
 export function physicsDimensionOf(settings: unknown): PhysicsDimension {
@@ -2168,8 +2188,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'uiDocuments' || k === 'uiThemes' || k === 'modes' || k === 'behaviorGroups'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'modes (optional)', 'behaviorGroups (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'modes' || k === 'behaviorGroups'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'modes (optional)', 'behaviorGroups (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2334,6 +2354,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
   // Phase 23.3: the named collision layers (v4).
   if (version === 4 && doc['collisionLayers'] !== undefined) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
+  // Phase 23.19: the project save schema (v4).
+  if (version === 4 && doc['saveSchema'] !== undefined) validateSaveSchema(doc['saveSchema'], '/saveSchema', errors);
   validateLibraryPinReferences(doc, errors);
   // Phase 23.9a: project UI documents and themes (v4), and what they reference.
   // Phase 23.10: a document's action map may be one of the project's own maps (input.maps).
@@ -2497,6 +2519,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).behaviorGroups !== undefined && (c as ContentCatalogV4).behaviorGroups!.length > 0 ? { behaviorGroups: [...(c as ContentCatalogV4).behaviorGroups!] } : {}),
     // Phase 23.3: present only when the project names collision layers.
     ...((c as ContentCatalogV4).collisionLayers !== undefined && (c as ContentCatalogV4).collisionLayers!.length > 0 ? { collisionLayers: [...(c as ContentCatalogV4).collisionLayers!] } : {}),
+    // Phase 23.19: present only when the project declares a save schema.
+    ...((c as ContentCatalogV4).saveSchema !== undefined ? { saveSchema: canonicalSaveSchema((c as ContentCatalogV4).saveSchema!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };
@@ -2609,6 +2633,13 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
     for (const [p, id] of refs) {
       if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    }
+  }
+  // Phase 23.14: the input's glyph images are texture assets.
+  const input = doc['input'];
+  if (isPlainObject(input) && isPlainObject(input['glyphs'])) {
+    for (const [k, id] of Object.entries(input['glyphs'])) {
+      if (kindOf.get(id as string) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/input/glyphs/${k}`, message: 'a glyph image must name a texture asset of this project', expected: 'a texture assetId' }, id));
     }
   }
   // Phase 9.10: the flow's music and logo.

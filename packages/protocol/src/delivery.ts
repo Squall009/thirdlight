@@ -352,9 +352,9 @@ export function parseInputRelayRequest(
     if (rawActions !== undefined) {
       const bad = {
         ok: false as const,
-        error: { code: 'field_value' as const, cls: 'validation' as const, message: 'actions maps up to 32 action names to { v, x?, y? (numbers in [-10, 10]), p: none | pressed | held | released }', path: `/frames/${i}/actions` },
+        error: { code: 'field_value' as const, cls: 'validation' as const, message: 'actions maps up to 64 action names to { v, x?, y? (numbers in [-10, 10]), p: none | pressed | held | released }', path: `/frames/${i}/actions` },
       };
-      if (typeof rawActions !== 'object' || rawActions === null || Array.isArray(rawActions) || Object.keys(rawActions).length > 32) return bad;
+      if (typeof rawActions !== 'object' || rawActions === null || Array.isArray(rawActions) || Object.keys(rawActions).length > 64) return bad; // phase 23.14: project-model MAX_INPUT_ACTIONS
       actions = {};
       for (const [name, a] of Object.entries(rawActions as Record<string, unknown>)) {
         const v = a as Record<string, unknown> | null;

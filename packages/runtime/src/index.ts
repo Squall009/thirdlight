@@ -63,6 +63,31 @@ export {
   type DebugCommandArg,
   type DebugCommandCall,
 } from './actions';
+// Phase 23.14: the player's bindings, the device in use and rebinding (the frame's input entry, scripts' requests).
+export {
+  checkRebindOptions,
+  glyphOfAction,
+  mergeInputStatus,
+  validateInputStatus,
+  MAX_BINDING_REQUESTS,
+  MAX_FRAME_INPUT_EVENTS,
+  type GamepadFamily,
+  type InputActionStatus,
+  type InputBindingConflict,
+  type InputBindingDevice,
+  type InputBindingPart,
+  type InputBindingRequest,
+  type InputBindingStatus,
+  type InputDeviceKind,
+  type InputDeviceStatus,
+  type InputGlyph,
+  type InputGlyphPart,
+  type InputRebindEvent,
+  type InputRebindOptions,
+  type InputRebindTarget,
+  type InputStatusEntry,
+  type RebindConflictPolicy,
+} from './input-status';
 export {
   validateCharacterMoveResult,
   type CharacterClearanceResult,
@@ -221,7 +246,7 @@ export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags 
 // Phase 14.0: the character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf } from './scene-set';
+export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf } from './scene-set';
 // Phase 15.3: the tuning defaults hosts and editors read (the values are project-model's).
 export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
@@ -244,7 +269,7 @@ export type { BehaviorMessage, BehaviorMessageControl, BehaviorMessages, Behavio
 export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random';
 export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
-export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';
+export type { AnimatorEventRecord, AudioFinishedEvent, AudioMusicState, AudioPlayOptions, AudioStingerOptions, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';
 // Phase 23.2: the 3D kinematic character controller module.
 export { CHARACTER_3D_MODULE_ID, RUN_ACTION, character3DSpec, createCharacter3DModule, type Character3DStatus } from './character3d';
 export { character3DPhysicsOf } from './scene-set';
@@ -253,14 +278,20 @@ export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './
 export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';
 export { lookAtQuat, orbitOffset, pointOnPath, quatFromYawPitch, samplePath, screenToRay, worldToScreen, yawPitchOf, type CameraPose, type SampledPath, type ScreenPoint } from './camera-rig';
 export { debugCallProblem } from './debug-commands';
+// Phase 23.19: project save documents (ctx.saves).
+export { MAX_FRAME_SAVE_EVENTS, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION, SAVE_REQUESTS_PER_STEP, projectSaveFileProblem, utf8Length, validateSaveEvents, type BehaviorSaves, type ProjectSaveFile, type SaveEvent, type SaveMeta, type SaveRequest, type SaveResult, type SaveSlotInfo } from './project-saves';
+// (the save schema's limits and settings rules, for hosts that do not depend on project-model)
+export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, settingsDocumentOf, type SaveSchema, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 // Phase 23.5 (E8): block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
 export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridDiff, type GridPick, type GridRenderChange, type GridVec3 } from './grid';
 // Phase 23.6: the editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).
 export { applyBlockEdits, effectiveCellMeta, pickCell, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
 export { BlockGrid, CHUNK_SIZE, autoVariant, blockTypeSolid, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockType, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
+// Phase 23.13: the audio intent log (script sound handles, music, duck) and the positional maths the host shares.
+export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PITCH_MAX, AUDIO_PITCH_MIN, AUDIO_SPATIAL_DEFAULTS, AudioMixer, STINGER_DEFAULTS, distanceGain, listenerRelative, spatialOf, type AudioBusName, type AudioCommand, type AudioDistanceModel, type AudioSpatial } from './audio-mixer';
 // Phase 23.12 (E9): graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
-export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
+export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // Phase 23.9a: the project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
 export type { BehaviorUi, BehaviorUiEvent } from './types';
 export {

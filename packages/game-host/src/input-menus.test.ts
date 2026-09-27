@@ -10,6 +10,8 @@ import { createFlowController, type FlowConfigLike } from './flow';
 import { titleAnchor } from './host';
 import type { HostDomNode } from './hud';
 import { createSaveStore, type SaveStorage } from './save';
+import { createInputBindings } from './rebind';
+import type { Captured } from './input-bindings';
 
 class Node implements HostDomNode {
   textContent = '';
@@ -51,17 +53,19 @@ function harness(flow: FlowConfigLike, storage = memoryStorage()) {
   const volumes: Record<string, number> = {};
   const configured: unknown[] = [];
   const sceneOps: string[] = [];
-  let padCapture: ((b: number | null) => void) | null = null;
+  let padCapture: ((b: Captured | null) => void) | null = null;
+  let devices: readonly string[] = [];
   const root = new Node();
-  const input = {
-    captureKey: () => () => undefined,
-    capturePadButton: (cb: (b: number | null) => void) => {
+  const save = createSaveStore(storage, 'test');
+  const owner = {
+    captureInput: (o: { devices?: readonly string[] }, cb: (b: Captured | null) => void) => {
       padCapture = cb;
+      devices = o.devices ?? [];
       return () => (padCapture = null);
     },
     configure: (c: unknown) => configured.push(c),
-    config: structuredClone(DEFAULT_ACTIONS) as { actions: { name: string; type: string; map: string; bindings: unknown[] }[] },
   };
+  const bindings = createInputBindings({ defaults: structuredClone(DEFAULT_ACTIONS), input: owner, store: save });
   let run = 0;
   const ctl = createFlowController({
     flow,
@@ -90,8 +94,8 @@ function harness(flow: FlowConfigLike, storage = memoryStorage()) {
         return true;
       },
     },
-    input,
-    save: createSaveStore(storage, 'test'),
+    bindings,
+    save,
   });
   const view = (state: GameView['state']): GameView => ({ runId: `run-${run}`, state, simTime: 0, deathCount: 0, checkpointId: null }) as unknown as GameView;
   const frame = (ui: Partial<typeof NO_UI> = {}, state: GameView['state'] = 'awaitingStart'): boolean => ctl.frame(view(state), { ...NO_UI, ...ui });
@@ -108,7 +112,12 @@ function harness(flow: FlowConfigLike, storage = memoryStorage()) {
     for (let k = at; k < i; k++) frame({ down: true });
     for (let k = at; k > i; k--) frame({ up: true });
   };
-  return { ctl, sounds, volumes, configured, input, sceneOps, storage, frame, labels, select, capture: (b: number | null) => padCapture?.(b), capturing: () => padCapture !== null };
+  const capture = (b: number | string | null): void => {
+    const cb = padCapture;
+    padCapture = null;
+    cb?.(b === null ? null : typeof b === 'number' ? { device: 'gamepad', button: b } : { device: 'keyboard', code: b });
+  };
+  return { ctl, sounds, volumes, configured, bindings, sceneOps, storage, frame, labels, select, capture, capturing: () => padCapture !== null, devices: () => devices };
 }
 
 const LEVELS: FlowConfigLike['levels'] = [
@@ -116,43 +125,69 @@ const LEVELS: FlowConfigLike['levels'] = [
   { id: 'two', name: 'Two', scenes: ['s-main', 's2'], spawnId: 'p2' },
 ];
 
-describe('pad rebinding in the settings', () => {
-  it('rebinds jump to pad button 3: the input owner is reconfigured, the label shows it and the settings keep it', () => {
+describe('rebinding in the settings (phase 23.14: every action, through the bindings API)', () => {
+  it('lists every action for keys and pad; rebinds jump to pad button 3 and a key; saves per profile; resets', () => {
     const g = harness({ levels: LEVELS });
     g.select('Settings');
     g.frame({ submit: true });
     expect(g.ctl.screen).toBe('settings');
-    expect(g.labels()).toEqual(expect.arrayContaining(['Jump (pad): button 0', 'Move left (pad): button 14', 'Move right (pad): button 15', 'Interact (pad): button 3']));
+    expect(g.labels()).toEqual(expect.arrayContaining(['Jump (keys): Space', 'Jump (pad): A', 'Move − (pad): D-pad left', 'Move + (pad): D-pad right', 'Move − (keys): A', 'Interact (pad): Y', 'Attack (keys): J', 'Reset controls to defaults']));
     expect(g.labels()).not.toContain('Menu sounds volume: 100%'); // no menu sounds: no volume for them
     g.select('Jump (pad)');
     g.frame({ submit: true });
     expect(g.capturing()).toBe(true);
+    expect(g.devices()).toEqual(['gamepad']);
     g.frame({ cancel: true }); // menus wait while a button is awaited
     expect(g.ctl.screen).toBe('settings');
     g.capture(3);
-    expect(g.labels()).toContain('Jump (pad): button 3');
+    // Pad button 3 was interact's: swapped (interact takes button 0, jump's old one).
+    expect(g.labels()).toContain('Jump (pad): Y');
+    expect(g.labels()).toContain('Interact (pad): A');
     const jump = (g.configured.at(-1) as typeof DEFAULT_ACTIONS).actions.find((a) => a.name === 'jump')!;
     expect(jump.bindings).toEqual([{ kind: 'key', code: 'Space' }, { kind: 'gamepadButton', button: 3 }]);
-    expect(g.ctl.observe().pad).toEqual({ jump: 3 });
-    expect(JSON.parse(g.storage.data.get('test:settings')!).pad).toEqual({ jump: 3 });
+    expect(g.ctl.observe().rebound).toEqual(['jump', 'interact']);
+    expect(JSON.parse(g.storage.data.get('test:bindings:default')!).actions.jump).toEqual([{ kind: 'key', code: 'Space' }, { kind: 'gamepadButton', button: 3 }]);
 
-    // Move right onto button 5: the move action's button pair changes, left stays 14.
-    g.select('Move right (pad)');
+    // Move + onto button 5: the move action's button pair changes, − stays 14.
+    g.select('Move + (pad)');
     g.frame({ submit: true });
     g.capture(5);
     const move = (g.configured.at(-1) as typeof DEFAULT_ACTIONS).actions.find((a) => a.name === 'move')!;
     expect(move.bindings.filter((b) => b.kind === 'gamepadButtons1d')).toEqual([{ kind: 'gamepadButtons1d', negative: 14, positive: 5 }]);
 
+    // A key for attack.
+    g.select('Attack (keys)');
+    g.frame({ submit: true });
+    expect(g.devices()).toEqual(['keyboard', 'mouse']);
+    g.capture('KeyK');
+    expect(g.labels()).toContain('Attack (keys): K');
+
     // A cancelled capture changes nothing.
     g.select('Attack (pad)');
     g.frame({ submit: true });
     g.capture(null);
-    expect(g.labels()).toContain('Attack (pad): button 2');
+    expect(g.labels()).toContain('Attack (pad): X');
 
-    // A new session (a reload) applies the saved pad buttons at once.
+    // A new session (a reload) applies the saved bindings at once.
     const again = harness({ levels: LEVELS }, g.storage);
-    expect(again.ctl.observe().pad).toEqual({ jump: 3, right: 5 });
-    expect((again.input.config.actions.find((a) => a.name === 'jump')!.bindings as unknown[]).at(-1)).toEqual({ kind: 'gamepadButton', button: 3 });
+    expect(again.ctl.observe().rebound).toEqual(['move', 'jump', 'attack', 'interact']);
+    expect(again.bindings.config().actions.find((a) => a.name === 'attack')!.bindings[0]).toEqual({ kind: 'key', code: 'KeyK' });
+
+    // Reset restores the project's bindings (and saves that).
+    again.select('Settings');
+    again.frame({ submit: true });
+    again.select('Reset controls');
+    again.frame({ submit: true });
+    expect(again.labels()).toContain('Jump (pad): A');
+    expect(again.ctl.observe().rebound).toEqual([]);
+    expect(JSON.parse(g.storage.data.get('test:bindings:default')!).actions).toEqual({});
+  });
+
+  it('reads the settings of an earlier version (settings.keys / settings.pad) as the default profile', () => {
+    const storage = memoryStorage();
+    storage.data.set('test:settings', JSON.stringify({ music: 0.5, sfx: 1, quality: 'high', keys: { jump: 'KeyK' }, pad: { jump: 2 } }));
+    const g = harness({ levels: LEVELS }, storage);
+    expect(g.bindings.config().actions.find((a) => a.name === 'jump')!.bindings).toEqual([{ kind: 'key', code: 'KeyK' }, { kind: 'gamepadButton', button: 2 }]);
   });
 
   it('refuses damaged saved pad values', () => {

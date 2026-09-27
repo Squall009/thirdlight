@@ -23,6 +23,8 @@ export interface InputBindingLike {
   readonly right?: string;
   readonly x?: number;
   readonly y?: number;
+  /** Phase 23.14: hold instead of tap — seconds a key/button binding must be held before it counts. */
+  readonly hold?: number;
 }
 
 export interface InputActionLike {
@@ -68,6 +70,12 @@ export interface RawDeviceState {
   readonly gamepad: { readonly buttons: readonly boolean[]; readonly axes: readonly number[] } | null;
   /** Phase 23.3: the pointer (absent/null: none seen yet). */
   readonly pointer?: RawPointerState | null;
+  /**
+   * Phase 23.14: the sample's time in milliseconds (any monotonic clock) —
+   * hold bindings measure how long they have been held with it. Absent: a
+   * hold binding never counts.
+   */
+  readonly now?: number;
 }
 
 const POINTER_BUTTON_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, right: 2, middle: 4 });
@@ -113,6 +121,33 @@ export function createActionEvaluator(config: InputConfigLike): {
   holdUntilReleased(): void;
 } {
   const prevDown = new Map<string, boolean>();
+  /** Phase 23.14: when each hold binding (action#index) went down (absent: up). */
+  const holdSince = new Map<string, number>();
+  /**
+   * Phase 23.14: a hold binding counts once it has been held `hold` seconds
+   * (only held state: a tap between two samples never completes a hold).
+   */
+  const holdValue = (raw: RawDeviceState, id: string, down: boolean, hold: number): number => {
+    if (!down || typeof raw.now !== 'number' || !Number.isFinite(raw.now)) {
+      holdSince.delete(id);
+      return 0;
+    }
+    const since = holdSince.get(id);
+    if (since === undefined) {
+      holdSince.set(id, raw.now);
+      return hold <= 0 ? 1 : 0;
+    }
+    return raw.now - since >= hold * 1000 - 1e-6 ? 1 : 0;
+  };
+  const heldOnly = (raw: RawDeviceState, b: InputBindingLike): boolean => {
+    if (b.kind === 'key') return typeof b.code === 'string' && raw.keys.has(b.code);
+    if (b.kind === 'gamepadButton') return typeof b.button === 'number' && raw.gamepad?.buttons[b.button] === true;
+    if (b.kind === 'pointerButton') {
+      const bit = POINTER_BUTTON_BIT[String(b.button)] ?? 0;
+      return raw.pointer !== undefined && raw.pointer !== null && (raw.pointer.buttons & bit) !== 0;
+    }
+    return false;
+  };
   let holdNext = false;
   const held = new Set<string>();
   const key = (raw: RawDeviceState, code: string | number | undefined): number => (typeof code === 'string' && (raw.keys.has(code) || raw.pressedKeys.has(code)) ? 1 : 0);
@@ -182,9 +217,11 @@ export function createActionEvaluator(config: InputConfigLike): {
     }
     let best = 0;
     let impulse = false;
-    for (const b of a.bindings) {
+    for (let bi = 0; bi < a.bindings.length; bi += 1) {
+      const b = a.bindings[bi]!;
       let v = 0;
-      if (b.kind === 'pointerButton') v = pointerButton(raw, b.button);
+      if (typeof b.hold === 'number' && (b.kind === 'key' || b.kind === 'gamepadButton' || b.kind === 'pointerButton')) v = holdValue(raw, `${a.name}#${bi}`, heldOnly(raw, b), b.hold);
+      else if (b.kind === 'pointerButton') v = pointerButton(raw, b.button);
       else if (b.kind === 'pointerAxis') {
         v = pointerAxis(raw, b.axis);
         if (Math.abs(v) > Math.abs(best)) {
@@ -231,6 +268,7 @@ export function createActionEvaluator(config: InputConfigLike): {
     },
     reset() {
       prevDown.clear();
+      holdSince.clear();
       held.clear();
     },
     holdUntilReleased() {
@@ -268,9 +306,10 @@ export function platformerKeys(config: InputConfigLike): { left: string[]; right
     if (b.kind === 'keys1d') {
       if (typeof b.negative === 'string') left.push(b.negative);
       if (typeof b.positive === 'string') right.push(b.positive);
-    } else if (b.kind === 'key' && typeof b.code === 'string') right.push(b.code);
+    } else if (b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined) right.push(b.code);
   }
-  const jumpKeys = (jump?.bindings ?? []).filter((b) => b.kind === 'key' && typeof b.code === 'string').map((b) => b.code as string);
+  // Phase 23.14: a hold binding counts in the action values only (the platformer reads its keys directly).
+  const jumpKeys = (jump?.bindings ?? []).filter((b) => b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined).map((b) => b.code as string);
   return { left, right, jump: jumpKeys };
 }
 
@@ -301,7 +340,7 @@ const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.is
 export function platformerPad(config: InputConfigLike): PlatformerPad {
   const move = config.actions.find((a) => a.name === 'move');
   const jump = config.actions.find((a) => a.name === 'jump');
-  const jumpButtons = (jump?.bindings ?? []).filter((b) => b.kind === 'gamepadButton' && padIndex(b.button)).map((b) => b.button as number);
+  const jumpButtons = (jump?.bindings ?? []).filter((b) => b.kind === 'gamepadButton' && padIndex(b.button) && b.hold === undefined).map((b) => b.button as number);
   const left: number[] = [];
   const right: number[] = [];
   const axes: number[] = [];

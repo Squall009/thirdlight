@@ -147,6 +147,7 @@ export type {
   SetTagsArgs,
   SetTagsChange,
   SetCollisionLayersChange,
+  SetSaveSchemaChange,
   SetAssetOptionsArgs,
   SetAssetOptionsChange,
   PasteEntitiesArgs,

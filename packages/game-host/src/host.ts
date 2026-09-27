@@ -62,6 +62,7 @@ import {
   type RuntimeSnapshot,
   type LoadedSceneBatch,
   type ModeView,
+  type ProjectSaveFile,
 } from '@thirdlight/runtime';
 import { platformerSpec } from '@thirdlight/platformer';
 import {
@@ -69,11 +70,14 @@ import {
   platformerGameSessionSpec,
 } from '@thirdlight/platformer-game';
 import type { MenuSample } from '@thirdlight/input';
-import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
+import type { AudioObservation, AudioSpatialLike, GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, withSavedBindings, type InputConfigLike } from './bindings';
-import { createFlowController, PAD_REBINDABLE, REBINDABLE, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
+import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, type InputConfigLike } from './bindings';
+import { createInputBindings, type InputBindingsController } from './rebind';
+import type { Captured } from './input-bindings';
+import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
+import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
 import { createUiLayer, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
 import { createPausePanel, type PausePanel } from './pause-panel';
@@ -122,6 +126,12 @@ export interface HostInputOwner {
   applyCursor?(mode: 'free' | 'locked'): void;
   /** Phase 23.3: the cursor as it is (observers). */
   cursorState?(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
+  /** Phase 23.14: listen for the next input for a rebind (a cancel key gives null). */
+  captureInput?(options: { devices?: readonly ('keyboard' | 'mouse' | 'gamepad')[]; cancelKeys?: readonly string[] }, onInput: (input: Captured | null) => void): () => void;
+  /** Phase 23.14: the device used last with the active pad's id. */
+  activeDeviceInfo?(): { device: 'keyboard' | 'gamepad'; gamepadId: string | null };
+  /** Phase 23.14: what the host adds to the next sampled frame (`ActionFrame.input`). */
+  setFrameInput?(source: (() => import('@thirdlight/runtime').InputStatusEntry | undefined) | null): void;
 }
 
 /**
@@ -135,6 +145,12 @@ export interface GameHostInputObservation {
   readonly cursor?: { readonly mode: 'free' | 'locked'; readonly locked: boolean; readonly hidden: boolean };
   /** The ids of the objects scripts hid (`ctx.game.setVisible`), sorted, at most 64. */
   readonly hidden?: readonly string[];
+  /**
+   * Phase 23.14: the player's bindings — the device used last (pad id and
+   * family), the profile, a rebind listening now, the actions the player
+   * changed and each action's glyph for the device used last.
+   */
+  readonly inputBindings?: ReturnType<InputBindingsController['observe']>;
 }
 
 /** The host's structural render-adapter surface (the three-adapter
@@ -142,8 +158,19 @@ export interface GameHostInputObservation {
 export interface HostRenderAdapter {
   renderFrame(): { ok: true } | { ok: false; error: unknown };
   dispose(): unknown;
+  /** Phase 23.19, optional: draw a frame and return it downscaled (a save slot's picture). */
+  captureThumbnail?(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
   /** Phase 23.9a: project an entity or world point through the rendered camera (world-anchored UI widgets). */
   projectToScreen?: UiProjector;
+}
+
+/** Phase 23.19: the project saves as observers see them (a project with a save schema). */
+export interface ProjectSavesObservation {
+  readonly slotCount: number;
+  readonly storage: 'indexeddb' | 'memory';
+  /** The first 32 used slots. */
+  readonly slots: readonly ProjectSlotObservation[];
+  readonly settings: Readonly<Record<string, boolean | number | string>>;
 }
 
 /** delivery.md §3.1 `GameHostObservation.sound`. */
@@ -184,6 +211,8 @@ export interface GameHostObservation {
   readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.13, additive: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener) once scripts used audio or a positional loop plays. */
+  readonly audio?: AudioObservation;
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
   /** Phase 23.9a, additive: the project UI — the documents shown, the flow screen's document, the focus. */
@@ -194,6 +223,10 @@ export interface GameHostObservation {
   readonly hidden?: readonly string[];
   /** Phase 23.10, additive: the game modes (only a project with modes). */
   readonly mode?: ModeView;
+  /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
+  readonly saves?: ProjectSavesObservation;
+  /** Phase 23.14, additive: the player's bindings (device, profile, listening, changed actions, glyphs). */
+  readonly inputBindings?: GameHostInputObservation['inputBindings'];
 }
 
 /**
@@ -212,12 +245,16 @@ export interface GameHostSceneObservation {
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.13, additive: the Web Audio graph (see `GameHostObservation.audio`). */
+  readonly audio?: AudioObservation;
   /** Phase 23.9a, additive: the project UI. */
   readonly ui?: UiLayerObservation;
   /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
   readonly hidden?: readonly string[];
+  /** Phase 23.14, additive: the player's bindings (device, profile, listening, changed actions, glyphs). */
+  readonly inputBindings?: GameHostInputObservation['inputBindings'];
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
   /** Phase 23.10, additive: the game modes (only a project with modes) and the engine pause. */
@@ -225,6 +262,8 @@ export interface GameHostSceneObservation {
   readonly paused?: boolean;
   /** Phase 23.10, additive: the engine's pause panel (a paused game with modes and no pause screen of its own). */
   readonly pausePanel?: { readonly focus: 'resume' | 'restart' };
+  /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
+  readonly saves?: ProjectSavesObservation;
 }
 
 /** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
@@ -261,6 +300,9 @@ export interface GameStartOptions {
   readonly saveSlot?: SaveSlot;
   /** Phase 23.10: the game mode the run starts in (validated by the backend against the project's modes). */
   readonly mode?: string;
+  /** Phase 23.19: a project save document loaded at the first step (slot 0), or a project save slot of this page. */
+  readonly projectSave?: ProjectSaveFile;
+  readonly projectSaveSlot?: number;
 }
 
 /** Phase 23.8: what became of the start options (`GameHost.startOutcome`). */
@@ -324,6 +366,12 @@ export interface GameHostConfig {
   /** Phase 9.11: where saves go (localStorage in the browser) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
+  /**
+   * Phase 23.19: where project save slots go (IndexedDB in the browser; see
+   * `browserProjectSaveBackend`), under `saveNamespace`. Absent with a save
+   * schema: slots last for this page only (a memory store).
+   */
+  readonly projectSaveBackend?: ProjectSaveBackend;
   /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
   /** Phase 14.4: apply the playing level's look (the wrapper forwards it to the renderer; null = the project environment). */
@@ -359,6 +407,13 @@ export interface GameHostConfig {
   readonly debugConsole?: boolean;
   /** Phase 23.8: give the keyboard back to the game (the console closed). */
   readonly focusGame?: () => void;
+  /**
+   * Phase 23.13: how audio sources are heard — `legacy` (phase 9.10: louder as
+   * the player comes near along X, no panning; absent) or `panner` (a panner
+   * per source, the listener on the active camera, the source's distance
+   * model). Script sounds with a place always use the panner.
+   */
+  readonly audioSpatial?: 'legacy' | 'panner';
   /**
    * Phase 23.9a: the project UI (the manifest's documents and themes). The
    * host draws the documents the simulation shows and the flow screens they
@@ -398,6 +453,14 @@ export interface GameHost {
   readonly debugConsole?: DebugConsole | null;
   /** Phase 23.8, additive: what became of `config.start` (null: no start options). */
   readonly startOutcome?: GameStartOutcome | null;
+  /** Phase 23.19, additive: the project saves service (null: the project declares no save schema). */
+  readonly projectSaves?: ProjectSaveService | null;
+  /**
+   * Phase 23.14, additive: the rebinding API (list, listen, conflicts, reset,
+   * profiles, the device used last, glyphs) — for project UI and tools; null
+   * before mount or without an input config.
+   */
+  readonly bindings?: InputBindingsController | null;
 }
 
 // --- the committed-view → cue mapping (delivery.md §4.1, B13) -------------
@@ -597,6 +660,8 @@ export interface GameRuntimeArgs {
   readonly variables?: Readonly<Record<string, unknown>>;
   /** Phase 23.10: the game mode runs start in (a start option). */
   readonly startMode?: string;
+  /** Phase 23.19: the stored project settings document. */
+  readonly projectSettings?: Readonly<Record<string, unknown>>;
 }
 
 /** Phase 22.0: compose and start the game's runtime (see `GameRuntimeArgs`). */
@@ -653,6 +718,7 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     ...(args.driver !== undefined ? { driver: { kind: args.driver.kind } } : {}),
     ...(args.variables !== undefined ? { variables: args.variables } : {}),
     ...(args.startMode !== undefined ? { startMode: args.startMode } : {}),
+    ...(args.projectSettings !== undefined ? { projectSettings: args.projectSettings } : {}),
   });
   if (res.ok === false) {
     return { ok: false, error: toControlError(res.error) };
@@ -689,10 +755,37 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return promptCache.prompts;
   };
   let flowCtl: FlowController | null = null;
+  /** Phase 23.14: the player's bindings (created at mount when the game has an input config). */
+  let bindings: InputBindingsController | null = null;
+  /** Phase 23.14: the project's glyph images as object URLs (loaded on first use). */
+  const glyphUrls = new Map<string, string | null>();
+  const glyphImageUrl = (assetId: string): string | null => {
+    if (glyphUrls.has(assetId)) return glyphUrls.get(assetId)!;
+    glyphUrls.set(assetId, null);
+    const path = config.assetPaths?.[assetId];
+    const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
+    if (typeof path === 'string' && typeof urls?.createObjectURL === 'function' && typeof Blob === 'function') {
+      void config.readArtifact(path).then(
+        (buffer) => {
+          if (!disposed) glyphUrls.set(assetId, urls.createObjectURL!(new Blob([buffer])));
+        },
+        () => undefined,
+      );
+    }
+    return null;
+  };
   let adapter: HostRenderAdapter | null = null;
   /** Phase 23.8: the debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
   let startOutcome: GameStartOutcome | null = null;
+  /** Phase 23.19: project saves (a project with a save schema). */
+  const saveSchema = config.snapshot.saveSchema;
+  const saveNamespace = config.saveNamespace ?? `thirdlight:${String((config.snapshot as { projectId?: string }).projectId ?? 'game')}`;
+  let projectSaves: ProjectSaveService | null = null;
+  const savesObservation = (): { saves?: ProjectSavesObservation } =>
+    projectSaves === null || saveSchema === undefined
+      ? {}
+      : { saves: { slotCount: saveSchema.slots, storage: projectSaves.storage, slots: projectSaves.slots().slice(0, 32), settings: { ...(runtime?.projectSettings?.() ?? projectSaves.settings()) } } };
   /** Phase 23.9a: the project UI layer (null without UI documents). */
   let uiLayer: UiLayer | null = null;
   /**
@@ -873,7 +966,44 @@ export function createGameHost(config: GameHostConfig): GameHost {
       ...(p !== null ? { pointer: { x: p.x, y: p.y, buttons: p.buttons ?? 0, over: p.over !== false, locked: p.locked === true } } : {}),
       ...(cursor !== undefined ? { cursor: { mode: cursor.mode, locked: cursor.locked, hidden: cursor.hidden } } : {}),
       ...(hidden !== undefined && hidden.size > 0 ? { hidden: [...hidden].sort().slice(0, 64) } : {}),
+      ...(bindings !== null ? { inputBindings: bindings.observe() } : {}),
     };
+  };
+
+  /** Phase 23.14: the bindings as UI documents read them (`$flow.input`), rebuilt when they change. */
+  let inputUi: { key: string; value: Record<string, unknown> } | null = null;
+  const inputUiValues = (): Record<string, unknown> => {
+    const b = bindings!;
+    const l = b.listening();
+    const key = `${b.revision()}|${l === null ? '' : `${l.action}:${l.index}:${l.part ?? ''}`}`;
+    if (inputUi !== null && inputUi.key === key) return inputUi.value;
+    const d = b.device();
+    const value = {
+      device: d.kind,
+      family: d.family ?? null,
+      profile: b.profile(),
+      listening: l === null ? null : { ...l },
+      actions: b.actions().map((a) => ({
+        name: a.name,
+        map: a.map,
+        changed: a.changed === true,
+        keys: b.glyph(a.name, 'keyboardMouse')?.label ?? '',
+        pad: b.glyph(a.name, 'gamepad')?.label ?? '',
+        glyph: b.glyph(a.name)?.label ?? '',
+      })),
+    };
+    inputUi = { key, value };
+    return value;
+  };
+
+  /** Phase 23.14: the rebind timeout, the device used last and the scripts' binding requests (after each frame). */
+  const serviceBindings = (rt: Runtime): void => {
+    const taken = rt.takeBindingRequests?.();
+    if (bindings === null) return;
+    bindings.tick();
+    if (taken === undefined) return;
+    if (taken.requests.length > 0) bindings.handle(taken.requests);
+    if (taken.dropped > 0) console.warn(`[game-host] ${taken.dropped} binding request(s) dropped: at most 8 a step`);
   };
 
   const serviceLetterbox = (rt: Runtime): void => {
@@ -905,7 +1035,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
 
   /** Phase 9.10: the loaded audio sources (recomputed when the scene set changes). */
   let sourcesRevision = -1;
-  let sources: { id: string; assetId: string; volume: number; range: number }[] = [];
+  let sources: { id: string; assetId: string; volume: number; range: number; spatial: AudioSpatialLike }[] = [];
   const liveLoops = new Set<string>();
   /** Phase 21.5: the menu logo's object URL (revoked on dispose). */
   let logoUrl: string | null = null;
@@ -921,8 +1051,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
       const entities = [...loaded, ...((set?.spawned ?? []) as unknown as typeof loaded)];
       sources = [];
       for (const e of entities) {
-        const a = ((e.components ?? {}) as unknown as { audioSource?: { assetId: string; volume: number; range: number } }).audioSource;
-        if (a !== undefined) sources.push({ id: e.id, assetId: a.assetId, volume: a.volume, range: a.range });
+        const a = ((e.components ?? {}) as unknown as { audioSource?: { assetId: string; volume: number; range: number; distanceModel?: AudioSpatialLike['distanceModel']; refDistance?: number; rolloff?: number } }).audioSource;
+        // Phase 23.13: the panner model's distance fade — the range is its max distance; absent fields keep the
+        // legacy curve's shape (linear from a quarter of the range).
+        if (a !== undefined) sources.push({ id: e.id, assetId: a.assetId, volume: a.volume, range: a.range, spatial: { distanceModel: a.distanceModel ?? 'linear', refDistance: Math.min(a.range, a.refDistance ?? a.range / 4), maxDistance: a.range, rolloff: a.rolloff ?? 1 } });
       }
       // A music-kind source needs its bytes registered (once).
       for (const s of sources) {
@@ -946,6 +1078,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     for (const s of sources) {
       if (!readTransform(rt, s.id, sourceAt)) continue;
       const t = sourceAt;
+      if (panner && config.audio.setSpatialLoop !== undefined) {
+        // Phase 23.13: a panner per source; the listener is the active camera (spatialFrame).
+        config.audio.setSpatialLoop(s.id, s.assetId, s.volume, t.position, s.spatial);
+        seen.add(s.id);
+        liveLoops.add(s.id);
+        continue;
+      }
       const dx = player !== undefined ? Math.abs(t.position[0]! - player.position[0]!) : 0;
       const near = s.range / 4;
       const gain = s.volume * Math.max(0, Math.min(1, 1 - (dx - near) / Math.max(1e-6, s.range - near)));
@@ -958,6 +1097,41 @@ export function createGameHost(config: GameHostConfig): GameHost {
       config.audio.setLoop(id, null, 0);
       liveLoops.delete(id);
     }
+  };
+
+  /** Phase 23.13: audio sources in the panner model (the project's `audio_spatial`). */
+  const panner = config.audioSpatial === 'panner';
+  /** Script sounds: execute the simulation's audio commands (music-kind assets get their bytes on first use). */
+  const scriptMusicAsked = new Set<string>();
+  const serviceScriptAudio = (rt: Runtime): void => {
+    const commands = rt.takeAudioRequests?.() ?? [];
+    for (const c of commands) {
+      const assetId = c.op === 'play' || c.op === 'music' ? c.assetId : null;
+      if (assetId !== null && config.assetKinds?.[assetId] === 'music' && !scriptMusicAsked.has(assetId) && !musicAsked.has(assetId)) {
+        scriptMusicAsked.add(assetId);
+        const path = config.assetPaths?.[assetId];
+        if (typeof path === 'string' && config.audio.registerMusic !== undefined) {
+          void config.readArtifact(path)
+            .then((buffer) => {
+              if (!disposed) config.audio.registerMusic?.(assetId, new Uint8Array(buffer));
+            })
+            .catch(() => undefined);
+        }
+      }
+      if (config.audio.command !== undefined) config.audio.command(c);
+      else if (c.op === 'play') config.audio.playSound?.(c.assetId, c.volume);
+    }
+    if (config.audio.spatialFrame !== undefined) config.audio.spatialFrame(listenerOf(rt), (entityId) => (readTransform(rt, entityId, spatialAt) ? spatialAt.position : null));
+  };
+  const spatialAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+  const listenerAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+  let cameraEntityId: string | null | undefined;
+  /** The listener: the active camera — the resolved virtual camera (phase 23.4), else the scene camera. */
+  const listenerOf = (rt: Runtime): { position: readonly number[]; rotation: readonly number[] } | null => {
+    if (rt.readCameraView?.(listenerAt.position, listenerAt.rotation) != null) return listenerAt;
+    cameraEntityId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['camera'] !== undefined)?.id ?? null;
+    if (cameraEntityId !== null && readTransform(rt, cameraEntityId, listenerAt)) return listenerAt;
+    return null;
   };
 
   /** Phase 14.5: the playing level's ambience, looped on the sfx bus (keys `ambience:<n>`). */
@@ -1044,6 +1218,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
     debugConsole?.frame();
+    serviceBindings(runtime);
     serviceUi(runtime);
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
     // tick (delivery.md §4.5). The run commands queue in the runtime and
@@ -1122,9 +1297,17 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceLetterbox(runtime);
     // Phase 23.3: the cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
     serviceCursor(runtime);
+    // Phase 23.19: the simulation's save requests (a thumbnail is drawn now, in this frame).
+    if (projectSaves !== null) {
+      const reqs = runtime.takeSaveRequests?.() ?? [];
+      if (reqs.length > 0) projectSaves.handle(reqs);
+    }
     // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
     const view = gameViewOf(runtime);
     if (view === null) {
+      // Phase 23.13: a scene (no game session) plays script sounds and audio sources too.
+      serviceScriptAudio(runtime);
+      serviceAudioSources(runtime);
       adapter?.renderFrame();
       serviceAnchors();
       return;
@@ -1144,7 +1327,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     previousGrounded = view.playerMotion.grounded;
     // Phase 9.10: the sounds scripts played, and the audio sources' loops.
-    for (const req of runtime.takeAudioRequests?.() ?? []) config.audio.playSound?.(req.assetId, req.volume);
+    serviceScriptAudio(runtime);
     serviceAudioSources(runtime);
     serviceAmbience();
     serviceTitleView(runtime);
@@ -1243,6 +1426,17 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       applied.push(`scenes ${start.scenes.join(', ')}`);
     }
+    // Phase 23.19: a project save document or slot (loaded at the first step; the flow is not involved).
+    if (start.projectSave !== undefined || start.projectSaveSlot !== undefined) {
+      if (projectSaves === null) return { ok: false, reason: 'a project save needs a project save schema' };
+      if (start.projectSave !== undefined) {
+        projectSaves.loadDocument(start.projectSave);
+        applied.push('project save');
+      } else {
+        void projectSaves.loadSlot(start.projectSaveSlot!);
+        applied.push(`project save slot ${start.projectSaveSlot!}`);
+      }
+    }
     // Phase 23.10: the run started in this mode (the runtime was composed with it).
     if (start.mode !== undefined) {
       const mv = rt.modeView?.() ?? null;
@@ -1263,6 +1457,39 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const view = gameViewOf(runtime);
     const d = view === null ? runtime.getDiagnostics() : null;
     return { ok: true, state: view !== null ? view.state : 'awaitingStart', acceptedAtStep: view !== null ? view.stepIndex : d !== null && d.ok ? d.diagnostics.stepIndex : 0 };
+  };
+
+  /** The audio assets' bytes for the owner (game cues, scripts' sounds, audio sources). */
+  const registerSounds = (): void => {
+    // Cue bytes: resolve the non-null authored cue refs through the
+    // injected reader (async — the game plays silently until a cue's bytes
+    // arrive and decode; the owner skips unregistered assets with a bounded
+    // diagnostic). The host stays fetch-free: `readArtifact` is injected.
+    if (config.assetPaths !== undefined) {
+      const registered = new Set<string>();
+      // Phase 9.10: every audio asset, not only the game's cues (scripts and audio sources play them too).
+      const soundIds = [
+        ...(['start', 'jump', 'checkpoint', 'death', 'goal'] as const).map((k) => cues[k]),
+        ...Object.entries(config.assetKinds ?? {}).filter(([, k]) => k === 'audio').map(([id]) => id),
+      ];
+      for (const assetId of soundIds) {
+        if (assetId === null || registered.has(assetId)) continue;
+        const path = config.assetPaths[assetId];
+        if (typeof path !== 'string' || path.length === 0) continue;
+        registered.add(assetId);
+        void config.readArtifact(path)
+          .then((buffer) => {
+            if (disposed || !mounted) return;
+            const r = config.audio.registerCue(assetId, new Uint8Array(buffer));
+            if (r.ok === false) console.warn('[game-host] cue registration failed', r.error.code);
+          })
+          .catch((error: unknown) => {
+            // Bounded: the cue stays unregistered; the owner skips it and
+            // the game plays silently (no page error, no unhandled reject).
+            console.warn('[game-host] cue artifact read failed', error instanceof Error ? error.message : String(error));
+          });
+      }
+    }
   };
 
   const mount = (): { ok: true } | { ok: false; error: GameControlError } => {
@@ -1289,6 +1516,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         actions: config.input,
         onFrame: hostFrame,
         ...(config.variables !== undefined ? { variables: config.variables } : {}),
+        ...(saveSchema !== undefined ? { projectSettings: readProjectSettings(saveSchema, config.saveStorage, saveNamespace) } : {}),
         ...(config.start?.mode !== undefined ? { startMode: config.start.mode } : {}),
       });
     }
@@ -1319,6 +1547,42 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
 
+    // Phase 23.19: project saves — the page owns the slots; the simulation gets the list and answers as input.
+    if (saveSchema !== undefined) {
+      const rtS = res.runtime;
+      projectSaves = createProjectSaveService({
+        schema: saveSchema,
+        backend: config.projectSaveBackend ?? memoryProjectSaveBackend(),
+        namespace: saveNamespace,
+        queue: (event) => {
+          if (disposed) return;
+          const r = rtS.queueSaveEvent?.(event);
+          if (r !== undefined && !r.ok) console.warn('[game-host] save answer refused:', r.error.message);
+        },
+        ...(config.saveStorage !== undefined ? { settingsStorage: config.saveStorage } : {}),
+        captureThumbnail: (w, h, type, q) => adapter?.captureThumbnail?.(w, h, type, q) ?? null,
+        applyEngine: (binding, value) => {
+          if (binding === 'quality') {
+            if (value === 'low' || value === 'medium' || value === 'high') config.setQuality?.(value);
+          } else if (typeof value === 'number') config.audio.setVolume?.(binding, value);
+        },
+        log: (message) => console.warn(`[game-host] ${message}`),
+      });
+      void projectSaves.start();
+    }
+    // Phase 23.14: the player's bindings (saved per profile) — in scene-mode games too.
+    if (config.inputConfig !== undefined) {
+      bindings = createInputBindings({
+        defaults: config.inputConfig,
+        input: config.input,
+        ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { store: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
+        onChange: (c) => {
+          promptInput = c as InputConfigLike;
+        },
+        imageUrl: glyphImageUrl,
+      });
+    }
+
     // Phase 23.9a: the project UI layer (scene-mode games too).
     if (config.ui !== undefined && config.ui.documents.length > 0 && hostDom !== null) {
       const rt = res.runtime;
@@ -1334,6 +1598,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
           if (r !== undefined && r.ok === false) console.warn('[game-host] UI event refused:', r.error.message);
         },
         engineAction: (a) => {
+          // Phase 23.14: rebinding from project UI (the same bindings API as scripts and the settings screen).
+          if (a.action === 'rebind' || a.action === 'cancelRebind' || a.action === 'resetBindings') {
+            if (bindings === null) return;
+            const ex = a as { input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative'; policy?: 'swap' };
+            if (a.action === 'cancelRebind') bindings.cancel();
+            else if (a.action === 'resetBindings') bindings.reset(ex.input);
+            else if (ex.input !== undefined) bindings.listen(ex.input, { ...(ex.device !== undefined ? { device: ex.device } : {}), ...(ex.index !== undefined ? { index: ex.index } : {}), ...(ex.part !== undefined ? { part: ex.part } : {}), ...(ex.policy !== undefined ? { policy: ex.policy } : {}) });
+            return;
+          }
           if (a.action === 'mute' || a.action === 'unmute') {
             void control(a.action);
             return;
@@ -1342,7 +1615,21 @@ export function createGameHost(config: GameHostConfig): GameHost {
           if (flowCtl !== null) flowCtl.engine(a);
           else sceneEngineAction(a);
         },
-        flowValues: () => flowCtl?.uiValues() ?? null,
+        // Phase 23.14: `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
+        flowValues: () => {
+          const f = flowCtl?.uiValues() ?? null;
+          return bindings === null ? f : { ...(f ?? {}), input: inputUiValues() };
+        },
+        // Phase 23.14: {action:name} glyphs in UI texts.
+        ...(bindings !== null
+          ? {
+              glyph: (action: string) => {
+                const g = bindings?.glyph(action) ?? null;
+                return g === null || bindings === null ? null : { label: g.label, icon: g.icon, url: bindings.glyphImage(g) };
+              },
+              glyphKey: () => String(bindings?.revision() ?? 0),
+            }
+          : {}),
         // Phase 23.10: a focused document's map wins over the game mode's maps (applyMaps).
         ...(config.input.setActiveMaps !== undefined
           ? {
@@ -1356,20 +1643,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     if (sceneMode) {
       mounted = true;
+      // Phase 23.13: a scene plays script sounds and audio sources too.
+      registerSounds();
       if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start, null);
       return { ok: true };
     }
 
     const flow = config.flow !== undefined && typeof res.runtime.startLevel === 'function' && config.flow.levels.length > 0 ? config.flow : undefined;
-    if (flow === undefined && config.inputConfig !== undefined && config.saveStorage !== undefined && config.saveNamespace !== undefined) {
-      // Phase 15.5: the player's saved rebinding holds in a game without a flow too (the flow applies it through its settings).
-      const saved = createSaveStore(config.saveStorage, config.saveNamespace).readSettings();
-      const rebound = withSavedBindings(config.inputConfig, saved, REBINDABLE, PAD_REBINDABLE);
-      if (rebound !== config.inputConfig && config.input.configure !== undefined) {
-        config.input.configure(rebound as { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] });
-        promptInput = rebound;
-      }
-    }
     hud = createHud(dom, {
       ...(flow !== undefined ? { preset: flow.hud?.preset ?? 'classic' } : {}),
       prompts: currentPrompts,
@@ -1407,19 +1687,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
           gameCounters: () => rt.gameCounters?.() ?? { counters: {}, health: null },
         },
         audio: config.audio,
-        input: {
-          ...(config.input.captureKey !== undefined ? { captureKey: (cb: (code: string | null) => void) => config.input.captureKey!(cb) } : {}),
-          ...(config.input.capturePadButton !== undefined ? { capturePadButton: (cb: (button: number | null) => void) => config.input.capturePadButton!(cb) } : {}),
-          ...(config.input.configure !== undefined
-            ? {
-                configure: (c: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }) => {
-                  config.input.configure!(c);
-                  promptInput = c;
-                },
-              }
-            : {}),
-          ...(config.inputConfig !== undefined ? { config: config.inputConfig } : {}),
-        },
+        ...(bindings !== null ? { bindings } : {}),
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
         ...(config.setLevelEnvironment !== undefined ? { setLevelEnvironment: config.setLevelEnvironment } : {}),
         ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
@@ -1476,35 +1744,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       ),
     );
 
-    // Cue bytes: resolve the non-null authored cue refs through the
-    // injected reader (async — the game plays silently until a cue's bytes
-    // arrive and decode; the owner skips unregistered assets with a bounded
-    // diagnostic). The host stays fetch-free: `readArtifact` is injected.
-    if (config.assetPaths !== undefined) {
-      const registered = new Set<string>();
-      // Phase 9.10: every audio asset, not only the game's cues (scripts and audio sources play them too).
-      const soundIds = [
-        ...(['start', 'jump', 'checkpoint', 'death', 'goal'] as const).map((k) => cues[k]),
-        ...Object.entries(config.assetKinds ?? {}).filter(([, k]) => k === 'audio').map(([id]) => id),
-      ];
-      for (const assetId of soundIds) {
-        if (assetId === null || registered.has(assetId)) continue;
-        const path = config.assetPaths[assetId];
-        if (typeof path !== 'string' || path.length === 0) continue;
-        registered.add(assetId);
-        void config.readArtifact(path)
-          .then((buffer) => {
-            if (disposed || !mounted) return;
-            const r = config.audio.registerCue(assetId, new Uint8Array(buffer));
-            if (r.ok === false) console.warn('[game-host] cue registration failed', r.error.code);
-          })
-          .catch((error: unknown) => {
-            // Bounded: the cue stays unregistered; the owner skips it and
-            // the game plays silently (no page error, no unhandled reject).
-            console.warn('[game-host] cue artifact read failed', error instanceof Error ? error.message : String(error));
-          });
-      }
-    }
+    registerSounds();
     return { ok: true };
   };
 
@@ -1535,7 +1775,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
+        ...audioObservation(),
         ...socketsObservation(runtime),
+        ...savesObservation(),
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...inputObservation(runtime),
         ...modeObservation(runtime),
@@ -1611,12 +1853,20 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
         ...scenesObservation(runtime),
         ...cameraObservation(runtime),
+        ...audioObservation(),
         ...socketsObservation(runtime),
+        ...savesObservation(),
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...inputObservation(runtime),
         ...modeObservation(runtime),
       },
     };
+  };
+
+  /** Phase 23.13: the Web Audio graph, once scripts used audio or a positional loop plays. */
+  const audioObservation = (): { audio?: AudioObservation } => {
+    const a = config.audio.observeAudio?.() ?? null;
+    return a === null ? {} : { audio: a };
   };
 
   const scene = (op: 'load' | 'unload', sceneId: string): { ok: true } | { ok: false; error: GameControlError } => {
@@ -1667,8 +1917,17 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     liveLoops.clear();
     liveAmbience.clear();
+    // Phase 23.13: and the scripts' sounds, music hold, duck and mix.
+    try {
+      config.audio.command?.({ op: 'reset', stepIndex: 0 });
+    } catch {
+      /* a closed context: nothing plays */
+    }
     debugConsole?.dispose();
     debugConsole = null;
+    bindings?.dispose();
+    for (const url of glyphUrls.values()) if (url !== null) (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL?.revokeObjectURL?.(url);
+    glyphUrls.clear();
     if (flowCtl !== null) {
       try {
         config.audio.playMusic?.(null, 0);
@@ -1728,6 +1987,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     debugCommand,
     get debugConsole(): DebugConsole | null {
       return debugConsole;
+    },
+    get projectSaves(): ProjectSaveService | null {
+      return projectSaves;
+    },
+    get bindings(): InputBindingsController | null {
+      return bindings;
     },
     get startOutcome(): GameStartOutcome | null {
       return startOutcome;

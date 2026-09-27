@@ -42,6 +42,7 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   // Phase 23.10: game modes and behavior groups (whole lists).
   'setModes',
   'setBehaviorGroups',
+  'setSaveSchema',
   'setFlow',
   'setStartScenes',
   'setGraph',
