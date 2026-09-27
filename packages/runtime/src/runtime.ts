@@ -19,6 +19,8 @@
  *   guard, transform-ownership validation, the settle pre-roll, per-step
  *   action sampling and fail-stop with no rollback.
  */
+import { RuntimeGrid, type GridRenderChange } from './grid';
+import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   GAME_TIMING_DEFAULTS,
   controllerTuningOf,
@@ -1124,6 +1126,8 @@ export function instantiateRuntime(
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
     modelBounds: snap.modelBounds,
+    blockTypes: snap.blockTypes,
+    cellFields: snap.cellFields,
   });
   return { ok: true, runtime: rt };
 }
@@ -1196,6 +1200,9 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
   modelBounds: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.5: the block types and cell fields of the project's block layers. */
+  blockTypes: readonly BlockType[];
+  cellFields: readonly CellField[];
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1398,6 +1405,8 @@ class RuntimeInstance implements Runtime {
   private readonly animatorControl: BehaviorAnimatorControl;
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
+  /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
+  private readonly grid: RuntimeGrid;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
   private readonly signalControl = Object.freeze({
@@ -1622,6 +1631,10 @@ class RuntimeInstance implements Runtime {
     this.sceneControl = this.buildSceneControl();
     this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
     this.spawnControl = this.buildSpawnControl();
+    // Phase 23.5: the start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined);
+    this.grid.addLayers(args.initialEntities);
+    this.grid.flushCollision(args.physics3d);
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
@@ -1843,6 +1856,21 @@ class RuntimeInstance implements Runtime {
     const out = this.effectQueue;
     this.effectQueue = [];
     return out;
+  }
+
+  /**
+   * Phase 23.5: the block-layer chunks to re-mesh since the last call (their
+   * cells now; null: no cells left) — cells scripts wrote, layers of scenes
+   * loaded, a new run back to the authored cells. The renderer applies them
+   * to its copy of each layer. Taking them changes nothing the simulation computes.
+   */
+  takeGridChanges(): GridRenderChange[] {
+    return this.grid.takeRenderChanges();
+  }
+
+  /** Phase 23.5: the cells changed since the run started (tests, saves). */
+  gridDiff(): import('./grid').GridDiff {
+    return this.grid.api.diff();
   }
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
@@ -2422,6 +2450,7 @@ class RuntimeInstance implements Runtime {
   private stepOnce(): boolean {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
+    this.grid.beginStep(this.stepIndex + 1);
     // §5.1: copy curr before the step; restore it if any module throws
     // (no partial module application). Phase 23.0: into the reused step
     // buffer `prev` does not hold (as the M2 step does since phase 21.2) — a
@@ -2491,6 +2520,8 @@ class RuntimeInstance implements Runtime {
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
     this.stepAnimators();
+    // Phase 23.5: cells written after the physics phase collide from the next step.
+    this.grid.flushCollision(this.physics3d);
     return true;
   }
 
@@ -2525,6 +2556,7 @@ class RuntimeInstance implements Runtime {
     }
     if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
     this.respawnRequested = false;
+    this.grid.beginStep(ordinal);
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
@@ -2601,6 +2633,8 @@ class RuntimeInstance implements Runtime {
     this.prev = backup;
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz;
+    // Phase 23.5: cells written after the physics phase collide from the next step.
+    this.grid.flushCollision(this.physics3d);
     this.committedMirror.copyFrom(this.curr, this.currShape);
     this.committed = this.committedMirror.map;
     // M3 commit (gameplay.md §3.2 item 8): the last completed motion
@@ -2852,6 +2886,11 @@ class RuntimeInstance implements Runtime {
     if (reset === 'replay' || reset === 'start') this.resetAnimators();
     // Phase 9.9: a new run resets the level's blocks; a respawn restores health.
     if (reset === 'replay' || reset === 'start') this.blocks?.resetRun();
+    // Phase 23.5: a new run starts from the authored cells (colliders rebuilt now).
+    if (reset === 'replay' || reset === 'start') {
+      this.grid.reset();
+      this.grid.flushCollision(this.physics3d);
+    }
     // Phase 9.11: a loaded save's run on top of the fresh one.
     if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
       const r = this.pendingRestore;
@@ -3176,6 +3215,15 @@ class RuntimeInstance implements Runtime {
     }
     const ids = new Set(frozen.map((e) => e.id));
     this.attachEntities(frozen);
+    // Phase 23.5: the scene's block layers and their colliders (at this step boundary).
+    if (this.grid.addLayers(frozen).length > 0) {
+      try {
+        this.grid.flushCollision(this.physics3d);
+      } catch (e) {
+        this.failStop('physics_port_error', 'scene_colliders', `adding the block colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.stepIndex);
+        return false;
+      }
+    }
     this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
@@ -3279,6 +3327,15 @@ class RuntimeInstance implements Runtime {
       // Phase 14.1: owners that left ("@self" carriers) are released.
       const owners = instance.transformOwners;
       if (Array.isArray(owners)) entry.owners = owners.filter((id) => !ids.has(id));
+    }
+    // Phase 23.5: unloaded block layers take their chunk colliders along.
+    const gridColliders = this.grid.removeLayers(ids);
+    if (gridColliders.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
+      try {
+        this.physics3d.removeStaticColliders(gridColliders);
+      } catch (e) {
+        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the block colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+      }
     }
     if (colliderIds.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
       try {
@@ -3713,6 +3770,8 @@ class RuntimeInstance implements Runtime {
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
+      // Phase 23.5: the block layers.
+      fields['grid'] = { value: this.grid.api, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
@@ -4033,6 +4092,8 @@ class RuntimeInstance implements Runtime {
    * position (x, y and z) is committed to the controller's transform.
    */
   private runPhysicsPhase3D(port: PhysicsPort3D): void {
+    // Phase 23.5: cells written this step collide in this step's sweep.
+    this.grid.flushCollision(port);
     const controllerId = this.controllerEntityId;
     const t = controllerId !== undefined ? this.curr.get(controllerId) : undefined;
     const previous: PhysicsVec3 = t ? { x: t.position[0], y: t.position[1], z: t.position[2] } : { x: 0, y: 0, z: 0 };

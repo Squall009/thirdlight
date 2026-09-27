@@ -1829,7 +1829,7 @@ function echoProjectId(v: unknown): string | undefined {
 function validateQueryRequest(request: unknown):
   | {
       ok: true;
-      op: 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig';
+      op: 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks';
       projectId: string;
       args: Record<string, unknown> | undefined;
     }
@@ -1857,11 +1857,12 @@ function validateQueryRequest(request: unknown):
     op !== 'queryAssets' &&
     op !== 'queryPrefabs' &&
     op !== 'queryBehaviors' &&
-    op !== 'queryGameConfig'
+    op !== 'queryGameConfig' &&
+    op !== 'queryBlocks'
   ) {
     return {
       ok: false,
-      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
+      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig, queryBlocks', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
     };
   }
   const projectId = req['projectId'];

@@ -45,7 +45,11 @@ import {
   type RendererInfo,
   type RendererPreference,
   type RendererPreferenceSource,
+  BlockLayerView,
+  blockLookFromObject,
+  type BlockModelLook,
 } from '@thirdlight/three-adapter';
+import type { BlockChunk, BlockLayerComponent, BlockType } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
@@ -290,6 +294,65 @@ export class Viewport {
     this.models = models;
   }
 
+  // ---- Phase 23.5: block layers --------------------------------------------------
+  /** The block layers (the same merged chunk meshes Play and exports draw). */
+  private blockView: BlockLayerView | null = null;
+  private blockRevision = -1;
+  private blockLooks = new Map<string, BlockModelLook | null | 'loading'>();
+
+  private ensureBlockView(): BlockLayerView {
+    if (this.blockView !== null) return this.blockView;
+    const view = new BlockLayerView({
+      modelLook: (assetId, piece, onReady) => {
+        const key = `${assetId}|${piece ?? ''}`;
+        const hit = this.blockLooks.get(key);
+        if (hit === 'loading') return null;
+        if (hit !== undefined) return hit;
+        this.blockLooks.set(key, 'loading');
+        void this.models?.prepared(assetId).then((res) => {
+          if (res === null) {
+            this.blockLooks.set(key, null);
+            return;
+          }
+          const made = res.createInstance(piece !== undefined ? { piece } : {});
+          this.blockLooks.set(key, made.ok ? blockLookFromObject(made.instance.root) : null);
+          onReady();
+          this.requestRender();
+        });
+        return null;
+      },
+      applyMaterials: (mesh, type) => {
+        const lib = this.materialLibrary;
+        if (lib !== null && type.materials !== undefined && Object.keys(type.materials).length > 0) lib.apply(mesh, type.materials, null);
+      },
+    });
+    this.scene.add(view.root);
+    this.blockView = view;
+    return view;
+  }
+
+  /**
+   * The project's block layers (their component, stored chunks and origin)
+   * and block types; `revision` changes whenever cells, layers or types do.
+   */
+  setBlockLayers(types: readonly BlockType[], layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[] }>, revision: number): void {
+    const view = this.ensureBlockView();
+    if (revision !== this.blockRevision) {
+      this.blockRevision = revision;
+      view.setTypes(types);
+      for (const id of view.layerIds()) if (!layers.has(id)) view.removeLayer(id);
+      for (const [id, l] of layers) view.setLayer(id, l.component, l.origin, { entityId: id, chunks: [...l.chunks.values()] });
+    } else {
+      for (const [id, l] of layers) view.setOrigin(id, l.origin);
+    }
+    this.requestRender();
+  }
+
+  /** Block-layer draw statistics (tests read them). */
+  blockStats(): { layers: number; chunks: number; meshes: number; triangles: number } {
+    return this.blockView?.diagnostics() ?? { layers: 0, chunks: 0, meshes: 0, triangles: 0 };
+  }
+
   // ---- Phase 9.6: lightmaps ----------------------------------------------------
   /** The last synced entities (the bake reads them). */
   private projected: readonly ProjectedEntity[] = [];
@@ -505,6 +568,9 @@ export class Viewport {
       if (noUv && meshes.length === 0) missingUv.push(e.id);
       if (meshes.length > 0) targets.push({ entityId: e.id, meshes, area, box: e.kind === 'box' ? { size: e.box?.size ?? [1, 1, 1], scale: e.scale } : null });
     }
+    // Phase 23.5: block layers shade the baked objects (occluders); they keep realtime lighting
+    // themselves (their chunk meshes carry no lightmap UVs — see the plan's decision log).
+    for (const mesh of this.blockView?.meshes() ?? []) occluders.push({ geometry: mesh.geometry, matrixWorld: mesh.matrixWorld.clone() });
     const lights: (BakeLightInput & { entityId: string; mode: 'baked' | 'mixed' })[] = [];
     for (const e of this.projected) {
       const l = e.light;
@@ -850,6 +916,11 @@ export class Viewport {
       const lib = this.materialLibrary;
       const animated = lib !== null && lib.animated();
       if (animated) lib!.tick((performance.now() - this.clockStart) / 1000);
+      // Phase 23.5: re-mesh the block chunks that changed (before the draw).
+      if (this.blockView !== null) {
+        this.blockView.update();
+        this.root.setAttribute('data-block-layers', JSON.stringify(this.blockView.diagnostics()));
+      }
       this.batcher.update(this.camera);
       const info = renderer.info.render;
       const drawsBefore = info.drawCalls;

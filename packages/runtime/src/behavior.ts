@@ -28,6 +28,7 @@
  * loading the compiled bytes in its own bounded way). No Node builtin, no
  * three.js, no authoring/backend edge.
  */
+import type { BehaviorGrid } from './grid';
 import type {
   DeclaredProperty,
   PropertyDeclaration,
@@ -146,6 +147,11 @@ export interface BehaviorContext {
   readonly effects?: BehaviorEffects;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
+  /**
+   * Phase 23.5: the block layers of the loaded scenes — read and write cells and their
+   * metadata, pick a cell with a ray, neighbours, named regions, change events, a diff for saves.
+   */
+  readonly grid?: BehaviorGrid;
   /**
    * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
    * @graphNode Spawn prefab
@@ -876,6 +882,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.effects !== undefined) fields['effects'] = { value: src.effects, enumerable: true };
         // Phase 9.11: values kept in the player's save.
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
+        // Phase 23.5: the block layers.
+        if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

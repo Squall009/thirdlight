@@ -488,6 +488,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
   // Phase 20.0: the effect played from the entity.
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
+  // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
+  blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -516,6 +518,7 @@ const OWNED: readonly OwnedComponent[] = [
   'faceMovement',
   'materialParams',
   'effect',
+  'blockLayer',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -545,6 +548,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'faceMovement',
   'materialParams',
   'effect',
+  'blockLayer',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -718,6 +722,7 @@ export function validateSetComponentArgs(
     component === 'materials' ||
     component === 'materialParams' ||
     component === 'effect' ||
+    component === 'blockLayer' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||

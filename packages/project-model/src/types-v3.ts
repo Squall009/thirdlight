@@ -231,6 +231,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   modelAnimation?: ModelAnimationComponent;
   /** Phase 12 (c), scene schemaVersion 4 only: an instance set. */
   instances?: InstancesComponent;
+  /** Phase 23.5, v4 only: a grid of blocks (its cells are the scene's `blocks`). */
+  blockLayer?: import('./block-layers').BlockLayerComponent;
 }
 
 /**
@@ -314,6 +316,8 @@ export interface SceneV4 {
   sceneId: string;
   revision: number;
   entities: SceneEntityV3[];
+  /** Phase 23.5: the block layers' cells and regions (one entry per layer holding any; absent = none). */
+  blocks?: import('./block-layers').BlockLayerData[];
 }
 
 /**
@@ -489,6 +493,12 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   effects?: import('./effects').EffectDef[];
   /** Phase 23.7: shared script libraries behaviors import as `@lib/<id>` (absent = none). */
   scriptLibraries?: import('./script-libraries').ScriptLibrary[];
+  /** Phase 23.5: block definitions for block layers (absent = none). */
+  blockTypes?: import('./block-layers').BlockType[];
+  /** Phase 23.5: the cell metadata schema (absent = none). */
+  cellFields?: import('./block-layers').CellField[];
+  /** Phase 23.5: saved cell patterns (absent = none). */
+  blockStamps?: import('./block-layers').BlockStamp[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

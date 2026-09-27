@@ -146,6 +146,8 @@ export interface FrameState {
   readonly sceneSet?: SceneSetWire;
   readonly audio?: readonly { assetId: string; volume: number; stepIndex: number }[];
   readonly effects?: readonly EffectRequest[];
+  /** Phase 23.5: block-layer chunks to re-mesh (their cells now). */
+  readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };

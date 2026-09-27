@@ -29,6 +29,7 @@
  * pure owner of the manifest derivation, C36-2); it reuses the M2 canonical
  * helpers and the `./sha256` digest primitives.
  */
+import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalInput, validateInput, type InputConfig } from './input';
@@ -78,7 +79,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'input', 'flow', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -105,6 +106,9 @@ export const MANIFEST_KEYS_V2 = [
   'lighting',
   'animators',
   'prefabs',
+  // Phase 23.5: the block types and the cell metadata schema block layers use.
+  'blockTypes',
+  'cellFields',
   'input',
   'flow',
   'scenes',
@@ -583,6 +587,9 @@ export interface CaptureManifestV2Input {
   animators?: readonly AnimatorController[];
   /** Phase 14.1: the prefab definitions scripts spawn (only when there are some). */
   prefabs?: readonly PrefabDefinition[];
+  /** Phase 23.5: the block types and cell fields (only when there are some). */
+  blockTypes?: readonly BlockType[];
+  cellFields?: readonly CellField[];
   /** Phase 9.8: the project's input actions (only when it has its own). */
   input?: InputConfig;
   /** Phase 9.10: the game flow (only when the project has one). */
@@ -702,6 +709,8 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
     ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
+    ...(input.blockTypes !== undefined && input.blockTypes.length > 0 ? { blockTypes: canonicalBlockTypes(input.blockTypes) } : {}),
+    ...(input.cellFields !== undefined && input.cellFields.length > 0 ? { cellFields: canonicalCellFields(input.cellFields) } : {}),
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
@@ -822,6 +831,13 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
     if (d['flow'] !== undefined) validateFlow(d['flow'], '/flow', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };
+  }
+
+  if (d['blockTypes'] !== undefined || d['cellFields'] !== undefined) {
+    const blockErrors: ModelErrorV2[] = [];
+    if (d['blockTypes'] !== undefined) validateBlockTypes(d['blockTypes'], '/blockTypes', blockErrors);
+    if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
+    if (blockErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value') };
   }
 
   if (d['type'] !== RUNTIME_CONTENT_TYPE) {

@@ -261,6 +261,9 @@ export class FrameEncoder {
     if (audio.length > 0) out.audio = audio;
     const effects = rt.takeEffectRequests?.() ?? [];
     if (effects.length > 0) out.effects = effects;
+    // Phase 23.5: block-layer chunks the simulation changed.
+    const grid = rt.takeGridChanges?.() ?? [];
+    if (grid.length > 0) out.grid = grid;
     // Diagnostics: on a change of state or error count, on request, and now and then.
     this.framesSinceDiag += 1;
     if (diag !== null && (this.diagWanted || diag.state !== this.diagState || diag.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
@@ -330,6 +333,8 @@ export class FrameMirror {
   private spawnedByToken = new Map<number, SceneEntities[number]>();
   audio: { assetId: string; volume: number; stepIndex: number }[] = [];
   effects: unknown[] = [];
+  /** Phase 23.5: block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
+  grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   private sharedSab: SharedArrayBuffer | null = null;
@@ -394,6 +399,7 @@ export class FrameMirror {
       for (const e of s.effects) this.effects.push(e);
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
+    if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
   }
