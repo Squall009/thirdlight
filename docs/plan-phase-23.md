@@ -282,6 +282,12 @@ in Thirdlight's tests. Thirdlight tests use neutral fixtures.
   transform tracks do not move a 2D platformer player.
 - Stop latency: stopping Play takes 3–8 s on a loaded host (tests now wait
   30 s); worth profiling.
+- `dialogue.e2e.ts` hung for 90 min under load in the final gate (its worker
+  busy-looped past every timeout; killed; passed alone in minutes) — find the
+  loop.
+- Test load: the harness forces SwiftShader (CPU) for WebGL and WebGPU; the
+  host's Iris Xe is passed through but not accessible to dadmin (device group
+  mapping). A GPU option for the harness is the next infra step.
 - Test depending on an external repo: the Sprout play-through
   (`TL_SKIP_SPROUT=1` while ~/projects/sprout is mid-edit) — part of the
   engine/game separation audit.
@@ -313,17 +319,17 @@ for editor items, commit/push/restart, decision log).
 | 23.8 Test and debug entry points | done 2026-09-26 — one Play-start path (editor "Play from…" and `tl_play_start`: scene, variables, save/slot, mode noted until 23.10); `ctx.debug.command` on input frames, `tl_game_control debugCommand`, in-game console (exports only with `debug_console`) |
 | 23.9a Project UI — runtime | done 2026-09-27 — UI documents/themes as content, DOM/CSS layer (panels, stacks, grids, lists, rich text, 9-slice, bars, buttons, inputs), `ctx.ui`, events on input frames, focus nav, world anchors, tweens, replaceable flow screens, font assets; owner look pending |
 | 23.9b Project UI — editor | done 2026-09-27 — UI document tab on the host's own UI layer: hierarchy, descriptor inspector, drag/resize with snapping, anchor presets, mock values, theme editor, flow screen picker |
-| 23.10 Game modes | planned |
+| 23.10 Game modes | done 2026-09-27 — `content.modes` (input maps, camera, UI docs, ticking behavior groups, pause, time scale, transitions), `ctx.modes`, `ctx.lifecycle` (pause/restart/respawn) for 3D scene games; lives/scores stay in scripts |
 | 23.11 Sockets and animation speed | done 2026-09-27 — `socketAttach` + `ctx.sockets` resolved in the sim from GLB rigs, per-instance animator speed, morph weights |
 | 23.12 Runtime material parameters | done 2026-09-27 — `ctx.materials` per-object values (no recompiles), `data` parameter (≤64×64 RGBA8) + Sample data node |
 | 23.13 Script audio and 3D audio | done 2026-09-27 — playback handles, buses (sfx/music/voice/ui), music hold/stinger/duck, equal-power panner with distance models, scene-mode audio; owner listen pending |
 | 23.14 Input rebinding API and glyphs | done 2026-09-27 — rebinding (listen, conflicts swap/refuse/allow, reset, profiles), hold modifier, device detection, glyph lookup with neutral SVG set, built-in settings lists all actions |
 | 23.15 Lighting inputs in the material graph | done 2026-09-27 — Main light / Shadow / Diffuse / Ambient nodes, Custom-lit output (fog, tone mapping, post), both backends |
-| 23.16 Dialogue with voice | planned |
-| 23.17 Sequencer and timeline | planned |
-| 23.18 Runtime environment changes | planned |
+| 23.16 Dialogue with voice | done 2026-09-27 — dialogue asset + speaker registry, deterministic runner (choices, conditions/effects, skip-if-seen, backlog), voice bus ducking, default dialogue UI document, previewer tab, timeline dialogue track; owner listen pending |
+| 23.17 Sequencer and timeline | done 2026-09-27 — timelines with 14 track types (incl. mode, environment, dialogue), slot bindings, skip to end states, timeline tab with scrubbing |
+| 23.18 Runtime environment changes | done 2026-09-27 — environment presets, `ctx.environment` set/blend with easing and overrides, lightmap multiplier, editor capture/preview, timeline environment track |
 | 23.19 Project-defined save documents | done 2026-09-27 — `content.saveSchema`, `ctx.saves` with named migrations, 1–99 IndexedDB slots with metadata + thumbnail, project settings document |
-| 23.20 Wrap-up | planned |
+| 23.20 Wrap-up | done 2026-09-27 — leftovers and owner-look list below; block-layer numbers from 23.5; final full gate green (TL_SKIP_SPROUT=1) |
 
 ## 6. Results and decision log
 
