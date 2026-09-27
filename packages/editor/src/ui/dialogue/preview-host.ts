@@ -3,15 +3,15 @@
  * dialogue preview (`createDialoguePreview`: the runtime's dialogue runner,
  * the host's UI layer and audio owner) in the editor page, so a conversation
  * plays with portraits, the typewriter and voice exactly as in Play, outside
- * Play. The only editor-UI module that imports game-host (boundary row in
- * tools/check-boundaries.mjs).
+ * Play. It imports game-host's `./dialogue-preview` subpath only (the editor
+ * row of tools/check-boundaries.mjs).
  *
  * Asset bytes come through the editor's authenticated asset read (the
  * caller's `readAsset`); voice lengths are measured by decoding the clips
  * with the page's audio context before the conversation starts (Play reads
  * them from the import metrics; the previewer has only the bytes).
  */
-import { createDialoguePreview, createGameAudioOwner, type AudioContextLike, type DialoguePreview, type DialoguePreviewObservation, type GameAudioOwner } from '@thirdlight/game-host';
+import { createDialoguePreview, createGameAudioOwner, type AudioContextLike, type DialoguePreview, type DialoguePreviewObservation, type GameAudioOwner } from '@thirdlight/game-host/dialogue-preview';
 import { dialogueForRuntime, type DialogueInputRecord, type RuntimeDialogueData, type UiDocument, type UiTheme } from '@thirdlight/runtime';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/runtime';
 
@@ -148,7 +148,7 @@ export async function mountDialoguePreview(o: DialoguePreviewHostOptions): Promi
     stop: () => preview.stop(),
     input: (i) => preview.input(i),
     key: (key) => {
-      const map: Record<string, keyof import('@thirdlight/game-host').FlowUiEdges> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'submit', ' ': 'submit', Escape: 'cancel', Backspace: 'cancel' };
+      const map: Record<string, keyof import('@thirdlight/game-host/dialogue-preview').FlowUiEdges> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'submit', ' ': 'submit', Escape: 'cancel', Backspace: 'cancel' };
       const e = map[key];
       if (e === undefined) return false;
       preview.edges({ [e]: true });

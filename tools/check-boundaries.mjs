@@ -287,7 +287,13 @@ export const NODE_SIDE_ALLOWED = {
   },
   // §4.1 row: "… project-model (types), commands (types) …".
   editor: {
-    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands'],
+    // Phase 23.9b: + game-host, its `./ui-layer` subpath only — the UI
+    // document preview draws with the very layer Play and exports use.
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host'],
+    // Phase 23.16: + its `./dialogue-preview` subpath — the dialogue tab's
+    // previewer plays a conversation with the runtime's runner, the host's UI
+    // layer and audio owner (the same code as Play), outside Play.
+    subpaths: { 'game-host': ['ui-layer', 'dialogue-preview'] },
     external: [
       'three',
       'react',
@@ -434,17 +440,6 @@ const BUNDLE_ENTRY_EDGES = {
   // Same §4.2 play-preview graph as preview-bootstrap.ts plus game-host +
   // platformer-game (the M3 composition). The M2 preview-bootstrap.ts row
   // above stays byte-stable.
-  // Phase 23.16: the dialogue tab's previewer plays a conversation outside
-  // Play with the game host's own UI layer and audio owner
-  // (`createDialoguePreview`), so the preview draws and sounds as the game
-  // does. Only this module of the editor UI imports game-host (the runtime
-  // and project-model edges are the editor row's own); it touches no
-  // backend, workspace or three.js.
-  'packages/editor/src/ui/dialogue/preview-host.ts': {
-    packages: ['runtime', 'project-model', 'game-host'],
-    external: [],
-    node: [],
-  },
   'packages/editor/src/preview/preview-m3.ts': {
     packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'platformer-game', 'physics-rapier', 'game-host'],
     external: ['three'],
@@ -892,9 +887,10 @@ export function checkWorkspace(root) {
             addV(
               rel,
               line,
-              'backend-services-only',
-              `'${spec}' — '${pkg.name} may import only the /services subpath of ` +
-                '@thirdlight/backend (dependencies.md §3/§4.3)',
+              unit === 'backend' ? 'backend-services-only' : 'restricted-subpath',
+              unit === 'backend'
+                ? `'${spec}' — '${pkg.name} may import only the /services subpath of ` + '@thirdlight/backend (dependencies.md §3/§4.3)'
+                : `'${spec}' — '${pkg.name} may import only the ${sub.map((x) => `/${x}`).join(', ')} subpath(s) of @thirdlight/${unit}`,
             );
           }
           // §4.1 types-only qualifiers: a value import of these edges is an

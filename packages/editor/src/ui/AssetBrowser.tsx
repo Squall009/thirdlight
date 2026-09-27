@@ -64,6 +64,8 @@ interface Props {
   onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
   /** Phase 9.4: extra sections for the selected asset (its default materials). */
   sideExtra?: ReactNode;
+  /** Phase 23.9b: create a UI document and open its tab. */
+  onNewUiDocument?: () => void;
 }
 
 /** The tile-preview key of an asset (or one of its pieces). */
@@ -211,6 +213,11 @@ export function AssetBrowser(p: Props): JSX.Element {
         >
           reimport…
         </button>
+        {p.onNewUiDocument !== undefined && (
+          <button className="tl-btn" onClick={p.onNewUiDocument} title="Create a UI document (a HUD, menu or screen) and open its editor tab; the UI tab lists them">
+            new UI document
+          </button>
+        )}
         {p.folderImport && (
           <>
             <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={p.onImportFromFolder} title="Pick a .glb/.fbx/.wav/.png/.jpg/.webp/.ogg/.mp3 in the game folder; files are referenced where they are, an .fbx is converted to glTF">
