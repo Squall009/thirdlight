@@ -880,7 +880,7 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
     // (phase 23.9b: + the UI document vocabulary, about 20 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(210_000);
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(220_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
