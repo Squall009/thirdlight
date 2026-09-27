@@ -2451,6 +2451,59 @@ stroke or button is one undo step, and MCP can do the same.
   previews in about 40–55 ms per pointer move and is stored about
   110–160 ms after release on the test host.
 
+## Sockets (objects on model nodes)
+
+Since phase 23.11 an object can ride on a named node — a bone or any node —
+of another object's model: equipment in a hand, a rider on a mount, a pilot
+in a cockpit, a flash at a muzzle. Select the object and **+ Add component →
+Socket**: **Target** is the object whose model carries the node, **Node** is
+picked from that model's node list (read from its GLB, the names the game
+uses), and **Offset** / **Rotation offset** / **Scale** place it relative to
+the node. **Attached at start** off keeps the socket as data a script
+attaches later.
+
+The simulation places attached objects at the end of every fixed step,
+after the animators, so an object follows the target's animation (its
+animator's clips, blends, crossfades and layers, the way the renderer poses
+the model) and replays, the simulation worker and the export agree bit for
+bit. The object's own children ride along. An object on a socket cannot be a
+physics body (collider, controller, mover) or the scene camera; a script's
+transform writes on it are overridden while it is attached. Works in 2D and
+3D projects.
+
+**Scripts** (`ctx.sockets`): `attach(entityId, targetId?, node?, position?,
+rotation?, scale?)` (no target: the object's own Socket component),
+`detach(entityId, keepWorld = true)` — it stays where the node left it, or
+snaps back to its transform from before the attach with `false` —,
+`attachedTo(entityId)` (`{target, nodeName}` or null) and `nodePose(targetId, node)` (a node's world
+position and rotation now, e.g. where to spawn a projectile). A refused
+attach (an unknown node, a loop, a physics body) returns false and writes a
+warning to the play log. Visual scripts have the same nodes under
+**Sockets**.
+
+**How the game knows the nodes.** The runtime never loads models, so a
+project that uses sockets (a Socket component anywhere, or a script naming
+`ctx.sockets`) gets each model's **rig** — its nodes and the node animation
+channels of its clips — read from the GLB into the play/export build (the
+manifest's `rigs`). Engine limits: 262,144 key numbers per model and about a
+million per project (clips past that are left out and a socket on them
+warns once). Projects without sockets build exactly as before.
+
+**Animation speed and morph targets.** `ctx.animator(id)?.setSpeed(x)`
+sets one object's playback speed (every clip and crossfade; 1 as authored,
+0.5 half speed, 0 holds the pose; 0–10) — slow motion for a prompt, an
+animation-speed setting; `.speed()` reads it. The Animator's live preview has
+a **speed** slider that plays the controller the same way. A controller's
+**morphs** list (MCP `setAnimator`: `morphs: [{target, parameter}]`) drives a
+morph target (blend shape) by a float parameter (clamped to 0–1);
+`ctx.animator(id)?.setMorph(name, weight)` / `.morph(name)` set and read any
+morph target from scripts. Morph weights are presentation: the renderer
+applies them to every mesh of the model that has that target.
+
+**Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
+export) reports `sockets: [{ entityId, target, node, position }]` (the
+drawn world position) while something rides on a socket.
+
 ## Pointer input and 3D queries
 
 Since phase 23.3 the mouse (or pen/touch) is part of the game's input.

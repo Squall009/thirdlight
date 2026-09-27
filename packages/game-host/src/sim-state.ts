@@ -60,6 +60,8 @@ export class FrameEncoder {
   private diagWanted = true;
   private memoryBytes = -1;
   private debugRevision = 0;
+  /** Phase 23.11: the socket list last sent (the runtime keeps one array while nothing changes). */
+  private socketsRef: readonly unknown[] | null = null;
   private shared: { sab: SharedArrayBuffer; slotFloats: number; slot: number; fresh: boolean } | null = null;
   private readonly useShared: boolean;
   private readonly visit: (id: string, p: readonly number[], r: readonly number[], s: readonly number[]) => void;
@@ -307,6 +309,12 @@ export class FrameEncoder {
       this.debugRevision = dbg.revision;
       out.debugCommands = dbg;
     }
+    // Phase 23.11: the objects riding on sockets (only when the list changed; never for a game without them).
+    const sockets = rt.socketAttachments?.();
+    if (sockets !== undefined && sockets !== this.socketsRef && (sockets.length > 0 || this.socketsRef !== null)) {
+      this.socketsRef = sockets;
+      out.sockets = sockets;
+    }
     if (typeof extra.memoryBytes === 'number' && extra.memoryBytes !== this.memoryBytes) {
       this.memoryBytes = extra.memoryBytes;
       out.memoryBytes = extra.memoryBytes;
@@ -375,6 +383,8 @@ export class FrameMirror {
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   debugCommands: DebugCommandState | null = null;
+  /** Phase 23.11: the objects riding on sockets. */
+  sockets: readonly { readonly entityId: string; readonly target: string; readonly node: string }[] = Object.freeze([]);
   private sharedSab: SharedArrayBuffer | null = null;
   /** The previous full transform buffer (returned to the worker for reuse). */
   spare: ArrayBuffer | null = null;
@@ -444,6 +454,7 @@ export class FrameMirror {
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
     if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;
+    if (s.sockets !== undefined) this.sockets = deepFreeze(s.sockets);
   }
 }
 

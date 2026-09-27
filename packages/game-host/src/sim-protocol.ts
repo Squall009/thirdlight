@@ -174,6 +174,8 @@ export interface FrameState {
   readonly memoryBytes?: number;
   /** Phase 23.8: the debug commands (registered, applied) when they changed. */
   readonly debugCommands?: DebugCommandState;
+  /** Phase 23.11: the objects riding on sockets (entity, target, node) when that changed. */
+  readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
 }
 
 export type WorkerToMain =

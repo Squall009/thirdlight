@@ -36,6 +36,7 @@
  * Pure: no I/O, no three.js, no UI code.
  */
 
+import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
 import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOVER_EASINGS, MOVER_MODES, PICKUP_KINDS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
@@ -48,6 +49,7 @@ import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
 import { MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
+import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
 import { GAME_ZONE_ROLES_V4, MAX_INSTANCES, MAX_TAGS } from './types-v3';
@@ -94,7 +96,7 @@ export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect';
 
 /** String formats (validation hints and widget choices). */
-export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName';
+export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode';
 
 /** A condition on a sibling field (`key`) or, with `../key`, on a field of the enclosing object. */
 export interface FieldCondition {
@@ -486,6 +488,7 @@ const camera: ComponentDescriptor = {
   add: { kind: 'menu', value: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } },
   handles: [],
   excludes: [
+    { component: 'socketAttach', reason: 'a socket poses the object every step; the scene camera is posed by its camera module' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'model', reason: 'an object shows one model, box or camera' },
     { component: 'box', reason: 'an object shows one model, box or camera' },
@@ -594,6 +597,7 @@ const collider: ComponentDescriptor = {
     { kind: 'capsule', label: 'Capsule', bind: { radius: 'shape/radius', height: 'shape/height' }, space: 'local', when: when('shape/type', 'capsule'), follows: 'transform' },
   ],
   excludes: [
+    { component: 'socketAttach', reason: 'a socket poses the object every step; a physics body is posed by physics' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'controller', reason: 'the player controller has its own capsule' },
     { component: 'enemy', reason: 'an enemy\'s size is its body' },
@@ -658,6 +662,7 @@ const controller: ComponentDescriptor = {
     { kind: 'height', label: 'Ledge height', bind: { height: 'ledgeHeight' }, space: 'local', from: 'capsule', when: when('ledgeClimb', true), dimension: 3 },
   ],
   excludes: [
+    { component: 'socketAttach', reason: 'a socket poses the object every step; the player is moved by its controller' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'collider', reason: 'the player controller has its own capsule' },
     { component: 'mover', reason: 'the player moves by input, not along waypoints' },
@@ -757,7 +762,7 @@ const cameraFollow: ComponentDescriptor = {
   add: { kind: 'menu', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } },
   handles: [{ kind: 'box2', label: 'Bounds', bind: { minX: 'bounds/minX', maxX: 'bounds/maxX', minY: 'bounds/minY', maxY: 'bounds/maxY' }, space: 'world' }],
   requiresAnyOf: { components: ['camera'], reason: 'the follow settings belong to the camera' },
-  excludes: [{ component: 'virtualCamera', reason: 'the follow settings belong to the scene camera' }],
+  excludes: [{ component: 'virtualCamera', reason: 'the follow settings belong to the scene camera' }, { component: 'socketAttach', reason: 'a socket poses the object every step; the scene camera is posed by its camera module' }],
   prefab: false,
 };
 
@@ -840,6 +845,27 @@ const cameraPath: ComponentDescriptor = {
   add: { kind: 'menu', value: { points: [[0, 0, 0], [6, 0, 0]] } },
   handles: [{ kind: 'path', label: 'Path', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
   excludes: [],
+  prefab: false,
+};
+
+// Phase 23.11: an object riding on a node of another object's model.
+const socketAttach: ComponentDescriptor = {
+  name: 'socketAttach',
+  label: 'Socket',
+  tooltip: 'Rides on a named node (a bone or any node) of another object\'s model, with an offset: equipment in a hand, a rider on a mount, a pilot in a cockpit. The simulation places it every step, following the target\'s animation; scripts attach and detach at run time (ctx.sockets).',
+  category: 'Object',
+  value: obj('socketAttach', 'Socket', 'The node this object rides on and its offset from it.', [
+    entity('target', 'Target', 'The object whose model carries the node.', { required: true, component: 'model' }),
+    str('node', 'Node', 'The node (or bone) of the target\'s model it rides on (the list shows the model\'s nodes).', { required: true, minLength: 1, maxLength: SOCKET_ATTACH_LIMITS.nodeName, format: 'socketNode' }),
+    vec3('position', 'Offset', 'The offset from the node, in the node\'s space.', { min: -SOCKET_ATTACH_LIMITS.offset, max: SOCKET_ATTACH_LIMITS.offset, step: 0.05, unit: 'm', default: [0, 0, 0] }),
+    { type: 'quat', key: 'rotation', label: 'Rotation offset', tooltip: 'The rotation from the node\'s (the Inspector shows degrees).', default: [0, 0, 0, 1] },
+    vec3('scale', 'Scale', 'Scale relative to the node.', { min: SOCKET_ATTACH_LIMITS.scaleMin, max: SOCKET_ATTACH_LIMITS.scaleMax, step: 0.05, default: [1, 1, 1] }),
+    bool('attached', 'Attached at start', 'Rides on the node from the start (off: a script attaches it later with ctx.sockets.attach).', { default: true }),
+  ]),
+  // A socket needs its target (picked first; the node starts as a placeholder name picked from the target's list next).
+  add: { kind: 'pick', value: {}, pick: ['target'] },
+  handles: [],
+  excludes: SOCKET_ATTACH_CONFLICTS.map((c) => ({ component: c, reason: c === 'camera' || c === 'cameraFollow' ? 'the scene camera is posed by its camera module' : 'a physics body is posed by physics, not by a socket' })),
   prefab: false,
 };
 
@@ -1126,7 +1152,7 @@ const mover: ComponentDescriptor = {
   // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
   handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', loop: when('mode', 'loop') }],
-  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }],
+  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }, { component: 'socketAttach', reason: 'a socket poses the object every step; a mover follows its waypoints' }],
   prefab: true,
 };
 
@@ -1666,6 +1692,10 @@ const ANIMATOR_ITEM = obj('*', 'Animator controller', 'A state machine for model
     num('time', 'Time', 'Seconds into the clip.', { required: true, min: 0, max: 600, step: 0.01, unit: 's', default: 0 }),
     str('name', 'Name', 'A letter or _, then letters, digits or _.', { required: true, format: 'identifier', minLength: 1, maxLength: 64 }),
   ]), { required: true, maxItems: MAX_ANIMATOR_EVENTS, default: [] }),
+  list('morphs', 'Morph targets', `Up to ${MAX_ANIMATOR_MORPHS} morph targets (blend shapes) whose weight follows a float parameter (clamped to 0–1); scripts may set others.`, obj('*', 'Morph target', 'A morph target driven by a parameter.', [
+    str('target', 'Target', 'The morph target\'s name in the model.', { ...NAME, required: true }),
+    ref('parameter', 'Parameter', 'The float parameter whose value (0–1) is the weight.', 'animatorParameter', { required: true, paramTypes: ['float'] }),
+  ]), { maxItems: MAX_ANIMATOR_MORPHS }),
   list('layers', 'Layers', `1–${MAX_ANIMATOR_LAYERS} override layers over the base layer (absent: the base layer only).`, obj('*', 'Layer', 'An override layer driving some bones.', [
     str('name', 'Name', 'Shown in the editor.', { ...NAME, required: true }),
     list('mask', 'Bones', `The bones this layer drives (up to ${MAX_LAYER_MASK}; empty: every bone).`, str('*', 'Bone', 'A bone (node) name of the model\'s skeleton.', { ...NAME, format: 'boneName' }), { required: true, maxItems: MAX_LAYER_MASK, unique: true, default: [] }),
@@ -1862,6 +1892,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   cameraFollow,
   virtualCamera,
   cameraPath,
+  socketAttach,
   light,
   gameZone,
   playerSpawn,

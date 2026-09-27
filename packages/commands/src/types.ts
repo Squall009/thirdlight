@@ -303,7 +303,9 @@ export type V3OwnedComponent =
   | 'effect'
   /** Phase 23.4, v4 scenes only: a virtual camera shot and a camera path. */
   | 'virtualCamera'
-  | 'cameraPath';
+  | 'cameraPath'
+  /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
+  | 'socketAttach';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

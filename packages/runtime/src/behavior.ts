@@ -59,6 +59,7 @@ import type {
   BehaviorAnimatorHandle,
   BehaviorAudio,
   BehaviorCamera,
+  BehaviorSockets,
   BehaviorDebug,
   BehaviorEffects,
   BehaviorGameState,
@@ -214,6 +215,8 @@ export interface BehaviorContext {
   log(level: BehaviorLogLevel, message: string): void;
   /** Phase 23.4: the virtual cameras — activate, priorities, rig values, shake, screen↔world. */
   readonly camera?: BehaviorCamera;
+  /** Phase 23.11: objects riding on named nodes of other objects' models — attach, detach, node poses. */
+  readonly sockets?: BehaviorSockets;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -916,6 +919,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
         // Phase 23.4: the virtual cameras (resolved by the camera brain at the end of the step).
         if (src.camera !== undefined) fields['camera'] = { value: src.camera, enumerable: true };
+        // Phase 23.11: sockets (resolved by the runtime at the end of the step, after the animators).
+        if (src.sockets !== undefined) fields['sockets'] = { value: src.sockets, enumerable: true };
         // Phase 23.8: debug commands (the handler, when given, runs once per call of this step).
         if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
         // Phase 23.5: the block layers.

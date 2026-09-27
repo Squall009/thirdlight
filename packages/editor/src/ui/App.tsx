@@ -2534,8 +2534,11 @@ function EditorApp(): JSX.Element {
     const player = createAnimatorPlayer(res.session.root, res.session.animationClips, assetId, { clipsOf: (id) => foreign.get(id) ?? null });
     let last = performance.now();
     let raf = 0;
+    let elapsed = 0;
     const tick = (now: number): void => {
-      machine.step(Math.min(0.1, Math.max(0, (now - last) / 1000)));
+      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
+      elapsed += dt;
+      machine.step(dt);
       last = now;
       player.apply(machine.pose());
       raf = requestAnimationFrame(tick);
@@ -2547,6 +2550,15 @@ function EditorApp(): JSX.Element {
       trigger: (name) => void machine.trigger(name),
       state: () => machine.stateName(),
       layerStates: () => Array.from({ length: machine.layerCount() }, (_, i) => machine.stateName(i)),
+      // Phase 23.11: the preview plays at the speed a script would set (the same machine the game steps).
+      setSpeed: (speed) => void machine.setSpeed(speed),
+      elapsed: () => elapsed,
+      clipTime: () => {
+        const clips = machine.pose().clips;
+        let best = clips[0];
+        for (const c of clips) if (best === undefined || c.weight > best.weight) best = c;
+        return best?.time ?? 0;
+      },
       dispose: () => {
         if (done) return;
         done = true;
@@ -2915,6 +2927,25 @@ function EditorApp(): JSX.Element {
     return (r?.clips ?? []).map((x) => ({ name: x.name, duration: x.durationSeconds }));
   }, []);
   // Phase 14.6: a model's skeleton (the Animator's bone mask picker).
+  // Phase 23.11: the node names of the models socket targets carry (the Inspector's node list), read once per version.
+  const [modelNodeNames, setModelNodeNames] = useState<Readonly<Record<string, readonly string[] | 'failed'>>>({});
+  const modelNodeLoads = useRef(new Set<string>());
+  const modelNodesOf = useCallback(
+    (assetId: string): readonly string[] | null | undefined => {
+      const version = clientRef.current?.content.resolveVersion(assetId)?.version;
+      if (version === undefined) return undefined;
+      const key = `${assetId}@${version}`;
+      const have = modelNodeNames[key];
+      if (have === 'failed') return undefined;
+      if (have !== undefined) return have;
+      if (!modelNodeLoads.current.has(key)) {
+        modelNodeLoads.current.add(key);
+        void (modelInstancesRef.current?.nodeNames(assetId) ?? Promise.resolve(null)).then((names) => setModelNodeNames((m) => ({ ...m, [key]: names ?? 'failed' })));
+      }
+      return null;
+    },
+    [modelNodeNames],
+  );
   const skeletonOf = useCallback(async (assetId: string) => {
     const r = await modelInstancesRef.current?.prepared(assetId);
     return r === null || r === undefined ? [] : r.skeleton().map((b) => ({ name: b.name, parent: b.parent, depth: b.depth }));
@@ -3755,8 +3786,14 @@ function EditorApp(): JSX.Element {
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
       // Phase 23.1: the "+ Add component" presets follow the project's physics dimension.
       physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
+      // Phase 23.11: a socket's node list comes from its target's model.
+      modelNodes: (entityId: string) => {
+        const e = allEntitiesMemo.find((x) => x.id === entityId);
+        const assetId = (e?.components as { model?: { asset?: { assetId?: unknown } } } | undefined)?.model?.asset?.assetId;
+        return typeof assetId === 'string' ? modelNodesOf(assetId) : undefined;
+      },
     }),
-    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings],
+    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf],
   );
   const selectedSceneId = selectedEntity?.sceneId;
   const fieldContextMemo: FieldContext = useMemo(

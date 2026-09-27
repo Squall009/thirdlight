@@ -226,7 +226,13 @@ export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3
 export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
 // Phase 9.7/9.8: animators and ctx.input.
-export { AnimatorMachine, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
+export { AnimatorMachine, ANIMATOR_SPEED_LIMITS, MAX_SCRIPT_MORPHS, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
+// Phase 23.11: sockets and the rig poser (model nodes posed by an animator pose, as three.js poses them).
+export { MAX_SOCKET_ATTACHMENTS, SocketSystem, type SocketAttachment, type SocketHost } from './sockets';
+export { RigPoser, composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, sampleChannel, type Mat4 } from './rig-pose';
+export type { BehaviorSockets } from './types';
+// Phase 23.11: the rig reader (hosts and the editor read the node names the game resolves sockets on).
+export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
 export { inputView, type BehaviorInputView } from './behavior';
 // Phase 14.1: ctx.spawn / ctx.destroy (prefab copies in the running game).
 export { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions, type SpawnOptions, type SpawnPlacement } from './spawn';

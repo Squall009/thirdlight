@@ -40,6 +40,7 @@ import {
   type MaterialOverridesLike,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
+import { readModelRig, rigNodeNames } from '@thirdlight/runtime';
 import type { ProjectedEntity } from '../session/projection';
 
 export type VisualDescriptor = AssetVersionDescriptor;
@@ -242,6 +243,23 @@ export class ModelInstances {
       list.push(resolve);
       this.waiters.set(assetId, list);
     });
+  }
+
+  /**
+   * Phase 23.11: the node names of an asset's current version, read from its
+   * GLB exactly as the game reads the rig sockets are resolved on (so the
+   * Inspector offers the names the game finds). Null when it cannot be read.
+   */
+  async nodeNames(assetId: string): Promise<string[] | null> {
+    const descriptor = this.options.descriptorFor(assetId);
+    if (descriptor === null || this.disposed) return null;
+    try {
+      const bytes = await this.options.resolve(descriptor);
+      const r = readModelRig(bytes, assetId, 0);
+      return r.ok ? rigNodeNames(r.rig) : null;
+    } catch {
+      return null;
+    }
   }
 
   private readonly waiters = new Map<string, ((r: PreparedVisualResource | null) => void)[]>();
