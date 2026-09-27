@@ -13,6 +13,7 @@
  * identically in the Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
+import { validateSaveEvents } from './project-saves';
 
 /** The four jump phases (input.md §2). */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -52,6 +53,14 @@ export interface ActionFrame {
    * @graphNode skip a script receives its debug commands with ctx.debug.command
    */
   commands?: readonly DebugCommandCall[];
+  /**
+   * Phase 23.19, optional: storage's answers this step (the slot list, save and
+   * delete outcomes, a loaded save document) — part of the input so a
+   * recording replays them and the worker applies them at the same step.
+   * Absent: none (every older frame and recording is unchanged).
+   * @graphNode skip a script reads them through ctx.saves
+   */
+  saves?: readonly import('./project-saves').SaveEvent[];
 }
 
 /** Phase 23.8: one debug command call carried by an input frame. */
@@ -191,7 +200,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'moveY') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'moveY') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -252,7 +261,14 @@ export function validateActionFrame(
     if (!c.ok) return c;
     commands = c.commands;
   }
-  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(pointer !== undefined ? { pointer } : {}) });
+  // Phase 23.19: storage's answers (validated and frozen; absent keeps the frame as it was).
+  let saves: readonly import('./project-saves').SaveEvent[] | undefined;
+  if (value['saves'] !== undefined) {
+    const sv = validateSaveEvents(value['saves']);
+    if (!sv.ok) return sv;
+    saves = sv.events;
+  }
+  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && saves === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}) });
   const rawActions = value['actions'];
   // Phase 23.2 / 23.8 / 23.3: moveY, commands and the pointer only when present (a frame without them stays as it was).
   const withMoveY = moveY !== undefined ? { moveY } : {};

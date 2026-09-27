@@ -137,6 +137,7 @@ const OPS: readonly MutationOp[] = [
   'deleteAnimator',
   'setInput',
   'setCollisionLayers',
+  'setSaveSchema',
   'setFlow',
   'createScene',
   'renameScene',
@@ -205,7 +206,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1193,6 +1194,7 @@ export type ValidatedOpArgs =
   | { op: 'deleteAnimator'; args: { controllerId: string } }
   | { op: 'setInput'; args: { input: InputConfig | null } }
   | { op: 'setCollisionLayers'; args: { layers: string[] } }
+  | { op: 'setSaveSchema'; args: { schema: import('@thirdlight/project-model').SaveSchema | null } }
   | { op: 'setFlow'; args: { flow: GameFlow | null } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs }
   | { op: 'setGraph'; args: { graph: GraphDocument } }
@@ -1348,6 +1350,12 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== 'layers') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'layers') };
       if (args['layers'] === undefined) return { ok: false, error: fieldMissing('/args/layers', 'layers') };
       if (!Array.isArray(args['layers'])) return { ok: false, error: fieldType('/args/layers', args['layers'], 'array of layer names ([] = only "default")') };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setSaveSchema': {
+      for (const k of Object.keys(args)) if (k !== 'schema') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'schema') };
+      if (args['schema'] === undefined) return { ok: false, error: fieldMissing('/args/schema', 'schema') };
+      if (args['schema'] !== null && !isPlainObject(args['schema'])) return { ok: false, error: fieldType('/args/schema', args['schema'], 'object ({ version, slots, migrations?, sections?, thumbnail?, settings? }) or null (no project saves)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setFlow': {

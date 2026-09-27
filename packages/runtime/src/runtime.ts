@@ -21,6 +21,17 @@
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
+import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort } from './project-saves';
+import type { SaveSchema } from '@thirdlight/project-model';
+
+/** Phase 23.19: one spawned copy as a save document's `spawned` section keeps it. */
+interface SavedSpawnCopy {
+  prefabId: string;
+  ids: string[];
+  position: number[];
+  rotation: number[];
+  scale: number[];
+}
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   GAME_TIMING_DEFAULTS,
@@ -541,6 +552,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     'fixedStepHz',
     'onFrame',
     'variables',
+    'projectSettings',
   ]);
   for (const key of Object.keys(config)) {
     if (!allowed.has(key)) {
@@ -664,6 +676,14 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       variables[k] = JSON.parse(text) as unknown;
     }
   }
+  // Phase 23.19: the stored project settings document (checked field by field against the save schema by the runtime).
+  let projectSettings: Record<string, unknown> | undefined;
+  if (config.projectSettings !== undefined) {
+    if (!isPlainObject(config.projectSettings) || Object.keys(config.projectSettings).length > 64) {
+      return { error: fail('config_invalid', 'config field "projectSettings" must map at most 64 keys to values', { reason: 'shape', path: '/projectSettings' }) };
+    }
+    projectSettings = { ...(config.projectSettings as Record<string, unknown>) };
+  }
   return {
     cfg: {
       snapshot: config.snapshot,
@@ -679,6 +699,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       hz,
       onFrame,
       ...(variables !== undefined ? { variables } : {}),
+      ...(projectSettings !== undefined ? { projectSettings } : {}),
     },
   };
 }
@@ -713,6 +734,7 @@ interface ParsedConfig {
   hz: number;
   onFrame?: () => void;
   variables?: Record<string, unknown>;
+  projectSettings?: Record<string, unknown>;
 }
 
 /**
@@ -728,7 +750,7 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
@@ -1264,6 +1286,8 @@ export function instantiateRuntime(
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
     ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
+    ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
+    ...(projectSettings !== undefined ? { projectSettings } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1346,6 +1370,9 @@ interface RuntimeArgs {
   cellFields: readonly CellField[];
   /** Phase 23.12: the graph materials' parameters (ctx.materials). */
   materialCatalog?: RuntimeMaterialCatalog;
+  /** Phase 23.19: the project save schema and the stored project settings document. */
+  saveSchema?: SaveSchema;
+  projectSettings?: Readonly<Record<string, unknown>>;
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1574,6 +1601,8 @@ class RuntimeInstance implements Runtime {
   private readonly grid: RuntimeGrid;
   /** Phase 23.12: graph-material parameters scripts set per object (`ctx.materials`). */
   private readonly materials: RuntimeMaterials;
+  /** Phase 23.19: project saves (`ctx.saves`). */
+  private readonly saves: RuntimeSaves;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
   /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
@@ -1644,6 +1673,8 @@ class RuntimeInstance implements Runtime {
   private readonly debugRegistry = new Map<string, DebugCommandSpec>();
   /** Calls queued by the host for the next sampled step. */
   private debugQueue: DebugCommandCall[] = [];
+  /** Phase 23.19: storage answers queued by the host for the next sampled step. */
+  private saveQueue: SaveEvent[] = [];
   /** This step's calls by command (from its input frame); null: none. */
   private stepDebugCalls: Map<string, DebugCommandArgs[]> | null = null;
   private debugApplied: { stepIndex: number; name: string; args: DebugCommandArgs }[] = [];
@@ -1840,6 +1871,8 @@ class RuntimeInstance implements Runtime {
     // Phase 23.12: the start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materials.addEntities(args.initialEntities);
+    // Phase 23.19: project saves (the document, slots, settings; inert without a save schema).
+    this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message));
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
     // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
@@ -2166,6 +2199,164 @@ class RuntimeInstance implements Runtime {
   materialState(): string | null {
     return this.materials.digestText();
   }
+
+  /** Phase 23.19: the save/load/delete/settings requests since the last call; the host (the storage owner) carries them out. */
+  takeSaveRequests(): SaveRequest[] {
+    return this.saves.takeRequests();
+  }
+
+  /**
+   * Phase 23.19: queue one storage answer (the slot list, a save/delete
+   * outcome, a loaded document) for the next sampled step — it rides on that
+   * step's input frame, so a recording replays it and the worker applies it
+   * at the same step. Refused for a project without a save schema, a bad
+   * entry, or when 64 are already waiting.
+   */
+  queueSaveEvent(event: SaveEvent): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.saves.schema === null) return { ok: false, error: fail('game_command_invalid', 'this game has no project save schema', { reason: 'saves' }) };
+    const checked = validateSaveEvents([event]);
+    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `save entry: ${checked.message}`, { reason: 'saves' }) };
+    if (this.saveQueue.length >= 64) return { ok: false, error: fail('game_command_invalid', 'at most 64 storage answers may wait for the next step', { reason: 'pending' }) };
+    this.saveQueue.push(checked.events[0]!);
+    return { ok: true };
+  }
+
+  /** Phase 23.19: the project saves state as digest text (null without a save schema or before any save activity). */
+  savesState(): string | null {
+    return this.saves.digestText();
+  }
+
+  /** Phase 23.19: the project settings document now (empty without a save schema). */
+  projectSettings(): Readonly<Record<string, boolean | number | string>> {
+    return this.saves.settingsNow();
+  }
+
+  /** Phase 23.19: the engine state a save document's sections capture and restore. */
+  private buildSaveSections(): SaveSectionsPort {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const rt = this;
+    return {
+      capture(section) {
+        switch (section) {
+          case 'grid':
+            return rt.grid.api.diff();
+          case 'materials':
+            return rt.materials.saveState();
+          case 'storage':
+            return Object.fromEntries([...rt.saveStore.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+          case 'spawned':
+            return rt.spawnedCopies();
+        }
+      },
+      check(section, value) {
+        switch (section) {
+          case 'grid':
+            return null;
+          case 'materials':
+            return rt.materials.checkState(value);
+          case 'storage': {
+            if (typeof value !== 'object' || value === null || Array.isArray(value) || Object.keys(value).length > SAVE_MAX_KEYS) return `the storage section maps at most ${SAVE_MAX_KEYS} keys to values`;
+            for (const [k, v] of Object.entries(value)) if (!SAVE_KEY_RE.test(k) || saveValueText(v) === null) return `storage key "${k.slice(0, 64)}" does not fit ctx.save's rules`;
+            return null;
+          }
+          case 'spawned':
+            return rt.spawnedCopiesProblem(value);
+        }
+      },
+      apply(section, value) {
+        switch (section) {
+          case 'grid':
+            return rt.grid.restoreDiff(value);
+          case 'materials':
+            rt.materials.restoreState(value as import('./material-params').MaterialSaveEntry[] | undefined);
+            return null;
+          case 'storage':
+            rt.saveStore.clear();
+            for (const [k, v] of Object.entries((value ?? {}) as Record<string, unknown>)) rt.saveStore.set(k, JSON.parse(saveValueText(v)!) as unknown);
+            return null;
+          case 'spawned':
+            rt.restoreSpawnedCopies((value ?? []) as SavedSpawnCopy[]);
+            return null;
+        }
+      },
+    };
+  }
+
+  /** Phase 23.19: the live spawned copies (prefab, ids in prefab order, the root's placement now). */
+  private spawnedCopies(): SavedSpawnCopy[] {
+    const out: SavedSpawnCopy[] = [];
+    const copyOf = new Map<string, string[]>();
+    const roots: string[] = [];
+    for (const e of this.spawnedEntities.values()) {
+      if (this.pendingDestroys.has(e.id)) continue;
+      const parent = e.parentId;
+      const ids = parent !== undefined ? copyOf.get(parent) : undefined;
+      // Parents come before children: a child joins its parent's copy.
+      if (ids !== undefined) {
+        ids.push(e.id);
+        copyOf.set(e.id, ids);
+      } else {
+        const own = [e.id];
+        copyOf.set(e.id, own);
+        roots.push(e.id);
+      }
+    }
+    for (const rootId of roots) {
+      const root = this.spawnedEntities.get(rootId)!;
+      const prefabId = (root.components as { prefab?: { prefabId?: string } }).prefab?.prefabId;
+      const t = this.curr.get(rootId);
+      if (prefabId === undefined || t === undefined) continue;
+      out.push({ prefabId, ids: [...copyOf.get(rootId)!], position: [t.position[0], t.position[1], t.position[2]], rotation: [t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]], scale: [t.scale[0], t.scale[1], t.scale[2]] });
+    }
+    return out;
+  }
+
+  private spawnedCopiesProblem(value: unknown): string | null {
+    if (!Array.isArray(value)) return 'the spawned section is a list';
+    const seen = new Set<string>();
+    let total = 0;
+    for (const c of value as SavedSpawnCopy[]) {
+      if (typeof c !== 'object' || c === null || typeof c.prefabId !== 'string' || !Array.isArray(c.ids)) return 'a spawned copy is { prefabId, ids, position, rotation, scale }';
+      const def = this.prefabs.get(c.prefabId);
+      if (def === undefined) return `prefab "${c.prefabId.slice(0, 64)}" is not in this game`;
+      if (c.ids.length !== def.entities.length) return `the copy of "${c.prefabId}" has ${c.ids.length} ids; the prefab has ${def.entities.length} objects`;
+      for (const id of c.ids) {
+        if (typeof id !== 'string' || !/^spawn-[1-9][0-9]{0,15}$/.test(id) || seen.has(id)) return 'spawned ids are spawn-<n>, each once';
+        if (this.entities.has(id) && !this.spawnedEntities.has(id)) return `"${id}" is an object of the scene`;
+        seen.add(id);
+      }
+      total += c.ids.length;
+      const parsed = parseSpawnOptions(def, { position: c.position, rotation: c.rotation, scale: c.scale });
+      if (!parsed.ok) return `the copy of "${c.prefabId}": ${parsed.message}`;
+    }
+    if (total > MAX_LIVE_SPAWNED) return `at most ${MAX_LIVE_SPAWNED} spawned objects`;
+    return null;
+  }
+
+  /** Phase 23.19: the spawned copies become the saved ones at the next step boundary (checked with `spawnedCopiesProblem`). */
+  private restoreSpawnedCopies(copies: readonly SavedSpawnCopy[]): void {
+    this.spawnOps = [];
+    this.reservedSpawnIds.clear();
+    this.pendingDestroys.clear();
+    for (const e of this.spawnedEntities.values()) {
+      if (e.parentId !== undefined && this.spawnedEntities.has(e.parentId)) continue;
+      this.pendingDestroys.add(e.id);
+      this.spawnOps.push({ op: 'destroy', entityId: e.id });
+    }
+    for (const c of copies) {
+      const def = this.prefabs.get(c.prefabId)!;
+      const parsed = parseSpawnOptions(def, { position: c.position, rotation: c.rotation, scale: c.scale });
+      if (!parsed.ok) continue;
+      for (const id of c.ids) {
+        this.reservedSpawnIds.add(id);
+        const n = Number(id.slice(SPAWN_ID_PREFIX.length));
+        if (n > this.spawnSerial) this.spawnSerial = n;
+      }
+      this.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, c.ids, parsed.placement) });
+    }
+  }
+
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
   takeAudioRequests(): { assetId: string; volume: number; stepIndex: number }[] {
@@ -2977,6 +3168,7 @@ class RuntimeInstance implements Runtime {
     this.respawnRequested = false;
     this.grid.beginStep(ordinal);
     this.materials.beginStep(ordinal);
+    this.saves.beginStep();
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
@@ -3051,6 +3243,8 @@ class RuntimeInstance implements Runtime {
     // Phase 23.4: the camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
     this.stepCameras(action);
+    // Phase 23.19: saves asked for this step are assembled, loaded ones restored (a step boundary).
+    this.saves.endStep();
     // The accepted step-end promotion (runtime.md §12.1.1) runs unchanged
     // for M3 sets too (gameplay.md §3.5 invariance; segment-source.json pins
     // `state.prev` during step n at the end of step n−2): `prev := backup`
@@ -3091,6 +3285,12 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new InputSourceError(messageOf(e));
     }
+    // Phase 23.19: storage's queued answers ride on this step's frame too.
+    if (this.saveQueue.length > 0 && typeof raw === 'object' && raw !== null) {
+      const have = (raw as ActionFrame).saves ?? [];
+      const room = Math.max(0, MAX_FRAME_SAVE_EVENTS - (Array.isArray(have) ? have.length : 0));
+      if (room > 0) raw = { ...(raw as ActionFrame), saves: [...have, ...this.saveQueue.splice(0, room)] };
+    }
     // Phase 23.8: queued debug commands ride on this step's frame (so a recording keeps them).
     if (this.debugQueue.length > 0 && typeof raw === 'object' && raw !== null) {
       const have = (raw as ActionFrame).commands ?? [];
@@ -3103,6 +3303,8 @@ class RuntimeInstance implements Runtime {
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
     this.deliverDebugCommands(check.frame);
+    // Phase 23.19: storage's answers (the slot list, outcomes, a loaded document).
+    if (check.frame.saves !== undefined) this.saves.deliver(check.frame.saves);
     return this.withHeldPointer(check.frame);
   }
 
@@ -3456,6 +3658,8 @@ class RuntimeInstance implements Runtime {
       this.grid.flushCollision(this.physics3d);
       // Phase 23.12: and from the authored material values.
       this.materials.reset();
+      // Phase 23.19: no project save document, no play time yet.
+      this.saves.reset();
     }
     // Phase 9.11: a loaded save's run on top of the fresh one.
     if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
@@ -4357,6 +4561,8 @@ class RuntimeInstance implements Runtime {
       fields['grid'] = { value: this.grid.api, enumerable: true };
       // Phase 23.12: graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
+      // Phase 23.19: project saves (ctx.saves).
+      fields['saves'] = { value: this.saves.api, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };

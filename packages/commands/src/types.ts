@@ -110,6 +110,8 @@ export type V3MutationOp =
   | 'setFlow'
   // phase 23.3: named collision layers (3D physics)
   | 'setCollisionLayers'
+  // phase 23.19: the project save schema
+  | 'setSaveSchema'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -549,6 +551,13 @@ export interface SetCollisionLayersChange {
   next: string[];
 }
 
+/** Phase 23.19: `setSaveSchema` change data (the whole schema; null = no project saves). */
+export interface SetSaveSchemaChange {
+  type: 'setSaveSchema';
+  previous: import('@thirdlight/project-model').SaveSchema | null;
+  next: import('@thirdlight/project-model').SaveSchema | null;
+}
+
 /** Phase 9.8: `setInput` change data (null = the defaults). */
 export interface SetInputChange {
   type: 'setInput';
@@ -828,6 +837,7 @@ export type ChangeData =
   | SetAnimatorsChange
   | SetInputChange
   | SetCollisionLayersChange
+  | SetSaveSchemaChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -865,6 +875,7 @@ export type ForwardChange =
   | SetAnimatorsChange
   | SetInputChange
   | SetCollisionLayersChange
+  | SetSaveSchemaChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -1009,6 +1020,12 @@ export interface SetCollisionLayersInverse {
   restore: string[];
 }
 
+/** Phase 23.19: undo of `setSaveSchema`: restore the previous schema (null = none). */
+export interface SetSaveSchemaInverse {
+  kind: 'setSaveSchema';
+  restore: import('@thirdlight/project-model').SaveSchema | null;
+}
+
 /** Undo of `setInput`: restore the previous actions (null = the defaults). */
 export interface SetInputInverse {
   kind: 'setInput';
@@ -1062,6 +1079,7 @@ export type InverseSpec =
   | SetAnimatorsInverse
   | SetInputInverse
   | SetCollisionLayersInverse
+  | SetSaveSchemaInverse
   | SetFlowInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse

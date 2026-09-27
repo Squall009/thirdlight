@@ -253,6 +253,10 @@ export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './
 export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';
 export { lookAtQuat, orbitOffset, pointOnPath, quatFromYawPitch, samplePath, screenToRay, worldToScreen, yawPitchOf, type CameraPose, type SampledPath, type ScreenPoint } from './camera-rig';
 export { debugCallProblem } from './debug-commands';
+// Phase 23.19: project save documents (ctx.saves).
+export { MAX_FRAME_SAVE_EVENTS, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION, SAVE_REQUESTS_PER_STEP, projectSaveFileProblem, utf8Length, validateSaveEvents, type BehaviorSaves, type ProjectSaveFile, type SaveEvent, type SaveMeta, type SaveRequest, type SaveResult, type SaveSlotInfo } from './project-saves';
+// (the save schema's limits and settings rules, for hosts that do not depend on project-model)
+export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, settingsDocumentOf, type SaveSchema, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 // Phase 23.5 (E8): block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
 export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridDiff, type GridPick, type GridRenderChange, type GridVec3 } from './grid';
@@ -260,4 +264,4 @@ export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, t
 export { applyBlockEdits, effectiveCellMeta, pickCell, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
 export { BlockGrid, CHUNK_SIZE, autoVariant, blockTypeSolid, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockType, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
 // Phase 23.12 (E9): graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
-export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
+export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';

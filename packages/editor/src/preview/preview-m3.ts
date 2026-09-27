@@ -62,7 +62,7 @@
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
+import { depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
@@ -79,6 +79,8 @@ import {
   type HostDomNode,
   type FlowConfigLike,
   browserSaveStorage,
+  browserProjectSaveBackend,
+  readProjectSettings,
   browserWorkerAvailable,
   createBrowserSimWorker,
   createLocalSimAccess,
@@ -148,6 +150,7 @@ export interface PreviewManifestV2 {
   input?: InputConfigLike;
   /** Phase 23.3: the named collision layers. */
   collisionLayers?: readonly string[];
+  saveSchema?: SaveSchema;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -389,7 +392,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -441,10 +444,14 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsR = manifest.rigs !== undefined ? ({ ...withBounds0, rigs: manifest.rigs } as RuntimeSnapshot) : withBounds0;
   // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials; from the verified manifest).
   const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
-  const withBounds = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
+  const withBoundsM = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
+  // Phase 23.19: the project save schema (ctx.saves; from the verified manifest).
+  const withBounds = manifest.saveSchema !== undefined ? ({ ...withBoundsM, saveSchema: manifest.saveSchema } as RuntimeSnapshot) : withBoundsM;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
+  // Phase 9.11 / 23.19: this project's saves in Play (an export uses its own namespace).
+  const playSaveNamespace = `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
   // Physics runs only for a game (a player controller); a plain scene plays
   // without it.
   // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
@@ -499,6 +506,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
               shared: resolveTransport(globalThis as never) === 'shared',
               // Phase 23.8: injected script variables (ctx.save from step 0).
               ...(startVariables !== undefined ? { variables: startVariables } : {}),
+              // Phase 23.19: the stored project settings document (the runtime starts with it).
+              ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, playSaveNamespace) } : {}),
             },
             input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
             ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
@@ -633,7 +642,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 14.5: the title screen's background scene and camera pan.
       setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
       // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
-      ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
+      ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: playSaveNamespace } : {}),
+      // Phase 23.19: project save slots in this browser's IndexedDB (Play and exported games keep separate ones).
+      ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
       assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
       // Phase 23.8: Play always has the debug console (the backquote key); a start from "Play from…" / tl_play_start.
       debugConsole: true,
@@ -658,6 +669,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     if (!mount.ok) {
       throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
     }
+    // Phase 23.19: a project save slot's picture (a data URL) for the page — a game's load screen, tests.
+    (globalThis as { __thirdlightSaveThumbnail?: (slot: number) => Promise<string | null> }).__thirdlightSaveThumbnail = (slot: number) => host.projectSaves?.thumbnail(slot) ?? Promise.resolve(null);
 
     // 5. The models settle (delivery.md §2.8 step 10): the preview reports
     //    ready ONLY after the prepares settle. A hard failure (L3–L5) is a
@@ -935,6 +948,7 @@ export function bootstrapPreviewM3(): void {
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
         ...debugCommandsObservation(h),
+        ...savesObservationOf(h.host),
       };
     }
     const v = gv.view;
@@ -995,6 +1009,7 @@ export function bootstrapPreviewM3(): void {
       ...(debug !== null && debug !== undefined ? { debug } : {}),
       // Phase 23.8: the project's debug commands and the calls run; the start options' outcome.
       ...debugCommandsObservation(h),
+      ...savesObservationOf(h.host),
     };
   };
 
@@ -1092,6 +1107,8 @@ interface PlayStartBlock {
   variables?: Record<string, unknown>;
   save?: Record<string, unknown>;
   saveSlot?: 'auto' | '1' | '2' | '3';
+  projectSave?: Record<string, unknown>;
+  projectSaveSlot?: number;
   mode?: string;
 }
 
@@ -1104,6 +1121,9 @@ function hostStartOf(b: PlayStartBlock): GameStartOptions | undefined {
   if (b.save !== undefined) o.save = b.save as unknown as NonNullable<GameStartOptions['save']>;
   if (b.saveSlot !== undefined) o.saveSlot = b.saveSlot;
   if (b.mode !== undefined) o.mode = b.mode;
+  // Phase 23.19: a project save document or slot.
+  if (b.projectSave !== undefined) o.projectSave = b.projectSave as unknown as NonNullable<GameStartOptions['projectSave']>;
+  if (b.projectSaveSlot !== undefined) o.projectSaveSlot = b.projectSaveSlot;
   return Object.keys(o).length > 0 ? o : undefined;
 }
 
@@ -1216,4 +1236,16 @@ function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, Array
       loadTexture,
     },
   };
+}
+
+/**
+ * Phase 23.19: `saves` {slotCount, storage, slots (the first 32 used: title,
+ * chapter, location, play time, when, version, bytes, picture facts), settings}
+ * for tl_game_observe (a project with a save schema).
+ */
+function savesObservationOf(host: { observe(): unknown; observeScene?(): unknown }): { saves?: unknown } {
+  const o = host.observe() as { ok: boolean; observation?: { saves?: unknown } };
+  const sc = o.ok ? o : (host.observeScene?.() as { ok: boolean; observation?: { saves?: unknown } } | undefined);
+  const saves = sc?.ok === true ? sc.observation?.saves : undefined;
+  return saves !== undefined ? { saves: structuredClone(saves) } : {};
 }

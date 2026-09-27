@@ -102,7 +102,8 @@ export interface PlayStartOptions {
   mode?: string;
   variables?: Record<string, unknown>;
   save?: Record<string, unknown>;
-  saveSlot?: 'auto' | '1' | '2' | '3';
+  /** 'auto' | '1'–'3' (a game flow's slots) or '1'–'99' (a project save slot, phase 23.19). */
+  saveSlot?: string;
 }
 
 /** Phase 23.8: the bounds of the start options (the script save's own: 64 keys, 4 KB per value; a save ≤ 64 KB). */
@@ -113,6 +114,10 @@ const PLAY_VARIABLE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const PLAY_SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const PLAY_MODE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 export const PLAY_START_SAVE_SLOTS = ['auto', '1', '2', '3'] as const;
+/** Phase 23.19: a project save document (`format: "thirdlight.save"`) may be as large as a save slot (1 MiB; the request body bound applies too). */
+export const PLAY_START_PROJECT_SAVE_MAX_BYTES = 1_048_576;
+export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
+const PLAY_SAVE_SLOT_RE = /^(auto|[1-9][0-9]?)$/;
 
 const PLAY_START_FIELDS = new Map([
   ['options', '{ demo?: boolean, sceneId?, mode?, variables?, save?, saveSlot? }'],
@@ -123,8 +128,8 @@ const PLAY_OPTIONS_FIELDS = new Map([
   ['sceneId', 'a scene id: Play starts there (phase 23.8)'],
   ['mode', 'a game mode id (phase 23.8; checked once the project has game modes)'],
   ['variables', `{ key: JSON value } (at most ${PLAY_START_VARIABLES_MAX}; what the scripts' ctx.save holds from step 0)`],
-  ['save', `a save document (at most ${PLAY_START_SAVE_MAX_BYTES} bytes)`],
-  ['saveSlot', 'auto | 1 | 2 | 3 (a save slot of the Play page)'],
+  ['save', `a save document (at most ${PLAY_START_SAVE_MAX_BYTES} bytes), or a project save document { format: "thirdlight.save", version, doc, ... } (at most 1 MiB)`],
+  ['saveSlot', 'auto | 1 | 2 | 3 (a save slot of the Play page), or 1-99 (a project save slot)'],
 ]);
 
 /** Phase 23.8: validate the start fields of the play-start options (pure). */
@@ -156,13 +161,19 @@ function parsePlayStartOptions(o: Record<string, unknown>): { ok: true; start: P
   }
   if (o.save !== undefined) {
     const s = o.save;
-    if (!isPlainObject(s) || typeof s.levelId !== 'string' || !isPlainObject(s.run) || typeof s.version !== 'number') return bad('/options/save', 'options.save must be a save document { version, levelId, run, ... }');
-    if (new TextEncoder().encode(JSON.stringify(s)).length > PLAY_START_SAVE_MAX_BYTES) return bad('/options/save', `options.save is larger than ${PLAY_START_SAVE_MAX_BYTES} bytes`);
+    if (isPlainObject(s) && s.format === PROJECT_SAVE_FORMAT) {
+      // Phase 23.19: a project save document (its content is checked against the project's schema by the backend and the game).
+      if (!Number.isInteger(s.version) || (s.version as number) < 1 || !('doc' in s)) return bad('/options/save', 'a project save document is { format: "thirdlight.save", version, doc, playSeconds?, sections? }');
+      if (new TextEncoder().encode(JSON.stringify(s)).length > PLAY_START_PROJECT_SAVE_MAX_BYTES) return bad('/options/save', `options.save is larger than ${PLAY_START_PROJECT_SAVE_MAX_BYTES} bytes`);
+    } else {
+      if (!isPlainObject(s) || typeof s.levelId !== 'string' || !isPlainObject(s.run) || typeof s.version !== 'number') return bad('/options/save', 'options.save must be a save document { version, levelId, run, ... } or a project save document { format: "thirdlight.save", version, doc, ... }');
+      if (new TextEncoder().encode(JSON.stringify(s)).length > PLAY_START_SAVE_MAX_BYTES) return bad('/options/save', `options.save is larger than ${PLAY_START_SAVE_MAX_BYTES} bytes`);
+    }
     start.save = s;
   }
   if (o.saveSlot !== undefined) {
-    if (typeof o.saveSlot !== 'string' || !(PLAY_START_SAVE_SLOTS as readonly string[]).includes(o.saveSlot)) return bad('/options/saveSlot', 'options.saveSlot must be one of auto, 1, 2, 3');
-    start.saveSlot = o.saveSlot as PlayStartOptions['saveSlot'];
+    if (typeof o.saveSlot !== 'string' || !PLAY_SAVE_SLOT_RE.test(o.saveSlot)) return bad('/options/saveSlot', 'options.saveSlot must be auto, 1, 2, 3 (a game flow) or 1-99 (project saves)');
+    start.saveSlot = o.saveSlot;
   }
   if (start.save !== undefined && start.saveSlot !== undefined) return bad('/options/saveSlot', 'give options.save or options.saveSlot, not both');
   if (start.sceneId !== undefined && (start.save !== undefined || start.saveSlot !== undefined)) return bad('/options/sceneId', 'a save decides where the game continues: give options.sceneId or a save, not both');

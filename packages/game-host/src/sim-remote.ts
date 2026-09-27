@@ -18,7 +18,7 @@
  * (the runtime's bounded catch-up applies as in the page). With
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
-import { debugCallProblem, validateDebugCommandCall } from '@thirdlight/runtime';
+import { debugCallProblem, validateDebugCommandCall, validateSaveEvents, type SaveEvent } from '@thirdlight/runtime';
 import type {
   ActionFrame,
   AnimatorPose,
@@ -328,6 +328,19 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       const out = [...mirror.mat.values()];
       mirror.mat.clear();
       return out;
+    },
+    // Phase 23.19: project saves — the worker's requests (the page owns storage), storage's answers queued there.
+    takeSaveRequests: () => {
+      const out = mirror.saveReq;
+      mirror.saveReq = [];
+      return out;
+    },
+    queueSaveEvent: (event: SaveEvent) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateSaveEvents([event]);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `save entry: ${checked.message}`, { reason: 'saves' }) };
+      command({ op: 'saveEvent', event: checked.events[0]! });
+      return { ok: true };
     },
     gameCounters: () => mirror.counters,
     // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).

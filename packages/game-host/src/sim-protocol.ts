@@ -72,6 +72,8 @@ export interface SimInitMessage {
   readonly memoryCapBytes?: number;
   /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
   readonly variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.19: the stored project settings document. */
+  readonly projectSettings?: Readonly<Record<string, unknown>>;
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */
@@ -94,6 +96,8 @@ export type SimCommand =
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
   // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
+  // Phase 23.19: a storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
+  | { readonly op: 'saveEvent'; readonly event: import('@thirdlight/runtime').SaveEvent }
   | { readonly op: 'stop' };
 
 export type SimQuery =
@@ -178,6 +182,8 @@ export interface FrameState {
   readonly debugCommands?: DebugCommandState;
   /** Phase 23.11: the objects riding on sockets (entity, target, node) when that changed. */
   readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
+  /** Phase 23.19: the save/load/delete/settings requests scripts made (the page owns storage). */
+  readonly saveReq?: readonly import('@thirdlight/runtime').SaveRequest[];
 }
 
 export type WorkerToMain =

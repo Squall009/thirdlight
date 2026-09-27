@@ -19,9 +19,10 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
+import { validateSaveSchema, type SaveSchema } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'saveSchema']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -73,6 +74,7 @@ export function validateRuntimeSnapshot(
       blockTypes: readonly BlockType[];
       cellFields: readonly CellField[];
       materialCatalog?: RuntimeMaterialCatalog;
+      saveSchema?: SaveSchema;
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -318,6 +320,14 @@ export function validateRuntimeSnapshot(
     if (problem !== null) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/materialCatalog', message: problem } };
     materialCatalog = (snap as { materialCatalog: RuntimeMaterialCatalog }).materialCatalog;
   }
+  // Phase 23.19: the optional project save schema (ctx.saves).
+  let saveSchema: SaveSchema | undefined;
+  if ((snap as { saveSchema?: unknown }).saveSchema !== undefined) {
+    const errs: ModelErrorV2[] = [];
+    validateSaveSchema((snap as { saveSchema?: unknown }).saveSchema, '/saveSchema', errs);
+    if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
+    saveSchema = (snap as { saveSchema: SaveSchema }).saveSchema;
+  }
   // Phase 12 (c): the optional v4 scene catalog.
   let scenes: readonly RuntimeSceneRow[] | null = null;
   if (snap.scenes !== undefined) {
@@ -351,7 +361,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), ...(saveSchema !== undefined ? { saveSchema } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

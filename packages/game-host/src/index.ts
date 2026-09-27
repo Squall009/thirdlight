@@ -123,3 +123,6 @@ export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, 
 export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
 export { RelayActionSource } from './relay-input';
 export { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type HudPromptState } from './bindings';
+// Phase 23.19: project save documents (the page owns the slots: IndexedDB; the settings document: localStorage).
+export { browserProjectSaveBackend, createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type SaveThumbnailInfo, type ThumbnailCapture } from './project-saves';
+export type { ProjectSavesObservation } from './host';

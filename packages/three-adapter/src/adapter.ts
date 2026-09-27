@@ -227,6 +227,8 @@ export interface SceneAdapter {
   renderFrame(): { ok: true } | { ok: false; error: AdapterError };
   /** Capture a bounded PNG (width ≤ `maxWidth`, default 1024). */
   captureScreenshot(maxWidth?: number): { ok: true; result: ScreenshotResult } | { ok: false; error: AdapterError };
+  /** Phase 23.19: a downscaled picture of a freshly drawn frame (a save slot's thumbnail); null when nothing is drawn. */
+  captureThumbnail(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
   diagnostics(): { ok: true; diagnostics: SceneAdapterDiagnostics } | { ok: false; error: AdapterError };
   /** Idempotent (mirrors runtime.md §3.4): second call ⇒
    *  `{ ok: true, alreadyDisposed: true }`. */
@@ -1459,6 +1461,34 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return { ok: true, result: { dataUrl, width: w, height: h, byteSize } };
   }
 
+  /**
+   * Phase 23.19: a save slot's picture — draw a frame and scale it to cover
+   * `width × height` (centred crop), encoded as JPEG/WebP (the browser falls
+   * back to PNG for a type it cannot encode; the data URL says which).
+   * Null when nothing is drawn yet or the page has no 2D canvas.
+   */
+  function captureThumbnail(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null {
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 4096 || height > 4096) return null;
+    const frame = renderFrame();
+    if (!frame.ok || lastFrameSkipped || typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
+    const sw = Math.max(1, Math.floor(canvasLike?.width ?? 0));
+    const sh = Math.max(1, Math.floor(canvasLike?.height ?? 0));
+    try {
+      const off = document.createElement('canvas');
+      off.width = width;
+      off.height = height;
+      const ctx2d = off.getContext('2d');
+      if (ctx2d === null) return null;
+      const scale = Math.max(width / sw, height / sh);
+      const cw = width / scale;
+      const ch = height / scale;
+      ctx2d.drawImage(canvasLike as unknown as CanvasImageSource, (sw - cw) / 2, (sh - ch) / 2, cw, ch, 0, 0, width, height);
+      return { dataUrl: off.toDataURL(type, Math.min(1, Math.max(0.1, quality))), width, height };
+    } catch {
+      return null;
+    }
+  }
+
   function diagnostics(): { ok: true; diagnostics: SceneAdapterDiagnostics } | { ok: false; error: AdapterError } {
     // Works after dispose too (reports the last known backend or null) —
     // the session layer composes this block for the play relay
@@ -1568,6 +1598,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const api: SceneAdapter = {
     renderFrame,
     captureScreenshot,
+    captureThumbnail,
     diagnostics,
     dispose,
     setQuality(level: QualityLevel): void {

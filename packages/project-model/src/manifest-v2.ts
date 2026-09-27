@@ -29,6 +29,7 @@
  * pure owner of the manifest derivation, C36-2); it reuses the M2 canonical
  * helpers and the `./sha256` digest primitives.
  */
+import { canonicalSaveSchema, validateSaveSchema, type SaveSchema } from './save-schema';
 import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
@@ -81,7 +82,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -116,6 +117,8 @@ export const MANIFEST_KEYS_V2 = [
   'input',
   // Phase 23.3: the named collision layers (3D physics; only when the project names some).
   'collisionLayers',
+  // Phase 23.19: the project save schema (only when the project declares one).
+  'saveSchema',
   'flow',
   'scenes',
   'buffers',
@@ -604,6 +607,8 @@ export interface CaptureManifestV2Input {
   input?: InputConfig;
   /** Phase 23.3: the project's named collision layers (only when it names some). */
   collisionLayers?: readonly string[];
+  /** Phase 23.19: the project save schema (only when the project declares one). */
+  saveSchema?: SaveSchema;
   /** Phase 9.10: the game flow (only when the project has one). */
   flow?: GameFlow;
   /**
@@ -726,6 +731,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.cellFields !== undefined && input.cellFields.length > 0 ? { cellFields: canonicalCellFields(input.cellFields) } : {}),
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
     ...(input.collisionLayers !== undefined && input.collisionLayers.length > 0 ? { collisionLayers: [...input.collisionLayers] } : {}),
+    ...(input.saveSchema !== undefined ? { saveSchema: canonicalSaveSchema(input.saveSchema) } : {}),
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
@@ -861,6 +867,11 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['blockTypes'] !== undefined) validateBlockTypes(d['blockTypes'], '/blockTypes', blockErrors);
     if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
     if (blockErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value') };
+  }
+  if (d['saveSchema'] !== undefined) {
+    const saveErrors: ModelErrorV2[] = [];
+    validateSaveSchema(d['saveSchema'], '/saveSchema', saveErrors);
+    if (saveErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'saveSchema is not valid', 'field_value') };
   }
 
   if (d['type'] !== RUNTIME_CONTENT_TYPE) {

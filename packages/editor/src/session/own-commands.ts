@@ -39,6 +39,7 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setAnimator',
   'setInput',
   'setCollisionLayers',
+  'setSaveSchema',
   'setFlow',
   'setStartScenes',
   'setGraph',

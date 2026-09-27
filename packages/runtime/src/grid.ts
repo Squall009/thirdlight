@@ -265,6 +265,8 @@ export class RuntimeGrid {
   private current: GridChange[] = [];
   private previous: readonly GridChange[] = Object.freeze([]);
   private writes = 0;
+  /** Phase 23.19: a save's restore is writing (no per-step limit). */
+  private unlimited = false;
   private stepIndex = 0;
   readonly api: BehaviorGrid;
 
@@ -324,6 +326,68 @@ export class RuntimeGrid {
     this.current = [];
     this.previous = Object.freeze([]);
     this.writes = 0;
+  }
+
+  /**
+   * Phase 23.19: a loaded save's cells (`grid` section, a `diff()`): every
+   * layer back to its authored cells, then the saved ones. Atomic — when a
+   * cell does not fit (an unknown layer or block, a footprint clash) nothing
+   * changes and the reason is returned; null: restored. The restore's writes
+   * are not counted against the per-step limit (a save may hold many cells).
+   */
+  restoreDiff(diff: unknown): string | null {
+    const d = (diff ?? { version: 1, layers: [] }) as GridDiff;
+    if (typeof d !== 'object' || d === null || d.version !== 1 || !Array.isArray(d.layers)) return 'the grid section is not a grid diff (version 1)';
+    for (const entry of d.layers) {
+      if (typeof entry !== 'object' || entry === null || typeof entry.layer !== 'string' || !Array.isArray(entry.cells)) return 'a grid diff layer is { layer, cells }';
+      if (!this.layerMap.has(entry.layer)) return `block layer "${entry.layer.slice(0, 64)}" is not loaded`;
+      for (const c of entry.cells) if (!Array.isArray(c) || c.length !== 4 || !Number.isSafeInteger(c[0]) || !Number.isSafeInteger(c[1]) || !Number.isSafeInteger(c[2])) return 'a grid diff cell is [x, y, z, cell | null]';
+    }
+    const involved = new Set<string>(d.layers.map((e) => e.layer));
+    for (const l of this.layerMap.values()) if (l.touched.size > 0) involved.add(l.entityId);
+    const saved = new Map<string, { grid: BlockGrid; covers: Map<number, number>; touched: Set<number> }>();
+    for (const id of involved) {
+      const l = this.layerMap.get(id)!;
+      saved.set(id, { grid: l.grid, covers: l.covers, touched: l.touched });
+      l.grid = BlockGrid.from(l.component, l.authored);
+      l.touched = new Set();
+      this.rebuildCovers(l);
+    }
+    const writes = this.writes;
+    const changes = this.current.length;
+    this.unlimited = true;
+    let problem: string | null = null;
+    try {
+      // Clears first, so a moved larger block never meets its own old footprint.
+      outer: for (const pass of [0, 1]) {
+        for (const entry of d.layers) {
+          for (const c of entry.cells) {
+            if ((c[3] === null) !== (pass === 0)) continue;
+            if (!this.write(entry.layer, c[0], c[1], c[2], c[3] as BlockCell | null)) {
+              const l = this.layerMap.get(entry.layer)!;
+              problem = `cell [${c[0]}, ${c[1]}, ${c[2]}] of layer "${entry.layer.slice(0, 64)}": ${this.refusal(l, c[0], c[1], c[2], c[3] === null ? null : canonicalBlockCell(c[3] as BlockCell)) ?? 'does not fit'}`;
+              break outer;
+            }
+          }
+        }
+      }
+    } finally {
+      this.unlimited = false;
+      this.writes = writes;
+    }
+    if (problem !== null) {
+      for (const [id, st] of saved) {
+        const l = this.layerMap.get(id)!;
+        l.grid = st.grid;
+        l.covers = st.covers;
+        l.touched = st.touched;
+        l.grid.takeDirty();
+      }
+      this.current.length = changes;
+      return problem;
+    }
+    for (const id of involved) this.markAll(this.layerMap.get(id)!);
+    return null;
   }
 
   /** At the start of a step: the last step's writes become the visible changes. */
@@ -474,7 +538,7 @@ export class RuntimeGrid {
   private write(layerId: string, x: number, y: number, z: number, cell: BlockCell | null): boolean {
     const layer = this.layerMap.get(layerId);
     if (layer === undefined || ![x, y, z].every((v) => Number.isSafeInteger(v))) return false;
-    if (this.writes >= GRID_WRITES_PER_STEP) return false;
+    if (!this.unlimited && this.writes >= GRID_WRITES_PER_STEP) return false;
     const next = cell === null ? null : canonicalBlockCell(cell);
     const normalized = next !== null && next.block === undefined && next.meta === undefined ? null : next;
     if (this.refusal(layer, x, y, z, normalized) !== null) return false;

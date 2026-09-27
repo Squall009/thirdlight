@@ -110,6 +110,9 @@ export interface PlayStartResolved {
   variables?: Record<string, unknown>;
   save?: Record<string, unknown>;
   saveSlot?: 'auto' | '1' | '2' | '3';
+  /** Phase 23.19: a project save document to load at the first step, or a project save slot (1–99) of the page. */
+  projectSave?: Record<string, unknown>;
+  projectSaveSlot?: number;
   /** A game mode (validated when the project defines modes). */
   mode?: string;
 }

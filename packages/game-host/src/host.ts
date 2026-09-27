@@ -59,6 +59,7 @@ import {
   type Runtime,
   type RuntimeSnapshot,
   type LoadedSceneBatch,
+  type ProjectSaveFile,
 } from '@thirdlight/runtime';
 import { platformerSpec } from '@thirdlight/platformer';
 import {
@@ -71,6 +72,7 @@ import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } fr
 import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, withSavedBindings, type InputConfigLike } from './bindings';
 import { createFlowController, PAD_REBINDABLE, REBINDABLE, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
+import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
 
 /** delivery.md §3.1. */
@@ -135,6 +137,17 @@ export interface GameHostInputObservation {
 export interface HostRenderAdapter {
   renderFrame(): { ok: true } | { ok: false; error: unknown };
   dispose(): unknown;
+  /** Phase 23.19, optional: draw a frame and return it downscaled (a save slot's picture). */
+  captureThumbnail?(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
+}
+
+/** Phase 23.19: the project saves as observers see them (a project with a save schema). */
+export interface ProjectSavesObservation {
+  readonly slotCount: number;
+  readonly storage: 'indexeddb' | 'memory';
+  /** The first 32 used slots. */
+  readonly slots: readonly ProjectSlotObservation[];
+  readonly settings: Readonly<Record<string, boolean | number | string>>;
 }
 
 /** delivery.md §3.1 `GameHostObservation.sound`. */
@@ -181,6 +194,8 @@ export interface GameHostObservation {
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
   readonly hidden?: readonly string[];
+  /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
+  readonly saves?: ProjectSavesObservation;
 }
 
 /**
@@ -205,6 +220,8 @@ export interface GameHostSceneObservation {
   readonly hidden?: readonly string[];
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
+  /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
+  readonly saves?: ProjectSavesObservation;
 }
 
 /** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
@@ -241,6 +258,9 @@ export interface GameStartOptions {
   readonly saveSlot?: SaveSlot;
   /** A game mode id (validated by the backend; applied once the project has game modes). */
   readonly mode?: string;
+  /** Phase 23.19: a project save document loaded at the first step (slot 0), or a project save slot of this page. */
+  readonly projectSave?: ProjectSaveFile;
+  readonly projectSaveSlot?: number;
 }
 
 /** Phase 23.8: what became of the start options (`GameHost.startOutcome`). */
@@ -304,6 +324,12 @@ export interface GameHostConfig {
   /** Phase 9.11: where saves go (localStorage in the browser) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
+  /**
+   * Phase 23.19: where project save slots go (IndexedDB in the browser; see
+   * `browserProjectSaveBackend`), under `saveNamespace`. Absent with a save
+   * schema: slots last for this page only (a memory store).
+   */
+  readonly projectSaveBackend?: ProjectSaveBackend;
   /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
   /** Phase 14.4: apply the playing level's look (the wrapper forwards it to the renderer; null = the project environment). */
@@ -372,6 +398,8 @@ export interface GameHost {
   readonly debugConsole?: DebugConsole | null;
   /** Phase 23.8, additive: what became of `config.start` (null: no start options). */
   readonly startOutcome?: GameStartOutcome | null;
+  /** Phase 23.19, additive: the project saves service (null: the project declares no save schema). */
+  readonly projectSaves?: ProjectSaveService | null;
 }
 
 // --- the committed-view → cue mapping (delivery.md §4.1, B13) -------------
@@ -569,6 +597,8 @@ export interface GameRuntimeArgs {
   readonly driver?: { readonly kind: 'raf' | 'manual' };
   /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
   readonly variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.19: the stored project settings document. */
+  readonly projectSettings?: Readonly<Record<string, unknown>>;
 }
 
 /** Phase 22.0: compose and start the game's runtime (see `GameRuntimeArgs`). */
@@ -624,6 +654,7 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     ...(args.onFrame !== undefined ? { onFrame: args.onFrame } : {}),
     ...(args.driver !== undefined ? { driver: { kind: args.driver.kind } } : {}),
     ...(args.variables !== undefined ? { variables: args.variables } : {}),
+    ...(args.projectSettings !== undefined ? { projectSettings: args.projectSettings } : {}),
   });
   if (res.ok === false) {
     return { ok: false, error: toControlError(res.error) };
@@ -664,6 +695,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
   /** Phase 23.8: the debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
   let startOutcome: GameStartOutcome | null = null;
+  /** Phase 23.19: project saves (a project with a save schema). */
+  const saveSchema = config.snapshot.saveSchema;
+  const saveNamespace = config.saveNamespace ?? `thirdlight:${String((config.snapshot as { projectId?: string }).projectId ?? 'game')}`;
+  let projectSaves: ProjectSaveService | null = null;
+  const savesObservation = (): { saves?: ProjectSavesObservation } =>
+    projectSaves === null || saveSchema === undefined
+      ? {}
+      : { saves: { slotCount: saveSchema.slots, storage: projectSaves.storage, slots: projectSaves.slots().slice(0, 32), settings: { ...(runtime?.projectSettings?.() ?? projectSaves.settings()) } } };
   /** The last committed `playerMotion.grounded` (the jump-cue transition).
    * Reset to `true` at every reset boundary (the committed view publishes
    * `{ speed: 0, grounded: true }` there, so the derived cue can never fire
@@ -988,6 +1027,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceLetterbox(runtime);
     // Phase 23.3: the cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
     serviceCursor(runtime);
+    // Phase 23.19: the simulation's save requests (a thumbnail is drawn now, in this frame).
+    if (projectSaves !== null) {
+      const reqs = runtime.takeSaveRequests?.() ?? [];
+      if (reqs.length > 0) projectSaves.handle(reqs);
+    }
     // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
     const view = gameViewOf(runtime);
     if (view === null) {
@@ -1107,6 +1151,17 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       applied.push(`scenes ${start.scenes.join(', ')}`);
     }
+    // Phase 23.19: a project save document or slot (loaded at the first step; the flow is not involved).
+    if (start.projectSave !== undefined || start.projectSaveSlot !== undefined) {
+      if (projectSaves === null) return { ok: false, reason: 'a project save needs a project save schema' };
+      if (start.projectSave !== undefined) {
+        projectSaves.loadDocument(start.projectSave);
+        applied.push('project save');
+      } else {
+        void projectSaves.loadSlot(start.projectSaveSlot!);
+        applied.push(`project save slot ${start.projectSaveSlot!}`);
+      }
+    }
     // 23.10 applies a mode; until then the backend logs it as ignored.
     if (start.mode !== undefined) applied.push(`mode ${start.mode} (noted)`);
     return { ok: true, applied };
@@ -1148,6 +1203,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         actions: config.input,
         onFrame: hostFrame,
         ...(config.variables !== undefined ? { variables: config.variables } : {}),
+        ...(saveSchema !== undefined ? { projectSettings: readProjectSettings(saveSchema, config.saveStorage, saveNamespace) } : {}),
       });
     }
     if (!composed.ok) return composed;
@@ -1175,6 +1231,30 @@ export function createGameHost(config: GameHostConfig): GameHost {
         },
         ...(config.focusGame !== undefined ? { focusGame: config.focusGame } : {}),
       });
+    }
+
+    // Phase 23.19: project saves — the page owns the slots; the simulation gets the list and answers as input.
+    if (saveSchema !== undefined) {
+      const rtS = res.runtime;
+      projectSaves = createProjectSaveService({
+        schema: saveSchema,
+        backend: config.projectSaveBackend ?? memoryProjectSaveBackend(),
+        namespace: saveNamespace,
+        queue: (event) => {
+          if (disposed) return;
+          const r = rtS.queueSaveEvent?.(event);
+          if (r !== undefined && !r.ok) console.warn('[game-host] save answer refused:', r.error.message);
+        },
+        ...(config.saveStorage !== undefined ? { settingsStorage: config.saveStorage } : {}),
+        captureThumbnail: (w, h, type, q) => adapter?.captureThumbnail?.(w, h, type, q) ?? null,
+        applyEngine: (binding, value) => {
+          if (binding === 'quality') {
+            if (value === 'low' || value === 'medium' || value === 'high') config.setQuality?.(value);
+          } else if (typeof value === 'number') config.audio.setVolume?.(binding, value);
+        },
+        log: (message) => console.warn(`[game-host] ${message}`),
+      });
+      void projectSaves.start();
     }
 
     if (sceneMode) {
@@ -1357,6 +1437,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
         ...socketsObservation(runtime),
+        ...savesObservation(),
         ...inputObservation(runtime),
       },
     };
@@ -1424,6 +1505,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...scenesObservation(runtime),
         ...cameraObservation(runtime),
         ...socketsObservation(runtime),
+        ...savesObservation(),
         ...inputObservation(runtime),
       },
     };
@@ -1527,6 +1609,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     debugCommand,
     get debugConsole(): DebugConsole | null {
       return debugConsole;
+    },
+    get projectSaves(): ProjectSaveService | null {
+      return projectSaves;
     },
     get startOutcome(): GameStartOutcome | null {
       return startOutcome;
