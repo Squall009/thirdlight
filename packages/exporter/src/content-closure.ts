@@ -23,8 +23,9 @@
  * bytes are linked into the bundle by the caller.
  */
 import type { BlockType, CellField } from '@thirdlight/project-model';
-import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected packet-33 compiler port (structural; no behavior-build edge). */
@@ -111,13 +112,15 @@ function fromCommandError(e: {
 // ---------------------------------------------------------------------------
 
 /** The MIME type of one declared asset artifact by kind (export.md §6.3). */
-const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'music', string> = {
+const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'music' | 'font', string> = {
   model: 'model/gltf-binary',
   audio: 'audio/wav',
   // Phase 9.4: PNG/JPEG/WebP; the runtime decodes by magic bytes.
   texture: 'image/x-texture',
   // Phase 9.10: Ogg Vorbis/Opus, MP3 or WAV; the browser decodes it.
   music: 'audio/x-music',
+  // Phase 23.9a: TTF, OTF, WOFF2 or WOFF; the page loads it through FontFace by its bytes.
+  font: 'font/x-font',
 };
 
 export interface ContentClosureM3Input {
@@ -390,6 +393,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     const ms = rec?.versions?.find((v) => v.version === version)?.metrics?.durationMs;
     return typeof ms === 'number' && Number.isInteger(ms) && ms >= 1 ? ms : undefined;
   };
+  /** Phase 23.11: the model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
+  const modelBytes = new Map<string, Uint8Array>();
   for (const a of view.assets) {
     const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
     if (!read.ok) {
@@ -413,6 +418,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
         },
       };
     }
+    if (a.kind === 'model') modelBytes.set(a.assetId, read.bytes);
     assetArtifacts.push({
       path: `content/sha256/${read.digest}`,
       bytes: read.bytes,
@@ -465,6 +471,10 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     }
   }
 
+  // 5c. Phase 23.11: the model rigs, only when the project uses sockets (a socketAttach component in a scene
+  //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
+  const rigs = usesSockets(input.scenes, prefabDefs, behaviorArtifacts) ? modelRigs(view.assets, modelBytes) : undefined;
+
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneDoc = input.scene;
   const sceneBytes = new TextEncoder().encode(`${JSON.stringify(sceneDoc, null, 2)}\n`);
@@ -497,10 +507,17 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
     // Phase 9.10: the game flow (the game host runs levels, lives and menus from it).
     ...((input.content as { flow?: GameFlow } | null)?.flow !== undefined ? { flow: (input.content as { flow: GameFlow }).flow } : {}),
+    // Phase 23.9a: the project UI (the game host draws the documents; themes hold their shared styles).
+    ...((input.content as { uiThemes?: UiTheme[] } | null)?.uiThemes !== undefined ? { uiThemes: (input.content as { uiThemes: UiTheme[] }).uiThemes } : {}),
+    ...((input.content as { uiDocuments?: UiDocument[] } | null)?.uiDocuments !== undefined ? { uiDocuments: (input.content as { uiDocuments: UiDocument[] }).uiDocuments } : {}),
     // Phase 9.8: the input actions (the game's input binding reads them).
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
+    // Phase 23.3: the named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
+    ...(((input.content as { collisionLayers?: string[] } | null)?.collisionLayers ?? []).length > 0 ? { collisionLayers: (input.content as { collisionLayers: string[] }).collisionLayers } : {}),
     // Phase 9.7: the animator controllers (the game's runtime steps them); phase 16.2: without the editor-only graph layout.
     ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: animatorsForRuntime((input.content as { animators: AnimatorController[] }).animators) } : {}),
+    // Phase 23.11: the rigs sockets are resolved on (the runtime never loads a model).
+    ...(rigs !== undefined ? { rigs } : {}),
     // Phase 14.1: a v4 game's prefabs (scripts spawn them at run time).
     ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
     // Phase 23.5: the block types and the cell metadata schema (the runtime and the renderer read them).
@@ -541,4 +558,55 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       declaredPaths,
     },
   };
+}
+
+/**
+ * Phase 23.11: whether a game uses sockets — an entity of a scene or a prefab
+ * carries `socketAttach`, or a compiled script names `sockets` (the
+ * `ctx.sockets` API; a false positive only ships the rigs).
+ */
+function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly PrefabDefinition[], behaviorArtifacts: readonly ClosureArtifact[]): boolean {
+  const has = (entities: unknown): boolean => Array.isArray(entities) && entities.some((e) => (e as { components?: Record<string, unknown> } | null)?.components?.['socketAttach'] !== undefined);
+  if ((scenes ?? []).some((sc) => has((sc as { entities?: unknown }).entities))) return true;
+  if (prefabs.some((d) => has(d.entities))) return true;
+  const decoder = new TextDecoder();
+  return behaviorArtifacts.some((b) => /\bsockets\b/.test(decoder.decode(b.bytes)));
+}
+
+/**
+ * Phase 23.11: every model's rig (nodes and node animation channels read from
+ * its GLB), with the clips of animation-only files ("clips for" a model)
+ * added to that model's rig. Within the engine's key budgets
+ * (`MODEL_RIG_LIMITS`): clips past them are left out and the rig is marked
+ * truncated. A file that cannot be read gets no rig (a socket on it warns).
+ */
+function modelRigs(assets: readonly { assetId: string; kind: string; clipsFor?: string }[], bytes: ReadonlyMap<string, Uint8Array>): Record<string, ModelRig> | undefined {
+  const out: Record<string, ModelRig> = {};
+  let budget = MODEL_RIG_LIMITS.projectKeyNumbers;
+  const sorted = [...assets].filter((a) => a.kind === 'model').sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
+  const used = new Map<string, number>();
+  for (const a of sorted) {
+    if (a.clipsFor !== undefined) continue;
+    const b = bytes.get(a.assetId);
+    if (b === undefined) continue;
+    const r = readModelRig(b, a.assetId, Math.min(MODEL_RIG_LIMITS.keyNumbers, budget));
+    if (!r.ok) continue;
+    budget -= r.keyNumbers;
+    used.set(a.assetId, r.keyNumbers);
+    out[a.assetId] = r.rig;
+  }
+  for (const a of sorted) {
+    if (a.clipsFor === undefined) continue;
+    const rig = out[a.clipsFor];
+    const b = bytes.get(a.assetId);
+    if (rig === undefined || b === undefined) continue;
+    const room = Math.min(MODEL_RIG_LIMITS.keyNumbers - (used.get(a.clipsFor) ?? 0), budget);
+    const r = readModelRig(b, a.assetId, Math.max(0, room));
+    if (!r.ok) continue;
+    budget -= r.keyNumbers;
+    used.set(a.clipsFor, (used.get(a.clipsFor) ?? 0) + r.keyNumbers);
+    const clips = [...rig.clips, ...r.rig.clips].slice(0, MODEL_RIG_LIMITS.clips * 4);
+    out[a.clipsFor] = { nodes: rig.nodes, clips, ...(rig.truncated === true || r.rig.truncated === true ? { truncated: true as const } : {}) };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }

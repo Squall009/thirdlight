@@ -91,10 +91,28 @@ export interface RuntimeSnapshot {
    * event is computed from it in the simulation.
    */
   audioDurations?: Readonly<Record<string, number>>;
+  /**
+   * Phase 23.11, v4 only, optional: model assetId -> its rig (nodes and node
+   * animation channels, read from the GLB by the play/export closure) — the
+   * data sockets are resolved on (the runtime never loads a model).
+   */
+  rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
   /** Phase 23.5, v4 only, optional: the block types block layers use (`content.blockTypes`). */
   blockTypes?: readonly import('@thirdlight/project-model').BlockType[];
   /** Phase 23.5, v4 only, optional: the cell metadata schema (`content.cellFields`). */
   cellFields?: readonly import('@thirdlight/project-model').CellField[];
+  /**
+   * Phase 23.12, optional: the graph materials' parameters, the model assets'
+   * default mappings and the closure's textures (`ctx.materials` checks script
+   * values against them; built from the manifest by `materialCatalogOf`).
+   */
+  materialCatalog?: import('./material-params').RuntimeMaterialCatalog;
+  /**
+   * Phase 23.9a, v4 only, optional: the project's UI documents as the
+   * simulation knows them (id, layer, modal) — `ctx.ui.show/hide` and a
+   * frame's show/hide entries name them. The host draws the documents.
+   */
+  uiDocuments?: readonly import('@thirdlight/project-model').RuntimeUiDocumentRow[];
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -711,10 +729,18 @@ export interface StepContext {
   readonly cameraYaw?: number;
   /** Phase 23.4: the virtual cameras (`ctx.camera`; a scene without one answers false/null). */
   readonly camera?: BehaviorCamera;
+  /** Phase 23.11: sockets (`ctx.sockets`). */
+  readonly sockets?: BehaviorSockets;
+  /** Phase 23.3: the cursor a script asks for (`ctx.input.setCursor`; simulation state the host applies after the step). */
+  readonly cursor?: { readonly request: (mode: 'free' | 'locked' | 'auto') => void };
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
   /** Phase 23.5: the block layers of the loaded scenes (`ctx.grid`). */
   readonly grid?: import('./grid').BehaviorGrid;
+  /** Phase 23.12: graph-material parameters per object (`ctx.materials`). */
+  readonly materials?: import('./material-params').BehaviorMaterials;
+  /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
+  readonly ui?: BehaviorUi;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1181,6 +1207,93 @@ export interface BehaviorCameraState {
   readonly letterbox: number;
 }
 
+/** Phase 23.9a: one UI event of this step (from the input frame). */
+export interface BehaviorUiEvent {
+  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle. */
+  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle';
+  /** The UI document it happened in. */
+  readonly doc: string;
+  /** The widget ('' for none). */
+  readonly widget: string;
+  /** The event name ('' for focus, show, hide). */
+  readonly name: string;
+  /** The value the action carried (or the submitted text). */
+  readonly value?: number | string | boolean | null;
+  /** The list item it came from. */
+  readonly index?: number;
+}
+
+/**
+ * Phase 23.9a: `ctx.ui` — the project UI. Scripts publish view-model values
+ * that UI documents bind to (`{ "bind": "hud.hp" }`, `{hud.hp}` in a text),
+ * show and hide documents, and read the UI events of the step (clicks,
+ * submits, focus changes: part of the input frame, so replays hold). The
+ * game host draws the documents; the view model and the shown documents are
+ * simulation state.
+ */
+export interface BehaviorUi {
+  /**
+   * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
+   * @graphNode Set UI value
+   */
+  set(path: string, value: unknown): boolean;
+  /**
+   * The published value at a path (null when there is none).
+   * @graphPure
+   * @graphNode UI value
+   */
+  get(path: string): unknown;
+  /**
+   * Remove a path from the view model (`false` when it was not there).
+   * @graphNode Clear UI value
+   */
+  clear(path: string): boolean;
+  /**
+   * Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
+   * @graphNode Show UI
+   * @graphLabel docId document
+   */
+  show(docId: string, options?: { layer?: number; modal?: boolean }): boolean;
+  /**
+   * Hide a shown UI document (`false` when it was not shown).
+   * @graphNode Hide UI
+   * @graphLabel docId document
+   */
+  hide(docId: string): boolean;
+  /**
+   * The document is shown.
+   * @graphPure
+   * @graphNode UI shown
+   * @graphLabel docId document
+   */
+  isShown(docId: string): boolean;
+  /**
+   * Play a tween of a document (on a widget, or the whole document). Presentation only.
+   * @graphNode Play UI tween
+   * @graphLabel docId document
+   */
+  play(docId: string, tween: string, widgetId?: string): boolean;
+  /**
+   * Move the keyboard/gamepad focus to a widget of a shown document.
+   * @graphNode Focus UI widget
+   * @graphLabel docId document
+   * @graphLabel widgetId widget
+   */
+  focus(docId: string, widgetId: string): boolean;
+  /**
+   * The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
+   * @graphPure
+   * @graphNode UI events
+   */
+  events(): readonly BehaviorUiEvent[];
+  /**
+   * The first UI event of this step with this name (a button's or an input's event), or null.
+   * @graphPure
+   * @graphNode UI event
+   */
+  event(name: string): BehaviorUiEvent | null;
+}
+
 /**
  * Phase 23.4: `ctx.camera` — the virtual cameras (the `virtualCamera`
  * component): which is live, their rig values, shake and screen↔world
@@ -1288,6 +1401,45 @@ export interface BehaviorCamera {
   screenToRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] };
 }
 
+/**
+ * Phase 23.11: `ctx.sockets` — objects riding on named nodes (bones or any
+ * node) of other objects' models. The simulation places an attached object
+ * at the end of every step, after the animators, so it follows the target's
+ * animation in Play, the worker and the export alike.
+ */
+export interface BehaviorSockets {
+  /**
+   * Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body or the scene camera.
+   * @graphNode Attach to socket
+   * @graphLabel entityId object
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  attach(entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean;
+  /**
+   * Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached.
+   * @graphNode Detach from socket
+   * @graphLabel entityId object
+   * @graphDefault keepWorld true
+   */
+  detach(entityId: string, keepWorld?: boolean): boolean;
+  /**
+   * The socket an object rides on (the target object and the node's name), or null.
+   * @graphPure
+   * @graphNode Socket of
+   * @graphLabel entityId object
+   */
+  attachedTo(entityId: string): { readonly target: string; readonly nodeName: string } | null;
+  /**
+   * A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.
+   * @graphPure
+   * @graphNode Node pose
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  nodePose(targetId: string, node: string): { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
+}
+
 /** Phase 9.9: `ctx.signals`. */
 export interface BehaviorSignals {
   /**
@@ -1362,6 +1514,31 @@ export interface BehaviorAnimatorHandle {
    * @graphNode Animator state
    */
   state(layer?: number): string;
+  /**
+   * Phase 23.11: set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10.
+   * @graphNode Set animation speed
+   * @graphDefault speed 1
+   */
+  setSpeed(speed: number): boolean;
+  /**
+   * Phase 23.11: this animator's playback speed.
+   * @graphPure
+   * @graphNode Animation speed
+   */
+  speed(): number;
+  /**
+   * Phase 23.11: set a morph target's weight (0–1) by its name in the model (over the controller's parameter binding of that target, if any).
+   * @graphNode Set morph weight
+   * @graphLabel name morph target
+   */
+  setMorph(name: string, weight: number): boolean;
+  /**
+   * Phase 23.11: a morph target's weight now (0 when nothing sets it).
+   * @graphPure
+   * @graphNode Morph weight
+   * @graphLabel name morph target
+   */
+  morph(name: string): number;
 }
 
 export interface BehaviorAnimatorControl {
@@ -1491,6 +1668,10 @@ export interface Runtime {
   takeGridChanges?(): import('./grid').GridRenderChange[];
   /** Phase 23.5: the block cells changed since the run started (plain data). */
   gridDiff?(): import('./grid').GridDiff;
+  /** Phase 23.12: the material parameters scripts changed since the last call (one change per parameter); the adapter applies them. */
+  takeMaterialChanges?(): import('./material-params').MaterialRenderChange[];
+  /** Phase 23.12: the material parameters scripts set, as digest text (null while none is set). */
+  materialState?(): string | null;
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */
@@ -1513,7 +1694,22 @@ export interface Runtime {
   cameraView?(): import('./camera-brain').CameraViewInfo | null;
   /** Phase 23.4: the viewport the view is drawn in (screen↔world projection uses its aspect). */
   setCameraViewport?(width: number, height: number): boolean;
-  getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
+  /** Phase 23.11: the objects riding on sockets now (entity, target, node; a stable array while nothing changes). */
+  socketAttachments?(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
+  /**
+   * Phase 23.9a: queue a UI event (a click, a submit, a focus change, a
+   * show/hide from a button) for the next sampled input frame (`ActionFrame.ui`).
+   */
+  queueUiEvent?(event: import('./ui').UiEventRecord): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 23.9a: the view-model writes, shown documents and presentation commands since the last take (null: none). */
+  takeUiOutput?(): import('./ui').UiOutput | null;
+  /** Phase 23.9a: the committed view model and shown documents. */
+  uiView?(): import('./ui').UiStateView;
+  /** Phase 23.3: the cursor a script asked for ('free' | 'locked'), or null — the active input map decides. */
+  cursorRequest?(): 'free' | 'locked' | null;
+  /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */
+  readPointer?(): import('./actions').PointerSample | null;
+  getCamera():{ ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
 

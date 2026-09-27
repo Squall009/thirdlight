@@ -90,6 +90,8 @@ export type {
 
 // Phase 14.0: the character capsule (default, limits, resolved form).
 export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, CHARACTER_3D_LIMITS, CONTROLLER_3D_FIELDS, DEFAULT_CHARACTER_3D, character3DSettingsOf, type Character3DSettings } from './components';
+// Phase 23.3: collision layers.
+export { DEFAULT_COLLISION_LAYER, MAX_COLLISION_LAYERS, validateCollisionLayers } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
@@ -466,6 +468,33 @@ export {
   validateScriptLibrary,
 } from './script-libraries';
 export type { BehaviorLibraryPin, ScriptLibrary, ScriptLibraryFile, ScriptLibraryPatch } from './script-libraries';
+// Phase 23.9a: project UI documents and themes (content.uiDocuments / uiThemes, flow.screens).
+export {
+  UI_EASINGS,
+  UI_ENGINE_ACTIONS,
+  UI_FLOW_SCREENS,
+  UI_GENERIC_FONTS,
+  UI_LIMITS,
+  UI_SAVE_SLOTS,
+  UI_TWEEN_KINDS,
+  UI_WIDGET_TYPES,
+  canonicalUiDocument,
+  canonicalUiDocuments,
+  canonicalUiTheme,
+  canonicalUiThemes,
+  uiAssetRefs,
+  uiBindPathProblem,
+  uiDocumentsForRuntime,
+  uiTextPlaceholders,
+  validateUiDocument,
+  validateUiDocuments,
+  validateUiReferences,
+  validateUiStyle,
+  validateUiTheme,
+  validateUiThemes,
+} from './ui-documents';
+export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiFlowScreen, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
+export { FLOW_SCREEN_KEYS, type FlowScreenKey } from './flow';
 // Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
 export {
   EFFECT_ATTRIBUTES,
@@ -531,8 +560,31 @@ export {
   type VirtualCameraComponent,
   type VirtualCameraRig,
 } from './cameras';
+// Phase 23.11: sockets (an entity on a node of another entity's model) and model rigs as simulation data.
+export {
+  SOCKET_ATTACH_CONFLICTS,
+  SOCKET_ATTACH_FIELDS,
+  SOCKET_ATTACH_LIMITS,
+  canonicalSocketAttach,
+  validateSocketAttachComponent,
+  type SocketAttachComponent,
+} from './sockets';
+export {
+  MODEL_RIG_LIMITS,
+  quatFromRotation,
+  readModelRig,
+  rigNodeNames,
+  sanitizeRigNodeName,
+  validateModelRig,
+  type ModelRig,
+  type ModelRigChannel,
+  type ModelRigClip,
+  type ModelRigNode,
+  type RigInterpolation,
+  type RigPath,
+} from './model-rig';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
-export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
+export { MATERIAL_BUILTIN_SOURCES, MATERIAL_DATA_MAX, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).
 export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
 // Phase 9.8: input actions.
@@ -542,12 +594,20 @@ export {
   DEFAULT_INPUT_3D,
   defaultInputFor,
   INPUT_ACTION_TYPES,
+  INPUT_MAPS,
   MAX_INPUT_ACTIONS,
   validateInput,
   type InputAction,
   type InputActionType,
   type InputBinding,
   type InputConfig,
+  // Phase 23.3: pointer bindings and the cursor per map.
+  CURSOR_MODES,
+  POINTER_AXES,
+  POINTER_BUTTONS,
+  type CursorMode,
+  type PointerAxisName,
+  type PointerButtonName,
 } from './input';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
@@ -704,6 +764,10 @@ export {
   canonicalBlockCell,
   canonicalBlockChunk,
   canonicalBlockLayerComponent,
+  canonicalBlockFootprint,
+  validateBlockFootprintComponent,
+  BLOCK_FOOTPRINT_MAX,
+  type BlockFootprintComponent,
   canonicalBlockStamp,
   canonicalBlockStamps,
   canonicalBlockType,

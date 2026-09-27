@@ -32,13 +32,16 @@
 import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
+import { validateModelRig, type ModelRig } from './model-rig';
 import { canonicalInput, validateInput, type InputConfig } from './input';
+import { validateCollisionLayers } from './components';
 import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { canonicalGraphDocuments, graphDocumentsContext, validateGraphDocuments, type GraphDocument } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
 import { canonicalEffects, validateEffects, type EffectDef } from './effects';
+import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiThemes, type UiDocument, type UiTheme } from './ui-documents';
 import { fail, isPlainObject, withFound } from './validate';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
@@ -79,7 +82,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'input', 'flow', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -105,12 +108,19 @@ export const MANIFEST_KEYS_V2 = [
   'environment',
   'lighting',
   'animators',
+  // Phase 23.11: model rigs (nodes and node animation channels) sockets are resolved on — only in a project that uses sockets.
+  'rigs',
   'prefabs',
   // Phase 23.5: the block types and the cell metadata schema block layers use.
   'blockTypes',
   'cellFields',
   'input',
+  // Phase 23.3: the named collision layers (3D physics; only when the project names some).
+  'collisionLayers',
   'flow',
+  // Phase 23.9a: the project UI (themes, documents) the game host draws.
+  'uiThemes',
+  'uiDocuments',
   'scenes',
   'buffers',
   'assets',
@@ -269,6 +279,9 @@ export interface RuntimeContentManifestV2 {
   materialFunctions?: GraphDocument[];
   /** Phase 20.2: the visual effects (present only when the project has some). */
   effects?: EffectDef[];
+  /** Phase 23.9a: the project UI themes and documents (present only when the project has some). */
+  uiThemes?: UiTheme[];
+  uiDocuments?: UiDocument[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
@@ -584,11 +597,16 @@ export interface CaptureManifestV2Input {
   materialFunctions?: readonly GraphDocument[];
   /** Phase 20.2: the visual effects (only when the project has some; `effectsForRuntime`). */
   effects?: readonly EffectDef[];
+  /** Phase 23.9a: the project UI themes and documents (only when the project has some). */
+  uiThemes?: readonly UiTheme[];
+  uiDocuments?: readonly UiDocument[];
   environment?: EnvironmentConfig;
   /** Phase 9.6: the scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
   /** Phase 9.7: the animator controllers (only when there are some). */
   animators?: readonly AnimatorController[];
+  /** Phase 23.11: model assetId -> its rig (only when the project uses sockets). */
+  rigs?: Readonly<Record<string, ModelRig>>;
   /** Phase 14.1: the prefab definitions scripts spawn (only when there are some). */
   prefabs?: readonly PrefabDefinition[];
   /** Phase 23.5: the block types and cell fields (only when there are some). */
@@ -596,6 +614,8 @@ export interface CaptureManifestV2Input {
   cellFields?: readonly CellField[];
   /** Phase 9.8: the project's input actions (only when it has its own). */
   input?: InputConfig;
+  /** Phase 23.3: the project's named collision layers (only when it names some). */
+  collisionLayers?: readonly string[];
   /** Phase 9.10: the game flow (only when the project has one). */
   flow?: GameFlow;
   /**
@@ -713,11 +733,15 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
+    ...(input.rigs !== undefined && Object.keys(input.rigs).length > 0 ? { rigs: Object.fromEntries(Object.keys(input.rigs).sort().map((k) => [k, input.rigs![k]!])) } : {}),
     ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
     ...(input.blockTypes !== undefined && input.blockTypes.length > 0 ? { blockTypes: canonicalBlockTypes(input.blockTypes) } : {}),
     ...(input.cellFields !== undefined && input.cellFields.length > 0 ? { cellFields: canonicalCellFields(input.cellFields) } : {}),
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
+    ...(input.collisionLayers !== undefined && input.collisionLayers.length > 0 ? { collisionLayers: [...input.collisionLayers] } : {}),
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
+    ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
+    ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -777,7 +801,7 @@ export type ValidateManifestV2Result =
   | { ok: true; manifest: RuntimeContentManifestV2 }
   | { ok: false; error: ManifestErrorV2 };
 
-const ASSET_KINDS = ['model', 'audio', 'texture', 'music'] as const;
+const ASSET_KINDS = ['model', 'audio', 'texture', 'music', 'font'] as const;
 
 function isDigest(v: unknown): v is string {
   return typeof v === 'string' && DIGEST_RE.test(v);
@@ -812,12 +836,20 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (OPTIONAL_MANIFEST_KEYS.has(key)) continue; // phase 12: optional
     if (!(key in d)) return { ok: false, error: manifestError('manifest_invalid', `missing manifest key "${key}"`, 'missing_key', undefined, key) };
   }
+  if (d['rigs'] !== undefined) {
+    const r = d['rigs'];
+    if (typeof r !== 'object' || r === null || Array.isArray(r)) return { ok: false, error: manifestError('manifest_invalid', 'rigs maps model asset ids to rigs', 'field_value') };
+    for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+      const why = validateModelRig(v);
+      if (why !== null) return { ok: false, error: manifestError('manifest_invalid', `rigs["${k}"]: ${why}`.slice(0, 256), 'field_value') };
+    }
+  }
   if (d['tags'] !== undefined) {
     const tagErrors: ModelErrorV2[] = [];
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['flow'] !== undefined) {
+  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
     // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
     if (d['materialFunctions'] !== undefined) {
@@ -834,7 +866,11 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);
     if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
+    if (d['collisionLayers'] !== undefined) validateCollisionLayers(d['collisionLayers'], '/collisionLayers', matErrors);
     if (d['flow'] !== undefined) validateFlow(d['flow'], '/flow', matErrors);
+    // Phase 23.9a: the UI validates as content.uiThemes / uiDocuments do.
+    if (d['uiThemes'] !== undefined) validateUiThemes(d['uiThemes'], '/uiThemes', matErrors);
+    if (d['uiDocuments'] !== undefined) validateUiDocuments(d['uiDocuments'], '/uiDocuments', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };
   }
 

@@ -31,6 +31,8 @@ export interface FlowConfigLike {
   readonly score?: ScoreRulesLike;
   /** Phase 14.5: the menu sounds (audio assets, played on the `ui` bus). */
   readonly sounds?: { readonly move?: string; readonly confirm?: string; readonly back?: string };
+  /** Phase 23.9a: project UI documents that replace built-in screens (screen → uiDocumentId). */
+  readonly screens?: Readonly<Partial<Record<FlowScreen, string>>>;
 }
 
 /** Phase 14.5: the title camera's pan — sideways by `distance` m over `seconds`, then back. */
@@ -127,6 +129,23 @@ export interface FlowDeps {
   readonly save?: SaveStore;
   /** Phase 15.3: seconds a music change crossfades (the project's `music_fade_s`; absent: 1). */
   readonly musicFade?: number;
+  /**
+   * Phase 23.9a: the project UI documents that replace built-in screens
+   * (`flow.screens`), and where to show them (the host's UI layer; null =
+   * no document for this screen). A replaced screen hides the built-in
+   * panel; its document's buttons use the engine actions (`engine`).
+   */
+  readonly screens?: Readonly<Partial<Record<FlowScreen, string>>>;
+  readonly onScreen?: (docId: string | null) => void;
+}
+
+/** Phase 23.9a: an engine UI action (a project UI document's button). */
+export interface FlowEngineAction {
+  readonly action: string;
+  readonly slot?: string;
+  readonly setting?: string;
+  readonly value?: number | string;
+  readonly step?: number;
 }
 
 interface MenuItem {
@@ -197,6 +216,10 @@ export interface FlowController {
   titleView(): TitleView | null;
   /** The menu logo's image URL (the host makes it from the texture bytes). */
   setLogo(url: string): void;
+  /** Phase 23.9a: an engine action from a project UI document (resume, quit to title, save, load, a setting, …). */
+  engine(action: FlowEngineAction): void;
+  /** Phase 23.9a: the values `$flow.*` bindings of project UI documents read. */
+  uiValues(): Readonly<Record<string, unknown>>;
   readonly screen: FlowScreen;
   dispose(): void;
 }
@@ -358,8 +381,16 @@ export function createFlowController(deps: FlowDeps): FlowController {
     }
   };
 
+  /** Phase 23.9a: the project document drawn instead of this screen's built-in panel (undefined: the built-in one). */
+  const replaced = (sc: FlowScreen): string | undefined => (sc === 'playing' ? undefined : deps.screens?.[sc]);
+  let shownScreenDoc: string | null = null;
   const render = (): void => {
-    root.setAttribute?.('class', screen === 'playing' ? 'tl-flow is-hidden' : 'tl-flow');
+    const doc = replaced(screen) ?? null;
+    if (doc !== shownScreenDoc) {
+      shownScreenDoc = doc;
+      deps.onScreen?.(doc);
+    }
+    root.setAttribute?.('class', screen === 'playing' || doc !== null ? 'tl-flow is-hidden' : 'tl-flow');
     root.setAttribute?.('data-screen', screen);
     root.setAttribute?.('data-level', level().id);
     stamp();
@@ -801,6 +832,19 @@ export function createFlowController(deps: FlowDeps): FlowController {
         return false;
       }
       if (capturing !== null) return false; // the next key goes to the rebinding
+      // Phase 23.9a: a replaced screen's document takes the navigation (the host's UI layer); back/pause still work here.
+      if (replaced(screen) !== undefined) {
+        if (ui.cancel || ui.pause) {
+          if (screen === 'paused') {
+            menuSound('back');
+            show('playing');
+          } else if (screen === 'settings' || screen === 'load' || screen === 'save') {
+            menuSound('back');
+            show(returnTo);
+          }
+        }
+        return false;
+      }
       if (ui.up || ui.down) {
         selected = (selected + (ui.down ? 1 : -1) + items.length) % Math.max(1, items.length);
         if (items.length > 1) menuSound('move');
@@ -879,6 +923,88 @@ export function createFlowController(deps: FlowDeps): FlowController {
       logoUrl = url;
       logoNode.setAttribute?.('src', url);
       render();
+    },
+    engine(a: FlowEngineAction): void {
+      if (disposed) return;
+      switch (a.action) {
+        case 'resume':
+          if (screen === 'paused') activate('resume', 0);
+          return;
+        case 'pause':
+          if (screen === 'playing') show('paused');
+          return;
+        case 'restartLevel':
+          activate(screen === 'gameOver' ? 'retry' : 'restart', 0);
+          return;
+        case 'newGame':
+          activate('new', 0);
+          return;
+        case 'continue':
+          activate('continue', 0);
+          return;
+        case 'nextLevel':
+          if (screen === 'levelComplete') activate('next', 0);
+          return;
+        case 'quitToTitle':
+          activate('quit', 0);
+          return;
+        case 'settings':
+          activate('settings', 0);
+          return;
+        case 'back':
+          activate('back', 0);
+          return;
+        case 'load':
+          activate(a.slot !== undefined ? `load:${a.slot}` : 'loadmenu', 0);
+          return;
+        case 'save':
+          if (a.slot !== undefined) {
+            if (deps.save !== undefined && (SAVE_SLOTS as readonly string[]).includes(a.slot)) writeSave(a.slot as SaveSlot, docFor(levelIndex, currentRun()));
+            render();
+          } else activate('savemenu', 0);
+          return;
+        case 'setSetting': {
+          const k = a.setting;
+          if (k === 'music' || k === 'sfx' || k === 'ui') {
+            const v = typeof a.value === 'number' ? a.value : volumes[k] + (a.step ?? 1) * 0.1;
+            setVolume(k, v);
+            render();
+          } else if (k === 'quality') {
+            const order = ['low', 'medium', 'high'] as const;
+            if (typeof a.value === 'string' && (order as readonly string[]).includes(a.value)) quality = a.value as (typeof order)[number];
+            else quality = order[(order.indexOf(quality) + ((a.step ?? 1) < 0 ? 2 : 1)) % 3]!;
+            deps.setQuality?.(quality);
+            saveSettings();
+            render();
+          }
+          return;
+        }
+        default:
+          return;
+      }
+    },
+    uiValues(): Readonly<Record<string, unknown>> {
+      const l = level();
+      const slots = screen === 'title' || screen === 'load' || screen === 'save' || screen === 'paused' ? slotStates() : null;
+      const r = levelResult;
+      return {
+        screen,
+        title: deps.gameTitle,
+        subtitle: flow.title?.subtitle ?? deps.objective,
+        objective: deps.objective,
+        instructions: deps.instructions,
+        level: { id: l.id, name: l.name, index: levelIndex, count: flow.levels.length, last: levelIndex + 1 >= flow.levels.length },
+        lives,
+        hud: hudLine(),
+        volumes: { ...volumes },
+        quality,
+        totals: { ...totals },
+        ...(rules !== undefined ? { score: { game: hudScore(), level: runningLevelScore(), best: bestOf(l.id) ?? null } } : {}),
+        result: r === null ? null : { seconds: Math.round(r.seconds * 100) / 100, time: time(r.seconds), deaths: r.deaths, counters: { ...r.counters }, ...(r.score !== undefined ? { score: r.score.score, bonus: r.score.bonus, best: r.score.best, newBest: r.score.newBest } : {}) },
+        ...(slots !== null ? { slots: Object.fromEntries(SAVE_SLOTS.map((sl) => [sl, { state: slots[sl].state, label: slotLabel(slots[sl]) }])) } : {}),
+        saveNote,
+        canSave: deps.save !== undefined,
+      };
     },
     dispose(): void {
       if (disposed) return;

@@ -218,6 +218,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   virtualCamera?: import('./cameras').VirtualCameraComponent;
   /** Phase 23.4, v4 only: a path rail cameras ride (offsets from the entity). */
   cameraPath?: import('./cameras').CameraPathComponent;
+  /** Phase 23.11, v4 only: rides on a named node of another entity's model (with an offset). */
+  socketAttach?: import('./sockets').SocketAttachComponent;
   /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */
   animator?: AnimatorComponent;
   /** Phase 9.9, v4 only: gameplay building blocks. */
@@ -237,6 +239,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   instances?: InstancesComponent;
   /** Phase 23.5, v4 only: a grid of blocks (its cells are the scene's `blocks`). */
   blockLayer?: import('./block-layers').BlockLayerComponent;
+  /** Phase 23.6, v4 only: the metadata a prop writes into the block cells beneath it. */
+  blockFootprint?: import('./block-layers').BlockFootprintComponent;
 }
 
 /**
@@ -340,7 +344,8 @@ export interface ResolvedSceneV3 {
 
 /** §23.3.7 the v3 asset-kind discriminator. */
 /** Phase 9.4 adds `texture` (a standalone PNG/JPEG/WebP image). */
-export type AssetKind = 'model' | 'audio' | 'texture' | 'music';
+/** Phase 23.9a adds `font` (a TTF/OTF/WOFF2/WOFF for the project UI). */
+export type AssetKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
 
 /**
  * presentation.md §41.4.3: the `gltf-glb` recipe member (the accepted M2
@@ -503,6 +508,16 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   cellFields?: import('./block-layers').CellField[];
   /** Phase 23.5: saved cell patterns (absent = none). */
   blockStamps?: import('./block-layers').BlockStamp[];
+  /** Phase 23.9a: project UI documents drawn by the game host (absent = none). */
+  uiDocuments?: import('./ui-documents').UiDocument[];
+  /** Phase 23.9a: UI themes (named styles and icons documents share; absent = none). */
+  uiThemes?: import('./ui-documents').UiTheme[];
+  /**
+   * Phase 23.3: the project's named collision layers (absent = only the
+   * implicit "default" layer). A collider lists the layers it is in (absent:
+   * "default"); script queries filter by layer. 3D physics only.
+   */
+  collisionLayers?: string[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

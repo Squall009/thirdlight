@@ -136,6 +136,7 @@ const OPS: readonly MutationOp[] = [
   'setAnimator',
   'deleteAnimator',
   'setInput',
+  'setCollisionLayers',
   'setFlow',
   'createScene',
   'renameScene',
@@ -159,6 +160,11 @@ const OPS: readonly MutationOp[] = [
   'setCellFields',
   'setBlockStamp',
   'deleteBlockStamp',
+  // phase 23.9a: project UI documents and themes
+  'setUiDocument',
+  'deleteUiDocument',
+  'setUiTheme',
+  'deleteUiTheme',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -198,11 +204,13 @@ const CREATE_COMPONENTS: readonly string[] = [
   'faceMovement',
   // Phase 23.5: v4 scenes only.
   'blockLayer',
+  // Phase 23.6: v4 scenes only.
+  'blockFootprint',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1189,6 +1197,7 @@ export type ValidatedOpArgs =
   | { op: 'setAnimator'; args: { controller: AnimatorController } }
   | { op: 'deleteAnimator'; args: { controllerId: string } }
   | { op: 'setInput'; args: { input: InputConfig | null } }
+  | { op: 'setCollisionLayers'; args: { layers: string[] } }
   | { op: 'setFlow'; args: { flow: GameFlow | null } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs }
   | { op: 'setGraph'; args: { graph: GraphDocument } }
@@ -1204,7 +1213,11 @@ export type ValidatedOpArgs =
   | { op: 'deleteBlockType'; args: { blockId: string } }
   | { op: 'setCellFields'; args: { fields: import('@thirdlight/project-model').CellField[] } }
   | { op: 'setBlockStamp'; args: { stamp?: import('@thirdlight/project-model').BlockStamp; stampId?: string; name?: string; entityId?: string; box?: number[] } }
-  | { op: 'deleteBlockStamp'; args: { stampId: string } };
+  | { op: 'deleteBlockStamp'; args: { stampId: string } }
+  | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
+  | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
+  | { op: 'setUiTheme'; args: { theme: import('@thirdlight/project-model').UiTheme } }
+  | { op: 'deleteUiTheme'; args: { uiThemeId: string } };
 
 /** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1340,6 +1353,12 @@ export function validateOpArgs(
       if (args['input'] !== null && !isPlainObject(args['input'])) return { ok: false, error: fieldType('/args/input', args['input'], 'object ({ actions }) or null (the defaults)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
+    case 'setCollisionLayers': {
+      for (const k of Object.keys(args)) if (k !== 'layers') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'layers') };
+      if (args['layers'] === undefined) return { ok: false, error: fieldMissing('/args/layers', 'layers') };
+      if (!Array.isArray(args['layers'])) return { ok: false, error: fieldType('/args/layers', args['layers'], 'array of layer names ([] = only "default")') };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
     case 'setFlow': {
       for (const k of Object.keys(args)) if (k !== 'flow') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'flow') };
       if (args['flow'] === undefined) return { ok: false, error: fieldMissing('/args/flow', 'flow') };
@@ -1388,6 +1407,20 @@ export function validateOpArgs(
       // Phase 23.5: block layers (the values are the model's; here the shapes).
       const r = blockArgsError(op, args);
       if (r !== null) return { ok: false, error: r };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setUiDocument':
+    case 'deleteUiDocument':
+    case 'setUiTheme':
+    case 'deleteUiTheme': {
+      // Phase 23.9a: setUiDocument {document}; deleteUiDocument {uiDocumentId}; setUiTheme {theme}; deleteUiTheme {uiThemeId}.
+      const key = op === 'setUiDocument' ? 'document' : op === 'deleteUiDocument' ? 'uiDocumentId' : op === 'setUiTheme' ? 'theme' : 'uiThemeId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      const isObjectArg = op === 'setUiDocument' || op === 'setUiTheme';
+      if (isObjectArg ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setUiDocument' ? 'object ({ uiDocumentId, name, root, … })' : op === 'setUiTheme' ? 'object ({ uiThemeId, name, styles, icons? })' : `string (${key})`) };
+      }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setScriptLibrary':

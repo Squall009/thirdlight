@@ -153,12 +153,12 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
     const kind = args.kind;
-    const limit = kind === 'audio' ? 16 : kind === 'texture' ? 256 : kind === 'music' ? 64 : 128;
+    const limit = kind === 'audio' ? 16 : kind === 'texture' ? 256 : kind === 'music' ? 64 : kind === 'font' ? 16 : 128;
     const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length;
     if (count + 1 > limit) {
       return {
         ok: false,
-        error: limitsExceeded(kind === 'audio' ? 'audio_assets' : kind === 'texture' ? 'texture_assets' : kind === 'music' ? 'music_assets' : 'assets', count + 1, limit),
+        error: limitsExceeded(kind === 'audio' ? 'audio_assets' : kind === 'texture' ? 'texture_assets' : kind === 'music' ? 'music_assets' : kind === 'font' ? 'font_assets' : 'assets', count + 1, limit),
       };
     }
   } else {
@@ -166,12 +166,12 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     if (args.kind !== undefined && args.kind !== existingKind) {
       return { ok: false, error: assetKindMismatch(args.assetId, existingKind ?? 'model', args.kind) };
     }
-    const versionLimit = existingKind === 'audio' || existingKind === 'texture' || existingKind === 'music' ? 8 : 32;
+    const versionLimit = existingKind === 'audio' || existingKind === 'texture' || existingKind === 'music' || existingKind === 'font' ? 8 : 32;
     if (existing.versions.length + 1 > versionLimit) {
       return {
         ok: false,
         error: limitsExceeded(
-          existingKind === 'audio' ? 'audio_versions' : existingKind === 'texture' ? 'texture_versions' : existingKind === 'music' ? 'music_versions' : 'asset_versions',
+          existingKind === 'audio' ? 'audio_versions' : existingKind === 'texture' ? 'texture_versions' : existingKind === 'music' ? 'music_versions' : existingKind === 'font' ? 'font_versions' : 'asset_versions',
           existing.versions.length + 1,
           versionLimit,
         ),
@@ -791,7 +791,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
       component: args.component,
       previous,
       next: null,
-      changedFields: [...COMPONENT_FIELD_ORDER[args.component].filter((f) => (args.component !== 'controller' && args.component !== 'playerSpawn') || (previous as Record<string, unknown> | null)?.[f] !== undefined), ...(args.component === 'collider' && (previous as { oneWay?: unknown } | null)?.oneWay !== undefined ? ['oneWay'] : [])],
+      changedFields: [...COMPONENT_FIELD_ORDER[args.component].filter((f) => (args.component !== 'controller' && args.component !== 'playerSpawn') || (previous as Record<string, unknown> | null)?.[f] !== undefined), ...(args.component === 'collider' && (previous as { oneWay?: unknown } | null)?.oneWay !== undefined ? ['oneWay'] : []), ...(args.component === 'collider' && (previous as { layers?: unknown } | null)?.layers !== undefined ? ['layers'] : [])],
     };
     return {
       ok: true,
@@ -825,12 +825,13 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     }
   }
   // Phase 9.9 (v4): a collider's `oneWay` flag (not in the M2 field order).
-  const fieldOrder = args.component === 'collider' ? [...COMPONENT_FIELD_ORDER.collider, 'oneWay'] : COMPONENT_FIELD_ORDER[args.component];
+  // Phase 23.3: and its collision layers.
+  const fieldOrder = args.component === 'collider' ? [...COMPONENT_FIELD_ORDER.collider, 'oneWay', 'layers'] : COMPONENT_FIELD_ORDER[args.component];
   for (const f of fieldOrder) {
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
       // Phase 12 (c): `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
-      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && f === 'oneWay') || args.component === 'controller' || (args.component === 'model' && f === 'piece') || ((args.component === 'box' || args.component === 'model') && (f === 'castShadow' || f === 'receiveShadow')))) delete candidate[f];
+      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && (f === 'oneWay' || f === 'layers')) || args.component === 'controller' || (args.component === 'model' && f === 'piece') || ((args.component === 'box' || args.component === 'model') && (f === 'castShadow' || f === 'receiveShadow')))) delete candidate[f];
       else candidate[f] = deepClone(args.value[f]);
       changedFields.push(f);
     }

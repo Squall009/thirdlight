@@ -310,6 +310,40 @@ export function scanMusicContainer(bytes: Uint8Array): ContainerResult {
 }
 
 /**
+ * The container check of one declared asset artifact by its closure content
+ * type (model, texture, music, font; anything else is a PCM WAV cue).
+ */
+export function scanAssetContainer(contentType: string, bytes: Uint8Array): ContainerResult {
+  if (contentType === 'model/gltf-binary') return scanGlbContainer(bytes);
+  if (contentType === 'image/x-texture') return scanImageContainer(bytes);
+  if (contentType === 'audio/x-music') return scanMusicContainer(bytes);
+  if (contentType === 'font/x-font') return scanFontContainer(bytes);
+  return scanWavContainer(bytes);
+}
+
+/**
+ * Font validation (phase 23.9a): the sfnt version of a TrueType (0x00010000
+ * or 'true') or CFF ('OTTO') font with a table directory inside the file, or
+ * a WOFF2/WOFF whose declared length matches the file. No glyph parsing.
+ */
+export function scanFontContainer(bytes: Uint8Array): ContainerResult {
+  const tag = (at: number, n: number): string => (bytes.length >= at + n ? String.fromCharCode(...bytes.subarray(at, at + n)) : '');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const sfnt = bytes.length >= 4 && (view.getUint32(0) === 0x00010000 || tag(0, 4) === 'true' || tag(0, 4) === 'OTTO');
+  if (sfnt) {
+    if (bytes.length < 12) return { ok: false, code: 'font_sfnt_header', message: 'the font header is truncated', offset: 0 };
+    const tables = view.getUint16(4);
+    return tables >= 1 && 12 + tables * 16 <= bytes.length ? { ok: true } : { ok: false, code: 'font_sfnt_directory', message: 'the font table directory does not fit the file', offset: 4 };
+  }
+  if (tag(0, 4) === 'wOFF' || tag(0, 4) === 'wOF2') {
+    const header = tag(0, 4) === 'wOFF' ? 44 : 48;
+    if (bytes.length < header) return { ok: false, code: 'font_woff_header', message: 'the WOFF header is truncated', offset: 0 };
+    return view.getUint32(8) === bytes.length ? { ok: true } : { ok: false, code: 'font_woff_length', message: 'the WOFF length does not match the file', offset: 8 };
+  }
+  return { ok: false, code: 'font_format', message: 'not a TrueType, OpenType, WOFF2 or WOFF font', offset: 0 };
+}
+
+/**
  * Texture image validation (phase 9.4): PNG (signature + IHDR), JPEG (SOI) or
  * WebP (RIFF/WEBP with the RIFF length matching the file). No decoding.
  */

@@ -24,6 +24,14 @@
  *   (`onObjectUpdate`), so one shared material serves every object and no
  *   override ever changes it (phase 9.4 rule); texture overrides need their
  *   own material (the library compiles a variant).
+ * - Phase 23.12: scripts set public parameters per object while the game
+ *   runs (runtime `ctx.materials`); the renderer puts them on the object
+ *   ({@link RUNTIME_VALUES_KEY}) and the same per-object uniforms read them
+ *   before the authored override — one shared material, no recompile. A
+ *   `data` parameter (a small RGBA8 grid) is read by Sample data nodes with
+ *   an exact texel load; each object's own grid is a data texture the node
+ *   swaps in per drawn object (the placeholder holds the parameter's
+ *   starting cells).
  * - Material functions (standalone graphs of kind `material-function`) are
  *   inlined per call; their Function inputs take the call's wires or their
  *   defaults.
@@ -40,7 +48,7 @@
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
-import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
+import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, TextureNode } from 'three/webgpu';
 
 import { instanceOrigin } from './node-materials';
 
@@ -72,6 +80,8 @@ export interface MaterialParameterLike {
   readonly type: string;
   readonly default: number | readonly number[] | string;
   readonly visibility?: string;
+  /** Phase 23.12, data parameters: the grid's cells [width, height]. */
+  readonly size?: readonly number[];
 }
 /** A standalone graph document (only `material-function` ones are called). */
 export interface MaterialFunctionLike {
@@ -82,7 +92,8 @@ export interface MaterialFunctionLike {
 }
 
 export type ValueType = 'float' | 'vec2' | 'vec3' | 'vec4';
-export type PortType = ValueType | 'texture';
+/** Phase 23.12: `data` — a data parameter's cell grid (feeds only Sample data). */
+export type PortType = ValueType | 'texture' | 'data';
 const VALUE_TYPES: readonly ValueType[] = ['float', 'vec2', 'vec3', 'vec4'];
 const WIDTH: Readonly<Record<ValueType, number>> = { float: 1, vec2: 2, vec3: 3, vec4: 4 };
 
@@ -150,10 +161,81 @@ export interface CompiledMaterialGraph {
   readonly problems: readonly GraphProblem[];
   /** The number of catalogue nodes compiled (function bodies once per call). */
   readonly nodeCount: number;
+  /** Phase 23.12: textures the compile made (data parameters' placeholders); released with the compile. */
+  readonly ownedTextures: readonly THREE.Texture[];
 }
 
 /** Where objects keep their parameter overrides for the graph materials they wear. */
 export const OVERRIDES_KEY = '__tlMaterialParams';
+
+/**
+ * Phase 23.12: which material each compiled digest an object wears stands
+ * for (`mesh.userData[MATERIAL_IDS_KEY][digest] = materialId`; the library
+ * keeps it) — run-time values are kept by material id.
+ */
+export const MATERIAL_IDS_KEY = '__tlMaterialIds';
+
+/**
+ * Phase 23.12: the values scripts set on an object while the game runs
+ * (`mesh.userData[RUNTIME_VALUES_KEY]`), by material id: `values[materialId][key]`
+ * (numbers; a colour as linear [r, g, b]) and `data[materialId][key]` (the
+ * object's data texture). Read before the authored override.
+ */
+export const RUNTIME_VALUES_KEY = '__tlMaterialRuntime';
+
+/** Phase 23.12: what {@link RUNTIME_VALUES_KEY} holds. */
+export interface RuntimeValuesLike {
+  values: Record<string, Record<string, number | readonly number[] | string>>;
+  data: Record<string, Record<string, THREE.Texture>>;
+}
+
+/** An object's run-time entry for one compiled digest's parameter (undefined: none). */
+function runtimeEntry(object: THREE.Object3D | null | undefined, digest: string, kind: 'values' | 'data', key: string): unknown {
+  const ud = object?.userData;
+  const rt = ud?.[RUNTIME_VALUES_KEY] as RuntimeValuesLike | undefined;
+  if (rt === undefined) return undefined;
+  const mid = (ud![MATERIAL_IDS_KEY] as Record<string, string> | undefined)?.[digest];
+  return mid === undefined ? undefined : rt[kind][mid]?.[key];
+}
+
+/**
+ * Phase 23.12: a texel load whose texture is chosen per drawn object (an
+ * object's own data texture, else the placeholder). Its update runs per
+ * object like the per-object uniforms (the object group is per render object
+ * on both backends, so each object's texture binding stays its own).
+ */
+class ObjectTextureNode extends TextureNode {
+  private readonly pick: (object: THREE.Object3D | null) => THREE.Texture | null;
+  private readonly placeholder: THREE.Texture;
+  constructor(placeholder: THREE.Texture, uv: N, pick: (object: THREE.Object3D | null) => THREE.Texture | null) {
+    super(placeholder, uv);
+    this.placeholder = placeholder;
+    this.pick = pick;
+  }
+  override update(frame: Parameters<TextureNode['update']>[0]): ReturnType<TextureNode['update']> {
+    this.value = this.pick((frame as { object?: THREE.Object3D } | undefined)?.object ?? null) ?? this.placeholder;
+    (TextureNode.prototype as unknown as { update: (f: unknown) => void }).update.call(this, frame);
+    return undefined;
+  }
+}
+// Always per object: three's own setup resets `updateType` (a texture without a UV transform needs no update).
+Object.defineProperty(ObjectTextureNode.prototype, 'updateType', {
+  get: () => T.NodeUpdateType.OBJECT,
+  set: () => undefined,
+  configurable: true,
+});
+
+/** Phase 23.12: a data grid as a texture (RGBA8, exact texels, no mipmaps). */
+export function makeDataTexture(bytes: Uint8Array, width: number, height: number): THREE.DataTexture {
+  const t = new THREE.DataTexture(bytes, width, height, THREE.RGBAFormat, THREE.UnsignedByteType);
+  t.colorSpace = THREE.NoColorSpace;
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.flipY = false;
+  t.needsUpdate = true;
+  return t;
+}
 
 // ---- the compiler's copy of the catalogue (ports, types, defaults) -------------------
 
@@ -223,6 +305,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   combine: { inputs: [P('x', 'float', 0), P('y', 'float', 0), P('z', 'float', 0), P('w', 'float', 1)], outputs: [P('xyzw', 'vec4'), P('xyz', 'vec3'), P('xy', 'vec2')] },
   swizzle: { inputs: [P('in', 'vec4', [0, 0, 0, 0])], outputs: [P('out', 'vec3')] },
   sampleTexture: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0')], outputs: SAMPLE_OUT },
+  sampleData: { inputs: [P('data', 'data'), P('uv', 'vec2', 'uv0'), P('cell', 'vec2', [0, 0])], outputs: SAMPLE_OUT },
   normalMap: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('strength', 'float', 1)], outputs: [P('normal', 'vec3')] },
   triplanar: { inputs: [P('tex', 'texture'), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('scale', 'float', 1), P('sharpness', 'float', 4)], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3')] },
   flipbook: { inputs: [P('uv', 'vec2', 'uv0'), P('frame', 'float', 0)], outputs: [P('uv', 'vec2')] },
@@ -263,6 +346,7 @@ export const COMPILER_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<st
   viewDirection: { space: 'world' },
   swizzle: { mask: 'xyz' },
   sampleTexture: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb' },
+  sampleData: { address: 'uv' },
   normalMap: { texture: '', wrap: 'repeat', filter: 'linear' },
   triplanar: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb' },
   flipbook: { columns: 4, rows: 4 },
@@ -292,7 +376,7 @@ const isValueType = (t: unknown): t is ValueType => typeof t === 'string' && (VA
 /** A parameter's port type (a colour is a vec3). */
 export function parameterPortType(type: string): PortType | null {
   if (type === 'color') return 'vec3';
-  return isValueType(type) || type === 'texture' ? (type as PortType) : null;
+  return isValueType(type) || type === 'texture' || type === 'data' ? (type as PortType) : null;
 }
 
 const byPosition = (a: MaterialGraphNodeLike, b: MaterialGraphNodeLike): number => {
@@ -357,7 +441,7 @@ export function resolveMaterialGraphPorts(graph: MaterialGraphLike, parameters: 
           const port = spec.inputs.find((p) => p.id === e.to.port);
           if (port === undefined || port.t !== 'dyn') continue;
           const src = resolve(e.from.node)?.outputs.find((p) => p.id === e.from.port);
-          if (src === undefined || src.t === 'texture') continue;
+          if (src === undefined || src.t === 'texture' || src.t === 'data') continue;
           widest = Math.max(widest, VALUE_TYPES.indexOf(src.t));
         }
         t = widest >= 0 ? VALUE_TYPES[widest]! : 'float';
@@ -388,7 +472,15 @@ export function functionInterface(graph: MaterialGraphLike): ResolvedPorts {
 
 // ---- values ---------------------------------------------------------------------------
 
-type Val = { readonly t: ValueType; readonly n: N } | { readonly t: 'texture'; readonly asset: string };
+type Val =
+  | { readonly t: ValueType; readonly n: N }
+  | { readonly t: 'texture'; readonly asset: string }
+  /** Phase 23.12: a data parameter (key '' = none). */
+  | { readonly t: 'data'; readonly key: string; readonly size: readonly [number, number]; readonly fill: readonly number[]; readonly perObject: boolean };
+const NO_DATA: Val = { t: 'data', key: '', size: [1, 1], fill: [0, 0, 0, 0], perObject: false };
+const isValue = (x: Val | undefined): x is { t: ValueType; n: N } => x !== undefined && x.t !== 'texture' && x.t !== 'data';
+/** A port's empty value (a texture or data port without a wire, a failed node's outputs). */
+const emptyOf = (t: PortType): Val => (t === 'texture' ? { t: 'texture', asset: '' } : t === 'data' ? NO_DATA : { t, n: constant(0, t) });
 type Stage = 'vertex' | 'fragment';
 
 const TAU = 6.2831853;
@@ -482,7 +574,13 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     if (p === undefined) return null;
     let v: Val;
     if (p.type === 'texture') v = { t: 'texture', asset: typeof p.default === 'string' ? p.default : '' };
-    else {
+    else if (p.type === 'data') {
+      // Phase 23.12: a data parameter; its cells come per object when objects may carry their own.
+      const w = Math.max(1, Math.min(64, Math.round(Number(p.size?.[0] ?? 1)) || 1));
+      const h = Math.max(1, Math.min(64, Math.round(Number(p.size?.[1] ?? 1)) || 1));
+      const fill = Array.isArray(p.default) ? [0, 1, 2, 3].map((i) => Number((p.default as number[])[i] ?? 0)) : [0, 0, 0, 0];
+      v = { t: 'data', key, size: [w, h], fill, perObject: env.overrideKey !== undefined && p.visibility !== 'private' };
+    } else {
       const t = parameterPortType(p.type) as ValueType;
       const base: number[] = p.type === 'color' ? linearColor(typeof p.default === 'string' ? p.default : '#ffffff') : typeof p.default === 'number' ? [p.default] : Array.isArray(p.default) ? [...(p.default as number[])] : [0];
       const value = t === 'float' ? (base[0] ?? 0) : t === 'vec2' ? new THREE.Vector2(base[0] ?? 0, base[1] ?? 0) : t === 'vec3' ? new THREE.Vector3(base[0] ?? 0, base[1] ?? 0, base[2] ?? 0) : new THREE.Vector4(base[0] ?? 0, base[1] ?? 0, base[2] ?? 0, base[3] ?? 0);
@@ -492,7 +590,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const isColor = p.type === 'color';
         (u as N).onObjectUpdate(({ object }: { object: THREE.Object3D | null }) => {
           const all = object?.userData?.[OVERRIDES_KEY] as Record<string, Record<string, unknown>> | undefined;
-          const o = all?.[okey]?.[key];
+          // Phase 23.12: a value a script set on this object comes first (a colour arrives as linear [r, g, b]).
+          const o = runtimeEntry(object, okey, 'values', key) ?? all?.[okey]?.[key];
           const src: number[] | null = o === undefined ? null : isColor && typeof o === 'string' ? linearColor(o) : typeof o === 'number' ? [o] : Array.isArray(o) ? (o as number[]) : null;
           const vals = src ?? base;
           if (t === 'float') return vals[0] ?? 0;
@@ -569,10 +668,12 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       const src = outputsOf(scope, e.from.node, stage)?.[e.from.port];
       if (src !== undefined) {
         if (port.t === 'texture') return src.t === 'texture' ? src : { t: 'texture', asset: '' };
-        if (src.t !== 'texture') return { t: port.t, n: convert(src, port.t) };
+        if (port.t === 'data') return src.t === 'data' ? src : NO_DATA;
+        if (isValue(src)) return { t: port.t, n: convert(src, port.t) };
       }
     }
     if (port.t === 'texture') return { t: 'texture', asset: '' };
+    if (port.t === 'data') return NO_DATA;
     const d = port.d;
     if (typeof d === 'string') {
       const b = builtin(scope, node.id, d, stage);
@@ -597,8 +698,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     visiting.add(key);
     const inp: Record<string, Val> = {};
     for (const p of ports.inputs) {
-      if (p.t === 'texture' && !connected(scope, nodeId, p.id)) {
-        inp[p.id] = { t: 'texture', asset: '' };
+      if ((p.t === 'texture' || p.t === 'data') && !connected(scope, nodeId, p.id)) {
+        inp[p.id] = emptyOf(p.t);
         continue;
       }
       // Inputs are read lazily through `get` so a call's unused ports compile nothing.
@@ -615,7 +716,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     return result;
   };
 
-  const v = (x: Val | undefined): N => (x !== undefined && x.t !== 'texture' ? x.n : T.float(0));
+  const v = (x: Val | undefined): N => (isValue(x) ? x.n : T.float(0));
+  /** Phase 23.12: textures this compile made (data placeholders). */
+  const ownedTextures: THREE.Texture[] = [];
   const texOf = (x: Val | undefined): string => (x !== undefined && x.t === 'texture' ? x.asset : '');
 
   const samplerOf = (node: MaterialGraphNodeLike, colour: boolean): SamplerLike => ({
@@ -834,6 +937,28 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const s = t !== null ? sample(t, v(inp['uv']), stage) : T.vec4(1, 1, 1, 1);
         return { rgba: { t: 'vec4', n: s }, rgb: { t: 'vec3', n: s.xyz }, r: { t: 'float', n: s.x }, g: { t: 'float', n: s.y }, b: { t: 'float', n: s.z }, a: { t: 'float', n: s.w } };
       }
+      case 'sampleData': {
+        // Phase 23.12: one cell of a data parameter, loaded exactly (no filtering), clamped to the grid.
+        const d = inp['data'];
+        const zero = T.vec4(0, 0, 0, 0);
+        let s: N = zero;
+        if (d === undefined || d.t !== 'data' || d.key === '') problem(scope, node.id, 'warning', 'no data (wire a data parameter in); it reads 0');
+        else {
+          const [w, h] = d.size;
+          const bytes = new Uint8Array(w * h * 4);
+          for (let i = 0; i < w * h; i++) for (let c = 0; c < 4; c++) bytes[i * 4 + c] = Math.max(0, Math.min(255, Math.round(d.fill[c] ?? 0)));
+          const placeholder = makeDataTexture(bytes, w, h);
+          ownedTextures.push(placeholder);
+          const at = str(field(node, 'address'), 'uv') === 'cell' ? v(inp['cell']) : v(inp['uv']).mul(T.vec2(w, h));
+          const cell = T.ivec2(T.clamp(T.floor(at), T.vec2(0, 0), T.vec2(w - 1, h - 1)));
+          const okey = env.overrideKey;
+          const key = d.key;
+          const tn: N = d.perObject && okey !== undefined ? new ObjectTextureNode(placeholder, cell, (object) => (runtimeEntry(object, okey, 'data', key) as THREE.Texture | undefined) ?? null) : T.texture(placeholder, cell);
+          tn.setSampler(false);
+          s = tn;
+        }
+        return { rgba: { t: 'vec4', n: s }, rgb: { t: 'vec3', n: s.xyz }, r: { t: 'float', n: s.x }, g: { t: 'float', n: s.y }, b: { t: 'float', n: s.z }, a: { t: 'float', n: s.w } };
+      }
       case 'normalMap': {
         const t = textureFor(scope, node, inp, false);
         if (t === null) return one('normal', T.vec3(0, 0, 1));
@@ -935,20 +1060,20 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const b = scope.bound?.get(node.id);
         if (b !== undefined) return { value: b() };
         const t = ports.outputs[0]?.t ?? 'float';
-        if (t === 'texture') return { value: { t: 'texture', asset: '' } };
+        if (t === 'texture' || t === 'data') return { value: emptyOf(t) };
         const d = field(node, 'default');
         return { value: { t, n: constant(Array.isArray(d) ? (d as number[]) : [0, 0, 0, 0], t) } };
       }
       default:
         problem(scope, node.id, 'error', `unknown node type "${node.type}"`);
-        return Object.fromEntries(ports.outputs.map((p) => [p.id, p.t === 'texture' ? { t: 'texture', asset: '' } : { t: p.t, n: constant(0, p.t) }]));
+        return Object.fromEntries(ports.outputs.map((p) => [p.id, emptyOf(p.t)]));
     }
   }
 
   function compileCall(scope: Scope, node: MaterialGraphNodeLike, ports: ResolvedPorts, inp: Record<string, Val>, stage: Stage): Record<string, Val> {
     const id = str(field(node, 'function'), '');
     const f = fnOf(id);
-    const fallback = (): Record<string, Val> => Object.fromEntries(ports.outputs.map((p) => [p.id, p.t === 'texture' ? { t: 'texture', asset: '' } : { t: p.t, n: constant(0, p.t) }]));
+    const fallback = (): Record<string, Val> => Object.fromEntries(ports.outputs.map((p) => [p.id, emptyOf(p.t)]));
     if (f === null) {
       problem(scope, node.id, 'error', id === '' ? 'no function chosen' : `no material function "${id}"`);
       return fallback();
@@ -965,7 +1090,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       const o = inner.byId.get(p.id);
       const oports = inner.ports.get(p.id);
       if (o === undefined || oports === undefined || oports.inputs[0] === undefined) {
-        out[p.id] = p.t === 'texture' ? { t: 'texture', asset: '' } : { t: p.t, n: constant(0, p.t) };
+        out[p.id] = emptyOf(p.t);
         continue;
       }
       nodeCount += 1;
@@ -1020,6 +1145,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     pending: [...pending].sort(),
     problems,
     nodeCount,
+    ownedTextures,
   };
 }
 

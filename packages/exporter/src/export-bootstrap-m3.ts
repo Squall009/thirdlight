@@ -68,7 +68,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { audioDurationsFromAssetRows, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
@@ -97,11 +97,16 @@ interface ExportManifestV2 {
   materialFunctions?: MaterialFunctionLike[];
   /** Phase 20.2: the visual effects (particle system graphs). */
   effects?: EffectDefLike[];
+  /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
+  uiDocuments?: import('@thirdlight/runtime').UiDocument[];
+  uiThemes?: import('@thirdlight/runtime').UiTheme[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
   /** Phase 9.7: the animator controllers. */
   animators?: unknown[];
+  /** Phase 23.11: model rigs (sockets are resolved on them). */
+  rigs?: Record<string, unknown>;
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: unknown[];
   /** Phase 23.5: the block types and cell fields block layers use. */
@@ -109,6 +114,8 @@ interface ExportManifestV2 {
   cellFields?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
+  /** Phase 23.3: the named collision layers. */
+  collisionLayers?: readonly string[];
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -143,7 +150,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -245,6 +252,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // resolved away) — physics, the renderer and the runtime all use this one.
   const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
   const audioDurations = audioDurationsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
+  const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
   const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
     projectId: manifest.projectId,
@@ -261,9 +269,15 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(modelBounds !== undefined ? { modelBounds } : {}),
     // Phase 23.13: the audio assets' recorded durations (script sounds' finished events).
     ...(audioDurations !== undefined ? { audioDurations } : {}),
+    // Phase 23.11: the model rigs sockets are resolved on (bound by the buildId).
+    ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
     // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
     ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}),
     ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
+    // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials).
+    ...(materialCatalog !== undefined ? { materialCatalog } : {}),
+    // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
+    ...(uiDocumentsForRuntime(manifest.uiDocuments) !== undefined ? { uiDocuments: uiDocumentsForRuntime(manifest.uiDocuments) } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
@@ -302,7 +316,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
 
   // The physics config (physics-rapier; the manifest's resolved gravity_y drives the solver).
   // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
-  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings) : physicsConfigFromSnapshot(snapshot, settings);
+  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
   if (physicsConfig === null && snapshot.game !== null) throw new Error('the game requires a player controller entity');
   // (no game block and no controller: scene mode — the scene plays as authored)
 
@@ -495,6 +509,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     audioSpatial: audioSpatialOf(settings),
     // Phase 23.8: the debug console only when the project turns debug_console on (absent/0: a release game has none).
     ...((settings as unknown as Record<string, unknown>)['debug_console'] === 1 ? { debugConsole: true, focusGame: () => canvas.focus() } : {}),
+    // Phase 23.9a: the project UI documents and themes (the host draws them).
+    ...(manifest.uiDocuments !== undefined && manifest.uiDocuments.length > 0 ? { ui: { documents: manifest.uiDocuments, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
   };
   const host = createGameHost(config);
   const mount = host.mount();

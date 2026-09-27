@@ -28,7 +28,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { CAMERA_PATH_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -82,10 +82,10 @@ export function validatePublishAssetArgs(
   // on reimport (where it must equal the record's kind). The state-aware
   // requirement lives in the op — the accepted v2 fixtures create model
   // records without it (handoff 45 CC-45-4).
-  if (args['kind'] !== undefined && args['kind'] !== 'model' && args['kind'] !== 'audio' && args['kind'] !== 'texture' && args['kind'] !== 'music') {
+  if (args['kind'] !== undefined && args['kind'] !== 'model' && args['kind'] !== 'audio' && args['kind'] !== 'texture' && args['kind'] !== 'music' && args['kind'] !== 'font') {
     return {
       ok: false,
-      error: fieldValue('/args/kind', args['kind'], '"model", "audio", "texture" or "music"', 'kind must be "model", "audio", "texture" or "music"'),
+      error: fieldValue('/args/kind', args['kind'], '"model", "audio", "texture", "music" or "font"', 'kind must be "model", "audio", "texture", "music" or "font"'),
     };
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
@@ -207,7 +207,7 @@ export function validatePublishAssetArgs(
   // §8.5.1: `animation` is permitted only on a model reimport; its presence
   // rule and binding are the op's.
   if (args['animation'] !== undefined) {
-    if (args['mode'] !== 'reimport' || args['kind'] === 'audio' || args['kind'] === 'texture' || args['kind'] === 'music') {
+    if (args['mode'] !== 'reimport' || args['kind'] === 'audio' || args['kind'] === 'texture' || args['kind'] === 'music' || args['kind'] === 'font') {
       return {
         ok: false,
         error: fieldUnexpected(
@@ -464,7 +464,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   // Phase 15.1: the piece of a multi-piece file is an Inspector field too.
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
-  collider: ['shape', 'oneWay'],
+  collider: ['shape', 'oneWay', 'layers'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'],
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
@@ -491,8 +491,12 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 23.4: the camera framework.
   virtualCamera: VIRTUAL_CAMERA_FIELDS,
   cameraPath: CAMERA_PATH_FIELDS,
+  // Phase 23.11: sockets.
+  socketAttach: SOCKET_ATTACH_FIELDS,
   // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
   blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
+  // Phase 23.6: a prop's block footprint.
+  blockFootprint: ['layer', 'size', 'set'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -523,7 +527,9 @@ const OWNED: readonly OwnedComponent[] = [
   'effect',
   'virtualCamera',
   'cameraPath',
+  'socketAttach',
   'blockLayer',
+  'blockFootprint',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -555,7 +561,9 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'effect',
   'virtualCamera',
   'cameraPath',
+  'socketAttach',
   'blockLayer',
+  'blockFootprint',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -688,7 +696,8 @@ export function validateSetComponentArgs(
   } else if (component === 'collider') {
     const shape = value['shape'];
     // Phase 15.1: `oneWay` alone edits the flag (the shape stays).
-    if (shape === undefined && value['oneWay'] !== undefined) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
+    // Phase 23.3: `layers` alone edits the collision layers (the shape stays).
+    if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
       return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh", ... })') };
     }
@@ -731,7 +740,9 @@ export function validateSetComponentArgs(
     component === 'effect' ||
     component === 'virtualCamera' ||
     component === 'cameraPath' ||
+    component === 'socketAttach' ||
     component === 'blockLayer' ||
+    component === 'blockFootprint' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||

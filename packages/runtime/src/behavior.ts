@@ -29,13 +29,14 @@
  * three.js, no authoring/backend edge.
  */
 import type { BehaviorGrid } from './grid';
+import type { BehaviorMaterials } from './material-params';
 import type {
   DeclaredProperty,
   PropertyDeclaration,
   PropertyType,
   PropertyValue,
 } from '@thirdlight/project-model';
-import type { ActionFrame } from './actions';
+import type { ActionFrame, PointerSample } from './actions';
 import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
 import { InstanceRandom, RandomCallError, randomSeedOf } from './random';
@@ -59,7 +60,9 @@ import type {
   BehaviorAnimatorHandle,
   BehaviorAudio,
   BehaviorCamera,
+  BehaviorSockets,
   BehaviorDebug,
+  BehaviorUi,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -214,6 +217,15 @@ export interface BehaviorContext {
   log(level: BehaviorLogLevel, message: string): void;
   /** Phase 23.4: the virtual cameras — activate, priorities, rig values, shake, screen↔world. */
   readonly camera?: BehaviorCamera;
+  /** Phase 23.11: objects riding on named nodes of other objects' models — attach, detach, node poses. */
+  readonly sockets?: BehaviorSockets;
+  /**
+   * Phase 23.12: graph-material parameters per object — set a value (number, vector, colour,
+   * texture) or write the cells of a data parameter on one object; others wearing the material keep theirs.
+   */
+  readonly materials?: BehaviorMaterials;
+  /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
+  readonly ui?: BehaviorUi;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -847,10 +859,11 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
        */
       let inputFrame: ActionFrame | null = null;
       let inputOfFrame: BehaviorInputView | null = null;
-      const inputFor = (frame: ActionFrame): BehaviorInputView => {
+      const inputFor = (frame: ActionFrame, src: StepContext): BehaviorInputView => {
         if (inputFrame !== frame || inputOfFrame === null) {
           inputFrame = frame;
-          inputOfFrame = inputView(frame);
+          // Phase 23.3: `setCursor` goes to the runtime's cursor channel (one per runtime).
+          inputOfFrame = inputView(frame, src.cursor?.request);
         }
         return inputOfFrame;
       };
@@ -893,7 +906,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         };
         if (src.scenes !== undefined) fields['scenes'] = { value: src.scenes, enumerable: true };
         // Phase 9.8: the step's input actions by name.
-        fields['input'] = { get: () => inputFor(src.action), enumerable: true };
+        fields['input'] = { get: () => inputFor(src.action, src), enumerable: true };
         // Phase 9.7: animators (`ctx.animator(id)?.set(...)`); last step's clip
         // events and (phase 14.2) the owned triggers' enter/exit events.
         if (src.animators !== undefined) fields['animator'] = { value: src.animators.of, enumerable: true };
@@ -915,10 +928,16 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
         // Phase 23.4: the virtual cameras (resolved by the camera brain at the end of the step).
         if (src.camera !== undefined) fields['camera'] = { value: src.camera, enumerable: true };
+        // Phase 23.11: sockets (resolved by the runtime at the end of the step, after the animators).
+        if (src.sockets !== undefined) fields['sockets'] = { value: src.sockets, enumerable: true };
         // Phase 23.8: debug commands (the handler, when given, runs once per call of this step).
         if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
         // Phase 23.5: the block layers.
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
+        // Phase 23.12: graph-material parameters per object.
+        if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
+        // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
+        if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };
@@ -1303,9 +1322,63 @@ export interface BehaviorInputView {
    * @graphLabel name action
    */
   held(name: string): boolean;
+  /**
+   * Phase 23.3: the pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step) and whether the cursor is locked; null before the pointer is first seen.
+   * @graphPure
+   * @graphNode Pointer
+   */
+  pointer(): BehaviorPointer | null;
+  /**
+   * Phase 23.3: a pointer button (default left) went down this step — a click.
+   * @graphPure
+   * @graphNode Pointer pressed
+   */
+  pointerPressed(button?: 'left' | 'right' | 'middle'): boolean;
+  /**
+   * Phase 23.3: a pointer button (default left) went up this step.
+   * @graphPure
+   * @graphNode Pointer released
+   */
+  pointerReleased(button?: 'left' | 'right' | 'middle'): boolean;
+  /**
+   * Phase 23.3: a pointer button (default left) is down this step.
+   * @graphPure
+   * @graphNode Pointer held
+   */
+  pointerHeld(button?: 'left' | 'right' | 'middle'): boolean;
+  /**
+   * Phase 23.3: ask for a free or a locked cursor (locked: hidden and held in the view — its movement still counts); 'auto' goes back to the active input map's setting. Takes effect after the step (the player may have to click the view once before the browser locks it).
+   * @graphNode Set cursor
+   */
+  setCursor(mode: 'free' | 'locked' | 'auto'): void;
 }
 
-export function inputView(frame: ActionFrame): BehaviorInputView {
+/** Phase 23.3: the pointer as a script reads it (`ctx.input.pointer()`). */
+export interface BehaviorPointer {
+  /** 0 (left) – 1 (right) of the view; the centre while the cursor is locked. */
+  readonly x: number;
+  /** 0 (top) – 1 (bottom) of the view. */
+  readonly y: number;
+  /** Movement since the last step as fractions of the view's width / height (y down). */
+  readonly dx: number;
+  readonly dy: number;
+  /** Wheel notches since the last step (positive towards the user). */
+  readonly wheel: number;
+  /** Over the game view. */
+  readonly over: boolean;
+  /** It came over the view / left it this step. */
+  readonly entered: boolean;
+  readonly left: boolean;
+  /** The cursor is locked (hidden, held in the view). */
+  readonly locked: boolean;
+}
+
+const POINTER_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, right: 2, middle: 4 });
+const NO_CURSOR_CONTROL = (): void => {
+  /* a host without the cursor channel (tests, the 2D plane's modules) ignores the request */
+};
+
+export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked' | 'auto') => void = NO_CURSOR_CONTROL): BehaviorInputView {
   const get = (name: string): { v: number; x?: number; y?: number; p: string } | undefined => {
     const a = frame.actions?.[name];
     if (a !== undefined) return a;
@@ -1326,5 +1399,31 @@ export function inputView(frame: ActionFrame): BehaviorInputView {
       const p = get(String(name))?.p;
       return p === 'pressed' || p === 'held';
     },
+    pointer: (): BehaviorPointer | null => pointerOf(frame),
+    pointerPressed: (button?: string) => ((frame.pointer?.pressed ?? 0) & bitOf(button)) !== 0,
+    pointerReleased: (button?: string) => ((frame.pointer?.released ?? 0) & bitOf(button)) !== 0,
+    pointerHeld: (button?: string) => ((frame.pointer?.buttons ?? 0) & bitOf(button)) !== 0,
+    setCursor: (mode: 'free' | 'locked' | 'auto'): void => {
+      if (mode !== 'free' && mode !== 'locked' && mode !== 'auto') throw new Error(`setCursor takes 'free', 'locked' or 'auto' (got ${JSON.stringify(String(mode)).slice(0, 40)})`);
+      setCursor(mode);
+    },
   });
+}
+
+function bitOf(button: unknown): number {
+  return button === undefined ? 1 : (POINTER_BIT[String(button)] ?? 0);
+}
+
+/** Phase 23.3: the frame's pointer as a script reads it (the runtime completes the frame's sample with the held state). */
+const pointerViews = new WeakMap<object, BehaviorPointer>();
+function pointerOf(frame: ActionFrame): BehaviorPointer | null {
+  const p = frame.pointer;
+  if (p === undefined) return null;
+  let v = pointerViews.get(p);
+  if (v === undefined) {
+    const e = p as PointerSample & { entered?: boolean; left?: boolean };
+    v = Object.freeze({ x: p.x, y: p.y, dx: p.dx ?? 0, dy: p.dy ?? 0, wheel: p.wheel ?? 0, over: p.over !== false, entered: e.entered === true, left: e.left === true, locked: p.locked === true });
+    pointerViews.set(p, v);
+  }
+  return v;
 }

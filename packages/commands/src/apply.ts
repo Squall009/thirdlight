@@ -47,6 +47,7 @@ import { applyApplySurfacePreset, applySetGameConfig } from './v3-ops';
 import { applySetTags } from './tag-ops';
 import { applySetAssetOptions } from './asset-options-ops';
 import { applyPasteEntities } from './paste-ops';
+import { applySetCollisionLayers } from './layer-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetFlow, applySetInput, applySetLighting, applySetMaterial } from './material-ops';
 import type { AnimatorController, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { applySceneIndexOp } from './scene-ops';
@@ -55,6 +56,7 @@ import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-o
 import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-library-ops';
 import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
+import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -328,6 +330,11 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setInput', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setCollisionLayers': {
+      const r = applySetCollisionLayers(input, va.validated.args as { layers: string[] });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'setCollisionLayers', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setFlow': {
       const r = applySetFlow(input, va.validated.args as { flow: GameFlow | null });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -365,6 +372,22 @@ export function applyMutation<S extends SceneDocument>(
             : applyRenameEffect(input, a as { effectId: string; name: string });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
+    case 'setUiDocument':
+    case 'deleteUiDocument':
+    case 'setUiTheme':
+    case 'deleteUiTheme': {
+      // Phase 23.9a: project UI documents and themes.
+      const a = va.validated.args as Record<string, unknown>;
+      const op = va.validated.op;
+      const r =
+        op === 'setUiDocument'
+          ? applySetUiDocument(input, a as { document: import('@thirdlight/project-model').UiDocument })
+          : op === 'setUiTheme'
+            ? applySetUiTheme(input, a as { theme: import('@thirdlight/project-model').UiTheme })
+            : applyDeleteUi(input, op === 'deleteUiDocument' ? 'document' : 'theme', String(op === 'deleteUiDocument' ? a['uiDocumentId'] : a['uiThemeId']));
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'setScriptLibrary':
     case 'deleteScriptLibrary': {
@@ -562,7 +585,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
         }),
       };
     }

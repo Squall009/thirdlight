@@ -922,14 +922,14 @@ power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
 step, abs, floor, fraction, sin, cos, one minus, remap; *Vectors* — split,
 combine, swizzle (mask `xyzw`/`rgba`); *Textures* — Sample texture (wrap,
 filter, colour space), Normal map, Triplanar, Flipbook, Noise (value,
-gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp;
+gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp, Sample data (a data parameter's cell);
 *Utility* — Fresnel, Rim, Posterize, Dither, World-aligned UV, Parallax,
 Vertex displacement, Alpha clip; *Functions* — Function call; *Output* —
 PBR output (base colour, metalness, roughness, normal, emissive, AO,
 opacity, alpha clip) or Unlit output (one of them per material), Vertex
 offset; the render flags (double-sided, transparent, casts shadows) are
-fields of the surface output. Port types are float, vec2, vec3, vec4 and
-texture; every value width converts to every other (a float fills every
+fields of the surface output. Port types are float, vec2, vec3, vec4,
+texture and data (a data parameter, which feeds only Sample data); every value width converts to every other (a float fills every
 component, a wider vector keeps its first components, a narrower one is
 padded with 0 and w = 1 — shown dashed on the wire); a texture only feeds a
 texture input. Maths nodes have a **Type** field, `auto` by default: they
@@ -941,13 +941,39 @@ fields, compatible port types, no cycles, at most 512 nodes, one surface
 output, one vertex offset.
 
 **Exposed parameters** (left of the graph): key, type (float, vec2–4,
-colour, texture), default, range, visibility (public/private, like script
+colour, texture, data), default, range, visibility (public/private, like script
 properties). A **Parameter** node reads one (its type is the parameter's).
 Objects override the **public** ones: select an object that uses the
 material (its own material mapping or its model's default one) — the
 Inspector's **Materials** section lists each graph material's public
 parameters; a value set there is stored on the object (the
 `materialParams` component) and ↺ goes back to the material's value.
+
+**Material parameters from scripts** (phase 23.12): while the game runs a
+script sets a graph material's public parameters **per object** —
+`ctx.materials.set(entityId, 'tint', '#ff4000')` (a number, 2–4 numbers,
+`"#rrggbb"`, or a texture asset id that travels with the game — referenced
+by a material, an object override or a script property), `get`, and
+`reset(entityId, param?)` back to the object's authored value. Other objects
+wearing the material keep theirs: the material stays one shared compiled
+material and the value is read per drawn object (no recompile; a texture
+value takes the texture-override path, a compiled copy). The call applies
+to every graph material of the object that declares the key (or to one:
+the optional last argument `materialId`). A **data** parameter is a small
+grid of RGBA cells (its **size**, up to 64 × 64 — the engine limit — and a
+default: the bytes every cell starts with): scripts write cells or
+rectangles per object with `ctx.materials.setData(entityId, 'cells', x, y,
+w, h, bytes)` (w × h × 4 values 0–255, row by row; `getData` reads a cell)
+and the **Sample data** node reads one cell — at a UV (cell [0, 0] at UV
+(0, 0), no filtering) or at integer cell coordinates — so one mesh can show
+per-cell state without an object per cell. Values are part of the
+simulation (deterministic, in replays and the step digest, identical in the
+simulation worker and the page), go to the renderer only when they change
+(a data grid uploads once per change) and start from the authored values at
+every new run. At most 4,096 writes per step; a refused call returns
+`false`. The visual-script nodes are under **Materials** (Set material
+parameter, Material parameter, Reset material parameter, Write material
+data, Material data cell).
 
 **Material functions** (reusable sub-graphs) are standalone graphs of kind
 **Material function** (Graphs → pick the kind → Create graph). Their
@@ -1674,6 +1700,14 @@ buttons), `loops` (each audio source's current gain; a level's ambience as
 `ambience:<n>`) and, while the title shows, `titleView` (its scene and the
 camera's offset).
 
+**Font** assets are TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF files up
+to 4 MiB, at most 16 per project (8 versions each). Choose or drop the file in
+the Asset browser like other assets, or upload it with `tl_content_upload`
+kind `font` and publish it with kind `font`. The import checks the file's
+container only (the family name of a TTF/OTF is shown when it has one); the
+game's UI loads the font in the browser. A font ships with Play and the export
+when the project's UI uses it.
+
 Inspector → "+ Add component" → **Audio source** loops an audio or music asset where
 the object is: full volume within a quarter of its range, fading to silent
 at the range (measured along X from the player); the Scene view draws both
@@ -2375,7 +2409,7 @@ virtual cameras.
 A **block layer** builds a level from blocks on a grid (terrain, buildings, a
 tactics map, a dungeon, a voxel sandbox). The core — data, storage,
 rendering, collision, script API and bulk commands — is in; the editor's
-brushes, overlays and stamp UI come with 23.6.
+brushes, overlays and stamp UI are below (23.6).
 
 - **Block types** (`content.blockTypes`, `setBlockType` / `deleteBlockType`):
   up to 8 weighted **looks** each — a model (asset and optional piece), a
@@ -2427,6 +2461,171 @@ brushes, overlays and stamp UI come with 23.6.
   exist for the calls.
 - **Lightmaps**: block layers shade baked objects (occluders) but keep
   realtime lighting themselves.
+
+## Block layer editing (phase 23.6)
+
+The **Blocks** tab (bottom dock) edits block layers in the Scene view. Every
+action is an ordinary command — `editBlocks` for cells and regions,
+`setBlockType` / `setCellFields` / `setBlockStamp` for content — so each
+stroke or button is one undo step, and MCP can do the same.
+
+- **Layer**: choose the layer the tools edit (+ Layer makes a 64 × 16 × 64
+  layer of 1 m cells); Hide and Lock are the object's Active and Locked flags
+  (the Hierarchy shows the same). **Slice**: the row the tools use where no
+  block is under the pointer — PageUp / PageDown or ] / [, or the − / + and
+  number box. The grid of that row and the layer's bounds are drawn.
+- **Tools** (the left button; Alt+drag or the right button orbits while
+  "Edit cells" is on): Paint and Erase (drag, cell by cell), Line,
+  Rectangle, Box (the rectangle raised to the box height), Flood, Raise /
+  lower (Ctrl held or "Lower / remove" lowers), Pick (the eyedropper takes a
+  cell's block, rotation and look), Replace all (every block of the clicked
+  type becomes the brush block), Metadata, Select, Paste, Stamp and Region.
+  Adding tools place on the face under the pointer. A stroke previews at once
+  and is stored when the button is released (Esc drops it).
+- **Brush**: Rotate (Q) steps through the block type's allowed rotations;
+  "Random look" lets every cell show a look picked by the variants' weights
+  (stable by position); off paints the chosen look.
+- **Palette**: the project's block types as colour swatches (a model's
+  thumbnail when it has one); + Block type makes one; clicking a type opens
+  its form (looks, collision shape, footprint, rotations, default metadata,
+  materials) — the same fields as its content descriptor.
+- **Metadata**: pick a cell field and a value (or Clear), Cells or Rectangle,
+  "Occupied only"; the overlay toggles colour the fields on the cells (the
+  field's colour, a palette per choice for an enum, a shade along the range
+  for numbers) with a legend. "Cell fields" edits the schema.
+- **Selection**: Select drags a box; Copy (Ctrl+C) / Move (Ctrl+X) then click
+  with Paste (another layer works too); Mirror X / Z, Rotate 90°, Delete
+  (Del); "Save as stamp". **Stamps**: the library places a stamp (turned or
+  mirrored) with the Stamp tool, or deletes it.
+- **Regions**: the layer's named regions are outlined; click one to paint it
+  with the Region tool (Ctrl removes), + Region makes one (from the selection
+  when there is one), Rename, delete, "Add / Remove selection".
+- **Props on blocks**: Edit → Snapping settings… sets the move, rotate and
+  scale steps (per project, in this browser; defaults 0.25 m, 15°, 0.25) and
+  "Snap objects to block cell tops": moved and dropped objects land on the
+  top of the columns under them. The **Block footprint** component (`layer?`,
+  `size` [x, z] cells, `set` {field: value}) writes its metadata into the
+  cells beneath the object whenever it is moved in the editor (clearing them
+  where it stood); the Inspector's "Write to cells" and "Snap to cell top" do
+  it on demand. The runtime ignores the component (scripts read the cells).
+- **Measured**: a stroke on a 64 × 64 × 16 layer holding 32,768 cells
+  previews in about 40–55 ms per pointer move and is stored about
+  110–160 ms after release on the test host.
+
+## Sockets (objects on model nodes)
+
+Since phase 23.11 an object can ride on a named node — a bone or any node —
+of another object's model: equipment in a hand, a rider on a mount, a pilot
+in a cockpit, a flash at a muzzle. Select the object and **+ Add component →
+Socket**: **Target** is the object whose model carries the node, **Node** is
+picked from that model's node list (read from its GLB, the names the game
+uses), and **Offset** / **Rotation offset** / **Scale** place it relative to
+the node. **Attached at start** off keeps the socket as data a script
+attaches later.
+
+The simulation places attached objects at the end of every fixed step,
+after the animators, so an object follows the target's animation (its
+animator's clips, blends, crossfades and layers, the way the renderer poses
+the model) and replays, the simulation worker and the export agree bit for
+bit. The object's own children ride along. An object on a socket cannot be a
+physics body (collider, controller, mover) or the scene camera; a script's
+transform writes on it are overridden while it is attached. Works in 2D and
+3D projects.
+
+**Scripts** (`ctx.sockets`): `attach(entityId, targetId?, node?, position?,
+rotation?, scale?)` (no target: the object's own Socket component),
+`detach(entityId, keepWorld = true)` — it stays where the node left it, or
+snaps back to its transform from before the attach with `false` —,
+`attachedTo(entityId)` (`{target, nodeName}` or null) and `nodePose(targetId, node)` (a node's world
+position and rotation now, e.g. where to spawn a projectile). A refused
+attach (an unknown node, a loop, a physics body) returns false and writes a
+warning to the play log. Visual scripts have the same nodes under
+**Sockets**.
+
+**How the game knows the nodes.** The runtime never loads models, so a
+project that uses sockets (a Socket component anywhere, or a script naming
+`ctx.sockets`) gets each model's **rig** — its nodes and the node animation
+channels of its clips — read from the GLB into the play/export build (the
+manifest's `rigs`). Engine limits: 262,144 key numbers per model and about a
+million per project (clips past that are left out and a socket on them
+warns once). Projects without sockets build exactly as before.
+
+**Animation speed and morph targets.** `ctx.animator(id)?.setSpeed(x)`
+sets one object's playback speed (every clip and crossfade; 1 as authored,
+0.5 half speed, 0 holds the pose; 0–10) — slow motion for a prompt, an
+animation-speed setting; `.speed()` reads it. The Animator's live preview has
+a **speed** slider that plays the controller the same way. A controller's
+**morphs** list (MCP `setAnimator`: `morphs: [{target, parameter}]`) drives a
+morph target (blend shape) by a float parameter (clamped to 0–1);
+`ctx.animator(id)?.setMorph(name, weight)` / `.morph(name)` set and read any
+morph target from scripts. Morph weights are presentation: the renderer
+applies them to every mesh of the model that has that target.
+
+**Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
+export) reports `sockets: [{ entityId, target, node, position }]` (the
+drawn world position) while something rides on a socket.
+
+## Pointer input and 3D queries
+
+Since phase 23.3 the mouse (or pen/touch) is part of the game's input.
+
+**Pointer bindings.** In the **Input** window, **+ pointer** adds what fits
+the action: a mouse button (left/right/middle) to a button or 1D axis, the
+pointer's movement along x or y (up positive, percent of the view per step)
+or the wheel (notches) to a 1D axis, the pointer's **position** (x, y 0–1
+from the top left) or **movement** to a 2D axis. Movement and wheel are
+amounts per step (a second step in the same frame sees 0). A binding of the
+right button keeps the browser's context menu off the view; a wheel binding
+keeps the wheel from scrolling the page.
+
+**Cursor.** Each map has a **cursor** setting (free or locked; default free).
+While a menu is open the ui map's setting applies; during play a script may
+ask for another with `ctx.input.setCursor('free' | 'locked' | 'auto')`
+(`auto` = the map's setting; a new run starts with none). Locked uses the
+browser's pointer lock — browsers want a click in the view first, so the
+game asks again on the next click — and the pointer then sits at the view's
+centre (only its movement counts). The cursor is hidden while locked and
+while a gamepad was used last; it shows again when the mouse moves.
+
+**Scripts.** `ctx.input.pointer()` → `{ x, y, dx, dy, wheel, over, entered,
+left, locked }` (null before the pointer is first seen);
+`pointerPressed/Released/Held(button?)` (default left; a click between two
+steps still presses). Pointer samples are part of the step's input, so a
+replay (and `tl_input_exercise`, which takes an optional `pointer: { x, y,
+dx?, dy?, wheel?, buttons?, pressed?, released?, over?, locked? }` per
+frame — masks 1 left, 2 right, 4 middle) reproduces them; a frame without a
+pointer keeps the last position and held buttons. Its `actions` are now
+passed through too.
+
+**3D queries** (physics dimension 3): `ctx.physics.raycast3d(origin,
+direction, maxDistance = 100, filter?)` → `{ entityId, point, normal,
+distance }` or null; `overlapSphere(center, radius, filter?)`,
+`overlapBox3d(center, half, rotation?, filter?)`, `overlapCapsule(center,
+radius, height, rotation?, filter?)` → sorted ids (at most 64);
+`pickAt(x, y, maxDistance = 1000, filter?)` casts the active camera's ray
+through a screen point (the scene camera's when no virtual camera is live —
+`ctx.camera.screenToRay/worldToScreen` do the same now), `pickAtPointer`
+through the pointer (null while it is off the view). A filter is `{ tags?,
+layers?, exclude? }`. At most 64 queries a step for all scripts together
+(then nothing; warned once in the play log). A 3D scene without a player
+still has physics when it has colliders (they answer the queries).
+Hover edges on objects are the script's own: compare this step's pick with
+the last one.
+A hit on a block layer names the layer (`entityId`) and carries `cell:
+[x, y, z]` (`ctx.grid` coordinates), so `pickAtPointer` picks cells too.
+
+**Collision layers.** **File → Project tags** also lists the project's
+collision layers ("default" is implicit; up to 15 more). A collider's
+**Collision layers** field lists the layers it is in (absent: "default");
+queries see only the layers their filter names. Layers do not change what
+collides with the player. A layer a collider still lists cannot be removed.
+MCP: `setCollisionLayers {layers}`; collider `{ layers: [...] }`.
+
+**Observing.** `tl_game_observe` (and `__thirdlightObserve()`) report
+`pointer: { x, y, buttons, over, locked }`, `cursor: { mode, locked, hidden }`
+and `hidden` (the objects scripts hid). Headless browsers may refuse pointer
+lock; the `data-tl-pointer-lock` attribute on the game canvas shows whether
+the browser granted it.
 
 ## Performance
 
@@ -2720,3 +2919,35 @@ WebGPU.
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in
 `tests/e2e/browser-env.mjs`.
+
+## Project UI (UI documents)
+
+Projects draw their own HUDs, menus and screens as UI documents: JSON widget
+trees stored in the project (`setUiDocument`, `setUiTheme` through MCP; the
+visual editor tab comes with 23.9b). The game host draws them over the view in
+Play and in exported games.
+
+- Widgets: panel (anchors, pivot, offset, size or stretch), stack, grid, list
+  (repeats a template for a bound array), text (rich text `[b] [i]
+  [color=#…] [size=N] [icon=name]`, `{path}` values), image (texture,
+  9-slice), bar (linear or radial), button, text input. Styles and themes are
+  data (colours, project fonts, padding, borders, 9-slice backgrounds, hover /
+  focus / pressed / disabled variants); tweens fade, slide, scale or "stamp".
+- Scripts: `ctx.ui.set('hud.hp', 3)` publishes values the documents bind to
+  (`{ "bind": "hud.hp" }`); `ctx.ui.show/hide` shows documents (layers,
+  modal); `ctx.ui.events()` / `ctx.ui.event('buy')` read clicks, submits and
+  focus changes — they arrive on the next input frame, so replays hold.
+- Keyboard and gamepad move the focus (spatial or explicit `nav`), Enter / pad
+  A presses, Backspace / pad B runs the document's cancel action; the mouse
+  hovers and clicks. A focused document can switch the input to its action
+  map (`actionMap: "ui"`: the character does not move while a menu is open).
+- World-anchored widgets follow an entity or a point, clamped to the screen
+  edge with an indicator when off screen.
+- `setFlow` `flow.screens` replaces the built-in title, pause, settings,
+  level-complete, game-over, finished, load and save screens with documents;
+  their buttons use engine actions (resume, quit to title, save, load, a
+  setting…). Without it the built-in screens stay.
+- Fonts (TTF, OTF, WOFF2, WOFF) import as `font` assets and are used by name
+  in a style's `font`.
+- Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
+  view model.

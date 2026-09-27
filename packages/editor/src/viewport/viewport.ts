@@ -57,7 +57,7 @@ import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
-import { clampScale, SNAP_ROTATE_RAD, SNAP_SCALE, SNAP_TRANSLATE_M } from '../session/snapping';
+import { clampScale, getSnapSettings } from '../session/snapping';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { ZoneOverlay, type ZoneTool } from './zone-overlay';
 import { commitValue, type HandleShape } from '../session/handles';
@@ -65,6 +65,7 @@ import { BRUSH_SPACING_M, copyAt, type CopyTransform } from '../session/instance
 import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
 import { materialOverridesOf, type ModelInstances } from './model-instances';
 import { planSync, removedIds, zoneRelevant } from './sync-plan';
+import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -267,6 +268,15 @@ export class Viewport {
         this.updateCopyHighlight();
         return;
       }
+      // Phase 23.6: a moved object lands on the cell tops under it (translate gestures).
+      if (this.cellTopSnap !== null && this.gizmoMode === 'translate' && this.gizmo.object !== undefined) {
+        const o = this.gizmo.object;
+        const at = this.cellTopSnap(id, [o.position.x, o.position.y, o.position.z], [o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w]);
+        if (at !== null) {
+          o.position.set(at[0], at[1], at[2]);
+          o.updateMatrixWorld(true);
+        }
+      }
       this.cb.onGestureFrame(id, this.readTarget());
     });
     this.gizmo.addEventListener('mouseUp', () => {
@@ -336,18 +346,85 @@ export class Viewport {
    * The project's block layers (their component, stored chunks and origin)
    * and block types; `revision` changes whenever cells, layers or types do.
    */
-  setBlockLayers(types: readonly BlockType[], layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[] }>, revision: number): void {
+  setBlockLayers(types: readonly BlockType[], layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[]; hidden?: boolean }>, revision: number): void {
     const view = this.ensureBlockView();
     if (revision !== this.blockRevision) {
       this.blockRevision = revision;
       view.setTypes(types);
-      for (const id of view.layerIds()) if (!layers.has(id)) view.removeLayer(id);
-      for (const [id, l] of layers) view.setLayer(id, l.component, l.origin, { entityId: id, chunks: [...l.chunks.values()] });
+      for (const id of view.layerIds()) {
+        if (layers.has(id)) continue;
+        view.removeLayer(id);
+        this.blockApplied.delete(id);
+      }
+      for (const [id, l] of layers) {
+        // Phase 23.6: only the chunks whose stored object changed are handed over (an edit re-meshes
+        // the chunks it touched, not the layer; a previewed stroke's chunks then compare equal).
+        const key = JSON.stringify(l.component);
+        const prev = this.blockApplied.get(id);
+        if (prev === undefined || prev.component !== key || !view.hasLayer(id)) view.setLayer(id, l.component, l.origin, { entityId: id, chunks: [...l.chunks.values()] });
+        else {
+          const changed: { cx: number; cz: number; chunk: BlockChunk | null }[] = [];
+          for (const [k, c] of l.chunks) if (prev.chunks.get(k) !== c) changed.push({ cx: c.cx, cz: c.cz, chunk: c });
+          for (const k of prev.chunks.keys()) {
+            if (l.chunks.has(k)) continue;
+            const [cx, cz] = k.split(',').map(Number) as [number, number];
+            changed.push({ cx, cz, chunk: null });
+          }
+          if (changed.length > 0) view.replaceChunks(id, changed);
+          view.setOrigin(id, l.origin);
+        }
+        this.blockApplied.set(id, { component: key, chunks: new Map(l.chunks) });
+      }
     } else {
       for (const [id, l] of layers) view.setOrigin(id, l.origin);
     }
+    // Phase 23.6: a hidden layer object (inactive) is not drawn.
+    for (const [id, l] of layers) {
+      const g = view.root.getObjectByName(`block-layer:${id}`);
+      if (g !== undefined) g.visible = l.hidden !== true;
+    }
     this.requestRender();
   }
+
+  /** Phase 23.6: the chunk objects each layer was last drawn from (edits hand over only the changed ones). */
+  private blockApplied = new Map<string, { component: string; chunks: Map<string, BlockChunk> }>();
+
+  // ---- Phase 23.6: block-layer editing ---------------------------------------------
+  private blockEditorInst: BlockEditor | null = null;
+  private orbitButtons: OrbitControls['mouseButtons'] | null = null;
+
+  /** The block-layer editing tools (created on first use with the App's callbacks). */
+  blockEditor(cb?: BlockEditorCallbacks): BlockEditor | null {
+    if (this.blockEditorInst === null && cb !== undefined) {
+      this.blockEditorInst = new BlockEditor({ scene: this.scene, camera: this.camera, canvas: this.root, requestRender: () => this.requestRender(), view: () => this.ensureBlockView() }, cb);
+    }
+    return this.blockEditorInst;
+  }
+
+  /** Arm the block tools: a left drag paints (Alt+drag or the right button orbits), clicks pick no objects. */
+  setBlockToolsActive(on: boolean): void {
+    const ed = this.blockEditorInst;
+    if (ed === null) return;
+    ed.setActive(on);
+    if (on && this.orbitButtons === null) {
+      this.orbitButtons = { ...this.orbit.mouseButtons };
+      this.orbit.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+    } else if (!on && this.orbitButtons !== null) {
+      this.orbit.mouseButtons = this.orbitButtons;
+      this.orbitButtons = null;
+    }
+  }
+
+  /**
+   * Phase 23.6: snap moved and dropped objects to block-layer cell tops (null:
+   * off). The function maps an object's world position to the snapped one
+   * (null: not over a layer).
+   */
+  setCellTopSnap(fn: ((entityId: string | null, position: readonly number[], rotation: readonly number[]) => [number, number, number] | null) | null): void {
+    this.cellTopSnap = fn;
+  }
+
+  private cellTopSnap: ((entityId: string | null, position: readonly number[], rotation: readonly number[]) => [number, number, number] | null) | null = null;
 
   /** Block-layer draw statistics (tests read them). */
   blockStats(): { layers: number; chunks: number; meshes: number; triangles: number } {
@@ -831,12 +908,14 @@ export class Viewport {
     }
     if (point === null) point = this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
     const p = point ?? this.orbit.target.clone();
-    const step = this.snapping() ? SNAP_TRANSLATE_M : 0.001;
+    const step = this.snapping() ? getSnapSettings().translateM : 0.001;
     const snap = (v: number): number => {
       const r = Math.round(v / step) * step;
       return Math.abs(r) < 1e-9 ? 0 : Number(r.toFixed(3));
     };
-    return [snap(p.x), snap(p.y), snap(p.z)];
+    const snapped: [number, number, number] = [snap(p.x), snap(p.y), snap(p.z)];
+    // Phase 23.6: onto the cell top under the drop point.
+    return this.cellTopSnap?.(null, snapped, [0, 0, 0, 1]) ?? snapped;
   }
 
   /** Orbit around the entity's world position, keeping the view direction. */
@@ -983,6 +1062,12 @@ export class Viewport {
       const lib = this.materialLibrary;
       const animated = lib !== null && lib.animated();
       if (animated) lib!.tick((performance.now() - this.clockStart) / 1000);
+      // Phase 23.6: while the block tools are on, the view-projection matrix (tests map cells to the screen).
+      if (this.blockEditorInst?.isActive() === true) {
+        this.camera.updateMatrixWorld();
+        const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+        this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
+      }
       // Phase 23.5: re-mesh the block chunks that changed (before the draw).
       if (this.blockView !== null) {
         this.blockView.update();
@@ -1102,9 +1187,12 @@ export class Viewport {
   /** Grid snapping for the current drag (default on; Shift disables it). */
   private applySnapping(): void {
     const on = this.snapping();
-    this.gizmo.setTranslationSnap(on ? SNAP_TRANSLATE_M : null);
-    this.gizmo.setRotationSnap(on ? SNAP_ROTATE_RAD : null);
-    this.gizmo.setScaleSnap(on ? SNAP_SCALE : null);
+    const s = getSnapSettings();
+    this.gizmo.setTranslationSnap(on ? s.translateM : null);
+    this.gizmo.setRotationSnap(on ? (s.rotateDeg * Math.PI) / 180 : null);
+    this.gizmo.setScaleSnap(on ? s.scale : null);
+    // Phase 23.6: the step in force (tests read it).
+    this.root.setAttribute('data-snap-step', on ? String(s.translateM) : '');
   }
 
   /** M3 (packet 56): arm/clear a zone placement tool (the panel's action). */
@@ -1125,6 +1213,11 @@ export class Viewport {
 
   /** Cancel an in-flight gizmo gesture (Esc): revert, send nothing. */
   cancelGesture(): boolean {
+    // Phase 23.6: a block stroke in flight is dropped (nothing is sent).
+    if (this.blockEditorInst?.cancel() === true) {
+      this.orbit.enabled = true;
+      return true;
+    }
     // M3 (packet 56): a zone gesture cancels through the overlay (the App
     // reverts its preview from `onZoneGestureCancel`; nothing is sent).
     if (this.draggingZone) {
@@ -1694,6 +1787,14 @@ export class Viewport {
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
+    // Phase 23.6: armed block tools take the left button (not over a gizmo handle).
+    if (this.blockEditorInst?.isActive() === true && this.gizmo.axis === null && this.blockEditorInst.pointerDown(e)) {
+      e.stopImmediatePropagation();
+      this.downAt = null;
+      this.orbit.enabled = false;
+      this.root.setPointerCapture(e.pointerId);
+      return;
+    }
     // Phase 15.2: a handle grip of the selected entity: Alt+click deletes a corner/point, a drag edits (one command on release).
     const grip = this.zones.activeTool === null ? this.zones.pickHandle(e.clientX, e.clientY) : null;
     if (grip !== null) {
@@ -1788,6 +1889,10 @@ export class Viewport {
   }
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerMove(e)) {
+      e.stopImmediatePropagation();
+      return;
+    }
     if (this.handleDragging) {
       e.stopImmediatePropagation();
       this.zones.moveHandleDrag(e.clientX, e.clientY, this.snapping());
@@ -1811,6 +1916,11 @@ export class Viewport {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    if (this.blockEditorInst !== null && this.blockEditorInst.pointerUp(e)) {
+      e.stopImmediatePropagation();
+      this.orbit.enabled = true;
+      return;
+    }
     const down = this.downAt;
     this.downAt = null;
     if (this.handleDragging) {
@@ -2123,6 +2233,8 @@ export class Viewport {
   private fogVolumeData = new Map<string, NonNullable<ProjectedEntity['fogVolume']>>();
 
   dispose(): void {
+    this.blockEditorInst?.dispose();
+    this.blockEditorInst = null;
     this.releaseEffectPreview();
     this.unapplyLightmaps();
     for (const rec of this.lightmapCopies.values()) {

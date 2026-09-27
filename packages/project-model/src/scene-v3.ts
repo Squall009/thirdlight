@@ -20,6 +20,7 @@
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
+import { canonicalSocketAttach, SOCKET_ATTACH_CONFLICTS, validateSocketAttachComponent, type SocketAttachComponent } from './sockets';
 import { canonicalCameraPath, canonicalVirtualCamera, validateCameraPathComponent, validateVirtualCameraComponent, type CameraPathComponent, type VirtualCameraComponent } from './cameras';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
 import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, type FogVolumeComponent, type MaterialParamsComponent } from './materials';
@@ -54,6 +55,8 @@ import {
 } from './errors';
 import {
   canonicalCollider,
+  colliderCore,
+  validateColliderLayers,
   ID_RE_V2,
   MAX_COLLIDERS,
   MAX_ENTITIES_V2,
@@ -102,6 +105,7 @@ import {
   type PlayerSpawnFacing,
 } from './types-v3';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
+import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
 
 export const COLOR_RE_V3 = /^#[0-9a-fA-F]{6}$/; // §23.3.1a/§23.3.4/§23.3.5
@@ -133,8 +137,10 @@ export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach'];
 // Phase 23.5: `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
+// Phase 23.6: `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
+// Phase 23.11: `socketAttach` (rides on a node of another entity's model) after that.
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 /** Phase 15.3 (v4): the follow distance and the speed cap. */
@@ -903,7 +909,13 @@ function validateEntityComponentsV3(
     const col = comps['collider'];
     const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
     if (oneWay !== undefined && (version !== 4 || oneWay !== true)) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true (v4 scenes)', 'oneWay is true or absent'));
-    validateColliderComponent(isPlainObject(col) && oneWay !== undefined ? Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay')) : col, `${path}/collider`, errors);
+    // Phase 23.3 (v4): the collision layers the collider is in.
+    const layers = isPlainObject(col) ? col['layers'] : undefined;
+    if (layers !== undefined) {
+      if (version !== 4) errors.push(fieldValue(`${path}/collider/layers`, layers, 'absent (v4 scenes only)', 'collision layers are a v4 field'));
+      else validateColliderLayers(layers, `${path}/collider/layers`, errors);
+    }
+    validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
   }
   if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors, version);
 
@@ -939,6 +951,8 @@ function validateEntityComponentsV3(
   // Phase 23.4: a virtual camera shot and a path rail cameras ride (any entity may carry them).
   if (comps['virtualCamera'] !== undefined) validateVirtualCameraComponent(comps['virtualCamera'], `${path}/virtualCamera`, errors);
   if (comps['cameraPath'] !== undefined) validateCameraPathComponent(comps['cameraPath'], `${path}/cameraPath`, errors);
+  // Phase 23.11: the entity rides on a node of another entity's model.
+  if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
   if (comps['blockLayer'] !== undefined) {
@@ -953,6 +967,8 @@ function validateEntityComponentsV3(
     }
     validateBlockLayerTransform(comps, parentId, ePath, errors);
   }
+  // Phase 23.6: a prop's block footprint (any entity may carry one).
+  if (comps['blockFootprint'] !== undefined) validateBlockFootprintComponent(comps['blockFootprint'], `${path}/blockFootprint`, errors);
   // Phase 9.9: gameplay building blocks.
   for (const name of BLOCK_COMPONENT_NAMES) {
     if (comps[name] !== undefined) BLOCK_COMPONENTS[name].validate(comps[name], `${path}/${name}`, errors as unknown as Parameters<(typeof BLOCK_COMPONENTS)[typeof name]["validate"]>[2]);
@@ -1024,6 +1040,25 @@ function validateEntityComponentsV3(
         'virtualCamera',
       ),
     );
+  }
+  // Phase 23.11: a socket poses the entity every step — a physics body (posed by physics) or the scene camera (posed by its
+  // camera module) cannot ride on one.
+  if (comps['socketAttach'] !== undefined) {
+    const clash = SOCKET_ATTACH_CONFLICTS.filter((c) => comps[c] !== undefined);
+    if (clash.length > 0) {
+      errors.push(
+        withFound(
+          {
+            code: 'component_conflict',
+            path: `${path}/socketAttach`,
+            message: `an object on a socket is posed by the socket: it cannot also carry ${clash.join(', ')}`,
+            reason: 'socket_attach',
+            expected: `no ${SOCKET_ATTACH_CONFLICTS.join(', ')} on a socketAttach entity`,
+          },
+          'socketAttach',
+        ),
+      );
+    }
   }
   if (comps['gameZone'] !== undefined && (comps['collider'] !== undefined || comps['controller'] !== undefined)) {
     errors.push(
@@ -1224,7 +1259,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     components.behavior = { behaviorId: b.behaviorId, values: b.values };
   }
   if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
-  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}) };
+  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}) };
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['gameZone'] !== undefined) components.gameZone = canonicalGameZone(comps['gameZone']);
   if (comps['playerSpawn'] !== undefined) {
@@ -1251,6 +1286,9 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     const bl = comps['blockLayer'] as BlockLayerComponent & { data?: BlockLayerData };
     (components as { blockLayer?: BlockLayerComponent }).blockLayer = { ...canonicalBlockLayerComponent(bl), ...(bl.data !== undefined ? { data: bl.data } : {}) } as BlockLayerComponent;
   }
+  if (comps['blockFootprint'] !== undefined) (components as { blockFootprint?: BlockFootprintComponent }).blockFootprint = canonicalBlockFootprint(comps['blockFootprint'] as BlockFootprintComponent);
+  // Phase 23.11: last, so every existing entity keeps its exact canonical bytes.
+  if (comps['socketAttach'] !== undefined) (components as { socketAttach?: SocketAttachComponent }).socketAttach = canonicalSocketAttach(comps['socketAttach'] as SocketAttachComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean };
     components.instances = {

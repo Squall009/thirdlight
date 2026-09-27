@@ -48,6 +48,8 @@ import {
   type ActionFrame,
   type ActionSource,
   type CameraViewInfo,
+  type UiDocument,
+  type UiTheme,
   type SimulationModuleSpec,
   type GameEvent,
   type GameView,
@@ -68,10 +70,11 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { AudioObservation, AudioSpatialLike, GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { DEFAULT_PROMPT_INPUT, hudPrompts, withSavedBindings, type InputConfigLike } from './bindings';
+import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, withSavedBindings, type InputConfigLike } from './bindings';
 import { createFlowController, PAD_REBINDABLE, REBINDABLE, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
 import { createDebugConsole, type DebugConsole } from './debug-console';
+import { createUiLayer, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
 
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
@@ -111,6 +114,25 @@ export interface HostInputOwner {
   configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
   /** Phase 15.5: the device the player used last (the classic HUD names its bindings; absent: keyboard). */
   activeDevice?(): 'keyboard' | 'gamepad';
+  /** Phase 23.9a: only these input action maps feed the frame (null: every map) — a focused UI document's map. */
+  setActiveMaps?(maps: readonly string[] | null): void;
+  /** Phase 23.3: the cursor the game wants (free / locked); the owner locks, releases and hides it. */
+  applyCursor?(mode: 'free' | 'locked'): void;
+  /** Phase 23.3: the cursor as it is (observers). */
+  cursorState?(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
+}
+
+/**
+ * Phase 23.3, additive: the pointer and the cursor as an observer sees them —
+ * the pointer the simulation read last (position in the view, held buttons,
+ * over the view, locked), the cursor mode in effect and whether the browser
+ * holds the lock / hides it; and the objects scripts hid.
+ */
+export interface GameHostInputObservation {
+  readonly pointer?: { readonly x: number; readonly y: number; readonly buttons: number; readonly over: boolean; readonly locked: boolean };
+  readonly cursor?: { readonly mode: 'free' | 'locked'; readonly locked: boolean; readonly hidden: boolean };
+  /** The ids of the objects scripts hid (`ctx.game.setVisible`), sorted, at most 64. */
+  readonly hidden?: readonly string[];
 }
 
 /** The host's structural render-adapter surface (the three-adapter
@@ -118,6 +140,8 @@ export interface HostInputOwner {
 export interface HostRenderAdapter {
   renderFrame(): { ok: true } | { ok: false; error: unknown };
   dispose(): unknown;
+  /** Phase 23.9a: project an entity or world point through the rendered camera (world-anchored UI widgets). */
+  projectToScreen?: UiProjector;
 }
 
 /** delivery.md §3.1 `GameHostObservation.sound`. */
@@ -160,6 +184,14 @@ export interface GameHostObservation {
   readonly camera?: CameraViewInfo;
   /** Phase 23.13, additive: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener) once scripts used audio or a positional loop plays. */
   readonly audio?: AudioObservation;
+  /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
+  readonly sockets?: readonly SocketObservation[];
+  /** Phase 23.9a, additive: the project UI — the documents shown, the flow screen's document, the focus. */
+  readonly ui?: UiLayerObservation;
+  /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
+  readonly pointer?: GameHostInputObservation['pointer'];
+  readonly cursor?: GameHostInputObservation['cursor'];
+  readonly hidden?: readonly string[];
 }
 
 /**
@@ -180,6 +212,22 @@ export interface GameHostSceneObservation {
   readonly camera?: CameraViewInfo;
   /** Phase 23.13, additive: the Web Audio graph (see `GameHostObservation.audio`). */
   readonly audio?: AudioObservation;
+  /** Phase 23.9a, additive: the project UI. */
+  readonly ui?: UiLayerObservation;
+  /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
+  readonly pointer?: GameHostInputObservation['pointer'];
+  readonly cursor?: GameHostInputObservation['cursor'];
+  readonly hidden?: readonly string[];
+  /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
+  readonly sockets?: readonly SocketObservation[];
+}
+
+/** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
+export interface SocketObservation {
+  readonly entityId: string;
+  readonly target: string;
+  readonly node: string;
+  readonly position: readonly [number, number, number];
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -265,7 +313,7 @@ export interface GameHostConfig {
   /** Phase 9.10: the manifest's game flow (levels, lives, menus, music). v4 games only. */
   readonly flow?: FlowConfigLike;
   /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
-  readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
+  readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { gameplay?: 'free' | 'locked'; ui?: 'free' | 'locked' } };
   /** Phase 9.10: each declared asset's kind (the host registers every audio cue for scripts and audio sources). */
   readonly assetKinds?: Readonly<Record<string, string>>;
   /** Phase 9.11: where saves go (localStorage in the browser) and this game's key prefix. */
@@ -313,6 +361,12 @@ export interface GameHostConfig {
    * model). Script sounds with a place always use the panner.
    */
   readonly audioSpatial?: 'legacy' | 'panner';
+  /**
+   * Phase 23.9a: the project UI (the manifest's documents and themes). The
+   * host draws the documents the simulation shows and the flow screens they
+   * replace; absent or empty: no project UI.
+   */
+  readonly ui?: { readonly documents: readonly UiDocument[]; readonly themes?: readonly UiTheme[] };
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -638,6 +692,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
   /** Phase 23.8: the debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
   let startOutcome: GameStartOutcome | null = null;
+  /** Phase 23.9a: the project UI layer (null without UI documents). */
+  let uiLayer: UiLayer | null = null;
   /** The last committed `playerMotion.grounded` (the jump-cue transition).
    * Reset to `true` at every reset boundary (the committed view publishes
    * `{ speed: 0, grounded: true }` there, so the derived cue can never fire
@@ -725,6 +781,29 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let hostDom: HostDom | null = null;
   const lbPos: number[] = [0, 0, 0];
   const lbRot: number[] = [0, 0, 0, 1];
+  /**
+   * Phase 23.3: the cursor mode in effect, handed to the input owner every
+   * frame: the ui map's setting while a menu is open or the game is paused,
+   * else a script's request or the gameplay map's setting.
+   */
+  const serviceCursor = (rt: Runtime): void => {
+    if (config.input.applyCursor === undefined) return;
+    const menu = (flowCtl !== null && flowCtl.screen !== 'playing') || rt.isPaused === true;
+    config.input.applyCursor(resolveCursorMode(config.inputConfig as InputConfigLike | undefined, menu ? 'ui' : 'gameplay', rt.cursorRequest?.() ?? null));
+  };
+
+  /** Phase 23.3: the pointer and cursor as an observer sees them, and the objects scripts hid. */
+  const inputObservation = (rt: Runtime): GameHostInputObservation => {
+    const p = rt.readPointer?.() ?? null;
+    const cursor = config.input.cursorState?.();
+    const hidden = rt.hiddenEntities?.();
+    return {
+      ...(p !== null ? { pointer: { x: p.x, y: p.y, buttons: p.buttons ?? 0, over: p.over !== false, locked: p.locked === true } } : {}),
+      ...(cursor !== undefined ? { cursor: { mode: cursor.mode, locked: cursor.locked, hidden: cursor.hidden } } : {}),
+      ...(hidden !== undefined && hidden.size > 0 ? { hidden: [...hidden].sort().slice(0, 64) } : {}),
+    };
+  };
+
   const serviceLetterbox = (rt: Runtime): void => {
     const lens = rt.readCameraView?.(lbPos, lbRot) ?? null;
     const amount = lens === null || !Number.isFinite(lens.letterbox) ? 0 : Math.max(0, Math.min(0.5, lens.letterbox));
@@ -920,18 +999,41 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return res.ok ? res.view : null;
   };
 
+  /** Phase 23.9a: the simulation's UI diff, then the layer's frame (bindings, $flow, the view size). */
+  const serviceUi = (rt: Runtime): void => {
+    if (uiLayer === null) return;
+    const out = rt.takeUiOutput?.() ?? null;
+    if (out !== null) uiLayer.applyOutput(out);
+    uiLayer.frame();
+  };
+  /** Phase 23.9a: world-anchored widgets follow the frame just rendered. */
+  const serviceAnchors = (): void => {
+    const project = adapter?.projectToScreen;
+    if (uiLayer !== null && project !== undefined) uiLayer.updateAnchors(project);
+  };
+
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
     debugConsole?.frame();
+    serviceUi(runtime);
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
     // tick (delivery.md §4.5). The run commands queue in the runtime and
     // apply at the next step boundary; at awaitingStart/won that boundary
     // performs no motion steps (C4/C5: `movementSteps: 0`).
     const menu: MenuSample = config.input.sampleMenu();
+    // Phase 23.9a: a focused project UI document takes the ui edges it uses (navigation, submit, its cancel) first.
+    // (A built-in flow menu keeps its own navigation over a document a script left focused.)
+    const uiFocus = uiLayer !== null && uiLayer.hasFocus() && (flowCtl === null || flowCtl.screen === 'playing' || uiLayer.observe().screen !== null);
+    if (flowCtl === null && uiFocus) {
+      const edges = config.input.sampleUi?.();
+      if (edges !== undefined) uiLayer!.handleEdges(edges);
+      else if (menu.confirm) uiLayer!.handleEdges({ up: false, down: false, left: false, right: false, submit: true, cancel: false, pause: false });
+    }
     if (flowCtl !== null) {
       // Phase 9.10: the flow's menus take the confirm and the ui edges.
-      const ui = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      const ui = uiFocus ? uiLayer!.handleEdges(raw) : raw;
       const flowView = gameViewOf(runtime);
       if (flowView !== null) {
         // The ui queue carries submit (Enter, pad A) in order with the
@@ -981,6 +1083,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // no game view: it only renders.
     // Phase 23.4: the live camera's letterbox (an overlay the host draws over the view).
     serviceLetterbox(runtime);
+    // Phase 23.3: the cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
+    serviceCursor(runtime);
     // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
     const view = gameViewOf(runtime);
     if (view === null) {
@@ -988,6 +1092,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       serviceScriptAudio(runtime);
       serviceAudioSources(runtime);
       adapter?.renderFrame();
+      serviceAnchors();
       return;
     }
     // `won` too: the goal event commits on the step the run is won (cue ids
@@ -1014,6 +1119,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       hud.update(flowCtl !== null ? { ...state, flowLine: flowCtl.hudLine() } : state);
     }
     adapter?.renderFrame();
+    serviceAnchors();
   };
 
   const control = (action: GameControlAction): GameControlResult => {
@@ -1206,6 +1312,31 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
 
+    // Phase 23.9a: the project UI layer (scene-mode games too).
+    if (config.ui !== undefined && config.ui.documents.length > 0 && hostDom !== null) {
+      const rt = res.runtime;
+      uiLayer = createUiLayer({
+        dom: hostDom,
+        container: config.container,
+        documents: config.ui.documents,
+        ...(config.ui.themes !== undefined ? { themes: config.ui.themes } : {}),
+        ...(config.assetPaths !== undefined ? { assetPaths: config.assetPaths } : {}),
+        readArtifact: config.readArtifact,
+        queueEvent: (event) => {
+          const r = rt.queueUiEvent?.(event);
+          if (r !== undefined && r.ok === false) console.warn('[game-host] UI event refused:', r.error.message);
+        },
+        engineAction: (a) => {
+          if (a.action === 'mute' || a.action === 'unmute') {
+            void control(a.action);
+            return;
+          }
+          flowCtl?.engine(a);
+        },
+        flowValues: () => flowCtl?.uiValues() ?? null,
+        ...(config.input.setActiveMaps !== undefined ? { setActiveMaps: (maps: readonly string[] | null) => config.input.setActiveMaps!(maps) } : {}),
+      });
+    }
     if (sceneMode) {
       mounted = true;
       // Phase 23.13: a scene plays script sounds and audio sources too.
@@ -1279,6 +1410,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
         // Phase 15.3: the project's music crossfade.
         ...(config.settings.music_fade_s !== undefined ? { musicFade: config.settings.music_fade_s } : {}),
+        // Phase 23.9a: project UI documents instead of built-in screens.
+        ...(flow.screens !== undefined && uiLayer !== null ? { screens: flow.screens, onScreen: (docId: string | null) => uiLayer?.showScreen(docId) } : {}),
       });
       // The menu logo: the texture's own bytes as an object URL (no fetch).
       const logo = flow.ui?.logo;
@@ -1360,8 +1493,43 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
         ...audioObservation(),
+        ...socketsObservation(runtime),
+        ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
+        ...inputObservation(runtime),
       },
     };
+  };
+
+  /** Phase 23.11: the objects riding on sockets and where they are (world position, composed up their parents). */
+  const socketsObservation = (rt: Runtime): { sockets?: SocketObservation[] } => {
+    const list = rt.socketAttachments?.() ?? [];
+    if (list.length === 0) return {};
+    const parents = new Map<string, string>();
+    for (const e of config.snapshot.scene.entities as readonly { id: string; parentId?: string }[]) if (e.parentId !== undefined) parents.set(e.id, e.parentId);
+    const p = [0, 0, 0];
+    const r = [0, 0, 0, 1];
+    const s = [1, 1, 1];
+    const worldOf = (id: string): [number, number, number] | null => {
+      if (rt.readInterpolated === undefined || !rt.readInterpolated(id, p, r, s)) return null;
+      let x = p[0]!, y = p[1]!, z = p[2]!;
+      for (let cur = parents.get(id), guard = 0; cur !== undefined && guard < 64; cur = parents.get(cur), guard += 1) {
+        if (!rt.readInterpolated(cur, p, r, s)) break;
+        // x := parentPos + parentRot · (parentScale ⊙ x)
+        const sx = x * s[0]!, sy = y * s[1]!, sz = z * s[2]!;
+        const [ax, ay, az, aw] = r as [number, number, number, number];
+        const tx = 2 * (ay * sz - az * sy), ty = 2 * (az * sx - ax * sz), tz = 2 * (ax * sy - ay * sx);
+        x = p[0]! + sx + aw * tx + (ay * tz - az * ty);
+        y = p[1]! + sy + aw * ty + (az * tx - ax * tz);
+        z = p[2]! + sz + aw * tz + (ax * ty - ay * tx);
+      }
+      return [x, y, z];
+    };
+    const out: SocketObservation[] = [];
+    for (const a of list.slice(0, 64)) {
+      const at = worldOf(a.entityId);
+      if (at !== null) out.push({ entityId: a.entityId, target: a.target, node: a.node, position: at });
+    }
+    return out.length > 0 ? { sockets: out } : {};
   };
 
   /** Phase 23.4: the resolved camera, while the game has virtual cameras. */
@@ -1394,6 +1562,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...scenesObservation(runtime),
         ...cameraObservation(runtime),
         ...audioObservation(),
+        ...socketsObservation(runtime),
+        ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
+        ...inputObservation(runtime),
       },
     };
   };
@@ -1476,6 +1647,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
       flowCtl = null;
       hud.dispose(); // the host-owned HUD DOM + listeners
       hud = null;
+    }
+    if (uiLayer !== null) {
+      uiLayer.dispose();
+      uiLayer = null;
     }
     if (letterbox !== null) {
       letterbox.top.remove();

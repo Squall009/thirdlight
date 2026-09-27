@@ -19,10 +19,13 @@ import type {
   EffectRequest,
   LoadedSceneBatch,
   GameView,
+  PointerSample,
   GameplaySettings,
   RunSaveState,
   RuntimeDiagnostics,
   RuntimeSnapshot,
+  UiEventRecord,
+  UiOutput,
 } from '@thirdlight/runtime';
 import type { ManifestBehaviorRow } from './host';
 
@@ -94,6 +97,8 @@ export type SimCommand =
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
   // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
+  /** Phase 23.9a: a UI event, queued in the worker's runtime for its next sampled frame. */
+  | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
   | { readonly op: 'stop' };
 
 export type SimQuery =
@@ -110,7 +115,7 @@ export type MainToWorker =
   | SimTickMessage
   | { readonly t: 'cmd'; readonly command: SimCommand }
   | { readonly t: 'scene'; readonly sceneId: string; readonly result: { ok: true; entities: SceneEntities } | { ok: false; message: string } }
-  | { readonly t: 'relay'; readonly frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions'] }[] }
+  | { readonly t: 'relay'; readonly frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions']; pointer?: ActionFrame['pointer']; }[] }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
   | { readonly t: 'dispose' };
 
@@ -165,12 +170,22 @@ export interface FrameState {
   readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
   /** Phase 23.5: block-layer chunks to re-mesh (their cells now). */
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
+  /** Phase 23.12: material parameters scripts changed (one change per object, material and parameter). */
+  readonly mat?: readonly import('@thirdlight/runtime').MaterialRenderChange[];
+  /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
+  readonly ui?: UiOutput;
+  /** Phase 23.3: the cursor a script asked for (when it changed; null: the input map decides). */
+  readonly cursor?: 'free' | 'locked' | null;
+  /** Phase 23.3: the pointer as of the last step (when it changed; observers). */
+  readonly pointer?: PointerSample | null;
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };
   readonly memoryBytes?: number;
   /** Phase 23.8: the debug commands (registered, applied) when they changed. */
   readonly debugCommands?: DebugCommandState;
+  /** Phase 23.11: the objects riding on sockets (entity, target, node) when that changed. */
+  readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
 }
 
 export type WorkerToMain =

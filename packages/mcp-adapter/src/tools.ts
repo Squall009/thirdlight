@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -149,14 +149,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
       'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. A graph material adds graph: {nodes, edges, groups?, comments?} (graph kind ' +
       '"material": the graph replaces shader/params/textures at render time: it compiles to a node material in the Scene view, Play and exports; the file\'s own material is not used) and ' +
-      'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture, default, min?, max?, visibility?: public|private, label?, group?, tooltip?}] ' +
+      'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture|data, default, min?, max?, size? (data: [w, h] cells 1-64; default = the RGBA bytes every cell starts with), visibility?: public|private, label?, group?, tooltip?}] ' +
       '(read by Parameter nodes {key}); its graph is then edited with graphEdit {owner: {kind: "material", id: materialId}, ops}; objects override public parameters ' +
-      'with setComponent "materialParams" {<materialId>: {<key>: value}} (private ones are refused). Material functions (reusable sub-graphs) are standalone graphs of kind ' +
+      'with setComponent "materialParams" {<materialId>: {<key>: value}} (private ones are refused; data parameters are written by scripts: ctx.materials.setData, read by Sample data nodes). Material functions (reusable sub-graphs) are standalone graphs of kind ' +
       '"material-function" (setGraph; Function input {name, type, default} / Function output {name, type} nodes are the ports of every Function call {function: graphId} node; ' +
       'calls may not form a cycle; a function whose ports are wired in a material cannot drop them). setEnvironment {environment: {wind: ' +
       '{direction: [x, z], strength, gust, gustFrequency, turbulence}, sky?: {mode: procedural|gradient|texture|color, ...}, fog?: {mode: none|linear|exp2, color, near?, far?, density?}, ' +
       'post?: {toneMapping?, exposure?, bloom?, grading?: {brightness?, contrast?, saturation?, tint?, lut?, lift? -0.5..0.5, gamma? 0.2..5, gain? 0..4}, vignette?, ssao?, dof?, antialias?}, quality?}} ' +
-      '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. Cameras (phase 23.4): a virtualCamera component {rig: follow|orbitPoint|topDown|fixed|rail, priority?, enabled?, target? (entity), targetOffset?, distance?, yaw?, pitch?, pitchMin/Max?, yawAction?/pitchAction?/zoomAction?/turnLeftAction?/turnRightAction? (input action names), yawStep?, turnTime?, point?, collision?, damping?, path? (rail: the entity with a cameraPath {points: [[x,y,z]...], closed?, smooth?}), progress?, railSpeed?, railMode?, fovY?, near?, far?, blend?: cut|linear|eased, blendTime?, letterbox?, shakeAmplitude?/Frequency?/Rotation?} — the enabled one with the highest priority is live (scripts: ctx.camera); tl_game_observe reports the resolved camera. setLighting {sceneId, ' +
+      '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. Cameras (phase 23.4): a virtualCamera component {rig: follow|orbitPoint|topDown|fixed|rail, priority?, enabled?, target? (entity), targetOffset?, distance?, yaw?, pitch?, pitchMin/Max?, yawAction?/pitchAction?/zoomAction?/turnLeftAction?/turnRightAction? (input action names), yawStep?, turnTime?, point?, collision?, damping?, path? (rail: the entity with a cameraPath {points: [[x,y,z]...], closed?, smooth?}), progress?, railSpeed?, railMode?, fovY?, near?, far?, blend?: cut|linear|eased, blendTime?, letterbox?, shakeAmplitude?/Frequency?/Rotation?} — the enabled one with the highest priority is live (scripts: ctx.camera); tl_game_observe reports the resolved camera. Sockets (phase 23.11): a socketAttach component {target (an entity with a model), node (a node/bone name of its model), position?, rotation?, scale? (offset in the node space), attached? (default true)} — the object rides on that node every step (scripts: ctx.sockets.attach/detach, ctx.animator(id).setSpeed); tl_game_observe reports sockets [{entityId, target, node, position}]. setLighting {sceneId, ' +
       'lighting: null} clears a scene\'s baked lightmaps (bakes are made in the editor\'s Lighting window). Animation: setAnimator {controller: ' +
       '{controllerId, name, parameters: [{name, type: float|int|bool|trigger, default?}], states: [{id, name, motion: {kind: "clip", clip: ' +
       '{assetId, clip, duration}} | {kind: "blend1d", parameter, children: [{threshold, clip}]}, speed, speedParameter?, loop}], transitions: ' +
@@ -164,7 +164,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'interruption?: none|source}], entry, events: [{assetId, clip, time, name}], layers?: [{name, mask: [bone names] (empty = every ' +
       'bone), weight 0-1, weightParameter? (a float param it is multiplied by), states (motion may also be {kind: "empty"}: the layers ' +
       'under show through), transitions, entry}] (up to 3 override layers over the base layer, e.g. an upper-body attack while running; ' +
-      'state ids are unique across layers)}}; deleteAnimator {controllerId}; a model entity plays one ' +
+      'state ids are unique across layers), morphs?: [{target (a morph target name), parameter (a float param: its 0-1 value is the weight)}]}}; deleteAnimator {controllerId}; a model entity plays one ' +
       'with setComponent "animator" {controller, parameters?}. An animation-only GLB (clips, no mesh needed) is marked with ' +
       'setAssetOptions {assetId, clipsFor: rigModelAssetId | null}; its clips then play on that model (matched by bone names) and ' +
       'controllers may name them. The old modelAnimation idle/run/airborne component becomes an animator controller when the project ' +
@@ -172,8 +172,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'automatically; scripts use ctx.animator(entityId)?.set/trigger/state(layer?). Input: setInput {input: {actions: [{name, type: ' +
       'button|axis1d|axis2d, map: gameplay|ui, bindings: [{kind: "key", code: KeyboardEvent.code} | {kind: "gamepadButton", button} | ' +
       '{kind: "gamepadAxis", axis} | {kind: "keys1d", negative, positive} | {kind: "keys2d", up, down, left, right} | {kind: ' +
-      '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y}], deadZone?, invert?, scale?}]} | null} (null = defaults: ' +
-      'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name). ' +
+      '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y} | {kind: "pointerButton", button: left|right|middle} | ' +
+      '{kind: "pointerPosition"} (axis2d: x, y 0-1 from the top left) | {kind: "pointerDelta"} (axis2d, up positive) | {kind: "pointerAxis", ' +
+      'axis: x|y|wheel} (axis1d)], deadZone?, invert?, scale?}], cursor?: {gameplay?: free|locked, ui?: free|locked}} | null} (null = defaults: ' +
+      'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name), ' +
+      'ctx.input.pointer() / pointerPressed/Released/Held(button) and ctx.input.setCursor(free|locked|auto); the cursor hides while a gamepad drives. ' +
+      '3D queries (physics_dimension 3): ctx.physics.raycast3d/overlapSphere/overlapBox3d/overlapCapsule/pickAt/pickAtPointer with a filter ' +
+      '{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to 15 collision layers ("default" is implicit) that ' +
+      'collider {layers: [...]} lists. ' +
       'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
       'loop|pingpong|once, wait?, easing?: linear|smooth, startOn?: signal, maxPush? 1-1000 m/s (60: how hard it shoves a player out of its way)} (with a box collider it is a moving platform that carries ' +
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
@@ -237,7 +243,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'shape: full|half|ramp|stairs|custom|none (collision; ramps/stairs rise toward +Z), boxes? (custom: [x0,y0,z0,x1,y1,z1] in 0-1), solid?, footprint? [x,y,z] cells, ' +
       'rotations? [0,90,180,270], metadata? {field: value}, materials?}} / deleteBlockType {blockId}; setCellFields {fields: [{key, type: bool|enum|int|float|string, default?, values? (enum), min?, max?, color?, label?}]} ' +
       '(the cell metadata schema); an entity gets setComponent "blockLayer" {cellSize: [x,y,z] m, bounds: {min: [x,y,z], max: [x,y,z]} cells (max exclusive), metadataOnly?, collision?} ' +
-      '(its position is the min corner of cell 0; a root at identity rotation and unit scale). editBlocks {entityId, edits: [...]} edits one layer as one undo step (cells are {block?, rot? 90|180|270, variant?, meta?}; ' +
+      '(its position is the min corner of cell 0; a root at identity rotation and unit scale). A prop may carry setComponent "blockFootprint" {layer?: layer entity id, size?: [x,z] cells, set: {field: value}} ' +
+      '(the metadata the editor writes into the cells beneath it when it is placed or moved; via MCP write them with an editBlocks meta edit). editBlocks {entityId, edits: [...]} edits one layer as one undo step (cells are {block?, rot? 90|180|270, variant?, meta?}; ' +
       'boxes are [x0,y0,z0,x1,y1,z1] max exclusive): {kind:"fill", box, cell|null, mode?: set|keep|replace}, {kind:"cells", at: [x,y,z,...], cell|null}, ' +
       '{kind:"array", origin, size: [w,h,d], palette: [cell|null,...], data: [count, index, ...] run-length, x fastest then z then y, index -1 leaves a cell}, ' +
       '{kind:"replace", match: {block: id|null, rot?, variant?}, cell|null, box?}, {kind:"meta", set: {field: value|null}, box?|at?, occupiedOnly?} (paint metadata; empty cells become metadata-only cells), ' +
@@ -246,6 +253,19 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{kind:"heightmap", png: base64 greyscale PNG, origin: [x,z], y, scale (cells for white), cell, keepAbove?, colors?: {png, map: [{color, cell}]}} (import a heightmap; the colour map picks each column\'s cell). ' +
       'The change names the chunks [cx,cz] (16×16 columns) and regions touched; read cells back with tl_content_query target="blocks". Keep each request under 64 KiB (use boxes and runs). ' +
       'setBlockStamp {stamp} or {stampId, name, entityId, box} (save a selection) / deleteBlockStamp {stampId}. ' +
+      'Project UI (drawn by the game host over the view, in Play and exports): setUiDocument {document: {uiDocumentId, name, layer? (-100..100), modal?, focus? (takes keyboard/gamepad focus; default modal), ' +
+      'actionMap? (gameplay|ui: the only input map active while it has focus), theme? (uiThemeId), scale? {reference: [w, h], mode: fit|width|height}, styles? {name: style}, icons? {name: {asset: texture, rect?: [x, y, w, h]}}, ' +
+      'tweens? {name: {kind: fade|slide|scale|stamp, duration 0.01-10 s, delay?, easing?: linear|easeIn|easeOut|easeInOut|back, from?, to?, direction?: left|right|up|down, distance?}}, showTween?, hideTween?, initialFocus? (widget id), onCancel? (action), root: widget}} ' +
+      'creates or replaces one (whole JSON, ≤ 48 KiB, ≤ 512 widgets, depth ≤ 16); deleteUiDocument {uiDocumentId}; setUiTheme {theme: {uiThemeId, name, styles, icons?}}; deleteUiTheme {uiThemeId}. ' +
+      'A widget: {type: panel|stack|grid|text|image|bar|button|list|input, id?, anchor? [0-1, 0-1], pivot?, offset? [px, px], size? [w|null, h|null], stretch?: x|y|both, margin? [l, t, r, b], grow?, style?: name|[names], css?: style, ' +
+      'visible?/enabled?: bool|{bind}, focusable?, nav? {up, down, left, right, next, prev: widget ids}, worldAnchor? {entity: id|{bind} | point: [x, y, z], offset?, clamp?, margin?, indicator?: child id}, onFocus?, children? (panel anchors them; stack direction row|column, gap, align, justify, wrap; grid columns, cellSize), ' +
+      'text (rich: [b] [i] [color=#hex] [size=N] [icon=name], {path} values), image {image: texture|{bind}, slice? [t, r, b, l], fit?, tint?}, bar {value, min?, max? (numbers or {bind}), direction?: right|left|up|down, shape?: linear|radial, fillColor?, fillStyle?}, ' +
+      'button {text?, children?, onClick}, list {items: {bind}, template: widget ($item.x, $index in its bindings), direction?: row|column|grid}, input {value?, placeholder?, maxLength?, onSubmit}}. ' +
+      'A style (never raw CSS): color, background, backgroundImage (texture) + slice, opacity, font (a font asset or sans|serif|mono|rounded), fontSize, bold, italic, align, lineHeight, letterSpacing, padding, radius, borderWidth, borderColor, textShadow, shadow, and hover|focus|pressed|disabled variants. ' +
+      'An action: {do: "event", name, value?} (a UI event for scripts on the next input frame), {do: "engine", action: resume|pause|restartLevel|newGame|continue|nextLevel|quitToTitle|settings|load|save|back|setSetting|mute|unmute, slot?, setting?, value?, step?}, ' +
+      '{do: "show"|"hide"|"toggle", doc}, {do: "play", tween, widget?}. Bindings read the scripts\' view model (ctx.ui.set(path, value)); $flow.* reads the game flow (screen, level, lives, volumes, result, slots). ' +
+      'setFlow flow.screens {title|paused|settings|levelComplete|gameOver|finished|load|save: uiDocumentId} replaces built-in screens. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus, events()/event(name). ' +
+      'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
@@ -311,7 +331,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'For a project in a game folder, projectPath instead inspects a file already in that folder in place (nothing ' +
       'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
       'the file. Give exactly one of dataBase64 or projectPath. An FBX (either way) is converted to GLB by Blender on ' +
-      'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include.',
+      'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include. ' +
+      'kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most 16 fonts per project) for the project UI; publish it with kind "font".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -321,7 +342,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           description: 'a .glb/.fbx/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
         },
         displayName: { type: 'string' },
-        kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music'] },
+        kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music', 'font'] },
         animation: {
           type: 'object',
           description: 'request the role-aware animated GLB profile (presentation.md §41.3.3)',
@@ -356,7 +377,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; jump ∈ none|pressed|held|released; optional moveY (−1..1, the move ' +
       'vector\'s forward axis: a 3D character walks along (moveX, moveY), relative to the camera); optional actions: ' +
       '{<action name>: {v, x?, y?, p: none|pressed|held|released}} for named input actions (attack, interact, …; scripts read ' +
-      'them with ctx.input). Returns the applied ' +
+      'them with ctx.input); optional pointer: {x, y (0-1 of the view, 0,0 top left), dx?, dy?, wheel?, buttons?, pressed?, released? ' +
+      '(masks: 1 left, 2 right, 4 middle), over?, locked?} (a frame without one keeps the last position and held buttons; a button ' +
+      'going down between frames is a click - ctx.input.pointerPressed, ctx.physics.pickAtPointer). Returns the applied ' +
       'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
       'connected (never a simulated success). No DOM injection, no eval.',
     inputSchema: {
@@ -382,6 +405,24 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
                   required: ['v', 'p'],
                   additionalProperties: false,
                 },
+              },
+              pointer: {
+                type: 'object',
+                description: 'phase 23.3: the pointer this step (a frame without one keeps the last position and held buttons)',
+                properties: {
+                  x: { type: 'number', minimum: 0, maximum: 1 },
+                  y: { type: 'number', minimum: 0, maximum: 1 },
+                  dx: { type: 'number', minimum: -10, maximum: 10 },
+                  dy: { type: 'number', minimum: -10, maximum: 10 },
+                  wheel: { type: 'number', minimum: -10, maximum: 10 },
+                  buttons: { type: 'integer', minimum: 0, maximum: 7 },
+                  pressed: { type: 'integer', minimum: 0, maximum: 7 },
+                  released: { type: 'integer', minimum: 0, maximum: 7 },
+                  over: { type: 'boolean' },
+                  locked: { type: 'boolean' },
+                },
+                required: ['x', 'y'],
+                additionalProperties: false,
               },
             },
             required: ['stepOffset', 'moveX', 'jump'],
@@ -763,8 +804,10 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
       return toolError(`frames[${i}].moveY must be a finite number in [-1, 1]`);
     }
     if (actions !== undefined && !isObj(actions)) return toolError(`frames[${i}].actions must be an object`);
+    // Phase 23.3: the pointer too.
+    if (raw.pointer !== undefined && !isObj(raw.pointer)) return toolError(`frames[${i}].pointer must be an object { x, y, ... }`);
     // Phase 23.2: the forward axis and the named actions reach the game (the backend validates them).
-    frames.push({ stepOffset, moveX, ...(moveY !== undefined ? { moveY } : {}), jump, ...(actions !== undefined ? { actions } : {}) });
+    frames.push({ stepOffset, moveX, ...(moveY !== undefined ? { moveY } : {}), jump, ...(actions !== undefined ? { actions } : {}), ...(raw.pointer !== undefined ? { pointer: raw.pointer } : {}) });
   }
   const body = JSON.stringify({ mode: 'exclusive-test', frames });
   if (body.length > 16_384) return toolError('the relay body exceeds the 16384-byte bound');
@@ -910,7 +953,7 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
   // inspector or the role-aware animated GLB profile (presentation.md §41.3.3).
   const inspectBody: Record<string, unknown> = {};
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music') return toolError('kind must be "model", "audio", "texture" or "music"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture", "music" or "font"');
     inspectBody.kind = a.kind;
   }
   if (a.animation !== undefined) {
@@ -934,7 +977,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.displayName = a.displayName;
   }
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music') return toolError('kind must be "model", "audio", "texture" or "music"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture", "music" or "font"');
     body.kind = a.kind;
   }
   if (a.animation !== undefined) {

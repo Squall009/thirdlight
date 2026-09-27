@@ -56,6 +56,8 @@ import type {
   GraphData,
   GraphDocument,
   GraphOp,
+  UiDocument,
+  UiTheme,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -108,6 +110,8 @@ export type V3MutationOp =
   | 'deleteAnimator'
   | 'setInput'
   | 'setFlow'
+  // phase 23.3: named collision layers (3D physics)
+  | 'setCollisionLayers'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -130,7 +134,12 @@ export type V3MutationOp =
   | 'deleteBlockType'
   | 'setCellFields'
   | 'setBlockStamp'
-  | 'deleteBlockStamp';
+  | 'deleteBlockStamp'
+  // phase 23.9a: project UI documents and themes
+  | 'setUiDocument'
+  | 'deleteUiDocument'
+  | 'setUiTheme'
+  | 'deleteUiTheme';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -282,6 +291,8 @@ export type V3OwnedComponent =
   | 'fogVolume'
   /** Phase 23.5, v4 scenes only: a grid of blocks. */
   | 'blockLayer'
+  /** Phase 23.6, v4 scenes only: the metadata a prop writes into the block cells beneath it. */
+  | 'blockFootprint'
   /** Phase 9.7, v4 scenes only: an animator controller on a model. */
   | 'animator'
   /** Phase 9.9, v4 scenes only: gameplay building blocks. */
@@ -299,7 +310,9 @@ export type V3OwnedComponent =
   | 'effect'
   /** Phase 23.4, v4 scenes only: a virtual camera shot and a camera path. */
   | 'virtualCamera'
-  | 'cameraPath';
+  | 'cameraPath'
+  /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
+  | 'socketAttach';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -515,6 +528,26 @@ export interface SetScriptLibraryInverse {
   behaviors: { behaviorId: string; restore: BehaviorRecord }[];
 }
 
+/**
+ * Phase 23.9a: `setUiDocument`/`deleteUiDocument`/`setUiTheme`/`deleteUiTheme`
+ * change data: one document or theme before and after (null = none).
+ */
+export interface SetUiChange {
+  type: 'setUi';
+  uiKind: 'document' | 'theme';
+  id: string;
+  previous: UiDocument | UiTheme | null;
+  next: UiDocument | UiTheme | null;
+}
+
+/** Phase 23.9a: undo of a UI op: restore the previous document or theme (null = remove it). */
+export interface SetUiInverse {
+  kind: 'setUi';
+  uiKind: 'document' | 'theme';
+  id: string;
+  restore: UiDocument | UiTheme | null;
+}
+
 /** Phase 20.0: undo of an effect op: restore the previous effect (null = remove it). */
 export interface SetEffectInverse {
   kind: 'setEffect';
@@ -534,6 +567,13 @@ export interface SetFlowChange {
   type: 'setFlow';
   previous: GameFlow | null;
   next: GameFlow | null;
+}
+
+/** Phase 23.3: `setCollisionLayers` change data (the whole list; empty = only "default"). */
+export interface SetCollisionLayersChange {
+  type: 'setCollisionLayers';
+  previous: string[];
+  next: string[];
 }
 
 /** Phase 9.8: `setInput` change data (null = the defaults). */
@@ -814,6 +854,7 @@ export type ChangeData =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetCollisionLayersChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -823,7 +864,8 @@ export type ChangeData =
   | EditBlocksChange
   | SetBlockTypeChange
   | SetCellFieldsChange
-  | SetBlockStampChange;
+  | SetBlockStampChange
+  | SetUiChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -850,6 +892,7 @@ export type ForwardChange =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetCollisionLayersChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -859,7 +902,8 @@ export type ForwardChange =
   | EditBlocksChange
   | SetBlockTypeChange
   | SetCellFieldsChange
-  | SetBlockStampChange;
+  | SetBlockStampChange
+  | SetUiChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -988,6 +1032,12 @@ export interface SetFlowInverse {
   restore: GameFlow | null;
 }
 
+/** Phase 23.3: undo of `setCollisionLayers`: restore the previous list. */
+export interface SetCollisionLayersInverse {
+  kind: 'setCollisionLayers';
+  restore: string[];
+}
+
 /** Undo of `setInput`: restore the previous actions (null = the defaults). */
 export interface SetInputInverse {
   kind: 'setInput';
@@ -1035,11 +1085,13 @@ export type InverseSpec =
   | SetGraphInverse
   | SetEffectInverse
   | SetScriptLibraryInverse
+  | SetUiInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
   | SetAnimatorsInverse
   | SetInputInverse
+  | SetCollisionLayersInverse
   | SetFlowInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse
@@ -1470,6 +1522,23 @@ export interface DeleteScriptLibraryArgs {
   libraryId: string;
 }
 
+/** Phase 23.9a: `setUiDocument` creates or replaces one UI document (by uiDocumentId). */
+export interface SetUiDocumentArgs {
+  document: UiDocument;
+}
+/** Phase 23.9a: `deleteUiDocument` removes one (refused while another document or flow.screens names it). */
+export interface DeleteUiDocumentArgs {
+  uiDocumentId: string;
+}
+/** Phase 23.9a: `setUiTheme` creates or replaces one UI theme (by uiThemeId). */
+export interface SetUiThemeArgs {
+  theme: UiTheme;
+}
+/** Phase 23.9a: `deleteUiTheme` removes one (refused while a document uses it). */
+export interface DeleteUiThemeArgs {
+  uiThemeId: string;
+}
+
 /** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
   effect: EffectDef;
@@ -1521,6 +1590,10 @@ export type MutationArgs =
   | SetCellFieldsArgs
   | SetBlockStampArgs
   | DeleteBlockStampArgs
+  | SetUiDocumentArgs
+  | DeleteUiDocumentArgs
+  | SetUiThemeArgs
+  | DeleteUiThemeArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
   | SetEffectArgs

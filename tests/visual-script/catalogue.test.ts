@@ -71,6 +71,13 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
       // Phase 23.2: the 3D character's state.
       characterState: rec('physics.characterState', { position: { x: 1, y: 2, z: 3 }, velocity: { x: 0, y: 0, z: 2 }, grounded: true, contacts: { ground: true, wall: false, head: false, steepSlope: false }, supportNormal: { x: 0, y: 1, z: 0 }, groundEntityId: null, enabled: true, climbing: false, facing: 0 }),
+      // Phase 23.3: 3D queries.
+      raycast3d: rec('physics.raycast3d', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
+      overlapSphere: rec('physics.overlapSphere', () => ['crate-1']),
+      overlapBox3d: rec('physics.overlapBox3d', () => ['crate-1']),
+      overlapCapsule: rec('physics.overlapCapsule', () => ['crate-1']),
+      pickAt: rec('physics.pickAt', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
+      pickAtPointer: rec('physics.pickAtPointer', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
     },
     tags: { mask: rec('tags.mask', 1), of: rec('tags.of', 1), has: rec('tags.has', true), query: rec('tags.query', () => ['box-1']) },
     world: { transform: rec('world.transform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }), find: rec('world.find', 'box-2'), findAll: rec('world.findAll', () => ['box-2']), withComponent: rec('world.withComponent', () => ['box-2']) },
@@ -86,10 +93,11 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       },
     },
     scenes: { load: rec('scenes.load'), unload: rec('scenes.unload'), status: rec('scenes.status', 'loaded'), loaded: rec('scenes.loaded', () => ['scene-main']) },
-    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true) },
+    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor') },
     animator: (id: string) => {
       calls.push('animator');
-      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle') };
+      // Phase 23.11: per-instance speed and morph weights.
+      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle'), setSpeed: rec('animator.setSpeed', true), speed: rec('animator.speed', 1), setMorph: rec('animator.setMorph', true), morph: rec('animator.morph', 0.5) };
     },
     events: [
       { type: 'enter', trigger: 'trigger-1', stepIndex: stepIndex - 1 },
@@ -161,6 +169,34 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       get: rec('camera.get', () => ({ rig: 'follow', enabled: true, priority: 0, live: true, target: 'box-1', distance: 5, yaw: 0, pitch: 20, progress: 0, railSpeed: 0, fovY: 60, letterbox: 0 })),
       worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
       screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
+    },
+    // Phase 23.11: sockets.
+    sockets: {
+      attach: rec('sockets.attach', true),
+      detach: rec('sockets.detach', true),
+      attachedTo: rec('sockets.attachedTo', () => ({ target: 'box-2', nodeName: 'hand' })),
+      nodePose: rec('sockets.nodePose', () => ({ position: [1, 2, 3], rotation: [0, 0, 0, 1] })),
+    },
+    // Phase 23.12: graph-material parameters per object.
+    materials: {
+      set: rec('materials.set', true),
+      get: rec('materials.get', '#ff0000'),
+      reset: rec('materials.reset', true),
+      setData: rec('materials.setData', true),
+      getData: rec('materials.getData', () => [255, 0, 0, 255]),
+    },
+    // Phase 23.9a: the project UI.
+    ui: {
+      set: rec('ui.set', true),
+      get: rec('ui.get', 7),
+      clear: rec('ui.clear', true),
+      show: rec('ui.show', true),
+      hide: rec('ui.hide', true),
+      isShown: rec('ui.isShown', true),
+      play: rec('ui.play', true),
+      focus: rec('ui.focus', true),
+      events: rec('ui.events', () => [{ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 }]),
+      event: rec('ui.event', () => ({ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 })),
     },
   };
 }
@@ -277,6 +313,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
+      // Phase 23.9a: a frame's UI events are read with ctx.ui.events / ctx.ui.event.
+      'action.ui',
       // Phase 23.13: the finished events as a list (the Sound finished node checks one handle).
       'audio.events',
       'debug.command',

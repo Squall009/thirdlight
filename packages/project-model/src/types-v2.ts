@@ -118,6 +118,8 @@ export interface ColliderComponent {
   shape: ColliderShape;
   /** Phase 9.9, v4 only: the character passes from below and the sides, lands from above. */
   oneWay?: true;
+  /** Phase 23.3 (v4, 3D): the collision layers the collider is in (absent: "default"). */
+  layers?: string[];
 }
 
 /**
@@ -342,6 +344,8 @@ export interface PrefabComponentsV4Extra {
   materialParams?: EntityComponentsV3['materialParams'];
   /** Phase 20.0: a visual effect played from the entity. */
   effect?: EntityComponentsV3['effect'];
+  /** Phase 23.6: a copy writes its footprint into the block cells beneath it. */
+  blockFootprint?: EntityComponentsV3['blockFootprint'];
   animator?: EntityComponentsV3['animator'];
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];

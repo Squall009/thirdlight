@@ -35,6 +35,7 @@ import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type Auto
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
+import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -201,6 +202,12 @@ export interface SceneAdapterDiagnostics {
   batching?: AutoBatcherDiagnostics;
   /** Phase 23.5: the block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
+  /**
+   * Phase 23.12: graph materials — the compiled ones alive (objects with
+   * different parameter values share one) and the objects carrying values
+   * scripts set, with their data textures; ABSENT without project materials.
+   */
+  materials?: { graphMaterials: number } & RuntimeMaterialsDiagnostics;
   /** Phase 21.3: draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
 }
@@ -245,6 +252,14 @@ export interface SceneAdapter {
    * Presentation only (the simulation's camera does not move).
    */
   setCameraOffset?(offset: readonly [number, number, number] | null): void;
+  /**
+   * Phase 23.9a: project an entity's world position (or a world point), plus
+   * a world offset, through the camera of the last rendered frame: `out` =
+   * [x 0 (left)–1 (right), y 0 (top)–1 (bottom), 1 in front of the camera /
+   * 0 behind]. False without a camera or for an unknown entity. The game
+   * host places world-anchored UI widgets with it.
+   */
+  projectToScreen?(target: { readonly entityId?: string; readonly point?: readonly number[]; readonly offset?: readonly number[] }, out: number[]): boolean;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
@@ -356,6 +371,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
+  /** Phase 23.12: the values scripts set per object (the simulation's material changes). */
+  let runtimeMaterials: RuntimeMaterialView | null = null;
   /** Phase 9.6: lightmaps of the baked static objects; the lights a bake holds are not realtime. */
   const lightmaps: LightmapSet | null =
     opts.lighting !== undefined && Object.keys(opts.lighting.bakes).length > 0
@@ -460,6 +477,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const objects = new Map<string, THREE.Object3D>();
   /** Phase 21.5: which entity an object is (a release stops at other entities' objects parented below). */
   const ownerOf = new WeakMap<THREE.Object3D, string>();
+  /** Phase 23.12: one object's own meshes (its child objects' are theirs). */
+  const ownMeshes = (entityId: string): THREE.Object3D[] => {
+    const root = objects.get(entityId);
+    const out: THREE.Object3D[] = [];
+    const visit = (o: THREE.Object3D): void => {
+      if (o !== root && ownerOf.get(o) !== undefined) return;
+      if ((o as THREE.Mesh).isMesh === true) out.push(o);
+      for (const c of o.children) visit(c);
+    };
+    if (root !== undefined) visit(root);
+    return out;
+  };
+  if (materialLibrary !== null) runtimeMaterials = new RuntimeMaterialView(materialLibrary, ownMeshes);
   // --- Phase 20.2: visual effects --------------------------------------------
   /** A project material for particles shaded with one (the library's compiled material, taken from a holder mesh). */
   const effectMaterials = new Map<string, THREE.Mesh>();
@@ -698,6 +728,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const releaseEntity = (id: string): void => {
     blockView.removeLayer(id);
+    runtimeMaterials?.release(id);
     if (effects !== null) {
       effects.detach(id);
       effectEntities.delete(id);
@@ -852,6 +883,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       onAttached: (entityId: string, root: THREE.Object3D) => {
         // Phase 17.4: models and instance sets cast and receive the key light's shadow (their data).
         applyShadowFlags(root, shadowFlagsOf(entityDocs.get(entityId)?.components));
+        // Phase 23.12: values a script set before the model arrived.
+        runtimeMaterials?.reapply(entityId);
         // Phase 21.3: a model's meshes may be drawn together with other placements' (instance sets already are).
         markBatchable(root);
         lightmaps?.apply(entityId, root);
@@ -1309,6 +1342,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
+    // Phase 23.12: material parameters scripts changed, on the objects before the draw (and before regrouping).
+    const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
+    if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
     // Phase 21.3: regroup the repeated objects and copy their matrices (after every transform and look change).
     batcher?.update(camera!);
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
@@ -1459,6 +1495,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (effects !== null && !disposed) d.effects = effects.diagnostics();
     if (batcher !== null && !disposed && lastFrameDrawn) d.batching = batcher.diagnostics();
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
+    if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...runtimeMaterials.diagnostics() };
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     return {
       ok: true,
@@ -1476,6 +1513,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     fades.dispose();
     animatorPlayers.clear();
     lightmaps?.dispose();
+    runtimeMaterials?.dispose();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();
     // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization
@@ -1535,6 +1573,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return { ok: true };
   }
 
+  const projectScratch = new THREE.Vector3();
+  const projectScratch2 = new THREE.Vector3();
   const api: SceneAdapter = {
     renderFrame,
     captureScreenshot,
@@ -1546,6 +1586,26 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     setCameraOffset(offset: readonly [number, number, number] | null): void {
       cameraOffset = offset !== null && offset.every((v) => Number.isFinite(v)) ? [offset[0], offset[1], offset[2]] : null;
+    },
+    projectToScreen(target, out): boolean {
+      if (disposed || camera === null) return false;
+      const p = projectScratch;
+      if (typeof target.entityId === 'string') {
+        const obj = objects.get(target.entityId);
+        if (obj === undefined) return false;
+        obj.getWorldPosition(p);
+      } else if (target.point !== undefined && target.point.length === 3) p.set(target.point[0]!, target.point[1]!, target.point[2]!);
+      else return false;
+      if (target.offset !== undefined && target.offset.length === 3) p.set(p.x + target.offset[0]!, p.y + target.offset[1]!, p.z + target.offset[2]!);
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return false;
+      camera.updateMatrixWorld();
+      // In front: the point's depth in camera space is negative (cameras look down −Z).
+      const front = projectScratch2.copy(p).applyMatrix4(camera.matrixWorldInverse).z < 0;
+      p.project(camera);
+      out[0] = (p.x + 1) / 2;
+      out[1] = (1 - p.y) / 2;
+      out[2] = front ? 1 : 0;
+      return true;
     },
     setEnvironmentLayer(layer: EnvironmentLayerLike | null): void {
       if (JSON.stringify(layer) === JSON.stringify(environmentLayer)) return;

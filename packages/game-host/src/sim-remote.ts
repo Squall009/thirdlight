@@ -19,7 +19,11 @@
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
 import { debugCallProblem, validateDebugCommandCall } from '@thirdlight/runtime';
+import { validateUiEvent } from '@thirdlight/runtime';
 import type {
+  UiEventRecord,
+  UiOutput,
+  UiStateView,
   ActionFrame,
   AnimatorPose,
   CameraInfo,
@@ -323,6 +327,12 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.grid.clear();
       return out;
     },
+    // Phase 23.12: the material parameters the worker's scripts changed (the latest per parameter).
+    takeMaterialChanges: () => {
+      const out = [...mirror.mat.values()];
+      mirror.mat.clear();
+      return out;
+    },
     gameCounters: () => mirror.counters,
     // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).
     readCameraView: (p: number[], r: number[]) => {
@@ -337,6 +347,25 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return camLens;
     },
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
+    // Phase 23.11: the objects riding on sockets (the worker's list).
+    socketAttachments: () => mirror.sockets,
+    // Phase 23.9a: the project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
+    queueUiEvent: (event: UiEventRecord) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateUiEvent(event);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `UI event: ${checked.message}`, { reason: 'ui_event' }) };
+      command({ op: 'uiEvent', event: checked.event });
+      return { ok: true };
+    },
+    takeUiOutput: (): UiOutput | null => {
+      const out = mirror.ui;
+      mirror.ui = null;
+      return out;
+    },
+    uiView: (): UiStateView => ({ model: mirror.uiModel, shown: mirror.uiShown }),
+    // Phase 23.3: the worker's cursor request and pointer (the host applies the cursor; observers read the pointer).
+    cursorRequest: () => (gone() ? null : mirror.cursor),
+    readPointer: () => (gone() ? null : mirror.pointer),
     setCameraViewport: (width: number, height: number): boolean => {
       if (gone()) return false;
       const valid = typeof width === 'number' && typeof height === 'number' && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384;

@@ -413,7 +413,9 @@ export function MaterialMappingEditor(props: {
 /** Phase 18.0: per-object values for the public parameters of the graph materials an object uses. */
 function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; materials: readonly MaterialDef[]; value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; textures: readonly TextureOption[]; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void }): JSX.Element | null {
   const used = [...new Set([...Object.values(p.inherited ?? {}), ...Object.values(p.mapping)])];
-  const graphs = used.map((id) => p.materials.find((m) => m.materialId === id)).filter((m): m is MaterialDef => m !== undefined && m.graph !== undefined && (m.parameters ?? []).some((x) => x.visibility !== 'private'));
+  // Phase 23.12: a data parameter's cells are written by scripts at run time, never overridden per object here.
+  const overridable = (x: { visibility?: string; type: string }): boolean => x.visibility !== 'private' && x.type !== 'data';
+  const graphs = used.map((id) => p.materials.find((m) => m.materialId === id)).filter((m): m is MaterialDef => m !== undefined && m.graph !== undefined && (m.parameters ?? []).some(overridable));
   if (graphs.length === 0) return null;
   const set = (materialId: string, key: string, v: MaterialParameterValue | undefined): void => {
     const next: Record<string, Record<string, MaterialParameterValue>> = Object.fromEntries(Object.entries(p.value ?? {}).map(([k, o]) => [k, { ...o }]));
@@ -430,7 +432,7 @@ function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; mate
         <div key={m.materialId}>
           <div className="tl-subhead">{m.name}: parameters</div>
           {(m.parameters ?? [])
-            .filter((x) => x.visibility !== 'private')
+            .filter(overridable)
             .map((x) => {
               const over = p.value?.[m.materialId]?.[x.key];
               return (

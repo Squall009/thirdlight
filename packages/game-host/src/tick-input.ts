@@ -18,7 +18,51 @@
  * Deterministic replays do not go through here: a recorded input (a replay,
  * the MCP input exercise) is per step and runs in the worker as recorded.
  */
-import type { ActionFrame, ActionSource, ActionValue, JumpPhase } from '@thirdlight/runtime';
+import type { ActionFrame, ActionSource, ActionValue, JumpPhase, PointerSample } from '@thirdlight/runtime';
+
+/**
+ * Phase 23.3: the pointer on a further step of the same tick — where it is
+ * and what is held, without the sample's movement, wheel and edges (they
+ * belong to the first step).
+ */
+export function continuePointer(p: PointerSample): PointerSample {
+  if (p.dx === undefined && p.dy === undefined && p.wheel === undefined && p.pressed === undefined && p.released === undefined) return p;
+  return { x: p.x, y: p.y, ...(p.buttons !== undefined ? { buttons: p.buttons } : {}), ...(p.over !== undefined ? { over: p.over } : {}), ...(p.locked !== undefined ? { locked: p.locked } : {}) };
+}
+
+const clamp10 = (v: number): number => (v > 10 ? 10 : v < -10 ? -10 : v);
+const q4 = (v: number): number => {
+  const r = Math.round(v * 1e4) / 1e4;
+  return r === 0 ? 0 : r;
+};
+
+/** Phase 23.3: two pointer samples with no step between them: the newer position and buttons, the movement and wheel added, the edges of both. */
+export function mergePointer(a: PointerSample | undefined, b: PointerSample | undefined): PointerSample | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  const dx = q4(clamp10((a.dx ?? 0) + (b.dx ?? 0)));
+  const dy = q4(clamp10((a.dy ?? 0) + (b.dy ?? 0)));
+  const wheel = q4(clamp10((a.wheel ?? 0) + (b.wheel ?? 0)));
+  const pressed = (a.pressed ?? 0) | (b.pressed ?? 0);
+  const released = (a.released ?? 0) | (b.released ?? 0);
+  return {
+    x: b.x,
+    y: b.y,
+    ...(dx !== 0 ? { dx } : {}),
+    ...(dy !== 0 ? { dy } : {}),
+    ...(wheel !== 0 ? { wheel } : {}),
+    ...(b.buttons !== undefined ? { buttons: b.buttons } : {}),
+    ...(pressed !== 0 ? { pressed } : {}),
+    ...(released !== 0 ? { released } : {}),
+    ...(b.over !== undefined ? { over: b.over } : {}),
+    ...(b.locked !== undefined ? { locked: b.locked } : {}),
+  };
+}
+
+/** Phase 23.3: an action value that is an amount per sample (`i`) without its amount — what a further step of the same sample sees. */
+function spent(a: ActionValue, p: JumpPhase): ActionValue {
+  return { v: 0, ...(a.x !== undefined ? { x: 0 } : {}), ...(a.y !== undefined ? { y: 0 } : {}), p, i: 1 };
+}
 
 /** The phase a held input has on the next step when nothing new happened. */
 export function continuePhase(p: JumpPhase): JumpPhase {
@@ -34,10 +78,13 @@ export function continueFrame(f: ActionFrame): ActionFrame {
     for (const name of Object.keys(f.actions)) {
       const a = f.actions[name]!;
       const p = continuePhase(a.p);
-      actions[name] = p === a.p ? a : { v: a.v, ...(a.x !== undefined ? { x: a.x } : {}), ...(a.y !== undefined ? { y: a.y } : {}), p };
+      // Phase 23.3: a per-sample amount (pointer movement, wheel) is spent on the first step.
+      if (a.i === 1) actions[name] = a.v === 0 && (a.x ?? 0) === 0 && (a.y ?? 0) === 0 && p === a.p ? a : spent(a, p);
+      else actions[name] = p === a.p ? a : { v: a.v, ...(a.x !== undefined ? { x: a.x } : {}), ...(a.y !== undefined ? { y: a.y } : {}), p };
     }
     out.actions = actions;
   }
+  if (f.pointer !== undefined) out.pointer = continuePointer(f.pointer);
   return out;
 }
 
@@ -87,22 +134,29 @@ export class TickInputSource implements ActionSource {
       const actions: Record<string, ActionValue> = {};
       const owed = new Map<string, JumpPhase>();
       for (const name of Object.keys(frame.actions ?? {})) {
-        const a = frame.actions![name]!;
+        const a0 = frame.actions![name]!;
         const prev = p.actions?.[name];
+        // Phase 23.3: per-sample amounts of two samples before one step add up.
+        const a: ActionValue =
+          a0.i === 1 && prev?.i === 1
+            ? { v: q4(clamp10(a0.v + prev.v)), ...(a0.x !== undefined ? { x: q4(clamp10(a0.x + (prev.x ?? 0))) } : {}), ...(a0.y !== undefined ? { y: q4(clamp10(a0.y + (prev.y ?? 0))) } : {}), p: a0.p, i: 1 }
+            : a0;
         const m = prev !== undefined ? mergePhase(prev.p, a.p) : { now: a.p, then: null };
-        actions[name] = m.now === a.p ? a : { v: a.v, ...(a.x !== undefined ? { x: a.x } : {}), ...(a.y !== undefined ? { y: a.y } : {}), p: m.now };
+        actions[name] = m.now === a.p ? a : { v: a.v, ...(a.x !== undefined ? { x: a.x } : {}), ...(a.y !== undefined ? { y: a.y } : {}), p: m.now, ...(a.i === 1 ? { i: 1 as const } : {}) };
         if (m.then !== null) owed.set(name, m.then);
       }
       merged.actions = actions;
       this.owedActions = owed.size > 0 ? owed : null;
     }
+    const pointer = mergePointer(p.pointer, frame.pointer);
+    if (pointer !== undefined) merged.pointer = pointer;
     this.pending = merged;
   }
 
   sample(stepIndex: number): ActionFrame {
     const f = this.pending;
     if (f === null) return { stepIndex, moveX: 0, jump: 'none' };
-    const out: ActionFrame = { stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}) };
+    const out: ActionFrame = { stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}) };
     // The next step of this tick sees the continuation (or the owed edge of a merge).
     const next = continueFrame(f);
     if (this.owedJump !== null) {
@@ -113,7 +167,7 @@ export class TickInputSource implements ActionSource {
       const actions = { ...next.actions };
       for (const [name, p] of this.owedActions) {
         const a = actions[name];
-        if (a !== undefined) actions[name] = { v: a.v, ...(a.x !== undefined ? { x: a.x } : {}), ...(a.y !== undefined ? { y: a.y } : {}), p };
+        if (a !== undefined) actions[name] = { v: a.v, ...(a.x !== undefined ? { x: a.x } : {}), ...(a.y !== undefined ? { y: a.y } : {}), p, ...(a.i === 1 ? { i: 1 as const } : {}) };
       }
       next.actions = actions;
       this.owedActions = null;
