@@ -911,13 +911,37 @@ only input such as Screen UV used in a Vertex offset, which reads a fixed
 stand-in there) show on the node. Selected objects and the active
 checkpoint still glow (the object's own emissive is added to the graph's).
 
+**Custom-lit surfaces** (phase 23.15): a **Custom-lit output** takes a
+colour the graph computes itself (plus emissive, a tangent-space normal,
+opacity and alpha clip) — cel bands, painterly, hatching — and still gets
+fog, tone mapping and the post stack. Under it the *Lighting* inputs read
+the scene's lights: **Main light** (the brightest shadow-casting
+directional light, else the first: direction to it in world space, colour ×
+intensity, N·L from −1 to 1 — step or posterize it for bands), **Shadow**
+(the main light's shadow on the pixel, 0 shadowed … 1 lit), **Diffuse
+light** (total — every directional, point and spot light with its N·L,
+shadow and falloff, plus ambient, environment and lightmap —, its
+luminance, and the direct part alone) and **Ambient light** (ambient,
+hemisphere and light probes; the environment's image-based light; a baked
+lightmap's light). Every light value is on the diffuse scale: a colour ×
+a light value is what a matte surface of that colour shows (the PBR
+output's diffuse), so a point light near a custom-lit object brightens it
+exactly as it would a standard one. A lightmapped custom-lit object adds its
+lightmap to the total. Used under a PBR or Unlit output (which light
+themselves) the Lighting inputs read no light and show a compile error on
+the node; in a vertex offset a warning; a Custom-lit normal cannot read
+them. The Material tab's preview, the Scene view, Play and exports draw
+custom-lit graphs with their lights.
+
 **The catalogue** (generic, any genre): *Inputs* — Float, Vector 2/3/4,
 Colour, Parameter, Time, UV (set 0/1), Vertex colour (a mesh without
 COLOR_0 reads white, or zero with alpha 1 when its field says so — for
 vertex colours used as data), Position and Normal (object/world/view), View
 direction, Object position (the object's or instance's origin in the
 world), Camera distance, Screen UV, Instance index, Global wind (direction,
-strength with gusts travelling across the world, turbulence); *Maths* — add, subtract, multiply, divide, min, max,
+strength with gusts travelling across the world, turbulence); *Lighting*
+— Main light, Shadow, Diffuse light, Ambient light (Custom-lit only, see
+above); *Maths* — add, subtract, multiply, divide, min, max,
 power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
 step, abs, floor, fraction, sin, cos, one minus, remap; *Vectors* — split,
 combine, swizzle (mask `xyzw`/`rgba`); *Textures* — Sample texture (wrap,
@@ -926,7 +950,8 @@ gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp;
 *Utility* — Fresnel, Rim, Posterize, Dither, World-aligned UV, Parallax,
 Vertex displacement, Alpha clip; *Functions* — Function call; *Output* —
 PBR output (base colour, metalness, roughness, normal, emissive, AO,
-opacity, alpha clip) or Unlit output (one of them per material), Vertex
+opacity, alpha clip), Unlit output or Custom-lit output (colour, emissive,
+normal, opacity, alpha clip) — one of them per material —, Vertex
 offset; the render flags (double-sided, transparent, casts shadows) are
 fields of the surface output. Port types are float, vec2, vec3, vec4 and
 texture; every value width converts to every other (a float fills every

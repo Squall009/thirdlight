@@ -30,6 +30,12 @@
  * - Textures come from the host through `texture(assetId, sampler)` (asset
  *   ids from the content closure, never URLs); one still loading draws as
  *   its fallback until the library recompiles on arrival.
+ * - Phase 23.15: a Custom-lit output becomes a `MeshCustomLitNodeMaterial`
+ *   (`custom-lit.ts`): its colour, emissive (and alpha when it reads light)
+ *   are evaluated after three has gathered every light, and the Lighting
+ *   input nodes read the gathered terms. Under a PBR or Unlit output, or in
+ *   a vertex offset, they read "no light" and report a problem; a Custom-lit
+ *   normal that reads them is refused (they are computed from it).
  *
  * The node semantics (ports, types, defaults) are the compiler's own copy of
  * the catalogue (three-adapter does not import project-model;
@@ -42,6 +48,7 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
 
+import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-lit';
 import { instanceOrigin } from './node-materials';
 
 // TSL's typings do not follow values whose width is known only at run time.
@@ -128,7 +135,7 @@ export interface GraphProblem {
 
 export interface CompiledMaterialGraph {
   /** The surface output kind (null: none — the material draws as a plain white PBR surface). */
-  readonly surface: 'pbr' | 'unlit' | null;
+  readonly surface: 'pbr' | 'unlit' | 'customLit' | null;
   readonly slots: {
     readonly color: N | null;
     readonly metalness: N | null;
@@ -139,10 +146,18 @@ export interface CompiledMaterialGraph {
     readonly opacity: N | null;
     readonly alphaTest: N | null;
     readonly position: N | null;
+    /** Phase 23.15, Custom-lit: the graph's colour and emissive (computed after the lights are gathered). */
+    readonly litColor: N | null;
+    readonly litEmissive: N | null;
+    /** Custom-lit alpha that reads lighting inputs (then `opacity`/`alphaTest` are null). */
+    readonly litOpacity: N | null;
+    readonly litAlphaTest: N | null;
   };
   readonly flags: { readonly doubleSided: boolean; readonly transparent: boolean; readonly castShadows: boolean };
   /** Reads the clock or the wind (the host keeps rendering). */
   readonly animated: boolean;
+  /** Phase 23.15: reads a Lighting input under a Custom-lit output. */
+  readonly usesLight: boolean;
   /** Texture assets it samples (loaded or not). */
   readonly textures: readonly string[];
   /** Textures still loading (a recompile after they arrive draws them). */
@@ -196,6 +211,10 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   screenUV: { inputs: [], outputs: [P('uv', 'vec2')] },
   instanceIndex: { inputs: [], outputs: [P('index', 'float')] },
   wind: { inputs: [], outputs: [P('direction', 'vec3'), P('strength', 'float'), P('turbulence', 'float')] },
+  mainLight: { inputs: [], outputs: [P('direction', 'vec3'), P('color', 'vec3'), P('ndotl', 'float')] },
+  lightShadow: { inputs: [], outputs: [P('shadow', 'float')] },
+  diffuseLight: { inputs: [], outputs: [P('total', 'vec3'), P('luminance', 'float'), P('direct', 'vec3')] },
+  ambientLight: { inputs: [], outputs: [P('ambient', 'vec3'), P('environment', 'vec3'), P('lightmap', 'vec3')] },
   add: binary(),
   subtract: binary(),
   multiply: binary(1, 1),
@@ -243,6 +262,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
     outputs: [],
   },
   unlit: { inputs: [P('color', 'vec3', [1, 1, 1]), P('opacity', 'float', 1), P('alphaClip', 'float', 0)], outputs: [] },
+  customLit: { inputs: [P('color', 'vec3', [1, 1, 1]), P('emissive', 'vec3', [0, 0, 0]), P('normal', 'vec3', [0, 0, 1]), P('opacity', 'float', 1), P('alphaClip', 'float', 0)], outputs: [] },
   vertexOffset: { inputs: [P('offset', 'vec3', [0, 0, 0])], outputs: [] },
   functionInput: { inputs: [], outputs: [P('value', 'float')] },
   functionOutput: { inputs: [P('value', 'float', 0)], outputs: [] },
@@ -274,6 +294,7 @@ export const COMPILER_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<st
   call: { function: '' },
   pbr: { doubleSided: false, transparent: false, castShadows: true },
   unlit: { doubleSided: false, transparent: false, castShadows: true },
+  customLit: { doubleSided: false, transparent: false, castShadows: true },
   vertexOffset: { space: 'object' },
   functionInput: { name: '', type: 'float', default: [0, 0, 0, 0] },
   functionOutput: { name: '', type: 'float' },
@@ -451,6 +472,9 @@ function scopeOf(graph: MaterialGraphLike, ports: Map<string, ResolvedPorts>, bo
 /** How deep function calls may nest (validation refuses cycles; this guards malformed data). */
 const MAX_CALL_DEPTH = 16;
 
+/** Phase 23.15: the Lighting input node types (they read light only under a Custom-lit output). */
+export const LIGHTING_TYPES: ReadonlySet<string> = new Set(['mainLight', 'lightShadow', 'diffuseLight', 'ambientLight']);
+
 /**
  * Compile a material graph to TSL slot nodes. Pure (no GPU): the result's
  * nodes go on a node material (`buildGraphMaterial`) or are inspected by tests.
@@ -462,6 +486,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   const pending = new Set<string>();
   let animated = false;
   let nodeCount = 0;
+  /** Phase 23.15: the surface is Custom-lit (Lighting inputs read light), set before any slot compiles. */
+  let litSurface = false;
+  let usesLight = false;
   const problem = (scope: Scope, nodeId: string | undefined, severity: GraphProblem['severity'], message: string): void => {
     const at = scope.reportAt ?? nodeId;
     const text = scope.reportAt !== null ? `in the function: ${message}` : message;
@@ -676,6 +703,23 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   const bayer4 = (a: N): N => bayer2(a.mul(0.5)).mul(0.25).add(bayer2(a));
   const bayer8 = (a: N): N => bayer4(a.mul(0.5)).mul(0.25).add(bayer2(a));
 
+  /** A Lighting input's outputs: the gathered terms (`lit`), or the values of "no light". */
+  const lightingValues = (type: string, lit: boolean): Record<string, Val> => {
+    const v3 = (n: N): Val => ({ t: 'vec3', n });
+    const f = (n: N): Val => ({ t: 'float', n });
+    const none = T.vec3(0, 0, 0);
+    switch (type) {
+      case 'mainLight':
+        return lit ? { direction: v3(litMainDirectionWorld()), color: v3(LIT.mainColor), ndotl: f(LIT.mainNdotL) } : { direction: v3(T.vec3(0, 1, 0)), color: v3(none), ndotl: f(T.float(0)) };
+      case 'lightShadow':
+        return { shadow: f(lit ? LIT.shadow : T.float(1)) };
+      case 'diffuseLight':
+        return lit ? { total: v3(LIT.total), luminance: f(LIT.luminance), direct: v3(LIT.direct) } : { total: v3(none), luminance: f(T.float(0)), direct: v3(none) };
+      default:
+        return lit ? { ambient: v3(LIT.ambient), environment: v3(LIT.environment), lightmap: v3(LIT.lightmap) } : { ambient: v3(none), environment: v3(none), lightmap: v3(none) };
+    }
+  };
+
   function compileNode(scope: Scope, node: MaterialGraphNodeLike, ports: ResolvedPorts, inp: Record<string, Val>, stage: Stage): Record<string, Val> {
     const outT = (id: string): ValueType => {
       const t = ports.outputs.find((p) => p.id === id)?.t;
@@ -753,6 +797,22 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const dir = T.length(g.windDir).greaterThan(0).select(T.normalize(g.windDir), T.vec2(1, 0));
         animated = true;
         return { direction: { t: 'vec3', n: T.vec3(dir.x, 0, dir.y) }, strength: { t: 'float', n: windStrength(stage) }, turbulence: { t: 'float', n: g.turb } };
+      }
+      // ---- lighting (phase 23.15)
+      case 'mainLight':
+      case 'lightShadow':
+      case 'diffuseLight':
+      case 'ambientLight': {
+        if (stage === 'vertex') {
+          problem(scope, node.id, 'warning', 'lighting inputs exist only for pixels (not in a vertex offset); they read no light there');
+          return lightingValues(node.type, false);
+        }
+        if (!litSurface) {
+          problem(scope, node.id, 'error', 'lighting inputs need a Custom-lit output (a PBR or Unlit surface does its own lighting); they read no light');
+          return lightingValues(node.type, false);
+        }
+        usesLight = true;
+        return lightingValues(node.type, true);
       }
       // ---- maths
       case 'add':
@@ -976,20 +1036,48 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
 
   // ---- the outputs
   const top = scopeOf(input.graph, resolveMaterialGraphPorts(input.graph, parameters, fnOf), null, null, '', 0);
-  const surfaces = input.graph.nodes.filter((n) => n.type === 'pbr' || n.type === 'unlit');
+  const surfaces = input.graph.nodes.filter((n) => n.type === 'pbr' || n.type === 'unlit' || n.type === 'customLit');
   const surfaceNode = surfaces[0] ?? null;
-  if (surfaceNode === null) problems.push({ severity: 'warning', message: 'no surface output (add a PBR or Unlit output); it draws as a plain white surface' });
+  if (surfaceNode === null) problems.push({ severity: 'warning', message: 'no surface output (add a PBR, Unlit or Custom-lit output); it draws as a plain white surface' });
+  litSurface = surfaceNode?.type === 'customLit';
+  /** Phase 23.15: whether a surface input reads a Lighting input (through wires, and into called functions). */
+  const graphHasLight = (g: MaterialGraphLike, depth: number): boolean =>
+    g.nodes.some((n) => LIGHTING_TYPES.has(n.type) || (n.type === 'call' && depth < MAX_CALL_DEPTH && ((f) => f !== null && graphHasLight(f.graph, depth + 1))(fnOf(str(field(n, 'function'), '')))));
+  const readsLight = (nodeId: string, portId: string): boolean => {
+    const seen = new Set<string>();
+    const walk = (id: string): boolean => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const n = top.byId.get(id);
+      if (n === undefined) return false;
+      if (LIGHTING_TYPES.has(n.type)) return true;
+      if (n.type === 'call') {
+        const f = fnOf(str(field(n, 'function'), ''));
+        if (f !== null && graphHasLight(f.graph, 1)) return true;
+      }
+      for (const e of top.incoming.get(id)?.values() ?? []) if (walk(e.from.node)) return true;
+      return false;
+    };
+    const e = top.incoming.get(nodeId)?.get(portId);
+    return e !== undefined && walk(e.from.node);
+  };
   const slot = (portId: string, onlyConnected: boolean): N | null => {
     if (surfaceNode === null) return null;
     if (onlyConnected && !connected(top, surfaceNode.id, portId)) return null;
     const port = top.ports.get(surfaceNode.id)?.inputs.find((p) => p.id === portId);
     return port === undefined ? null : v(inputOf(top, surfaceNode, port, 'fragment'));
   };
-  const surface = surfaceNode === null ? null : (surfaceNode.type as 'pbr' | 'unlit');
+  const surface = surfaceNode === null ? null : (surfaceNode.type as 'pbr' | 'unlit' | 'customLit');
   const pbr = surface === 'pbr';
-  const colorNode = slot(pbr ? 'baseColor' : 'color', false);
-  const normalIn = pbr ? slot('normal', true) : null;
+  const lit = surface === 'customLit';
+  const colorNode = lit ? null : slot(pbr ? 'baseColor' : 'color', false);
+  // Custom-lit: the normal shapes the lighting inputs, so it cannot read them.
+  const litNormalLoop = lit && readsLight(surfaceNode!.id, 'normal');
+  if (litNormalLoop) problems.push({ nodeId: surfaceNode!.id, severity: 'error', message: 'the normal cannot read lighting inputs (they are computed from it); the surface normal is used' });
+  const normalIn = pbr || (lit && !litNormalLoop) ? slot('normal', true) : null;
   const emissiveIn = pbr ? slot('emissive', true) : null;
+  // Custom-lit alpha that reads lighting inputs is applied after the lights are gathered (both values together).
+  const litAlpha = lit && (readsLight(surfaceNode!.id, 'opacity') || readsLight(surfaceNode!.id, 'alphaClip'));
   const vertex = input.graph.nodes.find((n) => n.type === 'vertexOffset');
   let position: N | null = null;
   if (vertex !== undefined && connected(top, vertex.id, 'offset')) {
@@ -1006,9 +1094,13 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     // The material's own emissive stays added: the selection tint and the checkpoint glow write it (per-mesh copies).
     emissive: emissiveIn !== null ? emissiveIn.add(T.materialEmissive) : null,
     ao: pbr ? slot('ao', true) : null,
-    opacity: slot('opacity', true),
-    alphaTest: slot('alphaClip', true),
+    opacity: litAlpha ? null : slot('opacity', true),
+    alphaTest: litAlpha ? null : slot('alphaClip', true),
     position,
+    litColor: lit ? slot('color', false) : null,
+    litEmissive: lit ? slot('emissive', true) : null,
+    litOpacity: litAlpha ? slot('opacity', true) : null,
+    litAlphaTest: litAlpha ? slot('alphaClip', true) : null,
   };
   const flag = (key: string, d: boolean): boolean => (surfaceNode === null ? d : ((x) => (typeof x === 'boolean' ? x : d))(field(surfaceNode, key)));
   return {
@@ -1016,6 +1108,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     slots,
     flags: { doubleSided: flag('doubleSided', false), transparent: flag('transparent', false), castShadows: flag('castShadows', true) },
     animated,
+    usesLight,
     textures: [...textures].sort(),
     pending: [...pending].sort(),
     problems,
@@ -1038,17 +1131,24 @@ export function materialGraphProblems(def: { graph: MaterialGraphLike; parameter
   return compileMaterialGraph(def, { globals: detachedGlobals(), texture: (id) => (textureIds.has(id) ? 'loading' : null), fn: (id) => byId.get(id) ?? null }).problems;
 }
 
-/** A node material for a compiled graph (PBR → standard, Unlit → basic). */
+/** A node material for a compiled graph (PBR → standard, Unlit → basic, Custom-lit → `MeshCustomLitNodeMaterial`). */
 export function buildGraphMaterial(c: CompiledMaterialGraph, name: string): THREE.Material {
-  const m = c.surface === 'unlit' ? new MeshBasicNodeMaterial() : new MeshStandardNodeMaterial();
+  const m = c.surface === 'unlit' ? new MeshBasicNodeMaterial() : c.surface === 'customLit' ? new MeshCustomLitNodeMaterial() : new MeshStandardNodeMaterial();
   applyGraphNodes(m, c);
   m.name = name;
   return m as unknown as THREE.Material;
 }
 
 /** Put a compiled graph's nodes and flags on a node material (a recompile reuses the object). */
-export function applyGraphNodes(material: MeshBasicNodeMaterial | MeshStandardNodeMaterial, c: CompiledMaterialGraph): void {
+export function applyGraphNodes(material: MeshBasicNodeMaterial | MeshStandardNodeMaterial | MeshCustomLitNodeMaterial, c: CompiledMaterialGraph): void {
   const m = material as N;
+  if ((material as MeshCustomLitNodeMaterial).isMeshCustomLitNodeMaterial === true) {
+    m.litColorNode = c.slots.litColor;
+    m.litEmissiveNode = c.slots.litEmissive;
+    m.litOpacityNode = c.slots.litOpacity;
+    m.litAlphaTestNode = c.slots.litAlphaTest;
+    m.normalNode = c.slots.normal;
+  }
   m.colorNode = c.slots.color;
   m.opacityNode = c.slots.opacity;
   m.alphaTestNode = c.slots.alphaTest;

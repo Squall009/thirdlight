@@ -178,12 +178,15 @@ export {
   resolveMaterialGraphPorts,
   COMPILER_NODES,
   COMPILER_FIELD_DEFAULTS,
+  LIGHTING_TYPES,
   type CompiledMaterialGraph,
   type GraphProblem,
   type MaterialFunctionLike,
   type MaterialGraphLike,
   type MaterialParameterLike,
 } from './material-graph';
+// Phase 23.15: the Custom-lit surface (a graph's own shading from the gathered lights).
+export { mainLightIndex, MeshCustomLitNodeMaterial } from './custom-lit';
 // Phase 17.2: node-material (TSL) helpers and the per-mesh looks (selection tint, checkpoint glow).
 export {
   cloneMaterial,

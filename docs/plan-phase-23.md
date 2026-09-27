@@ -662,3 +662,53 @@ for editor items, commit/push/restart, decision log).
   optional-settings order) so a release build never ships it by accident;
   the setting is not added to the `GameplaySettings` interface (the public
   script `.d.ts` stays as it was apart from `ctx.debug`).
+- 2026-09-27 (23.15): **how custom-lit is built.** A Custom-lit output
+  compiles to `MeshCustomLitNodeMaterial` (three-adapter `custom-lit.ts`), a
+  `NodeMaterial` with `lights = true` and its own `LightingModel`: in
+  `start`/`direct`/`indirect` it only gathers terms into shader variables
+  (three's own light nodes run unchanged, so shadows, point/spot falloff,
+  hemisphere, probes and the environment come from three), and in `finish`
+  — after every light — the graph's colour + emissive becomes the outgoing
+  light. The graph's colour is therefore never evaluated before the lights
+  (no stale inputs), and fog, tone mapping, the post stack and the object's
+  own emissive (selection tint, checkpoint glow) apply as for any material.
+  Works on WebGPU and the WebGL 2 backend alike (the e2e checks both). No
+  light at all (or lighting off): the graph draws with every term at "no
+  light" (0, shadow 1).
+- 2026-09-27 (23.15): **the inputs** (category *Lighting*): *Main light*
+  (direction to it in world space, colour × intensity, signed N·L −1..1),
+  *Shadow* (main light's shadow term 0..1), *Diffuse light* (total,
+  luminance of the total, direct), *Ambient light* (ambient + hemisphere +
+  light probes, environment IBL, lightmap). Scale: every colour is on the
+  diffuse scale (irradiance ÷ π, three's Lambert BRDF), so colour × term is
+  what a matte surface of that colour shows and `albedo × total` matches the
+  PBR output's diffuse part — one consistent unit for thresholds. N·L uses
+  the shading normal (the Custom-lit output's own tangent-space `normal`
+  port shapes it). Rect-area lights are not gathered (the engine creates
+  none).
+- 2026-09-27 (23.15): **"main" light** = the brightest shadow-casting
+  directional light (colour luminance × intensity), else the first
+  directional light in light id order; ties keep the earlier light. It is
+  picked per render from the build's directional lights (a uniform index),
+  so changing an intensity never recompiles. Shadow = 1 when that light
+  casts none, the renderer's shadow map is off or the object does not
+  receive shadows.
+- 2026-09-27 (23.15): **baked lightmaps** (phase 9.6) on a custom-lit
+  surface: the lightmap's light (`lightMap × lightMapIntensity`, ÷ π as the
+  standard material does) is its own term, *Ambient light → lightmap*, and
+  is added to *Diffuse light → total*, never to *ambient*; a lightmapped copy
+  whose bake holds the ambient/hemisphere lights still leaves them out (the
+  existing no-ambient hook works on the custom-lit class).
+- 2026-09-27 (23.15): **validation lives in the compiler**, not in the
+  document rules: lighting inputs under a PBR or Unlit output (a surface that
+  lights itself) are a compile error on the node, in a vertex offset a
+  warning, and they read "no light"; a Custom-lit normal that reads them is
+  an error (they are computed from it). The graph's data stays valid while
+  a user builds it (adding the input before switching the output is never
+  refused); the problems show as node badges, in the Problems tab and in the
+  preview's status. Material functions may use the inputs; misuse reports on
+  the call. Custom-lit opacity/alpha clip stay on the material (before the
+  lights, cutout shadows as usual) unless they read a lighting input, then
+  both are applied after the lights.
+- 2026-09-27 (23.15): no toon/cel template ships — the shading itself is
+  project content (the e2e graphs are neutral two-band fixtures).
