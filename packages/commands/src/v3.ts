@@ -63,7 +63,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   switch: ['mode', 'signal', 'size', 'once'],
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
   // Phase 18.0: free-form keys (materialIds); a setComponent replaces the whole value.
   materialParams: [],
   // Phase 20.0: the effect and its parameter overrides (`params` is replaced whole).

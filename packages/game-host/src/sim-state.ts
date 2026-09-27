@@ -15,7 +15,7 @@
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
-import type { AnimatorPose, CameraViewInfo, GameView, PointerSample, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
+import type { AnimatorPose, CameraViewInfo, DebugCommandState, GameView, PointerSample, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -59,6 +59,7 @@ export class FrameEncoder {
   private diagErrors = -1;
   private diagWanted = true;
   private memoryBytes = -1;
+  private debugRevision = 0;
   private shared: { sab: SharedArrayBuffer; slotFloats: number; slot: number; fresh: boolean } | null = null;
   private readonly useShared: boolean;
   private readonly visit: (id: string, p: readonly number[], r: readonly number[], s: readonly number[]) => void;
@@ -297,6 +298,12 @@ export class FrameEncoder {
     }
     if (extra.digests !== undefined && extra.digests.length > 0) out.digests = extra.digests;
     if (extra.tickError !== undefined) out.tickError = extra.tickError;
+    // Phase 23.8: the debug commands, when a script declared one or a call ran.
+    const dbg = rt.debugCommandState?.();
+    if (dbg !== undefined && dbg.revision !== this.debugRevision) {
+      this.debugRevision = dbg.revision;
+      out.debugCommands = dbg;
+    }
     if (typeof extra.memoryBytes === 'number' && extra.memoryBytes !== this.memoryBytes) {
       this.memoryBytes = extra.memoryBytes;
       out.memoryBytes = extra.memoryBytes;
@@ -362,6 +369,7 @@ export class FrameMirror {
   pointer: PointerSample | null = null;
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
+  debugCommands: DebugCommandState | null = null;
   private sharedSab: SharedArrayBuffer | null = null;
   /** The previous full transform buffer (returned to the worker for reuse). */
   spare: ArrayBuffer | null = null;
@@ -429,6 +437,7 @@ export class FrameMirror {
     if (s.pointer !== undefined) this.pointer = s.pointer;
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
+    if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;
   }
 }
 

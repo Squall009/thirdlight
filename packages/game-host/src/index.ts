@@ -60,6 +60,8 @@ export {
   type GameControlError,
   type GameHost,
   type GameHostConfig,
+  type GameStartOptions,
+  type GameStartOutcome,
   type GameHostObservation,
   type GameHostSceneObservation,
   type GameHostSound,
@@ -116,6 +118,7 @@ export { PHYSICS_MEMORY_CAP_BYTES, TRANSFORM_STRIDE, type FrameState, type SimEn
 export { resolveThreadingMode, resolveTransport, threadingFromUrl, threadingLogLine, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
 export { TickInputSource, continueFrame, mergePhase } from './tick-input';
 export { stepDigest } from './step-digest';
+export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, type DebugConsole, type DebugConsoleDeps } from './debug-console';
 export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
 export { RelayActionSource } from './relay-input';
 export { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type HudPromptState } from './bindings';

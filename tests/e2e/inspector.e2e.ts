@@ -278,18 +278,26 @@ test('the game block is built from its descriptor: create, texts, references and
   const title = block.getByLabel('game title', { exact: true });
   // The second edit must be sent after the first and on top of it, not refused as a conflict.
   holdTitle = true;
+  // The backend applies the held command at route.fetch, before its ack reaches the page, so the
+  // title poll below can pass while the handler still waits: unroute only after the held ack is
+  // delivered, or the late fulfill fails with "Route is already handled".
+  let heldDelivered: Promise<void> = Promise.resolve();
   await page.route('**/commands', async (route) => {
     const body = route.request().postData() ?? '';
     if (body.includes('"setGameConfig"') && body.includes('Neutral test')) {
+      let done!: () => void;
+      heldDelivered = new Promise<void>((r) => { done = r; });
       const res = await route.fetch();
       await new Promise((r) => setTimeout(r, 1500));
       await route.fulfill({ response: res });
+      done();
     } else await route.continue();
   });
   await title.fill('Neutral test');
   await title.press('Enter');
   await block.getByLabel('game cues goal', { exact: true }).selectOption(sound);
   await expect.poll(async () => (await game())?.['title']).toBe('Neutral test');
+  await heldDelivered;
   await page.unroute('**/commands');
   holdTitle = false;
   await expect.poll(async () => (await game())?.['cues']).toEqual({ start: null, jump: null, checkpoint: null, death: null, goal: sound });

@@ -55,7 +55,7 @@ const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
-const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep'] as const;
+const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
 /** The largest single upload frame accepted by the backend (sessions.md §11.5). */
 const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
 /** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
@@ -185,7 +185,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
       'health {max, start?, invulnerableSeconds? (1 s), knockback? m/s, knockbackTime? s (0.25), hitBounce? m/s (5)} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size? (absent: its model\'s recorded bounds, else 1 x 1 m), ' +
       'respawn?: never|death, cue?: audioAssetId (collect sound)}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
-      'health, chase? m (walks toward a player in range), chaseHeight? m (2), stompBounce? m/s (9), stompTolerance? m (0.2), defeat?: none|squash|fade (squash), defeatTime? s (0.3), wallProbe? m (0.05, edges), ledgeProbe? m (0.4, edges)}; collider {oneWay: true} (jump up through, Down+Jump drops), a box shape\'s hz? m (half depth; required when physics_dimension is 3); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] or [x, y, z] m from the entity origin (z: 3D projects)} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, zones, pickups, stomps), plus the optional movement tuning acceleration (40 m/s²), deceleration (60), coyoteTime (0.05 s), jumpBuffer (0.0667 s), jumpRelease (0.5), groundSnap (0.1 m), skin (0.01 m), autostep (false), autostepHeight (0.25 m) (null resets one); cameraFollow also takes distance? m (absent: where the camera is placed) and maxSpeed? m/s (480); gameZone hazard {damage?} (health instead of a life); playerSpawn {facing?: none|left|right} (v4; the player\'s face-movement models turn to it at start and respawn; null = none); audioSource ' +
+      'health, chase? m (walks toward a player in range), chaseHeight? m (2), chaseSpeed? m/s (0: its walking speed), chaseSight? bool (only a player it can see), chaseFacing? bool (only in front of it), chaseMemory? s (0; keeps chasing after losing it), chaseBeyondPatrol? bool (false; may leave its patrol range), stompBounce? m/s (9), stompTolerance? m (0.2), defeat?: none|squash|fade (squash), defeatTime? s (0.3), wallProbe? m (0.05, edges), ledgeProbe? m (0.4, edges)}; collider {oneWay: true} (jump up through, Down+Jump drops), a box shape\'s hz? m (half depth; required when physics_dimension is 3); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] or [x, y, z] m from the entity origin (z: 3D projects)} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, zones, pickups, stomps), plus the optional movement tuning acceleration (40 m/s²), deceleration (60), coyoteTime (0.05 s), jumpBuffer (0.0667 s), jumpRelease (0.5), groundSnap (0.1 m), skin (0.01 m), autostep (false), autostepHeight (0.25 m) (null resets one); cameraFollow also takes distance? m (absent: where the camera is placed) and maxSpeed? m/s (480); gameZone hazard {damage?} (health instead of a life); playerSpawn {facing?: none|left|right} (v4; the player\'s face-movement models turn to it at start and respawn; null = none); audioSource ' +
       '{assetId (audio or music), volume 0-1, range m} loops louder as the player comes near (along X). ' +
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (32 queries/step), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save), ctx.spawn(prefabId, {position: [x, y] | [x, y, z], rotation?: [x, y, z, w], scale?: n | [x, y, z]}) ' +
       '-> "spawn-<n>" root id or null (a copy of a project prefab in the running game only — colliders, pickups, enemies, movers and its scripts work; it appears at the next step; ' +
@@ -421,7 +421,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Submit one bounded §20 game-control command (start, replay, mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
       'sceneId - the same request a script makes with ctx.scenes; debugPause / debugResume / debugStep hold the simulation at a step boundary, ' +
-      'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}) to an explicitly presented play ' +
+      'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}; ' +
+      'phase 23.8: debugCommand with name and args runs a project debug command - one a script declared with ctx.debug.command(name, {description, args: [{name, type: number|string|boolean, optional}]}, handler?) - ' +
+      'inside the next simulation step as part of its input (a recording replays it; tl_game_observe lists debugCommands {registered, applied [{stepIndex, name, args}]}); ' +
+      'refused (game_command_invalid) when no script declared it or the args do not match) to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
       'tuple + run state); with no connected/presenting browser the contracted session_unavailable is returned - ' +
@@ -433,6 +436,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         command: { type: 'string', enum: [...GAME_CONTROL_COMMANDS] },
         expectedRunId: { type: 'string' },
         sceneId: { type: 'string', description: 'loadScene / unloadScene: the scene' },
+        name: { type: 'string', description: 'debugCommand: the debug command a script declared' },
+        args: { type: 'object', description: 'debugCommand: its arguments by name (numbers, text up to 256 characters, true/false; at most 8)', additionalProperties: { type: ['number', 'string', 'boolean'] } },
       },
       required: ['playSessionId', 'command'],
       additionalProperties: false,
@@ -467,12 +472,25 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     name: 'tl_play_start',
     description:
       'Start a play session for the project from the current revision. Requires a connected editor ' +
-      'browser (an active authoring session); with none, returns the structured session_unavailable ' +
-      'error. Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
-      'playSessionId + the frozen snapshotId/revision on success.',
+      'browser (an active authoring session); with none, the backend opens a headless editor (else session_unavailable). ' +
+      'Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
+      'playSessionId + the frozen snapshotId/revision on success. Phase 23.8 test/debug starts (the editor\'s "Play from..." sends the same): ' +
+      'sceneId - start there (a game with levels starts the first level that loads the scene, skipping the title; without levels the scene loads with the start scenes and the player starts at its first player spawn); ' +
+      'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
+      'save - a save document ({version, levelId, run, ...}, as the game writes them; <= 64 KB) or saveSlot auto|1|2|3 (a save in the Play page) to continue a game with levels; ' +
+      'mode - a game mode id (checked once the project defines game modes; ignored and noted in start.notes otherwise). ' +
+      'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
       type: 'object',
-      properties: { demo: { type: 'boolean' }, sessionId: { type: 'string', pattern: '^sess-[0-9a-f]{32}$' } },
+      properties: {
+        demo: { type: 'boolean' },
+        sessionId: { type: 'string', pattern: '^sess-[0-9a-f]{32}$' },
+        sceneId: { type: 'string', description: 'start Play at this scene' },
+        mode: { type: 'string', description: 'a game mode id (applies once the project has game modes)' },
+        variables: { type: 'object', description: 'script variables: what ctx.save holds from step 0' },
+        save: { type: 'object', description: 'a save document to continue from (a game with levels)' },
+        saveSlot: { type: 'string', enum: ['auto', '1', '2', '3'], description: 'continue from this save slot of the Play page' },
+      },
       additionalProperties: false,
     },
   },
@@ -677,10 +695,14 @@ async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<C
   // sessions.md §10.1: the play-start body is `{ options: { demo } }` (demo
   // boolean, default true) — `demo` nests under `options`, not at the top level.
   const body: Record<string, unknown> = {};
+  const options: Record<string, unknown> = {};
   if (a.demo !== undefined) {
     if (typeof a.demo !== 'boolean') return toolError('demo must be a boolean');
-    body.options = { demo: a.demo };
+    options.demo = a.demo;
   }
+  // Phase 23.8: the start options go in `options` too (the backend validates and resolves them).
+  for (const k of ['sceneId', 'mode', 'variables', 'save', 'saveSlot'] as const) if (a[k] !== undefined) options[k] = a[k];
+  if (Object.keys(options).length > 0) body.options = options;
   if (a.sessionId !== undefined) {
     if (typeof a.sessionId !== 'string') return toolError('sessionId must be a string');
     body.sessionId = a.sessionId;
@@ -957,6 +979,17 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
     body.sceneId = a.sceneId;
   } else if (a.sceneId !== undefined) {
     return toolError('sceneId goes with loadScene / unloadScene only');
+  }
+  // Phase 23.8: a debug command's name and arguments.
+  if (a.command === 'debugCommand') {
+    if (typeof a.name !== 'string' || a.name.length === 0) return toolError('name is required for debugCommand');
+    body.name = a.name;
+    if (a.args !== undefined) {
+      if (!isObj(a.args)) return toolError('args must be an object of argument values');
+      body.args = a.args;
+    }
+  } else if (a.name !== undefined || a.args !== undefined) {
+    return toolError('name and args go with debugCommand only');
   }
   const res = await ctx.client.gameControl(ctx.projectId, a.playSessionId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
