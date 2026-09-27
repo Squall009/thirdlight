@@ -740,6 +740,21 @@ export {
   type WindConfig,
 } from './materials';
 
+// Phase 23.18: environment presets (named looks scripts switch or blend to).
+export {
+  ENVIRONMENT_LIGHT_TYPES,
+  ENVIRONMENT_PRESET_LIMITS,
+  canonicalEnvironmentPresets,
+  environmentPresetTextureRefs,
+  validateEnvironmentPatch,
+  validateEnvironmentPresets,
+  type EnvironmentLightType,
+  type EnvironmentLookParts,
+  type EnvironmentPreset,
+  type EnvironmentPresetLight,
+  type EnvironmentPresetLightmap,
+} from './environment-presets';
+
 // Phase 15.0: the component and content descriptor registry (pure data).
 export {
   ASSET_KINDS,
@@ -941,3 +956,17 @@ export {
 } from './dialogue';
 export { codePointLength, parseRichText, richTextVisibleLength, uiValueText, type RichStyle, type RichToken } from './rich-text';
 export { UI_DIALOGUE_INPUTS, type UiDialogueInput } from './ui-documents';
+// Phase 23.17: timelines (sequencer assets).
+export {
+  TIMELINE_LIMITS,
+  TIMELINE_TRACK_TYPES,
+  TIMELINE_EASINGS,
+  TIMELINE_TARGET_TRACKS,
+  validateTimeline,
+  validateTimelines,
+  validateTimelineReferences,
+  timelineRefs,
+  canonicalTimeline,
+  canonicalTimelines,
+} from './timelines';
+export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineSlot, TimelineMarker, TimelineTrackType, TimelineEasing, TimelineValue } from './timelines';

@@ -78,7 +78,10 @@ export type V3MutationOp =
   | 'deleteSpeaker'
   | 'setDialogueSettings'
   | 'setModes'
-  | 'setBehaviorGroups';
+  | 'setBehaviorGroups'
+  | 'deleteUiTheme'
+  | 'setTimeline'
+  | 'deleteTimeline';
 import type { AuthoringEnvelopeV3, ContentCatalogV3, GameConfig, SceneV3 } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { sessionError, type SessionError } from './errors';
@@ -123,7 +126,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setModes', 'setBehaviorGroups', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'];
 /** The v3 query op (commands.md §4; packet 45). */
 // Phase 23.5: queryBlocks reads block-layer cells and regions.
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks'];
@@ -171,6 +174,7 @@ export const CHANGE_TYPES = [
   'setDialogue',
   'setModes',
   'setBehaviorGroups',
+  'setTimeline',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------
@@ -838,6 +842,13 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
     const nums = (v: unknown, n: number): boolean => Array.isArray(v) && v.length === n && v.every((x) => typeof x === 'number' && Number.isFinite(x));
     if (!isPlainObject(c) || !(c['live'] === null || typeof c['live'] === 'string') || !nums(c['position'], 3) || !nums(c['rotation'], 4) || typeof c['fovY'] !== 'number' || typeof c['letterbox'] !== 'number') {
       return fieldError('field_type', '/camera', 'camera is { live: id|null, blend: {from, progress, style}|null, position: [x,y,z], rotation: [x,y,z,w], fovY, near, far, letterbox, shake }');
+    }
+  }
+  // Phase 23.18: the optional environment preset blend (target, progress, weights by key).
+  if (value.environment !== undefined) {
+    const e = value.environment;
+    if (!isPlainObject(e) || !(e['target'] === null || typeof e['target'] === 'string') || typeof e['progress'] !== 'number' || !isPlainObject(e['weights']) || Object.keys(e['weights']).length > 64 || !Object.values(e['weights']).every((w) => typeof w === 'number' && Number.isFinite(w))) {
+      return fieldError('field_type', '/environment', 'environment is { target: presetId|null, progress, weights: { key: 0-1 } } (at most 64 keys)');
     }
   }
   // Phase 23.11: the optional objects riding on sockets (entity, target, node, world position).

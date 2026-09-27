@@ -14,6 +14,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, type GraphContext, type GraphData, type GraphDocument } from './graph';
+import { canonicalEnvironmentPresets, validateEnvironmentPresets, type EnvironmentPreset } from './environment-presets';
 import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
@@ -548,6 +549,8 @@ export interface EnvironmentConfig {
   post?: PostConfig;
   /** The project's default quality level (players can change it in the settings menu). */
   quality?: 'low' | 'medium' | 'high';
+  /** Phase 23.18: named looks scripts switch or blend to at run time (environment-presets.ts). */
+  presets?: EnvironmentPreset[];
 }
 
 /** Phase 15.5: the wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. */
@@ -558,7 +561,8 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
     err(errors, 'field_type', path, 'environment is an object', value);
     return;
   }
-  for (const k of Object.keys(value)) if (!['wind', 'sky', 'fog', 'post', 'quality'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'wind, sky, fog, post, quality');
+  for (const k of Object.keys(value)) if (!['wind', 'sky', 'fog', 'post', 'quality', 'presets'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'wind, sky, fog, post, quality, presets');
+  if (value['presets'] !== undefined) validateEnvironmentPresets(value['presets'], `${path}/presets`, errors);
   if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
   if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
   if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
@@ -586,7 +590,7 @@ export function validateLevelEnvironment(value: unknown, path: string, errors: M
 }
 
 export function canonicalLevelEnvironment(e: LevelEnvironment): LevelEnvironment {
-  const { quality: _q, ...rest } = canonicalEnvironment(e);
+  const { quality: _q, presets: _p, ...rest } = canonicalEnvironment(e);
   return rest;
 }
 
@@ -636,6 +640,8 @@ export function canonicalEnvironment(e: EnvironmentConfig): EnvironmentConfig {
     ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
     ...(e.post !== undefined ? { post: canonicalObject(e.post) } : {}),
     ...(e.quality !== undefined ? { quality: e.quality } : {}),
+    // Phase 23.18: last, so an environment without presets keeps its exact bytes.
+    ...(e.presets !== undefined && e.presets.length > 0 ? { presets: canonicalEnvironmentPresets(e.presets) } : {}),
   };
 }
 

@@ -22,6 +22,7 @@ const SECTIONS: readonly { id: SaveSection; label: string; hint: string }[] = [
   { id: 'storage', label: 'Script storage', hint: 'the values scripts keep with ctx.save' },
   // Phase 23.16: the dialogue variables and the lines seen (skip-if-seen).
   { id: 'dialogue', label: 'Dialogue', hint: 'the dialogue variables and the lines already seen' },
+  { id: 'environment', label: 'Environment', hint: 'the environment preset blend scripts set (ctx.environment)' },
 ];
 const ENGINE = ['', 'music', 'sfx', 'ui', 'quality'] as const;
 const DEFAULT_SCHEMA: SaveSchema = { version: 1, slots: 3 };

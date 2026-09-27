@@ -25,6 +25,7 @@
 import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type DialogueSpeaker } from '@thirdlight/project-model';
 import type { GameMode } from '@thirdlight/project-model';
+import type { TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
@@ -516,6 +517,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...(input.content !== null ? { dialogue: dialogueForRuntime(input.content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[]; dialogueSettings?: DialogueSettings }) } : {}),
     // Phase 23.10: the game modes (the runtime switches them; the host reads their pause screens).
     ...((input.content as { modes?: GameMode[] } | null)?.modes !== undefined ? { modes: (input.content as { modes: GameMode[] }).modes } : {}),
+    // Phase 23.17: the timelines (the runtime plays them in the simulation step).
+    ...((input.content as { timelines?: TimelineAsset[] } | null)?.timelines !== undefined ? { timelines: (input.content as { timelines: TimelineAsset[] }).timelines } : {}),
     // Phase 9.8: the input actions (the game's input binding reads them).
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
     // Phase 23.3: the named collision layers (the 3D physics world resolves colliders' and queries' layers with them).

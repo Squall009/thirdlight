@@ -48,6 +48,7 @@ import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { UI_LIMITS } from './ui-documents';
 import { DIALOGUE_LIMITS } from './dialogue';
+import { TIMELINE_LIMITS } from './timelines';
 import { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS } from './block-layers';
@@ -1505,12 +1506,36 @@ const POST = obj('post', 'Post-processing', 'Tone mapping, exposure and screen e
   ]),
 ]);
 
+// Phase 23.18: environment presets — named looks scripts switch or blend to (a part a preset leaves out is the base look's).
+const PRESET_LIGHT = obj('*', 'Light', 'The values this preset gives the lights it names (one of entity, tag or type; none: every light).', [
+  entity('entity', 'Entity', 'One light by its entity.', { component: 'light' }),
+  str('tag', 'Tag', 'Every light with this tag.', { format: 'identifier', minLength: 1, maxLength: 32 }),
+  enm('type', 'Type', 'Every light of this type.', ['directional', 'ambient', 'point', 'spot', 'hemisphere']),
+  color('color', 'Colour', 'The light colour.'),
+  num('intensity', 'Intensity', 'The light intensity (candela for point and spot lights).', { min: 0, max: 1000, step: 0.05 }),
+  vec3('direction', 'Direction', 'Where a directional or spot light shines (not all 0).', { min: -1, max: 1, step: 0.05, nonZero: true }),
+  color('groundColor', 'Ground colour', 'A hemisphere light\'s ground colour.'),
+], { rules: ['A light entry names at most one of entity, tag or type (none: every light).'] });
+const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, light values and a lightmap multiplier.', [
+  str('presetId', 'Id', 'A stable id scripts use: a-z, 0-9, _ or -.', { required: true, format: 'identifier', minLength: 1, maxLength: 64 }),
+  str('name', 'Name', 'Shown in the editor.', { required: true, minLength: 1, maxLength: 128 }),
+  SKY,
+  FOG,
+  POST,
+  list('lights', 'Lights', 'Light values (later entries win per field).', PRESET_LIGHT, { maxItems: 32 }),
+  obj('lightmap', 'Lightmap', 'Multiplies baked lighting (a bake keeps the light of the moment it was baked).', [
+    num('intensity', 'Intensity', 'Multiplies the baked light (1: as baked).', { min: 0, max: 8, step: 0.05, default: 1 }),
+    color('tint', 'Tint', 'Tints the baked light (white: as baked).', { default: '#ffffff' }),
+  ]),
+], { rules: ['Preset ids are unique.'] });
+
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'Sky, fog, post-processing, wind and the default quality.', [
   SKY,
   FOG,
   POST,
   WIND,
   enm('quality', 'Quality', 'The default graphics quality (players change it in Settings).', ['low', 'medium', 'high'], { default: 'high' }),
+  list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment).', PRESET, { maxItems: 64 }),
 ]);
 
 const FLOW: FieldDescriptor = obj('flow', 'Game flow', 'Levels, lives, the title screen, HUD, menu look and texts, volumes, menu sounds and score rules.', [
@@ -1881,6 +1906,8 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'dialogues', label: 'Dialogues', tooltip: 'Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.', required: false, value: list('dialogues', 'Dialogues', `Up to ${DIALOGUE_LIMITS.dialogues} conversations.`, json('*', 'Dialogue', 'A conversation: { dialogueId, name, graph } (graph kind dialogue).', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.dialogues, default: [] }), ops: ['setDialogue', 'deleteDialogue', 'graphEdit'] },
   { key: 'speakers', label: 'Speakers', tooltip: 'Who speaks in conversations: name, name-plate colour, portraits per expression, voice profile, text blip.', required: false, value: list('speakers', 'Speakers', `Up to ${DIALOGUE_LIMITS.speakers} speakers.`, json('*', 'Speaker', 'A speaker: { speakerId, name, color?, portraits? {expression: texture}, defaultExpression?, voiceProfile?, blip?, blipEvery?, blipVolume? }.', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.speakers, default: [] }), ops: ['setSpeaker', 'deleteSpeaker'] },
   { key: 'dialogueSettings', label: 'Dialogue settings', tooltip: 'Text speed, auto-advance and its delay, the music/SFX duck under a voice, the backlog length, the dialogue UI document and theme.', required: false, value: json('dialogueSettings', 'Dialogue settings', '{ textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId) }.', { readOnly: true }), ops: ['setDialogueSettings'] },
+  // Phase 23.17: timelines (tracks of keys on a time ruler; edited in the Timeline tab).
+  { key: 'timelines', label: 'Timelines', tooltip: 'Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals and fades on a time ruler, played by scripts or signals.', required: false, value: list('timelines', 'Timelines', `Up to ${TIMELINE_LIMITS.timelines} timelines.`, json('*', 'Timeline', 'A timeline: { timelineId, name, duration, slots?, markers?, tracks, … }.', { readOnly: true }), { maxItems: TIMELINE_LIMITS.timelines, default: [] }), ops: ['setTimeline', 'deleteTimeline'] },
   // Phase 16.1: standalone node graphs; their body is edited in the graph editor (graphEdit ops).
   { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', `Up to ${MAX_GRAPH_DOCUMENTS} graphs.`, json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { maxItems: MAX_GRAPH_DOCUMENTS, default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },

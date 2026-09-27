@@ -539,6 +539,26 @@ const ENV_BASES: J[] = [
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
   { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'] }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
+  // Phase 23.18: environment presets.
+  {
+    presets: [
+      {
+        presetId: 'night',
+        name: 'Night',
+        sky: { mode: 'color', color: '#000010' },
+        fog: { mode: 'linear', color: '#101820', near: 5, far: 40 },
+        post: POST_FULL,
+        lights: [
+          { entity: 'light-0001', color: '#8090ff', intensity: 0.2, direction: [0, -1, 0], groundColor: '#101010' },
+          { tag: 'Lamps', intensity: 30 },
+          { type: 'ambient', color: '#101020' },
+        ],
+        lightmap: { intensity: 0.25, tint: '#8090ff' },
+      },
+    ],
+  },
+  { presets: [{ presetId: 'lamps', name: 'Lamps', lights: [{ tag: 'Lamps', intensity: 30 }] }] },
+  { presets: [{ presetId: 'dim', name: 'Dim', lights: [{ type: 'ambient', color: '#101020' }] }] },
 ];
 
 const FLOW_BASE = {
@@ -803,6 +823,8 @@ function runAllProbes(): void {
   // (The shape validator: the references to documents, maps and groups are the project's check, tested in modes.test.ts.)
   probe('modes', (v) => errorsOf((e) => validateModes(v, '', e)), [{ modeId: 'explore', name: 'Explore', inputMaps: ['gameplay', 'tactical'], camera: 'cam-0001', ui: ['hud'], groups: ['field'], ungrouped: 'pause', pause: false, pauseScreen: 'hud', timeScale: 0.5, physics: 'hold', enter: { blend: 'eased', blendTime: 0.5, fade: 'fade', fadeTime: 0.25 } }], '', block('modes'), 'modes:');
   probe('behaviorGroups', contentErrors, contentDoc({ behaviorGroups: ['field', 'board'] }), '/behaviorGroups', block('behaviorGroups'), 'behaviorGroups:');
+  // Phase 23.17: timelines (json items).
+  probe('timelines', contentErrors, contentDoc({ timelines: [{ timelineId: 'intro', name: 'Intro', duration: 2, tracks: [{ trackId: 's', type: 'signal', keys: [{ time: 1, name: 'go' }] }] }] }), '/timelines', block('timelines'), 'timelines:');
   // Phase 23.9b: the UI editor's descriptors (a document's own fields, each widget type, styles, tweens).
   runUiProbes();
   // Phase 23.3: the named collision layers.
@@ -893,8 +915,9 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(new Set(DESCRIPTORS.components.map((c) => c.name)).size).toBe(DESCRIPTORS.components.length);
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
-    // (phase 23.9b: + the UI document vocabulary, about 20 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(220_000);
+    // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
+    // repeat the sky/fog/post descriptors, about 9 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(232_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

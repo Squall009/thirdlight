@@ -109,6 +109,8 @@ export interface RuntimeSnapshot {
   materialCatalog?: import('./material-params').RuntimeMaterialCatalog;
   /** Phase 23.19, optional: the project save schema (`content.saveSchema`; `ctx.saves`). */
   saveSchema?: import('@thirdlight/project-model').SaveSchema;
+  /** Phase 23.18, optional: the ids of the environment presets (`environment.presets`; `ctx.environment`). */
+  environmentPresets?: readonly string[];
   /**
    * Phase 23.9a, v4 only, optional: the project's UI documents as the
    * simulation knows them (id, layer, modal) — `ctx.ui.show/hide` and a
@@ -127,6 +129,8 @@ export interface RuntimeSnapshot {
    * maps). Absent: no modes — nothing of them runs or enters the digest.
    */
   modes?: import('@thirdlight/project-model').RuntimeModes;
+  /** Phase 23.17, v4 only, optional: the project's timelines (`content.timelines`; `ctx.timeline`). */
+  timelines?: readonly import('@thirdlight/project-model').TimelineAsset[];
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -779,6 +783,10 @@ export interface StepContext {
    * runs (no modes, or the mode ticks every group).
    */
   readonly behaviorTicks?: (entityId: string) => boolean;
+  /** Phase 23.17: timelines (`ctx.timeline`). */
+  readonly timeline?: BehaviorTimeline;
+  /** Phase 23.18: environment presets (`ctx.environment`). */
+  readonly environment?: BehaviorEnvironment;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1269,6 +1277,58 @@ export interface BehaviorUiEvent {
  * game host draws the documents; the view model and the shown documents are
  * simulation state.
  */
+/** Phase 23.18: how a change to an environment preset happens (`ctx.environment.set`). */
+export interface EnvironmentChangeOptions {
+  /** Seconds the blend takes (0–600; 0 or absent: at once). */
+  blend?: number;
+  /** How the blend progresses. */
+  easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+  /** Per-field changes over the preset: { sky?, fog?, post?, lights?, lightmap? }, each merged over the preset's (a light list adds entries). */
+  override?: { readonly [part: string]: unknown };
+}
+
+/**
+ * Phase 23.18 (E17): `ctx.environment` — switch or blend the look (sky, fog,
+ * light colours and intensities, exposure and grading) between the project's
+ * environment presets at run time. `''` names the base look (the project
+ * environment with the level's look). The blend is simulation state: it
+ * replays, runs alike in the simulation worker and can be saved.
+ */
+export interface BehaviorEnvironment {
+  /**
+   * Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
+   * @graphNode Set environment
+   * @graphLabel presetId preset
+   * @graphLabel blend blend (seconds)
+   */
+  set(presetId: string, options?: EnvironmentChangeOptions): boolean;
+  /**
+   * Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
+   * @graphNode Blend environments
+   * @graphDefault t 0.5
+   */
+  blend(a: string, b: string, t: number): boolean;
+  /**
+   * The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
+   * @graphPure
+   * @graphNode Environment state
+   */
+  state(): { target: string; progress: number; blending: boolean };
+  /**
+   * How much of a preset is in the look now (0–1; '' = the base look).
+   * @graphPure
+   * @graphNode Environment weight
+   * @graphLabel presetId preset
+   */
+  weight(presetId: string): number;
+  /**
+   * The project's environment preset ids.
+   * @graphPure
+   * @graphNode Environment presets
+   */
+  presets(): readonly string[];
+}
+
 export interface BehaviorUi {
   /**
    * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
@@ -1606,6 +1666,99 @@ export interface BehaviorLifecycle {
    * @graphNode Restart run
    */
   restart(): boolean;
+}
+
+/** Phase 23.17: one timeline event (seen in the step after it happened). */
+export interface BehaviorTimelineEvent {
+  /** started, ended or marker (a marker of the timeline was reached). */
+  readonly kind: 'started' | 'ended' | 'marker';
+  readonly handle: number;
+  /** The timeline's id. */
+  readonly timeline: string;
+  /** marker: its name ('' otherwise). */
+  readonly name: string;
+  /** ended: finished, skipped or stopped ('' otherwise). */
+  readonly reason: '' | 'finished' | 'skipped' | 'stopped';
+  readonly stepIndex: number;
+}
+
+/**
+ * Phase 23.17: `ctx.timeline` — play project timelines (sequences of camera
+ * cuts, moves, animation, sound, dialogue, effects, signals, fades) as an
+ * engine system in the simulation step. Calls take effect at the end of the
+ * step; events (started, ended, marker) are seen in the next step, so a
+ * script never waits: it reacts to the events or to the timeline's signals.
+ */
+export interface BehaviorTimeline {
+  /**
+   * Play a timeline, binding its slots to objects (`{ slot: entityId }`; unbound slots use the timeline's defaults). Returns its handle (0 when refused: no such timeline, or 8 already playing).
+   * @graphNode Play timeline
+   * @graphLabel timelineId timeline
+   */
+  play(timelineId: string, bindings?: Readonly<Record<string, string>>): number;
+  /**
+   * Pause a playing timeline (it holds its current state).
+   * @graphNode Pause timeline
+   */
+  pause(handle: number): boolean;
+  /**
+   * Resume a paused timeline.
+   * @graphNode Resume timeline
+   */
+  resume(handle: number): boolean;
+  /**
+   * Stop a timeline where it is (no end states: the sounds and effects it started stop, the cameras go back).
+   * @graphNode Stop timeline
+   */
+  stop(handle: number): boolean;
+  /**
+   * Skip to the end: every track's end state at once (cameras, transforms, music, activation; remaining signals fire unless a key says drop).
+   * @graphNode Skip timeline
+   */
+  skip(handle: number): boolean;
+  /**
+   * Jump to a time (seconds): the moves, fades and cameras there; keys in between do not fire.
+   * @graphNode Seek timeline
+   * @graphDefault seconds 0
+   */
+  seek(handle: number, seconds: number): boolean;
+  /**
+   * A play's state: playing, paused, waiting (for input or a dialogue), ended (recently), or null.
+   * @graphPure
+   * @graphNode Timeline state
+   */
+  state(handle: number): 'playing' | 'paused' | 'waiting' | 'ended' | null;
+  /**
+   * A play's time in seconds (counted in fixed steps).
+   * @graphPure
+   * @graphNode Timeline time
+   */
+  time(handle: number): number;
+  /**
+   * Whether any play of this timeline is running.
+   * @graphPure
+   * @graphNode Timeline playing
+   * @graphLabel timelineId timeline
+   */
+  isPlaying(timelineId: string): boolean;
+  /**
+   * The timeline events of the previous step (started, ended, marker), in order.
+   * @graphNode skip a list of records; the Timeline ended and Timeline marker nodes check one
+   */
+  events(): readonly BehaviorTimelineEvent[];
+  /**
+   * True in the step after a play ended (finished, skipped or stopped).
+   * @graphPure
+   * @graphNode Timeline ended
+   */
+  ended(handle: number): boolean;
+  /**
+   * True in the step after a marker with this name was reached (of the play `handle`, or of any play when 0).
+   * @graphPure
+   * @graphNode Timeline marker
+   * @graphDefault handle 0
+   */
+  marker(name: string, handle?: number): boolean;
 }
 
 /**
@@ -1986,6 +2139,13 @@ export interface Runtime {
   takeMaterialChanges?(): import('./material-params').MaterialRenderChange[];
   /** Phase 23.12: the material parameters scripts set, as digest text (null while none is set). */
   materialState?(): string | null;
+  /**
+   * Phase 23.18: the environment blend (preset weights) interpolated like the transforms,
+   * or null until a script changed the environment (the renderer then draws the static look).
+   */
+  readEnvironmentBlend?(): import('./environment-blend').EnvironmentBlendView | null;
+  /** Phase 23.18: the committed environment blend as digest text (null until a script changed it). */
+  environmentState?(): string | null;
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */
@@ -2027,6 +2187,10 @@ export interface Runtime {
   dialogueView?(): Record<string, unknown> | null;
   /** Phase 23.10: the game modes as of the last step (null: the project has none). */
   modeView?(): import('./modes').ModeView | null;
+  /** Phase 23.17: the timelines' screen overlay (fade, letterbox), plays and last events (null until one played). */
+  timelineView?(): import('./timeline').TimelineView | null;
+  /** Phase 23.17: the timelines' state for the step digest (null until one played). */
+  timelineState?(): string | null;
   /** Phase 23.3: the cursor a script asked for ('free' | 'locked'), or null — the active input map decides. */
   cursorRequest?(): 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */

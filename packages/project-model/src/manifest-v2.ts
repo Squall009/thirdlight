@@ -46,6 +46,7 @@ import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateU
 import { canonicalModes, validateModes, type GameMode } from './modes';
 import { fail, isPlainObject, withFound } from './validate';
 import { runtimeDialogueDataProblem, type RuntimeDialogueData } from './dialogue';
+import { canonicalTimelines, validateTimelines, type TimelineAsset } from './timelines';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
@@ -85,7 +86,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'modes', 'dialogue', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'modes', 'dialogue', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -128,6 +129,8 @@ export const MANIFEST_KEYS_V2 = [
   'uiDocuments',
   // Phase 23.10: the game modes (the runtime switches them; the host reads their pause screens).
   'modes',
+  // Phase 23.17: the timelines (sequencer assets) the game plays.
+  'timelines',
   // Phase 23.16: the compiled conversations, speakers and dialogue settings (only when the project has conversations).
   'dialogue',
   'scenes',
@@ -295,6 +298,8 @@ export interface RuntimeContentManifestV2 {
   dialogue?: RuntimeDialogueData;
   /** Phase 23.10: the game modes (present only when the project has some). */
   modes?: GameMode[];
+  /** Phase 23.17: the timelines (present only when the project has some). */
+  timelines?: TimelineAsset[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
@@ -617,6 +622,8 @@ export interface CaptureManifestV2Input {
   dialogue?: RuntimeDialogueData | null;
   /** Phase 23.10: the game modes (only when the project has some). */
   modes?: readonly GameMode[];
+  /** Phase 23.17: the timelines (only when the project has some). */
+  timelines?: readonly TimelineAsset[];
   environment?: EnvironmentConfig;
   /** Phase 9.6: the scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
@@ -764,6 +771,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
     ...(input.dialogue !== undefined && input.dialogue !== null ? { dialogue: JSON.parse(JSON.stringify(input.dialogue)) as RuntimeDialogueData } : {}),
     ...(input.modes !== undefined && input.modes.length > 0 ? { modes: canonicalModes(input.modes) } : {}),
+    ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -870,6 +878,12 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     const tagErrors: ModelErrorV2[] = [];
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
+  }
+  // Phase 23.17: the timelines validate as content.timelines does (their own rules).
+  if (d['timelines'] !== undefined) {
+    const tlErrors: ModelErrorV2[] = [];
+    validateTimelines(d['timelines'], '/timelines', tlErrors);
+    if (tlErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'timelines are not valid', 'field_value') };
   }
   if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined || d['modes'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];

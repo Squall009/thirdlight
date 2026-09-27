@@ -21,9 +21,10 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const MAX_REVISION = 2 ** 53 - 1;
 
 import { runtimeDialogueDataProblem, validateSaveSchema, type RuntimeDialogueData, type SaveSchema } from '@thirdlight/project-model';
+import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'dialogue']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'environmentPresets', 'dialogue']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -80,6 +81,8 @@ export function validateRuntimeSnapshot(
       uiDocuments: readonly RuntimeUiDocumentRow[];
       dialogue?: RuntimeDialogueData;
       modes?: RuntimeModes;
+      timelines?: readonly TimelineAsset[];
+      environmentPresets?: readonly string[];
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -345,6 +348,24 @@ export function validateRuntimeSnapshot(
     if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
     saveSchema = (snap as { saveSchema: SaveSchema }).saveSchema;
   }
+  // Phase 23.17: the optional v4 timelines (ctx.timeline).
+  let timelines: readonly TimelineAsset[] | undefined;
+  if ((snap as { timelines?: unknown }).timelines !== undefined) {
+    if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/timelines', message: 'snapshot field "timelines" is v4-only' } };
+    const errs: ModelErrorV2[] = [];
+    validateTimelines((snap as { timelines?: unknown }).timelines, '/timelines', errs);
+    if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
+    timelines = canonicalTimelines((snap as { timelines: TimelineAsset[] }).timelines);
+  }
+  // Phase 23.18: the optional environment preset ids (ctx.environment).
+  let environmentPresets: readonly string[] | undefined;
+  if ((snap as { environmentPresets?: unknown }).environmentPresets !== undefined) {
+    const ids = (snap as { environmentPresets?: unknown }).environmentPresets;
+    if (!Array.isArray(ids) || ids.length > 64 || !ids.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x)) || new Set(ids).size !== ids.length) {
+      return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/environmentPresets', message: 'environmentPresets is a list of at most 64 unique preset ids' } };
+    }
+    environmentPresets = ids as string[];
+  }
   // Phase 23.9a: the optional v4 UI document rows (id, layer, modal) scripts show and hide.
   let uiDocuments: readonly RuntimeUiDocumentRow[] = [];
   if (snap.uiDocuments !== undefined) {
@@ -419,7 +440,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}) , ...(modes !== undefined ? { modes } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

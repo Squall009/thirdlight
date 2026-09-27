@@ -174,6 +174,9 @@ const OPS: readonly MutationOp[] = [
   // phase 23.10: game modes and behavior groups
   'setModes',
   'setBehaviorGroups',
+  // phase 23.17: timelines
+  'setTimeline',
+  'deleteTimeline',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -221,7 +224,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setModes, setBehaviorGroups, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1236,7 +1239,10 @@ export type ValidatedOpArgs =
   | { op: 'deleteSpeaker'; args: { speakerId: string } }
   | { op: 'setDialogueSettings'; args: { settings: import('@thirdlight/project-model').DialogueSettings | null } }
   | { op: 'setModes'; args: { modes: import('@thirdlight/project-model').GameMode[] } }
-  | { op: 'setBehaviorGroups'; args: { groups: string[] } };
+  | { op: 'setBehaviorGroups'; args: { groups: string[] } }
+  | { op: 'deleteUiTheme'; args: { uiThemeId: string } }
+  | { op: 'setTimeline'; args: { timeline: import('@thirdlight/project-model').TimelineAsset } }
+  | { op: 'deleteTimeline'; args: { timelineId: string } };
 
 /** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1470,6 +1476,17 @@ export function validateOpArgs(
       const okShape = op === 'setDialogueSettings' ? args[key] === null || isPlainObject(args[key]) : isObjectArg ? isPlainObject(args[key]) : typeof args[key] === 'string';
       if (!okShape) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setDialogue' ? 'object ({ dialogueId, name, graph? })' : op === 'setSpeaker' ? 'object ({ speakerId, name, color?, portraits?, … })' : op === 'setDialogueSettings' ? 'object or null' : `string (${key})`) };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setTimeline':
+    case 'deleteTimeline': {
+      // Phase 23.17: setTimeline {timeline}; deleteTimeline {timelineId}.
+      const key = op === 'setTimeline' ? 'timeline' : 'timelineId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (op === 'setTimeline' ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setTimeline' ? 'object ({ timelineId, name, duration, tracks, … })' : 'string (timelineId)') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

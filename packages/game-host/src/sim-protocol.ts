@@ -181,6 +181,8 @@ export interface FrameState {
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
   /** Phase 23.12: material parameters scripts changed (one change per object, material and parameter). */
   readonly mat?: readonly import('@thirdlight/runtime').MaterialRenderChange[];
+  /** Phase 23.18: the environment preset blend, interpolated with the frame's alpha (when it changed; absent until a script used it). */
+  readonly env?: import('@thirdlight/runtime').EnvironmentBlendView | null;
   /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
   readonly ui?: UiOutput;
   /** Phase 23.10: the game modes (when they changed; null: the project has none). */
@@ -199,6 +201,8 @@ export interface FrameState {
   readonly debugCommands?: DebugCommandState;
   /** Phase 23.11: the objects riding on sockets (entity, target, node) when that changed. */
   readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
+  /** Phase 23.17: the timelines' view (screen fade/letterbox, plays, last events) when it changed. */
+  readonly tl?: import('@thirdlight/runtime').TimelineView | null;
   /** Phase 23.19: the save/load/delete/settings requests scripts made (the page owns storage). */
   readonly saveReq?: readonly import('@thirdlight/runtime').SaveRequest[];
 }

@@ -276,6 +276,30 @@ export { character3DPhysicsOf } from './scene-set';
 // Phase 23.4: the camera framework — the script API, the brain and its pure rig maths (the editor's frustum previews use it).
 export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './types';
 export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';
+// Phase 23.18: environment presets — the blend state (simulation) and the blended look (renderer, editor preview).
+export type { BehaviorEnvironment, EnvironmentChangeOptions } from './types';
+export { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
+export {
+  ENVIRONMENT_EASINGS,
+  FOG_DEFAULTS,
+  SKY_DEFAULTS,
+  blendEnvironment,
+  blendLight,
+  blendTouchesLights,
+  colorToLinear,
+  easeEnvironment,
+  lightValuesFor,
+  linearToColor,
+  mixColors,
+  resolveEnvironmentKey,
+  type BlendedEnvironment,
+  type EnvironmentBaseLook,
+  type EnvironmentBlendView,
+  type EnvironmentEasing,
+  type EnvironmentLightIdentity,
+  type EnvironmentLightValues,
+  type EnvironmentOverride,
+} from './environment-blend';
 export { lookAtQuat, orbitOffset, pointOnPath, quatFromYawPitch, samplePath, screenToRay, worldToScreen, yawPitchOf, type CameraPose, type SampledPath, type ScreenPoint } from './camera-rig';
 export { debugCallProblem } from './debug-commands';
 // Phase 23.19: project save documents (ctx.saves).
@@ -327,3 +351,29 @@ export type { BehaviorLifecycle, BehaviorModeEvent, BehaviorModes, BehaviorModeT
 export { ModeState, type ModeEffects, type ModeEventRecord, type ModeTransitionSpec, type ModeView } from './modes';
 export { modesForRuntime } from '@thirdlight/project-model';
 export type { GameMode, RuntimeModes } from '@thirdlight/project-model';
+// Phase 23.17: the sequencer (timelines in the simulation step; the evaluation the editor's scrub preview shares).
+export {
+  TimelineSystem,
+  TIMELINE_MAX_PLAYING,
+  evaluateTimelineAt,
+  timelineBindings,
+  timelineEase,
+  transformTrackAt,
+  valueTrackAt,
+  cameraKeyAt,
+  cameraProgressAt,
+  fadeColorAt,
+  curveAt,
+  type TimelineHost,
+  type TimelineDialoguePort,
+  type TimelineEnvironmentPort,
+  type TimelineEvent,
+  type TimelineView,
+  type TimelinePreview,
+  type TimelinePlayState,
+  type TimelineTransformPose,
+} from './timeline';
+export type { BehaviorTimeline, BehaviorTimelineEvent } from './types';
+export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineTrackType } from '@thirdlight/project-model';
+// The editor may take project-model values only through the runtime (dependencies.md §4.1).
+export { TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, TIMELINE_LIMITS } from '@thirdlight/project-model';

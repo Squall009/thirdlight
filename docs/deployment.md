@@ -1800,7 +1800,8 @@ the **Saves** tab (MCP: `setSaveSchema {schema | null}`):
 - **Included state** (opt-in): *block cells* (the cells scripts changed,
   `ctx.grid`), *material values* (`ctx.materials`), *spawned objects*
   (prefab copies with their placement and ids; their scripts start fresh),
-  *script storage* (`ctx.save`). A section the schema includes but a save
+  *script storage* (`ctx.save`), *environment* (the preset blend,
+  `ctx.environment`; phase 23.18). A section the schema includes but a save
   lacks is reset to the run's start on load.
 - **Slot picture**: size and format (default 256 × 144 JPEG; at most
   512 px a side and 64 KiB).
@@ -1936,6 +1937,78 @@ brightens) and **gain** (scales the whites, 0–4); the defaults (0, 1, 1)
 leave the image unchanged. A **fog volume** (Inspector) has *thins with
 height*: its density fades by e^(−k·height) above the box bottom (k per
 metre, 0–10; 0 = even fog, as before).
+
+## Environment presets (runtime environment changes, phase 23.18)
+
+An **environment preset** is a named look a game switches or blends to at
+run time — the same village by day and by night, a storm rolling in. A
+preset is project content (`environment.presets`, at most 64) with any of:
+
+- `sky` and `fog` — a whole sky / fog (the Environment window's shapes);
+- `post` — post-processing merged per effect over the base (exposure, tone
+  mapping, grading incl. lift/gamma/gain/tint, bloom, vignette, …);
+- `lights` (at most 32 entries) — colour, intensity, direction (directional
+  and spot) and ground colour (hemisphere) for the scene lights an entry
+  names: by `entity` id, by `tag` name or by light `type` (e.g. every
+  `ambient` or `hemisphere` light), every light when it names none; later
+  entries win per field;
+- `lightmap: { intensity?, tint? }` — a multiplier on baked lightmaps.
+
+A part a preset does not set is the **base look**'s: the project environment
+with the playing level's look over it, and the lights as authored.
+
+**Editor.** The Environment window's *Presets* section: type a name and
+**capture current as preset** — the environment's sky, fog and post and
+every scene light's colour, intensity and direction are stored (one
+`setEnvironment`, undo/redo like any edit). **preview** shows a preset in the
+Scene view (with game lighting); *blend from* / *blend to* and the **blend
+preview** slider show a mix; **stop preview** goes back. Previewing stores
+nothing. **delete** removes a preset. MCP: `setEnvironment` with
+`environment.presets`.
+
+**Scripts.** `ctx.environment`:
+
+- `set(presetId, { blend?, easing?, override? })` — switch to a preset (`''`
+  = the base look) over `blend` seconds (0–600; absent: at once), easing
+  `linear` (default: a time-of-day fade progresses evenly), `easeIn`,
+  `easeOut` or `easeInOut`; an interrupted blend continues from the look on
+  screen. `override` changes fields of the preset for this change only
+  (`{ fog: { color: '#ff0000' } }`: sky, fog, post and lightmap merge over
+  the preset's, lights add entries). False (and a warning in the play log)
+  for an unknown preset or a bad option.
+- `blend(a, b, t)` — hold a mix of two presets (t 0–1), for a timeline or a
+  script that drives t itself.
+- `state()` → `{ target, progress, blending }`, `weight(presetId)`,
+  `presets()`.
+
+Visual scripts have the same as *Set environment*, *Blend environments*,
+*Environment state*, *Environment weight* and *Environment presets*
+(category Environment). The blend is simulation state: it replays, runs the
+same in the simulation worker and in exports, and is in the step digest once
+a script used it (games that never do are unchanged). A project save
+document includes it when the save schema lists the `environment` section.
+`tl_game_observe` (and an export's `window.__thirdlightObserve()`) reports
+`environment: { target, progress, weights }` once a script changed it.
+
+**How it draws.** Numbers blend linearly, colours in linear light, light
+directions are normalized, the sun's azimuth goes the short way round. The
+renderer changes them in place every frame — sky colours and parameters,
+fog colour and distances, exposure, grading, vignette and bloom are
+uniforms, so a blend compiles no new shaders (a change of tone-mapping mode
+or fog kind does). Two presets with **different skies** (another mode, or
+another sky image) **cross-fade**: each sky is drawn as a dome over the
+background with its share as opacity; the image-based lighting is the
+heavier sky's. A sky that only changes its numbers re-bakes its image-based
+lighting at most every 30th frame. Fog of different kinds converts (linear
+↔ exp2 by density = 2 / far); a look without fog thins it. Tone mapping,
+anti-aliasing, AO, depth of field and the LUT image cannot blend: the
+heavier look's is used.
+
+**Baked lighting.** A lightmap holds the light of the moment it was baked:
+changing a baked light's colour in a preset does not change the baked
+surfaces (a light a bake holds is not realtime at all). Give such presets a
+`lightmap` multiplier — e.g. `{ intensity: 0.2, tint: '#8090ff' }` for night
+— and the baked surfaces darken and tint with the blend.
 
 ## Icons and gizmos
 
@@ -2477,6 +2550,96 @@ and camera path points are Scene handles (one undo step per drag).
 export) reports `camera: { live, blend: {from, progress, style} | null,
 position, rotation, fovY, near, far, letterbox, shake }` while the game has
 virtual cameras.
+
+## Timelines (sequencer, phase 23.17)
+
+A **timeline** is project content (bottom dock → **Timelines**: create,
+open, delete; one undo step each) that sequences what a cutscene or a
+scripted event does on a time ruler. It has a **duration**, **tracks** of
+**keys** (a key with a duration is a clip) and **markers**. Tracks never name
+objects: they name **slots**, and a play binds the slots to objects (each slot
+may have a default object — used by the editor preview and when a play binds
+nothing), so one timeline serves any actors.
+
+**Track types** (the key fields in brackets):
+
+- **Camera** — a key makes a virtual camera live from its time until the next
+  key, over the game's priorities [camera slot or release, blend cut / linear
+  / eased and blend time, rail progress from→to over the key's span]. At the
+  end the track **releases** the view to the game's cameras (with its end
+  blend) or **keeps** the last camera enabled.
+- **Transform** — the target's position, rotation, scale, each channel eased
+  between keys (from its first key on). A 3D character's body moves with it.
+- **Animator** — set a parameter, fire a trigger, or go to a state (with a
+  crossfade) on the target's animator.
+- **Audio** — music change (crossfade; no asset: silence), give the music back
+  to the game flow, a stinger, an SFX (optional loop, length, position of a
+  bound object). The track can give the music back when the timeline ends.
+- **Dialogue** — run a dialogue node and wait for it (needs the dialogue
+  system of phase 23.16; until it is in the engine a dialogue key is skipped
+  with a warning).
+- **Effect** — start a visual effect (at a bound object or a position, with
+  parameters; a length stops it).
+- **Activation** — show or hide the target.
+- **Signal** — fire a signal (scripts see it one step later with
+  `ctx.signals.on`; effects and movers start on it). **On skip** fire (the
+  default) or drop.
+- **Fade** — a full-screen colour over the view (opacity 0–1); **Letterbox** —
+  black bars (each a share of the view height; the larger of the timeline's
+  and the camera's is drawn). Both are cleared at the end unless **hold**.
+- **Wait for input** — the timeline stops at the key until the input action
+  is pressed (optional timeout).
+- **Material** — a public graph-material parameter of the target (number,
+  vector or colour, eased).
+- **Game mode** — switch the game mode (as `ctx.modes.switch`, with an optional camera blend); skip applies the last remaining mode key.
+- **Environment** — switch to an environment preset (needs phase 23.18;
+  skipped with a warning until it is in the engine).
+
+Easing (linear, step, ease in, ease out, ease in-out) shapes the move from the
+previous key to the key.
+
+**Playing.** `ctx.timeline.play(id, { slot: entityId })` returns a handle (0
+when refused: no such timeline, or 8 already playing); `pause`, `resume`,
+`stop` (where it is, no end states; the sounds and effects it started stop),
+`skip` (see below), `seek(handle, seconds)` (continuous tracks and cameras at
+that time; keys in between do not fire), `state` (playing, paused, waiting,
+ended), `time`, `isPlaying(id)`, `events()` (started, ended with reason
+finished / skipped / stopped, marker — seen in the next step), `ended(handle)`
+and `marker(name)`. A timeline can also play when a run starts (**Play when a
+run starts**) or when a signal fires (**Play on signal**). Its **skip action**
+(an input action) skips it while it plays.
+
+**Skip** applies each track's end state at once: the last camera (cut), the
+transforms, material values, fade and letterbox at the end, the remaining
+animator parameter sets and state changes (triggers are dropped), the
+remaining music changes (the music owner and track end as if played; stingers
+and SFX are not played, the sounds it started stop), the remaining activation
+keys, the remaining signals (unless a key says drop); waits pass, pending
+dialogue does not run; markers after the skip point are not reported.
+
+**Determinism.** Timelines run in the simulation step (after the scripts,
+before the camera brain): time counts in fixed steps, a wait key reads the
+step's input frame, and every change goes through the same channels scripts
+use — so the simulation worker, the export and replays (skip and waits
+included) give the same result.
+
+**Editor.** Open a timeline in its centre tab: the timeline's fields and
+slots at the top, the track list beside the time ruler (zoom slider), keys
+dragged along the ruler (one command per drag), a key inspector for the
+selected key, **Add key at playhead**. Clicking or dragging the ruler scrubs:
+the Scene view stays visible above the timeline and shows the bound objects
+where the timeline puts them and the live camera's frustum at that time;
+animator tracks show the state their keys lead to; sound, effects, signals and
+dialogue play in Play only.
+
+**Observing.** `tl_game_observe` / `window.__thirdlightObserve()` report
+`timeline: { screen: { fade, opacity, letterbox }, playing: [{ handle,
+timeline, time, state, wait }], events }` once a timeline played; the fade
+element carries `data-tl-fade`.
+
+**Engine limits.** 64 timelines per project, 32 tracks, 256 keys per track,
+16 slots, 64 markers, 600 s, 48 KiB of JSON per timeline, 8 playing at once.
+
 ## Block layers (phase 23.5)
 
 A **block layer** builds a level from blocks on a grid (terrain, buildings, a

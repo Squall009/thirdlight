@@ -62,12 +62,14 @@ import type {
   BehaviorAnimatorHandle,
   BehaviorAudio,
   BehaviorCamera,
+  BehaviorEnvironment,
   BehaviorSockets,
   BehaviorDebug,
   BehaviorUi,
   BehaviorDialogue,
   BehaviorModes,
   BehaviorLifecycle,
+  BehaviorTimeline,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -245,6 +247,10 @@ export interface BehaviorContext {
   readonly modes?: BehaviorModes;
   /** Phase 23.10: the run lifecycle of a game without the platformer session — respawn the player at a spawn, restart the run. */
   readonly lifecycle?: BehaviorLifecycle;
+  /** Phase 23.17: timelines — play, pause, skip, seek and stop project timelines; their events and markers. */
+  readonly timeline?: BehaviorTimeline;
+  /** Phase 23.18: the environment presets — switch or blend sky, fog, lights, exposure and grading at run time. */
+  readonly environment?: BehaviorEnvironment;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -964,6 +970,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         // Phase 23.10: the game modes and the run lifecycle.
         if (src.modes !== undefined) fields['modes'] = { value: src.modes, enumerable: true };
         if (src.lifecycle !== undefined) fields['lifecycle'] = { value: src.lifecycle, enumerable: true };
+        // Phase 23.17: timelines (an engine system in the step; scripts read its events next step).
+        if (src.timeline !== undefined) fields['timeline'] = { value: src.timeline, enumerable: true };
+        // Phase 23.18: the environment presets.
+        if (src.environment !== undefined) fields['environment'] = { value: src.environment, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

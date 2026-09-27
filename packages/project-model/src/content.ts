@@ -13,6 +13,7 @@
 
 import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
 import { canonicalDialogues, canonicalDialogueSettings, canonicalSpeakers, validateDialogueReferences, validateDialogues, validateDialogueSettings, validateSpeakers } from './dialogue';
+import { canonicalTimelines, validateTimelineReferences, validateTimelines, type TimelineAsset } from './timelines';
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, projectInputMaps, validateInput } from './input';
@@ -2189,8 +2190,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2378,6 +2379,16 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     validateModes(doc['modes'], '/modes', errors);
     if (errors.length === before) validateModeReferences(doc, errors);
   }
+  // Phase 23.17: timelines (v4) and what their keys name (audio assets, effects, materials).
+  if (version === 4 && doc['timelines'] !== undefined) {
+    const before = errors.length;
+    validateTimelines(doc['timelines'], '/timelines', errors);
+    if (errors.length === before) {
+      const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind'] ?? 'model'] as const));
+      const ids = (key: string, idKey: string): Set<string> => new Set((Array.isArray(doc[key]) ? (doc[key] as unknown[]) : []).filter(isPlainObject).map((x) => String(x[idKey])));
+      validateTimelineReferences(doc['timelines'] as TimelineAsset[], '/timelines', errors, { assetKind: (id) => kinds.get(id), effectIds: ids('effects', 'effectId'), materialIds: ids('materials', 'materialId'), modeIds: ids('modes', 'modeId') });
+    }
+  }
   if (version === 4) validateMaterialReferences(doc, errors);
   else if (Array.isArray(doc['assets'])) {
     // Phase 14.6: clips-only assets are v4 data (v3 projects upgrade on open).
@@ -2531,6 +2542,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).dialogues !== undefined && (c as ContentCatalogV4).dialogues!.length > 0 ? { dialogues: canonicalDialogues((c as ContentCatalogV4).dialogues!) } : {}),
     ...((c as ContentCatalogV4).speakers !== undefined && (c as ContentCatalogV4).speakers!.length > 0 ? { speakers: canonicalSpeakers((c as ContentCatalogV4).speakers!) } : {}),
     ...((c as ContentCatalogV4).dialogueSettings !== undefined ? { dialogueSettings: canonicalDialogueSettings((c as ContentCatalogV4).dialogueSettings!) } : {}),
+    // Phase 23.17: present only when there are timelines.
+    ...((c as ContentCatalogV4).timelines !== undefined && (c as ContentCatalogV4).timelines!.length > 0 ? { timelines: canonicalTimelines((c as ContentCatalogV4).timelines!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };
@@ -2641,6 +2654,19 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     }
     const post = env['post'];
     if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
+    // Phase 23.18: the presets' sky images and LUTs.
+    if (Array.isArray(env['presets'])) {
+      (env['presets'] as unknown[]).forEach((pr, i) => {
+        if (!isPlainObject(pr)) return;
+        const psky = pr['sky'];
+        if (isPlainObject(psky)) {
+          if (psky['texture'] !== undefined) refs.push([`/environment/presets/${i}/sky/texture`, psky['texture']]);
+          if (Array.isArray(psky['cube'])) psky['cube'].forEach((id, j) => refs.push([`/environment/presets/${i}/sky/cube/${j}`, id]));
+        }
+        const ppost = pr['post'];
+        if (isPlainObject(ppost) && isPlainObject(ppost['grading']) && ppost['grading']['lut'] !== undefined) refs.push([`/environment/presets/${i}/post/grading/lut`, ppost['grading']['lut']]);
+      });
+    }
     for (const [p, id] of refs) {
       if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
     }

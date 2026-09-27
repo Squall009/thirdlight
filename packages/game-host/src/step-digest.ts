@@ -91,12 +91,18 @@ export function stepDigest(rt: Runtime): string {
   // Phase 23.12: the material parameters scripts set (only while any is set, so every other digest is unchanged).
   const mat = rt.materialState?.() ?? null;
   if (mat !== null) h.text(mat);
+  // Phase 23.18: the environment preset blend (only once a script changed the environment, so every other digest is unchanged).
+  const env = rt.environmentState?.() ?? null;
+  if (env !== null) h.text(env);
   // Phase 23.19: the project saves state (document, play time, settings, slot list, outcomes; only with a save schema and once used).
   const saves = rt.savesState?.() ?? null;
   if (saves !== null) h.text(saves);
   // Phase 23.16: the dialogue runner (only once a conversation or a dialogue call happened, so every other digest is unchanged).
   const dlg = rt.dialogueState?.() ?? null;
   if (dlg !== null) h.text(dlg);
+  // Phase 23.17: the timelines (only once one played, so every other digest is unchanged).
+  const tl = rt.timelineState?.() ?? null;
+  if (tl !== null) h.text(tl);
   // Phase 23.9a: the project UI's view model and shown documents (only once a script or a frame used it).
   const ui = rt.uiView?.();
   if (ui !== undefined && (Object.keys(ui.model).length > 0 || ui.shown.length > 0)) {

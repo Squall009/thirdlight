@@ -32,6 +32,7 @@ import { effectsOf, withEffect } from './effect-ops';
 import { uiOf, withUi } from './ui-ops';
 import { dialogueValueOf, withDialogueValue } from './dialogue-ops';
 import { behaviorGroupsOf, modesOf, withBehaviorGroups, withModes } from './mode-ops';
+import { timelineOf, withTimeline } from './timeline-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
@@ -579,6 +580,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, inv.libraryId, inv.restore), inv.behaviors.map((b) => b.restore)), change, entry.requestId);
   }
 
+  if (inv.kind === 'setTimeline') {
+    // Phase 23.17: one timeline back to what it was.
+    const before = timelineOf(content, inv.timelineId);
+    const change: ChangeData = { type: 'setTimeline', timelineId: inv.timelineId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withTimeline(content, inv.timelineId, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setUi') {
     // Phase 23.9a: one UI document or theme back to what it was.
     const before = uiOf(content, inv.uiKind, inv.id);
@@ -1049,6 +1057,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const behaviors = f.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.previous), next: deepClone(b.next) }));
     const change: ChangeData = { type: 'setScriptLibrary', libraryId: f.libraryId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next), behaviors };
     return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, f.libraryId, f.next), f.behaviors.map((b) => b.next)), change, entry.requestId);
+  }
+
+  if (f.type === 'setTimeline') {
+    const before = timelineOf(content, f.timelineId);
+    const change: ChangeData = { type: 'setTimeline', timelineId: f.timelineId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withTimeline(content, f.timelineId, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setUi') {

@@ -30,7 +30,7 @@
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
 
-import { buildPostPipeline, createSkyMesh, gradientSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
+import { buildPostPipeline, createSkyMesh, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
 
 /** Structural copies of the project-model environment types. */
 export interface SkyLike {
@@ -73,6 +73,17 @@ export interface EnvironmentLike {
   readonly fog?: FogLike;
   readonly post?: PostLike;
   readonly quality?: 'low' | 'medium' | 'high';
+  /** Phase 23.18: the environment presets (the renderer draws a blend of them through `setBlend`). */
+  readonly presets?: readonly { readonly presetId: string; readonly [field: string]: unknown }[];
+}
+
+/**
+ * Phase 23.18: a blended look (runtime `blendEnvironment`): one sky, or
+ * several different skies cross-fading (`skyLayers`, null = the background),
+ * the blended fog and post.
+ */
+export interface EnvironmentBlendLike extends EnvironmentLike {
+  readonly skyLayers?: readonly { readonly sky: SkyLike | null; readonly weight: number }[];
 }
 
 /** Phase 14.4: a level's look (`flow.levels[].environment`), laid over the project environment. */
@@ -133,6 +144,14 @@ export interface EnvironmentRendererOptions {
 export interface EnvironmentRenderer {
   /** The environment (null = none: the scene renders as before). */
   set(env: EnvironmentLike | null): void;
+  /**
+   * Phase 23.18: draw a blended look over the environment (null: back to the
+   * environment `set` gave). Called per frame while a blend runs: sky colours
+   * and parameters, fog, exposure, grading, vignette and bloom numbers change
+   * in place (uniforms: no rebuilt pass, no new program); a different sky
+   * cross-fades as layers; image-based lighting follows at most every 30th frame.
+   */
+  setBlend(env: EnvironmentBlendLike | null): void;
   /** Where the sun is, from the scene's directional light (its `direction`, pointing away from the sun). */
   setKeyLightDirection(direction: readonly [number, number, number] | null): void;
   setFogVolumes(volumes: readonly FogVolumeLike[]): void;
@@ -146,6 +165,19 @@ export interface EnvironmentRenderer {
   /** Phase 21.3: the MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
   dispose(): void;
+}
+
+/** Phase 23.18: a sky's structure (its mode and images): skies with the same one blend field by field. */
+function skyStruct(sky: SkyLike): string {
+  return sky.mode === 'texture' ? `texture|${sky.texture ?? ''}|${(sky.cube ?? []).join(',')}` : sky.mode;
+}
+
+/** Phase 23.18: one cross-fade sky layer (null mesh: the background, or an image still loading). */
+interface SkyLayer {
+  mesh: THREE.Mesh | null;
+  material: THREE.Material | null;
+  env: { texture: THREE.Texture; dispose(): void } | null;
+  image: THREE.Texture | null;
 }
 
 const TONE: Record<string, THREE.ToneMapping> = {
@@ -167,6 +199,18 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   /** Phase 17.3: the post stack (a RenderPipeline). */
   let pipeline: PostPipeline | null = null;
   let env: EnvironmentLike | null = null;
+  /** Phase 23.18: the environment `set` gave (a blend draws over it; `setBlend(null)` goes back). */
+  let baseEnv: EnvironmentLike | null = null;
+  let blending = false;
+  /** Phase 23.18: the built sky's structure (mode and images): a sky with the same one changes in place. */
+  let builtStruct = '';
+  /** The gradient dome's material (its colour uniforms; the image-based lighting is re-baked from it). */
+  let gradientMat: THREE.Material | null = null;
+  /** Image-based lighting to re-bake (a blend changed the sky); frames since the last bake. */
+  let iblDirty = false;
+  let framesSinceBake = 0;
+  /** Phase 23.18: the cross-fade layers by sky structure (a mesh per sky; null: the background). */
+  const layers = new Map<string, SkyLayer>();
   let qualityOverride: QualityLevel | null = null;
   let keyLight: [number, number, number] | null = null;
   let volumes: readonly FogVolumeLike[] = [];
@@ -233,6 +277,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const s = scene as THREE.Scene & { environmentIntensity?: number; backgroundIntensity?: number };
     s.environmentIntensity = 1;
     s.backgroundIntensity = 1;
+    gradientMat = null;
+    builtStruct = '';
+    iblDirty = false;
   };
   const applyEnvIntensity = (sky: SkyLike): void => {
     const s = scene as THREE.Scene & { environmentIntensity?: number; backgroundIntensity?: number };
@@ -248,6 +295,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     if (sky === undefined) {
       return;
     }
+    builtStruct = skyStruct(sky);
     applyEnvIntensity(sky);
     if (sky.mode === 'color') {
       scene.background = new THREE.Color(sky.color ?? '#7ec8ff');
@@ -274,6 +322,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       const bottom = new THREE.Color(sky.bottomColor ?? '#757575'); // phase 15.5: neutral grey below the horizon (was a grass olive)
       // On the far plane (phase 17.3): a camera whose far plane is nearer than the dome still sees the sky.
       const mat = gradientSkyMaterial(top, horizon, bottom);
+      gradientMat = mat;
       skyDome = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), mat);
       skyDome.frustumCulled = false;
       scene.background = null;
@@ -332,11 +381,203 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     }
   };
 
+  // ---- Phase 23.18: blends (the sky in place, cross-fade layers) ----------------------------
+  const procParams = (sky: SkyLike): Parameters<typeof createSkyMesh>[0] => ({ turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) });
+  /** Re-bake the image-based lighting from the sky as it is now (a blend changed it). */
+  const rebakeIbl = (): void => {
+    iblDirty = false;
+    framesSinceBake = 0;
+    const sky = env?.sky;
+    if (sky === undefined || layers.size > 0) return;
+    if (sky.mode === 'gradient' && gradientMat !== null) {
+      envMap?.dispose();
+      const tmp = new THREE.Scene();
+      const probe = new THREE.SphereGeometry(10, 32, 16);
+      tmp.add(new THREE.Mesh(probe, gradientMat));
+      envMap = pmrem.fromScene(tmp, 0, 0.1, 100);
+      scene.environment = envMap.texture;
+      probe.dispose();
+    } else if (sky.mode === 'procedural' && skyMesh !== null) {
+      envMap?.dispose();
+      const tmp = new THREE.Scene();
+      const clone = createSkyMesh(procParams(sky));
+      tmp.add(clone);
+      envMap = pmrem.fromScene(tmp, 0, 0.1, 10000);
+      scene.environment = envMap.texture;
+      clone.geometry.dispose();
+      (clone.material as THREE.Material).dispose();
+    }
+  };
+  /** The built sky takes this sky's numbers (same structure): uniforms, a background colour, intensities. */
+  const updateSkyInPlace = (sky: SkyLike): void => {
+    applyEnvIntensity(sky);
+    if (sky.mode === 'gradient' && gradientMat !== null) {
+      const u = gradientSkyUniforms(gradientMat);
+      u?.top.value.set(sky.topColor ?? '#3d7cd6');
+      u?.horizon.value.set(sky.horizonColor ?? '#bfe3ff');
+      u?.bottom.value.set(sky.bottomColor ?? '#757575');
+      iblDirty = true;
+    } else if (sky.mode === 'procedural' && skyMesh !== null) {
+      const m = skyMesh as THREE.Mesh & { turbidity: { value: number }; rayleigh: { value: number }; mieCoefficient: { value: number }; mieDirectionalG: { value: number }; sunPosition: { value: THREE.Vector3 } };
+      const p = procParams(sky);
+      m.turbidity.value = p.turbidity;
+      m.rayleigh.value = p.rayleigh;
+      m.mieCoefficient.value = p.mieCoefficient;
+      m.mieDirectionalG.value = p.mieDirectionalG;
+      m.sunPosition.value.copy(p.sun);
+      iblDirty = true;
+    } else if (sky.mode === 'color' && (scene.background as THREE.Color | null)?.isColor === true) {
+      (scene.background as THREE.Color).set(sky.color ?? '#7ec8ff');
+    }
+    // The static path's key follows (a later `set` with this sky changes nothing).
+    skyKey = JSON.stringify(sky) + (sky.sunFromLight !== false ? JSON.stringify(keyLight) : '');
+  };
+  const disposeLayer = (l: SkyLayer): void => {
+    if (l.mesh !== null) {
+      scene.remove(l.mesh);
+      l.mesh.geometry.dispose();
+    }
+    l.material?.dispose();
+    l.env?.dispose();
+    l.image?.dispose();
+  };
+  const disposeLayers = (): void => {
+    for (const l of layers.values()) disposeLayer(l);
+    layers.clear();
+  };
+  /** One cross-fade layer's mesh (built once per sky structure; its numbers updated per frame). */
+  const layerFor = (key: string, sky: SkyLike | null): SkyLayer => {
+    const had = layers.get(key);
+    if (had !== undefined) return had;
+    const rec: SkyLayer = { mesh: null, material: null, env: null, image: null };
+    layers.set(key, rec);
+    if (sky === null) return rec;
+    const addDome = (material: THREE.Material): void => {
+      material.transparent = true;
+      material.opacity = 0;
+      rec.material = material;
+      rec.mesh = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), material);
+      rec.mesh.frustumCulled = false;
+      scene.add(rec.mesh);
+    };
+    if (sky.mode === 'gradient') {
+      const mat = gradientSkyMaterial(new THREE.Color(sky.topColor ?? '#3d7cd6'), new THREE.Color(sky.horizonColor ?? '#bfe3ff'), new THREE.Color(sky.bottomColor ?? '#757575'));
+      addDome(mat);
+      const tmp = new THREE.Scene();
+      const probe = new THREE.SphereGeometry(10, 32, 16);
+      tmp.add(new THREE.Mesh(probe, mat));
+      rec.env = pmrem.fromScene(tmp, 0, 0.1, 100);
+      probe.dispose();
+    } else if (sky.mode === 'color') {
+      addDome(imageSkyMaterial({ color: new THREE.Color(sky.color ?? '#7ec8ff') }));
+    } else if (sky.mode === 'procedural') {
+      const params = procParams(sky);
+      const mesh = createSkyMesh(params);
+      const material = mesh.material as THREE.Material;
+      material.transparent = true;
+      material.opacity = 0;
+      rec.material = material;
+      rec.mesh = mesh;
+      scene.add(mesh);
+      const tmp = new THREE.Scene();
+      const clone = createSkyMesh(params);
+      tmp.add(clone);
+      rec.env = pmrem.fromScene(tmp, 0, 0.1, 10000);
+      clone.geometry.dispose();
+      (clone.material as THREE.Material).dispose();
+    } else if (sky.cube !== undefined && sky.cube.length === 6) {
+      void Promise.all(sky.cube.map((id) => texture(id))).then((faces) => {
+        if (disposed || layers.get(key) !== rec || faces.some((f) => f === null)) return;
+        const cube = new THREE.CubeTexture(faces.map((f) => (f as THREE.Texture).image));
+        cube.colorSpace = THREE.SRGBColorSpace;
+        cube.needsUpdate = true;
+        rec.image = cube;
+        addDome(imageSkyMaterial({ cube }));
+        rec.env = pmrem.fromCubemap(cube);
+        options.onChange?.();
+      });
+    } else if (sky.texture !== undefined) {
+      void texture(sky.texture).then((t) => {
+        if (t === null || disposed || layers.get(key) !== rec) return;
+        const eq = new THREE.Texture(t.image as HTMLImageElement);
+        eq.colorSpace = THREE.SRGBColorSpace;
+        eq.flipY = true;
+        eq.needsUpdate = true;
+        rec.image = eq;
+        addDome(imageSkyMaterial({ equirect: eq }));
+        const refl = eq.clone();
+        refl.mapping = THREE.EquirectangularReflectionMapping;
+        refl.needsUpdate = true;
+        rec.env = pmrem.fromEquirectangular(refl);
+        options.onChange?.();
+      });
+    }
+    return rec;
+  };
+  /**
+   * Cross-fade: every sky a dome over the background, drawn in order with
+   * opacity = its weight over the weights drawn so far (so the picture is the
+   * weighted mix); the image-based lighting is the heaviest sky's.
+   */
+  const applyLayers = (list: readonly { readonly sky: SkyLike | null; readonly weight: number }[]): void => {
+    if (builtStruct !== '' || skyMesh !== null || skyDome !== null || envMap !== null || skyTexture !== null) {
+      clearSky();
+      skyKey = '';
+    }
+    const wantedKeys = new Set<string>();
+    let drawn = 0;
+    let heaviest: { key: string; weight: number; sky: SkyLike | null } = { key: '-', weight: -1, sky: null };
+    list.forEach((entry, i) => {
+      const key = entry.sky === null ? '-' : skyStruct(entry.sky);
+      wantedKeys.add(key);
+      const l = layerFor(key, entry.sky);
+      if (entry.weight > heaviest.weight) heaviest = { key, weight: entry.weight, sky: entry.sky };
+      drawn += entry.weight;
+      if (entry.sky === null) return;
+      const opacity = drawn <= 0 ? 0 : entry.weight / drawn;
+      if (l.material !== null) {
+        l.material.opacity = opacity;
+        if (entry.sky.mode === 'gradient') {
+          const u = gradientSkyUniforms(l.material);
+          u?.top.value.set(entry.sky.topColor ?? '#3d7cd6');
+          u?.horizon.value.set(entry.sky.horizonColor ?? '#bfe3ff');
+          u?.bottom.value.set(entry.sky.bottomColor ?? '#757575');
+        } else if (entry.sky.mode === 'color') (l.material as THREE.Material & { color: THREE.Color }).color.set(entry.sky.color ?? '#7ec8ff');
+      }
+      if (l.mesh !== null) {
+        l.mesh.renderOrder = -1000 + i;
+        l.mesh.visible = opacity > 0;
+      }
+    });
+    for (const [key, l] of [...layers.entries()]) {
+      if (wantedKeys.has(key)) continue;
+      disposeLayer(l);
+      layers.delete(key);
+    }
+    scene.environment = layers.get(heaviest.key)?.env?.texture ?? null;
+    const s = scene as THREE.Scene & { environmentIntensity?: number };
+    s.environmentIntensity = heaviest.sky?.environmentIntensity ?? 1;
+    scene.background = baseBackground;
+  };
+
   // ---- fog -----------------------------------------------------------------------
   const applyFog = (): void => {
     const f = env?.fog;
     if (f === undefined || f.mode === 'none') {
       scene.fog = null;
+      return;
+    }
+    // Phase 23.18: the same kind of fog changes in place (a new fog object would mean new programs).
+    const cur = scene.fog as THREE.Fog | THREE.FogExp2 | null;
+    if (f.mode === 'linear' && cur instanceof THREE.Fog) {
+      cur.color.set(f.color);
+      cur.near = f.near ?? 10;
+      cur.far = f.far ?? 120;
+      return;
+    }
+    if (f.mode === 'exp2' && cur instanceof THREE.FogExp2) {
+      cur.color.set(f.color);
+      cur.density = f.density ?? 0.01;
       return;
     }
     scene.fog = f.mode === 'linear' ? new THREE.Fog(f.color, f.near ?? 10, f.far ?? 120) : new THREE.FogExp2(f.color, f.density ?? 0.01);
@@ -382,7 +623,11 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
     const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bg !== null && (bg.isColor === true || (bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace));
     const post = env?.post;
-    const key = JSON.stringify({ w, post, q: quality(), cam: camera.uuid, scale: postScale(), noMsaa, displayBackground });
+    // Phase 23.18: the numbers the passes take as uniforms (grading, vignette, bloom) are not part of
+    // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
+    // (postParams) instead of rebuilding it.
+    const structure = [post?.toneMapping ?? null, post?.grading?.lut ?? null, post?.ssao ?? null, post?.dof ?? null, post?.antialias ?? null];
+    const key = JSON.stringify({ w, structure, q: quality(), cam: camera.uuid, scale: postScale(), noMsaa, displayBackground });
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
@@ -440,6 +685,28 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       fallback = `post-processing is off: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
     }
   };
+  /** Phase 23.18: the uniform numbers of the post stack from the drawn environment. */
+  const postParams = (): Pick<PostPlan, 'grading' | 'bloom'> => {
+    const post = env?.post;
+    const g = post?.grading;
+    const w = wanted();
+    return {
+      grading: w.grading
+        ? {
+            brightness: g?.brightness ?? 0,
+            contrast: g?.contrast ?? 0,
+            saturation: g?.saturation ?? 0,
+            tint: g?.tint ?? '#ffffff',
+            lift: g?.lift ?? 0,
+            gamma: g?.gamma ?? 1,
+            gain: g?.gain ?? 1,
+            vignette: post?.vignette?.enabled === true ? (post.vignette.darkness ?? 0.5) : 0,
+            vignetteOffset: post?.vignette?.offset ?? 1,
+          }
+        : null,
+      bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
+    };
+  };
   const volumeBoxes = (): FogVolumeBox[] =>
     volumes.map((v) => ({
       min: [v.center[0] - v.size[0] / 2, v.center[1] - v.size[1] / 2, v.center[2] - v.size[2] / 2],
@@ -450,8 +717,36 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       heightFalloff: v.heightFalloff ?? 0,
     }));
 
-  return {
+  const self: EnvironmentRenderer = {
+    setBlend(next) {
+      if (next === null) {
+        if (!blending) return;
+        blending = false;
+        disposeLayers();
+        clearSky();
+        skyKey = '';
+        self.set(baseEnv);
+        return;
+      }
+      blending = true;
+      env = next;
+      const p = next.post;
+      const tone = TONE[p?.toneMapping ?? 'agx'] ?? THREE.NoToneMapping;
+      if (renderer.toneMapping !== tone) renderer.toneMapping = tone;
+      renderer.toneMappingExposure = p?.exposure ?? 1;
+      applyFog();
+      if (next.skyLayers !== undefined && next.skyLayers.length > 1) applyLayers(next.skyLayers);
+      else {
+        if (layers.size > 0) disposeLayers();
+        const sky = next.sky;
+        if (sky !== undefined && builtStruct !== '' && builtStruct === skyStruct(sky)) updateSkyInPlace(sky);
+        else buildSky();
+      }
+      options.onChange?.();
+    },
     set(next) {
+      baseEnv = next;
+      if (blending) return; // a blend draws over it; `setBlend(null)` goes back to it
       env = next;
       const p = next?.post;
       renderer.toneMapping = TONE[p?.toneMapping ?? (next === null ? 'none' : 'agx')] ?? THREE.NoToneMapping;
@@ -465,7 +760,11 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     setKeyLightDirection(direction) {
       const same = JSON.stringify(direction) === JSON.stringify(keyLight);
       keyLight = direction === null ? null : [direction[0], direction[1], direction[2]];
-      if (!same) buildSky();
+      if (same) return;
+      // Phase 23.18: a sun that follows the light moves in place (no new sky; the lighting is re-baked a little later).
+      const sky = env?.sky;
+      if (sky !== undefined && sky.mode === 'procedural' && sky.sunFromLight !== false && skyMesh !== null && layers.size === 0) updateSkyInPlace(sky);
+      else if (layers.size === 0) buildSky();
     },
     setFogVolumes(list) {
       const changedCount = (list.length > 0) !== (volumes.length > 0);
@@ -478,7 +777,11 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     },
     render(camera) {
       if (disposed) return;
+      // Phase 23.18: the lighting of a sky a blend changed, at most every 30th frame (a PMREM bake is not free: a cube render and blur passes).
+      framesSinceBake += 1;
+      if (iblDirty && framesSinceBake >= 30) rebakeIbl();
       buildPipeline(camera);
+      pipeline?.setParams(postParams());
       if (pipeline === null) {
         renderer.render(scene, camera);
         return;
@@ -502,8 +805,10 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     dispose() {
       disposed = true;
       disposePipeline();
+      disposeLayers();
       clearSky();
       pmrem.dispose();
     },
   };
+  return self;
 }

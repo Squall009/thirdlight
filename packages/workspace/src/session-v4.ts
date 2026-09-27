@@ -607,6 +607,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         // Phase 23.9a: project UI documents and themes.
         uiDocuments: JSON.parse(JSON.stringify((state.content as { uiDocuments?: unknown[] }).uiDocuments ?? [])) as unknown,
         uiThemes: JSON.parse(JSON.stringify((state.content as { uiThemes?: unknown[] }).uiThemes ?? [])) as unknown,
+        // Phase 23.17: timelines.
+        timelines: JSON.parse(JSON.stringify((state.content as { timelines?: unknown[] }).timelines ?? [])) as unknown,
         // Phase 23.3: the named collision layers.
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
         // Phase 23.10: the game modes and behavior groups.

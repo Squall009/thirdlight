@@ -59,6 +59,7 @@ import type {
   UiDocument,
   UiTheme,
   GameMode,
+  TimelineAsset,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -151,7 +152,11 @@ export type V3MutationOp =
   | 'setDialogueSettings'
   // phase 23.10: game modes and behavior groups
   | 'setModes'
-  | 'setBehaviorGroups';
+  | 'setBehaviorGroups'
+  | 'deleteUiTheme'
+  // phase 23.17: timelines
+  | 'setTimeline'
+  | 'deleteTimeline';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -577,6 +582,22 @@ export interface SetBehaviorGroupsInverse {
   restore: string[];
 }
 
+
+/** Phase 23.17: `setTimeline`/`deleteTimeline` change data: one timeline before and after (null = none). */
+export interface SetTimelineChange {
+  type: 'setTimeline';
+  timelineId: string;
+  previous: TimelineAsset | null;
+  next: TimelineAsset | null;
+}
+
+/** Phase 23.17: undo of a timeline op: restore the previous timeline (null = remove it). */
+export interface SetTimelineInverse {
+  kind: 'setTimeline';
+  timelineId: string;
+  restore: TimelineAsset | null;
+}
+
 /** Phase 23.9a: undo of a UI op: restore the previous document or theme (null = remove it). */
 export interface SetUiInverse {
   kind: 'setUi';
@@ -937,7 +958,9 @@ export type ChangeData =
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
-  | SetBehaviorGroupsChange;
+  | SetBehaviorGroupsChange
+  | SetUiChange
+  | SetTimelineChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -979,7 +1002,9 @@ export type ForwardChange =
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
-  | SetBehaviorGroupsChange;
+  | SetBehaviorGroupsChange
+  | SetUiChange
+  | SetTimelineChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -1171,6 +1196,7 @@ export type InverseSpec =
   | SetDialogueInverse
   | SetModesInverse
   | SetBehaviorGroupsInverse
+  | SetTimelineInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
@@ -1654,6 +1680,15 @@ export interface SetDialogueSettingsArgs {
   settings: import('@thirdlight/project-model').DialogueSettings | null;
 }
 
+/** Phase 23.17: `setTimeline` creates or replaces one timeline (by timelineId). */
+export interface SetTimelineArgs {
+  timeline: TimelineAsset;
+}
+/** Phase 23.17: `deleteTimeline` removes one timeline. */
+export interface DeleteTimelineArgs {
+  timelineId: string;
+}
+
 /** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
   effect: EffectDef;
@@ -1699,6 +1734,8 @@ export interface DeleteBlockStampArgs {
 }
 
 export type MutationArgs =
+  | SetTimelineArgs
+  | DeleteTimelineArgs
   | EditBlocksArgs
   | SetBlockTypeArgs
   | DeleteBlockTypeArgs

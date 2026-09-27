@@ -51,7 +51,8 @@ import {
 } from '@thirdlight/three-adapter';
 import type { BlockChunk, BlockLayerComponent, BlockType } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { CameraBrain, type CameraPose } from '@thirdlight/runtime';
+import { blendEnvironment, blendLight, type CameraPose, CameraBrain, type EnvironmentBlendView, type EnvironmentLightValues } from '@thirdlight/runtime';
+import type { EnvironmentPreset } from '@thirdlight/project-model';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -700,7 +701,9 @@ export class Viewport {
   private applyLighting(): void {
     this.unapplyLightmaps();
     this.applyLightmaps();
+    this.environment?.setBlend(null);
     this.environment?.set(this.lighting === 'game' ? this.environmentValue : null);
+    this.applyEnvironmentPreview();
     this.environment?.setQuality(this.editorQuality());
     for (const l of this.editorLights) l.visible = this.lighting === 'editor';
     for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
@@ -741,6 +744,9 @@ export class Viewport {
       have.light.dispose();
       this.sceneLights.delete(id);
     }
+    // Phase 23.18: a preset preview applies to the lights as they are now.
+    this.lightTags = new Map(entities.filter((e) => e.light !== undefined).map((e) => [e.id, e.tags]));
+    if (this.envPreview !== null) this.applyEnvironmentPreview();
     // The sun of a procedural sky sits opposite the scene's directional light.
     const key = entities.find((e) => e.light?.type === 'directional' && e.light.direction !== undefined);
     this.keyLightDirection = key?.light?.direction ?? null;
@@ -811,6 +817,102 @@ export class Viewport {
     }
     this.showVirtualCameraPreview();
   }
+  /**
+   * Phase 23.17: the timeline tab's scrub preview — the bound objects at the
+   * timeline's time (the runtime's own evaluation, `evaluateTimelineAt`) and
+   * the live camera's frustum there (the camera brain's rig maths, with the
+   * key's rail progress). Presentation only: nothing is written to the
+   * project; null restores the authored transforms. `data-timeline-preview`
+   * reports what is drawn (the objects' positions read back from the scene).
+   */
+  private timelinePreview: { time: number; transforms: ReadonlyMap<string, { position?: readonly number[]; rotation?: readonly number[]; scale?: readonly number[] }>; camera: { entityId: string; progress: number | null } | null } | null = null;
+  private readonly timelinePreviewed = new Set<string>();
+  private timelineFrustum: THREE.LineSegments | null = null;
+  setTimelinePreview(preview: { time: number; transforms: ReadonlyMap<string, { position?: readonly number[]; rotation?: readonly number[]; scale?: readonly number[] }>; camera: { entityId: string; progress: number | null } | null } | null): void {
+    this.timelinePreview = preview;
+    this.applyTimelinePreview();
+  }
+  private applyTimelinePreview(): void {
+    for (const id of this.timelinePreviewed) {
+      const m = this.meshes.get(id);
+      const e = this.synced.get(id);
+      if (m !== undefined && e !== undefined && !(this.draggingGizmo && id === this.gizmoTargetId)) {
+        m.position.set(N(e.position[0]), N(e.position[1]), N(e.position[2]));
+        m.quaternion.set(N(e.rotation[0]), N(e.rotation[1]), N(e.rotation[2]), N(e.rotation[3]));
+        m.scale.set(N(e.scale[0]), N(e.scale[1]), N(e.scale[2]));
+      }
+    }
+    this.timelinePreviewed.clear();
+    if (this.timelineFrustum !== null) {
+      this.timelineFrustum.removeFromParent();
+      this.timelineFrustum.geometry.dispose();
+      (this.timelineFrustum.material as THREE.Material).dispose();
+      this.timelineFrustum = null;
+    }
+    const p = this.timelinePreview;
+    if (p === null) {
+      this.root.setAttribute('data-timeline-preview', '');
+      this.requestRender();
+      return;
+    }
+    const shown: Record<string, number[]> = {};
+    for (const [id, pose] of p.transforms) {
+      const m = this.meshes.get(id);
+      if (m === undefined) continue;
+      if (pose.position !== undefined) m.position.set(N(pose.position[0]), N(pose.position[1]), N(pose.position[2]));
+      if (pose.rotation !== undefined) m.quaternion.set(N(pose.rotation[0]), N(pose.rotation[1]), N(pose.rotation[2]), N(pose.rotation[3]));
+      if (pose.scale !== undefined) m.scale.set(N(pose.scale[0]), N(pose.scale[1]), N(pose.scale[2]));
+      this.timelinePreviewed.add(id);
+      shown[id] = [m.position.x, m.position.y, m.position.z];
+    }
+    let camera: unknown = null;
+    if (p.camera !== null && this.projected.some((e) => e.id === p.camera!.entityId && e.components['virtualCamera'] !== undefined)) {
+      const entities = this.projected;
+      const sceneCam = entities.find((e) => e.kind === 'camera')?.components['camera'] as { fovY?: number; near?: number; far?: number } | undefined;
+      const brain = new CameraBrain(120, { fovY: sceneCam?.fovY ?? 60, near: sceneCam?.near ?? 0.1, far: sceneCam?.far ?? 100 });
+      brain.add(entities.map((e) => ({ id: e.id, components: e.components })));
+      if (p.camera.progress !== null) brain.set(p.camera.entityId, { progress: p.camera.progress });
+      const byId = new Map(entities.map((e) => [e.id, e]));
+      const world = {
+        worldOf: (id: string, out: number[], rot: number[]): boolean => {
+          const e = byId.get(id);
+          if (e === undefined) return false;
+          const m = new THREE.Matrix4();
+          for (let cur: ProjectedEntity | undefined = e, depth = 0; cur !== undefined && depth < 64; cur = cur.parentId !== null ? byId.get(cur.parentId) : undefined, depth += 1) {
+            // A previewed object is where the timeline puts it.
+            const pv = p.transforms.get(cur.id);
+            const pos = pv?.position ?? cur.position;
+            const q = pv?.rotation ?? cur.rotation;
+            const sc = pv?.scale ?? cur.scale;
+            m.premultiply(new THREE.Matrix4().compose(new THREE.Vector3(N(pos[0]), N(pos[1]), N(pos[2])), new THREE.Quaternion(N(q[0]), N(q[1]), N(q[2]), q[3] ?? 1), new THREE.Vector3(sc[0] ?? 1, sc[1] ?? 1, sc[2] ?? 1)));
+          }
+          const v = new THREE.Vector3();
+          const r = new THREE.Quaternion();
+          m.decompose(v, r, new THREE.Vector3());
+          out[0] = v.x;
+          out[1] = v.y;
+          out[2] = v.z;
+          rot[0] = r.x;
+          rot[1] = r.y;
+          rot[2] = r.z;
+          rot[3] = r.w;
+          return true;
+        },
+      };
+      const pose = brain.previewPose(p.camera.entityId, world);
+      if (pose !== null) {
+        const vc = byId.get(p.camera.entityId)?.components['virtualCamera'] as { rig?: string; distance?: number } | undefined;
+        const reach = vc?.rig === 'follow' || vc?.rig === 'orbitPoint' || vc?.rig === 'topDown' ? (vc.distance ?? 5) : 3;
+        this.timelineFrustum = virtualCameraFrustum(p.camera.entityId, pose, this.gameAspect, reach);
+        this.timelineFrustum.name = `timeline-camera:${p.camera.entityId}`;
+        this.scene.add(this.timelineFrustum);
+        camera = { id: p.camera.entityId, position: [...pose.position], rotation: [...pose.rotation] };
+      }
+    }
+    this.root.setAttribute('data-timeline-preview', JSON.stringify({ time: Math.round(p.time * 1000) / 1000, transforms: shown, camera }));
+    this.requestRender();
+  }
+
   private showVirtualCameraPreview(): void {
     let shown: unknown = null;
     for (const c of this.vcamPreviews.children) {
@@ -1171,7 +1273,57 @@ export class Viewport {
     env.set(this.lighting === 'game' ? this.environmentValue : null);
     env.setQuality(this.editorQuality());
     this.environment = env;
+    // Phase 23.18: a preset preview carries over to a new renderer.
+    if (this.envPreview !== null) this.applyEnvironmentPreview();
     return env;
+  }
+
+  // ---- Phase 23.18: environment preset preview --------------------------------------------
+  /** The preset blend the Scene view previews (null: the authored look). */
+  private envPreview: EnvironmentBlendView | null = null;
+  private envPreviewTags = new Map<string, number>();
+  private lightTags = new Map<string, number>();
+  private envLightsTouched = false;
+  /**
+   * Show an environment preset blend (weights by preset id; '' = the base
+   * look) in the Scene view with game lighting: the look, and the scene
+   * lights the presets set — the runtime's own blend maths (what Play draws).
+   * Null: back to the authored look. `tagBits`: the project's tag registry
+   * (name → bit) for presets that name lights by tag.
+   */
+  previewEnvironmentBlend(view: { weights: readonly (readonly [string, number])[]; overrides?: EnvironmentBlendView['overrides'] } | null, tagBits?: ReadonlyMap<string, number>): void {
+    this.envPreview = view === null ? null : { weights: view.weights, overrides: view.overrides ?? {}, target: null, progress: 1 };
+    if (tagBits !== undefined) this.envPreviewTags = new Map([...tagBits].map(([k, v]) => [k.toLowerCase(), v]));
+    this.applyEnvironmentPreview();
+    this.requestRender();
+  }
+  /** The previewed blend (tests, the panel). */
+  environmentPreview(): EnvironmentBlendView | null {
+    return this.envPreview;
+  }
+  private applyEnvironmentPreview(): void {
+    const view = this.envPreview;
+    const presets = new Map(((this.environmentValue?.presets ?? []) as unknown as readonly EnvironmentPreset[]).map((p) => [p.presetId, p]));
+    const base = (this.environmentValue ?? {}) as Parameters<typeof blendEnvironment>[0];
+    if (view === null || this.lighting !== 'game') this.environment?.setBlend(null);
+    else this.environment?.setBlend(blendEnvironment(base, presets, view) as never);
+    // The lights: blended values, or back to what the scene authored.
+    if (view === null && !this.envLightsTouched) return;
+    this.envLightsTouched = view !== null;
+    for (const [id, have] of this.sceneLights) {
+      const l = JSON.parse(have.key) as { type: string; color: string; intensity: number; direction?: number[]; groundColor?: string };
+      const d = l.direction ?? (l.type === 'spot' || l.type === 'directional' ? [0, -1, 0] : undefined);
+      const authored: EnvironmentLightValues = { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0]!, d[1]!, d[2]!] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) };
+      const v = view === null ? authored : blendLight(authored, { id, tags: this.lightTags.get(id) ?? 0, type: l.type }, this.envPreviewTags, base, presets, view);
+      have.light.color.set(v.color);
+      have.light.intensity = v.intensity;
+      if (v.groundColor !== undefined && have.light instanceof THREE.HemisphereLight) have.light.groundColor.set(v.groundColor);
+      if (v.direction !== undefined) {
+        const [x, y, z] = v.direction;
+        if (have.light instanceof THREE.SpotLight) have.light.target.position.set(x, y, z);
+        else if (have.light instanceof THREE.DirectionalLight) have.light.position.set(-x * 20, -y * 20, -z * 20);
+      }
+    }
   }
 
   private readTarget(): GizmoTransform {
@@ -1330,6 +1482,8 @@ export class Viewport {
     this.models?.sync(entities, full ? undefined : { changed: new Set(changed.map((e) => e.id)), removed });
     this.syncSceneLights(entities);
     this.syncVirtualCameraPreviews(entities);
+    // Phase 23.17: a timeline scrub preview stays on top of the synced transforms.
+    if (this.timelinePreview !== null) this.applyTimelinePreview();
     // M3 (packet 56): the zone overlay syncs from the SAME projection pass
     // (phase 12: an inactive zone is hidden like any inactive object).
     // The selected entity's handles come from any of its sized components: its change re-syncs the overlay too.
@@ -2207,6 +2361,8 @@ export class Viewport {
     const env = this.ensureEnvironment();
     env?.set(this.lighting === 'game' ? value : null);
     env?.setQuality(this.editorQuality());
+    // Phase 23.18: a previewed blend follows edited presets.
+    if (this.envPreview !== null) this.applyEnvironmentPreview();
     this.requestRender();
   }
   /**

@@ -12,7 +12,8 @@
  * - `sections`: engine state included in every save automatically (opt-in):
  *   `grid` (the block-layer cells scripts changed), `materials` (material
  *   parameters scripts set), `spawned` (the spawned prefab copies),
- *   `storage` (the scripts' `ctx.save` values);
+ *   `storage` (the scripts' `ctx.save` values), `environment` (phase 23.18:
+ *   the environment preset blend scripts set);
  * - `thumbnail`: the size and format of a slot's optional picture of the view;
  * - `settings`: the fields of the project settings document the game's own
  *   settings screen writes (with defaults); a field may be bound to an engine
@@ -46,7 +47,7 @@ export const SAVE_LIMITS = Object.freeze({
 });
 
 // Phase 23.16: + dialogue (the dialogue variables and the seen-lines set).
-export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'dialogue'] as const;
+export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'environment', 'dialogue'] as const;
 export type SaveSection = (typeof SAVE_SECTIONS)[number];
 
 /** Engine settings a settings field may drive (the host applies them). */

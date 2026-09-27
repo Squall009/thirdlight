@@ -90,6 +90,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
+import type { TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
@@ -129,6 +130,8 @@ import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
 import { DialoguePanel, dialogueIdFrom } from './dialogue/DialoguePanel';
 import type { DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
+import { TimelinesPanel } from './timeline/TimelinesPanel';
+import { newTimeline, type TimelinePreviewValue } from './timeline/TimelineDocument';
 import { LibrariesPanel } from './script/LibrariesPanel';
 import { UiPanel } from './uidoc/UiPanel';
 import { newUiDocument, newUiTheme, uniqueDocId } from '../session/ui-edit';
@@ -632,6 +635,9 @@ function EditorApp(): JSX.Element {
     const ids = new Set(dialogues.map((d) => d.dialogueId));
     for (const d of workspace.docs) if (d.kind === 'dialogue' && !ids.has(d.id)) workspaceDispatch({ type: 'close', key: docKey(d) });
   }, [graphsLoaded, dialogues, workspace.docs, workspaceDispatch]);
+  // Phase 23.17: the timelines and the list's / tab's last refusal.
+  const [timelines, setTimelines] = useState<readonly TimelineAsset[]>([]);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
   // Phase 23.7: the shared script libraries and the Libraries list's last refusal.
   const [scriptLibraries, setScriptLibraries] = useState<readonly ScriptLibrary[]>([]);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -916,6 +922,7 @@ function EditorApp(): JSX.Element {
     setDialogueSettings(c.getDialogueSettings());
     setProjectUiDocs(c.getUiDocuments());
     setProjectUiThemes(c.getUiThemes());
+    setTimelines(c.getTimelines());
     setScriptLibraries(c.getScriptLibraries());
     setUiDocuments(c.getUiDocuments());
     setUiThemes(c.getUiThemes());
@@ -2987,6 +2994,18 @@ function EditorApp(): JSX.Element {
     setEffectError(err);
     return err === null;
   }, []);
+  // Phase 23.17: timeline commands (one undo step each; a key drag is one setTimeline).
+  const timelineCommand = useCallback(async (op: 'setTimeline' | 'deleteTimeline', args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const err = refusal(await c.command(op, args, c.projection.revision));
+    setTimelineError(err);
+    return err === null;
+  }, []);
+  // Phase 23.17: the timeline tab's scrub preview in the Scene view.
+  const onTimelinePreview = useCallback((p: TimelinePreviewValue | null) => {
+    viewportRef.current?.setTimelinePreview(p);
+  }, []);
   // Phase 23.9b: UI document/theme commands go out one at a time (each after the previous is applied
   // here), so a queued edit is always made on the latest stored value. Resolves with a refusal or null.
   const uiQueueRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -3866,6 +3885,18 @@ function EditorApp(): JSX.Element {
         return ok ? graphId : null;
       },
     },
+    timeline: {
+      timelines,
+      entities: clientRef.current?.projection.listEntities() ?? entities,
+      sounds: assets.filter((a) => a.kind === 'audio' || a.kind === 'music').map((a) => ({ assetId: a.assetId, name: a.displayName })),
+      effects: effects.map((e) => ({ id: e.effectId, name: e.name })),
+      actions: (inputConfig ?? inputDefaults).actions.map((a) => a.name),
+      animators,
+      error: timelineError,
+      onSave: (timeline) => timelineCommand('setTimeline', { timeline }),
+      onPreview: onTimelinePreview,
+      modes: modes.map((m) => m.modeId),
+    },
     ui: {
       documents: uiDocuments,
       themes: uiThemes,
@@ -4442,6 +4473,26 @@ function EditorApp(): JSX.Element {
               }}
             />
           )}
+          {bottomTab === 'timelines' && (
+            <TimelinesPanel
+              timelines={timelines}
+              openId={(() => {
+                const d = activeDoc(workspace);
+                return d !== null && d.kind === 'timeline' ? d.id : null;
+              })()}
+              error={timelineError}
+              onOpen={(id) => openDocument('timeline', id)}
+              onCreate={(name) => {
+                const timelineId = uniqueId(name, timelines.map((t) => t.timelineId), 'timeline');
+                void timelineCommand('setTimeline', { timeline: newTimeline(timelineId, name) }).then((ok) => ok && openDocument('timeline', timelineId));
+              }}
+              onDelete={(timelineId) => {
+                void timelineCommand('deleteTimeline', { timelineId }).then((ok) => {
+                  if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'timeline', id: timelineId }) });
+                });
+              }}
+            />
+          )}
           {bottomTab === 'libraries' && (
             <LibrariesPanel
               libraries={scriptLibraries}
@@ -4666,6 +4717,10 @@ function EditorApp(): JSX.Element {
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               onSave={(env) => void saveEnvironment(env, environment)}
               error={materialError}
+              presets={{
+                lights: entities.filter((e) => e.light !== undefined).map((e) => ({ id: e.id, type: e.light!.type, color: e.light!.color, intensity: e.light!.intensity, ...(e.light!.direction !== undefined ? { direction: e.light!.direction } : {}), ...(e.light!.groundColor !== undefined ? { groundColor: e.light!.groundColor } : {}) })),
+                onPreview: (weights) => viewportRef.current?.previewEnvironmentBlend(weights === null ? null : { weights }, new Map((clientRef.current?.getTags() ?? []).map((t) => [t.name, t.bit]))),
+              }}
               {...(() => {
                 const l = envLevelId !== null ? flow?.levels.find((x) => x.id === envLevelId) : undefined;
                 return l !== undefined
@@ -5324,7 +5379,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'dialogue' | 'libraries' | 'modes' | 'ui' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'dialogue' | 'libraries' | 'modes' | 'ui' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5346,6 +5401,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'effects', label: 'Effects' },
   // Phase 23.16: conversations, speakers, dialogue settings.
   { id: 'dialogue', label: 'Dialogue' },
+  // Phase 23.17: timelines (sequencer).
+  { id: 'timelines', label: 'Timelines' },
   // Phase 23.7: shared script libraries.
   { id: 'libraries', label: 'Libraries' },
   // Phase 23.9b: project UI documents and themes.

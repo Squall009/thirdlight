@@ -928,6 +928,14 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-modes__col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tl-modes .tl-tags__row.is-selected { outline: 1px solid var(--tl-accent, #5aa0ff); border-radius: 4px; }
 .tl-toolbar__mode { align-self: center; padding: 2px 8px; margin-right: 6px; border-radius: 999px; font-size: 12px; background: #ffffff14; }
+/* Phase 23.17: the Timeline tab leaves the Scene view visible above it (the scrub preview shows there):
+   the document layer is see-through and lets the pointer reach the view; the timeline sits at the bottom. */
+.tl-workspace__doc:has(.tl-timeline-doc) { background: transparent; pointer-events: none; }
+.tl-workspace__doc:has(.tl-timeline-doc) .tl-workspace__view { padding: 0; overflow: hidden; justify-content: flex-end; }
+.tl-timeline-doc { pointer-events: auto; background: var(--panel); display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  max-height: 62%; overflow: auto; box-sizing: border-box; border-top: 1px solid var(--border, #3b4252); }
+.tl-timeline__field { display: inline-flex; flex-direction: column; font-size: 11px; gap: 2px; }
+.tl-timeline__track-head.is-active { background: rgba(143, 180, 255, 0.12); }
 /* ---- Phase 23.9b: the UI document editor ---------------------------------------- */
 .tl-uidoc, .tl-uitheme { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
 .tl-uidoc__bar .tl-flag { display: inline-flex; gap: 4px; align-items: center; }

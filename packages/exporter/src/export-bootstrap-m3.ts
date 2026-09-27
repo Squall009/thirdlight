@@ -101,6 +101,8 @@ interface ExportManifestV2 {
   effects?: EffectDefLike[];
   /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
   uiDocuments?: import('@thirdlight/runtime').UiDocument[];
+  /** Phase 23.17: the timelines. */
+  timelines?: import('@thirdlight/runtime').TimelineAsset[];
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
   /** Phase 23.16: the dialogue runner's data (conversations, speakers, settings). */
   dialogue?: import('@thirdlight/runtime').RuntimeDialogueData;
@@ -158,7 +160,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -287,6 +289,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
     // Phase 23.19: the project save schema (ctx.saves).
     ...(manifest.saveSchema !== undefined ? { saveSchema: manifest.saveSchema } : {}),
+    // Phase 23.18: the environment preset ids scripts switch and blend to (ctx.environment).
+    ...((manifest.environment?.presets?.length ?? 0) > 0 ? { environmentPresets: manifest.environment!.presets!.map((p) => p.presetId) } : {}),
     // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
     // Phase 23.16: plus the engine's dialogue document when the game has conversations.
     ...(uiDocumentsForRuntime(uiDocs) !== undefined ? { uiDocuments: uiDocumentsForRuntime(uiDocs) } : {}),
@@ -294,6 +298,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.dialogue !== undefined ? { dialogue: manifest.dialogue } : {}),
     // Phase 23.10: the game modes and each action's input map (bound by the buildId).
     ...(manifest.modes !== undefined && manifest.modes.length > 0 ? { modes: modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) } : {}),
+    // Phase 23.17: the timelines (ctx.timeline, play-on-start / play-on-signal).
+    ...(manifest.timelines !== undefined && manifest.timelines.length > 0 ? { timelines: manifest.timelines } : {}),
   } as unknown as RuntimeSnapshot);
   // Phase 9.11 / 23.19: this game's saves in the player's browser (Play uses its own namespace).
   const saveNamespace = `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
@@ -452,7 +458,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
           : {}),
         // Phase 9.5: sky, fog, fog volumes, post-processing.
-        ...(environmentHasLook(manifest.environment) || levelLooks
+        // Phase 23.18: environment presets need the environment renderer too (scripts blend the look).
+        ...(environmentHasLook(manifest.environment) || levelLooks || (manifest.environment?.presets?.length ?? 0) > 0
           ? {
               environment: {
                 value: manifest.environment ?? {},

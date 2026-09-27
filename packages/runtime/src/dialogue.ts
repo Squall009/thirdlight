@@ -311,6 +311,28 @@ export class DialogueRunner {
     return this.serial;
   }
 
+  /**
+   * Phase 23.17's dialogue track (`TimelineDialoguePort`): run a node (or an
+   * entry of that name, or the start) with the timeline's bindings as
+   * `$name` values; the handle is the conversation number (0: refused — no
+   * such dialogue, or one is running); the track waits while it runs.
+   */
+  timelinePort(): { start(dialogueId: string, node: string | undefined, bindings: ReadonlyMap<string, string>): number; running(handle: number): boolean; stop(handle: number): void } {
+    return {
+      start: (dialogueId, node, bindings) => {
+        const b: Record<string, DialogueValue> = {};
+        for (const [k, v] of bindings) if (VAR_RE.test(k) && Object.keys(b).length < DIALOGUE_LIMITS.bindings) b[k] = String(v).slice(0, DIALOGUE_LIMITS.variableText);
+        const d = this.byId.get(dialogueId);
+        const where = node === undefined || node === '' || d === undefined ? {} : hasOwn.call(d.nodes, node) ? { node } : hasOwn.call(d.entries, node) ? { entry: node } : { node };
+        return this.requestStart(dialogueId, { ...where, bindings: b });
+      },
+      running: (handle) => handle > 0 && this.isRunning(handle),
+      stop: (handle) => {
+        if (handle > 0 && this.isRunning(handle)) this.queue({ op: 'stop' });
+      },
+    };
+  }
+
   private isRunning(conversation?: number): boolean {
     const starting = this.requests.find((q) => q.op === 'start') as Extract<Request, { op: 'start' }> | undefined;
     if (conversation === undefined) return this.conv !== null || starting !== undefined;

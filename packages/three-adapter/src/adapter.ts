@@ -38,6 +38,7 @@ import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, ty
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
+import { blendEnvironment, blendLight, blendTouchesLights, type EnvironmentBlendView, type EnvironmentLightValues } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
 import {
@@ -249,6 +250,11 @@ export interface SceneAdapter {
    */
   setEnvironmentLayer?(layer: EnvironmentLayerLike | null): void;
   /**
+   * Phase 23.18: show an environment preset blend instead of the running
+   * game's (an editor preview; null: the game's again).
+   */
+  previewEnvironmentBlend?(view: EnvironmentBlendView | null): void;
+  /**
    * Phase 14.5: draw the camera moved by an offset (m) from where the game
    * puts it — the title screen's background scene and pan; null = none.
    * Presentation only (the simulation's camera does not move).
@@ -299,6 +305,9 @@ function shadowFlagsOf(components: unknown): { cast: boolean; receive: boolean }
   const part = c.box ?? c.model ?? c.instances;
   return { cast: part?.castShadow !== false, receive: part?.receiveShadow !== false };
 }
+
+/** Phase 23.18: an environment preset (project-model's, as the runtime's blend maths takes it). */
+type PresetOf = Parameters<typeof blendEnvironment>[1] extends ReadonlyMap<string, infer P> ? P : never;
 
 /** Phase 18.3: an entity's `materialParams` component (overrides of its graph materials' public parameters). */
 function materialParamsOf(components: unknown): MaterialOverridesLike | null {
@@ -430,6 +439,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let appliedOffset: { offset: [number, number, number]; at: [number, number, number] } | null = null;
   /** Phase 14.4: the playing level's look (null: the project environment). */
   let environmentLayer: EnvironmentLayerLike | null = null;
+  /**
+   * Phase 23.18: the lights environment presets may change (scene-level
+   * directional/ambient lights and the entities' point/spot/hemisphere lights)
+   * with their authored values, and what was last applied.
+   */
+  const envLights = new Map<string, { light: THREE.Light; id: string; tags: number; type: string; authored: EnvironmentLightValues }>();
+  let envLightsRevision = 0;
+  let envAppliedKey = '';
+  let envLightsTouched = false;
+  /** The editor's preview of a blend (null: the running game's). */
+  let envPreview: EnvironmentBlendView | null = null;
+  let envBlendActive = false;
+  /** The key light's direction a preset gives (null: the authored one). */
+  let keyDirectionNow: [number, number, number] | null = null;
+  const envPresets = new Map<string, PresetOf>();
+  for (const p of (opts.environment?.value.presets ?? []) as unknown as readonly PresetOf[]) envPresets.set(p.presetId, p);
+  const envTagBits = new Map<string, number>();
+  for (const t of (opts.snapshot as { tags?: readonly { bit: number; name: string }[] }).tags ?? []) envTagBits.set(t.name.toLowerCase(), t.bit);
   /** What the renderer draws: the project environment with the level's look over it (null when nothing is drawn, as without an environment). */
   const effectiveEnvironment = (): EnvironmentLike | null => {
     const v = layerEnvironment(opts.environment?.value ?? null, environmentLayer);
@@ -554,6 +581,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
   const keyLight = isV3 ? (authoredLights.find((l) => l.type === 'directional') ?? null) : null;
+  /** Phase 23.18: the entities of the scene-level lights (the first directional and ambient light, as planSceneLights takes them). */
+  const sceneLightEntity = (type: 'directional' | 'ambient'): { id: string; tags: number } | null => {
+    if (!isV3) return null;
+    for (const e of sceneDoc.entities) {
+      const l = (e.components as { light?: AuthoredLight }).light;
+      if (l !== undefined && l.type === type && !bakedAway(e.id, l as { type: string; mode?: string })) return { id: e.id, tags: (e as { tags?: number }).tags ?? 0 };
+    }
+    return null;
+  };
   /** Phase 17.4: the key light's shadow map settings (its data over the defaults). */
   const keyShadow = directionalShadowSettings(keyLight);
   // Phase 12 (c): a v4 game has no level bounds; the shadow region is a
@@ -701,6 +737,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       obj = new THREE.Group();
       const local = localLightOf(e);
       if (local !== null) {
+        // Phase 23.18: environment presets may set its colour, intensity, direction and ground colour.
+        const l = (e.components as { light: { type: string; color: string; intensity: number; direction?: readonly number[]; groundColor?: string } }).light;
+        const d = l.direction ?? (l.type === 'spot' ? [0, -1, 0] : undefined);
+        envLights.set(`entity:${e.id}`, {
+          light: local,
+          id: e.id,
+          tags: (e as { tags?: number }).tags ?? 0,
+          type: l.type,
+          authored: { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0] ?? 0, d[1] ?? -1, d[2] ?? 0] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) },
+        });
+        envLightsRevision += 1;
         obj.add(local);
         if (local instanceof THREE.SpotLight) obj.add(local.target);
         if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
@@ -741,6 +788,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (obj !== undefined) releaseEmissiveLooks(obj);
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
+    if (envLights.delete(`entity:${id}`)) envLightsRevision += 1;
     materialUndo.get(id)?.();
     materialUndo.delete(id);
     obj?.removeFromParent();
@@ -789,7 +837,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (plannedLight.kind === 'ambient') {
         // §41.1.2 rule 1: no shadow, no position dependence; the
         // intensity is used exactly as authored.
-        scene.add(new THREE.AmbientLight(new THREE.Color(plannedLight.color), plannedLight.intensity));
+        const ambient = new THREE.AmbientLight(new THREE.Color(plannedLight.color), plannedLight.intensity);
+        scene.add(ambient);
+        // Phase 23.18: environment presets may set its colour and intensity.
+        const who = sceneLightEntity('ambient');
+        if (who !== null) envLights.set(`scene:ambient`, { light: ambient, id: who.id, tags: who.tags, type: 'ambient', authored: { color: plannedLight.color, intensity: plannedLight.intensity } });
       } else {
         // §41.1.2 rule 2: the derived position `target − n ·
         // SHADOW_DISTANCE` and the derived target (the shadow centre) —
@@ -816,6 +868,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         scene.add(light);
         scene.add(light.target);
         keyLights.push(light);
+        // Phase 23.18: environment presets may set its colour, intensity and direction.
+        const who = sceneLightEntity('directional');
+        const kd = keyLight?.direction ?? [0, -1, 0];
+        if (who !== null) envLights.set(`scene:directional`, { light, id: who.id, tags: who.tags, type: 'directional', authored: { color: plannedLight.color, intensity: plannedLight.intensity, direction: [kd[0], kd[1], kd[2]] } });
       }
     }
   }
@@ -1113,13 +1169,73 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     realization?.addEntities(modelRefsOf(added));
   }
 
+  /**
+   * Phase 23.18: draw the environment blend — the look (sky, fog, post) on the
+   * environment renderer, the lights' colours/intensities/directions, the
+   * lightmap multiplier. Only when the blend or the light set changed; back to
+   * the authored look when the blend ends (a new run).
+   */
+  function applyEnvironmentBlend(): void {
+    const view = envPreview ?? ((opts.runtime as { readEnvironmentBlend?: () => EnvironmentBlendView | null }).readEnvironmentBlend?.() ?? null);
+    const layerKey = JSON.stringify(environmentLayer);
+    const key = view === null ? '' : `${JSON.stringify(view.weights)}|${JSON.stringify(view.overrides)}|${envLightsRevision}|${layerKey}`;
+    if (key === envAppliedKey) return;
+    envAppliedKey = key;
+    if (view === null) {
+      if (!envBlendActive) return;
+      envBlendActive = false;
+      environmentRenderer?.setBlend(null);
+      restoreLights();
+      lightmaps?.setLook(1, '#ffffff');
+      return;
+    }
+    envBlendActive = true;
+    const base = layerEnvironment(opts.environment?.value ?? null, environmentLayer) ?? {};
+    const look = blendEnvironment(base as never, envPresets, view);
+    environmentRenderer?.setBlend(look as never);
+    lightmaps?.setLook(look.lightmap.intensity, look.lightmap.tint);
+    if (!blendTouchesLights(base as never, envPresets, view)) {
+      restoreLights();
+      return;
+    }
+    envLightsTouched = true;
+    for (const rec of envLights.values()) {
+      const v = blendLight(rec.authored, rec, envTagBits, base as never, envPresets, view);
+      setLightValues(rec, v);
+    }
+  }
+  function setLightValues(rec: { light: THREE.Light; type: string }, v: EnvironmentLightValues): void {
+    rec.light.color.set(v.color);
+    rec.light.intensity = v.intensity;
+    if (v.groundColor !== undefined && (rec.light as THREE.HemisphereLight).isHemisphereLight === true) (rec.light as THREE.HemisphereLight).groundColor.set(v.groundColor);
+    const d = v.direction;
+    if (d === undefined) return;
+    if (rec.type === 'directional') {
+      keyDirectionNow = [d[0], d[1], d[2]];
+      if (!followShadow) {
+        // A fixed shadow region (v3): the light keeps its target and moves round it.
+        const n = Math.hypot(d[0], d[1], d[2]) || 1;
+        for (const light of keyLights) {
+          light.position.set(light.target.position.x - (d[0] / n) * SHADOW_PROFILE.distance, light.target.position.y - (d[1] / n) * SHADOW_PROFILE.distance, light.target.position.z - (d[2] / n) * SHADOW_PROFILE.distance);
+        }
+      }
+    } else if ((rec.light as THREE.SpotLight).isSpotLight === true) (rec.light as THREE.SpotLight).target.position.set(d[0], d[1], d[2]);
+  }
+  function restoreLights(): void {
+    if (!envLightsTouched) return;
+    envLightsTouched = false;
+    keyDirectionNow = null;
+    for (const rec of envLights.values()) setLightValues(rec, rec.authored);
+    keyDirectionNow = null;
+  }
+
   /** v4: the shadow square follows the camera, snapped to whole shadow texels (no shimmer). */
   function followCameraShadow(): void {
     if (camera === null || keyLights.length === 0) return;
     const texel = (2 * keyPlan.halfExtent) / keyShadow.mapSize;
     const cx = Math.round(camera.position.x / texel) * texel;
     const cy = Math.round(camera.position.y / texel) * texel;
-    const dir = keyLight?.direction ?? [0, -1, 0];
+    const dir = keyDirectionNow ?? keyLight?.direction ?? [0, -1, 0];
     const n = Math.hypot(dir[0], dir[1], dir[2]) || 1;
     for (const light of keyLights) {
       light.target.position.set(cx, cy, 0);
@@ -1344,6 +1460,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
+    // Phase 23.18: the environment preset blend (the running game's, or the editor's preview) before the draw.
+    applyEnvironmentBlend();
     // Phase 23.12: material parameters scripts changed, on the objects before the draw (and before regrouping).
     const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
     if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
@@ -1385,9 +1503,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment?.loadTexture ?? (async () => null) });
           environmentRenderer.set(effectiveEnvironment());
           if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
+          // Phase 23.18: a blend already running goes onto the new environment renderer.
+          envAppliedKey = '';
+          envBlendActive = false;
+          applyEnvironmentBlend();
         }
         const key = keyLight;
-        environmentRenderer.setKeyLightDirection(key?.direction !== undefined ? [key.direction[0], key.direction[1], key.direction[2]] : null);
+        const keyDir = keyDirectionNow ?? key?.direction;
+        environmentRenderer.setKeyLightDirection(keyDir !== undefined ? [keyDir[0], keyDir[1], keyDir[2]] : null);
         environmentRenderer.setFogVolumes(fogVolumesNow());
         if (environmentSize === null || environmentSize[0] !== w || environmentSize[1] !== h) {
           environmentSize = [w, h];
@@ -1637,6 +1760,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       out[1] = (1 - p.y) / 2;
       out[2] = front ? 1 : 0;
       return true;
+    },
+    previewEnvironmentBlend(view: EnvironmentBlendView | null): void {
+      envPreview = view;
     },
     setEnvironmentLayer(layer: EnvironmentLayerLike | null): void {
       if (JSON.stringify(layer) === JSON.stringify(environmentLayer)) return;

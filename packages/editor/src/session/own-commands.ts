@@ -54,6 +54,8 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setDialogue',
   'setSpeaker',
   'setDialogueSettings',
+  // Phase 23.17: timelines.
+  'setTimeline',
 ]);
 
 /** How many of our own revisions are remembered for `rebase` (a burst of edits is far smaller). */

@@ -219,6 +219,8 @@ export class CameraBrain {
   private order = 0;
   private serialCounter = 0;
   private liveId: string | null = null;
+  /** Phase 23.17: the camera a timeline forces live (null: none); it wins over a game mode's camera. */
+  private timelineOverrideId: string | null = null;
   private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle } | null = null;
   /** A blend a script asked for with the change it made (used by the next switch). */
   private pendingBlend: { style: CameraBlendStyle; seconds: number } | null = null;
@@ -294,6 +296,7 @@ export class CameraBrain {
     this.liveId = null;
     this.blend = null;
     this.pendingBlend = null;
+    this.timelineOverrideId = null;
     this.impulses = [];
     this.started = false;
     this.serialCounter = 0;
@@ -505,7 +508,30 @@ export class CameraBrain {
 
   // ---- the step ------------------------------------------------------------------
 
+  /**
+   * Phase 23.17: the camera a timeline forces live (over priorities and over
+   * a game mode's camera while the timeline shows it), with the blend of the
+   * change; null gives the view back (to the mode's camera, else the
+   * priorities). Inert unless a timeline uses it.
+   */
+  setTimelineOverride(id: string | null, options?: unknown): boolean {
+    if (id !== null && !this.cams.has(id)) return false;
+    if (id === this.timelineOverrideId) return true;
+    this.timelineOverrideId = id;
+    this.noteBlend(options);
+    return true;
+  }
+
+  timelineOverride(): string | null {
+    return this.timelineOverrideId;
+  }
+
   private best(): CamState | null {
+    // Phase 23.17: a timeline's camera wins while the timeline shows one.
+    if (this.timelineOverrideId !== null) {
+      const t = this.cams.get(this.timelineOverrideId);
+      if (t !== undefined) return t;
+    }
     // Phase 23.10: a game mode's camera is live over every priority.
     if (this.overrideId !== null) {
       const o = this.cams.get(this.overrideId);

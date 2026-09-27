@@ -253,6 +253,29 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       spawnPoint: rec('lifecycle.spawnPoint', 'spawn-0001'),
       restart: rec('lifecycle.restart', true),
     },
+    // Phase 23.17: timelines.
+    timeline: {
+      play: rec('timeline.play', 1),
+      pause: rec('timeline.pause', true),
+      resume: rec('timeline.resume', true),
+      stop: rec('timeline.stop', true),
+      skip: rec('timeline.skip', true),
+      seek: rec('timeline.seek', true),
+      state: rec('timeline.state', 'playing'),
+      time: rec('timeline.time', 1.5),
+      isPlaying: rec('timeline.isPlaying', true),
+      events: rec('timeline.events', () => []),
+      ended: rec('timeline.ended', false),
+      marker: rec('timeline.marker', true),
+    },
+    // Phase 23.18: environment presets.
+    environment: {
+      set: rec('environment.set', true),
+      blend: rec('environment.blend', true),
+      state: rec('environment.state', () => ({ target: 'night', progress: 0.5, blending: true })),
+      weight: rec('environment.weight', 0.5),
+      presets: rec('environment.presets', () => ['day', 'night']),
+    },
   };
 }
 
@@ -404,6 +427,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'random.pick',
       'random.stream().pick',
       'saves.migration',
+      // Phase 23.17: the timeline events as a list (Timeline ended / marker check one).
+      'timeline.events',
     ]);
     // Intents: one node per kind, with its phase.
     const emit = BEHAVIOR_API_NODES.filter((s) => s.type.startsWith('api.emit.'));

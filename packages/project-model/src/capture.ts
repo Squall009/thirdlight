@@ -13,6 +13,7 @@
  * before any capture. Pure: no I/O, no filesystem, no three.js.
  */
 
+import { timelineRefs, type TimelineAsset } from './timelines';
 import { uiAssetRefs, type UiDocument, type UiTheme } from './ui-documents';
 import { dialogueAssetRefs, type DialogueDocument, type DialogueSpeaker } from './dialogue';
 import { canonicalJsonText, sha256HexOfText } from './sha256';
@@ -20,6 +21,7 @@ import { fail, fieldValue, isPlainObject, withFound } from './validate';
 import { ID_RE_V2 } from './components';
 import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
+import { environmentPresetTextureRefs, type EnvironmentPreset } from './environment-presets';
 import { flowAssetRefs, type GameFlow } from './flow';
 import { animatorAssetIds, type AnimatorController } from './animator';
 import { graphAssetRefs, type GraphDocument } from './graph';
@@ -147,11 +149,15 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const id of [...ui.textures, ...ui.fonts]) setRef(id);
   // Phase 23.16: voice clips, speaker portraits and text blips.
   for (const id of dialogueAssetRefs(content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[] })) setRef(id);
+  // Phase 23.17: the sounds the timelines play.
+  for (const id of timelineRefs((content as { timelines?: TimelineAsset[] }).timelines).assets) setRef(id);
   // Phase 9.5: the sky images and the grading LUT.
   const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;
   if (env?.sky?.texture !== undefined) setRef(env.sky.texture);
   for (const id of env?.sky?.cube ?? []) setRef(id);
   if (env?.post?.grading?.lut !== undefined) setRef(env.post.grading.lut);
+  // Phase 23.18: the environment presets' sky images and LUTs.
+  for (const id of environmentPresetTextureRefs((content as { environment?: { presets?: EnvironmentPreset[] } }).environment?.presets)) setRef(id);
   // Phase 9.7: the models an animator controller takes clips from.
   // Phase 14.6: the override layers' clips too.
   for (const c of (content as { animators?: AnimatorController[] }).animators ?? []) for (const id of animatorAssetIds(c)) setRef(id);

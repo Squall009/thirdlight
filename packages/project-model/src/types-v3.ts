@@ -518,6 +518,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   modes?: import('./modes').GameMode[];
   /** Phase 23.10: the behavior group names entities may carry (absent = none). */
   behaviorGroups?: string[];
+  /** Phase 23.17: timelines (sequencer assets; absent = none). */
+  timelines?: import('./timelines').TimelineAsset[];
   /**
    * Phase 23.3: the project's named collision layers (absent = only the
    * implicit "default" layer). A collider lists the layers it is in (absent:

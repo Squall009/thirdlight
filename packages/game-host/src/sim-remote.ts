@@ -327,6 +327,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.grid.clear();
       return out;
     },
+    // Phase 23.18: the worker's environment blend (interpolated there with the frame's alpha).
+    readEnvironmentBlend: () => (gone() ? null : mirror.env),
     // Phase 23.12: the material parameters the worker's scripts changed (the latest per parameter).
     takeMaterialChanges: () => {
       const out = [...mirror.mat.values()];
@@ -362,6 +364,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
     // Phase 23.11: the objects riding on sockets (the worker's list).
     socketAttachments: () => mirror.sockets,
+    // Phase 23.17: the worker's timeline view (screen overlay, plays, last events).
+    timelineView: () => (gone() ? null : mirror.timeline),
     // Phase 23.9a: the project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
     queueUiEvent: (event: UiEventRecord) => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };

@@ -27,6 +27,7 @@ import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocume
 import { VisualScriptDocument, type VisualScriptDocumentProps } from '../script/VisualScriptDocument';
 import { LibraryDocument, type LibraryDocumentProps } from '../script/LibraryDocument';
 import { DialogueDocument, type DialogueDocumentProps } from '../dialogue/DialogueDocument';
+import { TimelineDocument, type TimelineDocumentProps } from '../timeline/TimelineDocument';
 import type { ScriptLibrary } from '@thirdlight/project-model';
 import type { UiDocument, UiTheme } from '@thirdlight/project-model';
 import { UiDocumentEditor, type UiDocumentEditorProps } from '../uidoc/UiDocumentEditor';
@@ -65,6 +66,8 @@ export interface WorkspaceHost {
   effect: Omit<EffectDocumentProps, 'effectId'>;
   /** Phase 23.16: the props of one conversation's tab (all conversations share them). */
   dialogue: Omit<DialogueDocumentProps, 'dialogueId'>;
+  /** Phase 23.17: the props of one timeline's tab (all timelines share them). */
+  timeline: Omit<TimelineDocumentProps, 'timelineId'>;
   /** Phase 23.9b: the project UI documents and themes, and the props of one document's / theme's tab. */
   ui: {
     documents: readonly UiDocument[];
@@ -222,6 +225,19 @@ const dialogueKind: DocumentKind = {
   name: (id, host) => host.dialogue.dialogues.find((d) => d.dialogueId === id)?.name ?? id,
   render: (id, host) => <DialogueDocument key={id} {...host.dialogue} dialogueId={id} />,
 };
+/** A small ruler-and-keys glyph for timeline tabs. */
+const TIMELINE_ICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="2" fill="#8fb4ff"/><rect x="1" y="7" width="14" height="2" fill="#5e81ac"/><rect x="1" y="11" width="14" height="2" fill="#5e81ac"/><path d="M5 6.5l1.5 1.5L5 9.5 3.5 8z" fill="#f2b544"/><path d="M11 10.5l1.5 1.5-1.5 1.5L9.5 12z" fill="#f2b544"/><rect x="7.5" y="1" width="1" height="14" fill="#ff7f9e"/></svg>');
+
+/** Phase 23.17: a timeline's tracks on a time ruler ("Timeline: <name>"). */
+const timelineKind: DocumentKind = {
+  kind: 'timeline',
+  label: 'Timeline',
+  icon: TIMELINE_ICON,
+  name: (id, host) => host.timeline.timelines.find((t) => t.timelineId === id)?.name ?? id,
+  render: (id, host) => <TimelineDocument key={id} {...host.timeline} timelineId={id} />,
+};
 
 /** A small screen-with-widgets glyph for UI tabs. */
 const UI_ICON =
@@ -247,7 +263,7 @@ const uiThemeKind: DocumentKind = {
 };
 
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, uiDocumentKind, uiThemeKind, dialogueKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, uiDocumentKind, uiThemeKind, timelineKind, dialogueKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());
