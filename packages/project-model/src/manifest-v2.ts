@@ -44,6 +44,7 @@ import { GRAPH_KINDS } from './graph-kinds';
 import { canonicalEffects, validateEffects, type EffectDef } from './effects';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiThemes, type UiDocument, type UiTheme } from './ui-documents';
 import { fail, isPlainObject, withFound } from './validate';
+import { canonicalTimelines, validateTimelines, type TimelineAsset } from './timelines';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
@@ -83,7 +84,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -124,6 +125,8 @@ export const MANIFEST_KEYS_V2 = [
   // Phase 23.9a: the project UI (themes, documents) the game host draws.
   'uiThemes',
   'uiDocuments',
+  // Phase 23.17: the timelines (sequencer assets) the game plays.
+  'timelines',
   'scenes',
   'buffers',
   'assets',
@@ -285,6 +288,8 @@ export interface RuntimeContentManifestV2 {
   /** Phase 23.9a: the project UI themes and documents (present only when the project has some). */
   uiThemes?: UiTheme[];
   uiDocuments?: UiDocument[];
+  /** Phase 23.17: the timelines (present only when the project has some). */
+  timelines?: TimelineAsset[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
@@ -603,6 +608,8 @@ export interface CaptureManifestV2Input {
   /** Phase 23.9a: the project UI themes and documents (only when the project has some). */
   uiThemes?: readonly UiTheme[];
   uiDocuments?: readonly UiDocument[];
+  /** Phase 23.17: the timelines (only when the project has some). */
+  timelines?: readonly TimelineAsset[];
   environment?: EnvironmentConfig;
   /** Phase 9.6: the scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
@@ -748,6 +755,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
     ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
+    ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -854,6 +862,12 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     const tagErrors: ModelErrorV2[] = [];
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
+  }
+  // Phase 23.17: the timelines validate as content.timelines does (their own rules).
+  if (d['timelines'] !== undefined) {
+    const tlErrors: ModelErrorV2[] = [];
+    validateTimelines(d['timelines'], '/timelines', tlErrors);
+    if (tlErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'timelines are not valid', 'field_value') };
   }
   if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];

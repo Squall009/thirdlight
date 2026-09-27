@@ -861,3 +861,17 @@ export {
   type SettingsField,
   type SettingsFieldValue,
 } from './save-schema';
+// Phase 23.17: timelines (sequencer assets).
+export {
+  TIMELINE_LIMITS,
+  TIMELINE_TRACK_TYPES,
+  TIMELINE_EASINGS,
+  TIMELINE_TARGET_TRACKS,
+  validateTimeline,
+  validateTimelines,
+  validateTimelineReferences,
+  timelineRefs,
+  canonicalTimeline,
+  canonicalTimelines,
+} from './timelines';
+export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineSlot, TimelineMarker, TimelineTrackType, TimelineEasing, TimelineValue } from './timelines';

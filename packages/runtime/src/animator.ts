@@ -209,6 +209,19 @@ class LayerGraph {
     }
   }
 
+  /**
+   * Phase 23.17: go to the state named `name` (by name, then id) over `fade`
+   * seconds (0: at once) — a transition made on the spot. False: no such state.
+   */
+  play(name: string, fade: number): boolean {
+    let to: StateLike | undefined;
+    for (const st of this.states.values()) if (st.name === name) to = to ?? st;
+    to = to ?? this.states.get(name);
+    if (to === undefined) return false;
+    this.fire({ from: this.current.state.id, to: to.id, conditions: [], duration: fade > 0 && Number.isFinite(fade) ? fade : 0 });
+    return true;
+  }
+
   pickTransition(): TransitionLike | null {
     const from = this.current;
     const list = this.graph.transitions;
@@ -407,6 +420,12 @@ export class AnimatorMachine {
 
   get(name: string): AnimatorValue | undefined {
     return this.params.get(name);
+  }
+
+  /** Phase 23.17: go to a state of layer `layer` (0: the base layer) by name, crossfading over `fade` seconds (timeline animator keys). */
+  play(state: string, fade = 0, layer = 0): boolean {
+    const g = this.graphs[layer];
+    return g !== undefined && typeof state === 'string' && g.play(state, fade);
   }
 
   /**

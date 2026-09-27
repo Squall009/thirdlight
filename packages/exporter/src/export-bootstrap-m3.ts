@@ -101,6 +101,8 @@ interface ExportManifestV2 {
   effects?: EffectDefLike[];
   /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
   uiDocuments?: import('@thirdlight/runtime').UiDocument[];
+  /** Phase 23.17: the timelines. */
+  timelines?: import('@thirdlight/runtime').TimelineAsset[];
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
@@ -154,7 +156,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -284,6 +286,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.saveSchema !== undefined ? { saveSchema: manifest.saveSchema } : {}),
     // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
     ...(uiDocumentsForRuntime(manifest.uiDocuments) !== undefined ? { uiDocuments: uiDocumentsForRuntime(manifest.uiDocuments) } : {}),
+    // Phase 23.17: the timelines (ctx.timeline, play-on-start / play-on-signal).
+    ...(manifest.timelines !== undefined && manifest.timelines.length > 0 ? { timelines: manifest.timelines } : {}),
   } as unknown as RuntimeSnapshot);
   // Phase 9.11 / 23.19: this game's saves in the player's browser (Play uses its own namespace).
   const saveNamespace = `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;

@@ -115,6 +115,8 @@ export interface RuntimeSnapshot {
    * frame's show/hide entries name them. The host draws the documents.
    */
   uiDocuments?: readonly import('@thirdlight/project-model').RuntimeUiDocumentRow[];
+  /** Phase 23.17, v4 only, optional: the project's timelines (`content.timelines`; `ctx.timeline`). */
+  timelines?: readonly import('@thirdlight/project-model').TimelineAsset[];
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -747,6 +749,8 @@ export interface StepContext {
   readonly saves?: import('./project-saves').BehaviorSaves;
   /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
   readonly ui?: BehaviorUi;
+  /** Phase 23.17: timelines (`ctx.timeline`). */
+  readonly timeline?: BehaviorTimeline;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1300,6 +1304,99 @@ export interface BehaviorUi {
   event(name: string): BehaviorUiEvent | null;
 }
 
+/** Phase 23.17: one timeline event (seen in the step after it happened). */
+export interface BehaviorTimelineEvent {
+  /** started, ended or marker (a marker of the timeline was reached). */
+  readonly kind: 'started' | 'ended' | 'marker';
+  readonly handle: number;
+  /** The timeline's id. */
+  readonly timeline: string;
+  /** marker: its name ('' otherwise). */
+  readonly name: string;
+  /** ended: finished, skipped or stopped ('' otherwise). */
+  readonly reason: '' | 'finished' | 'skipped' | 'stopped';
+  readonly stepIndex: number;
+}
+
+/**
+ * Phase 23.17: `ctx.timeline` — play project timelines (sequences of camera
+ * cuts, moves, animation, sound, dialogue, effects, signals, fades) as an
+ * engine system in the simulation step. Calls take effect at the end of the
+ * step; events (started, ended, marker) are seen in the next step, so a
+ * script never waits: it reacts to the events or to the timeline's signals.
+ */
+export interface BehaviorTimeline {
+  /**
+   * Play a timeline, binding its slots to objects (`{ slot: entityId }`; unbound slots use the timeline's defaults). Returns its handle (0 when refused: no such timeline, or 8 already playing).
+   * @graphNode Play timeline
+   * @graphLabel timelineId timeline
+   */
+  play(timelineId: string, bindings?: Readonly<Record<string, string>>): number;
+  /**
+   * Pause a playing timeline (it holds its current state).
+   * @graphNode Pause timeline
+   */
+  pause(handle: number): boolean;
+  /**
+   * Resume a paused timeline.
+   * @graphNode Resume timeline
+   */
+  resume(handle: number): boolean;
+  /**
+   * Stop a timeline where it is (no end states: the sounds and effects it started stop, the cameras go back).
+   * @graphNode Stop timeline
+   */
+  stop(handle: number): boolean;
+  /**
+   * Skip to the end: every track's end state at once (cameras, transforms, music, activation; remaining signals fire unless a key says drop).
+   * @graphNode Skip timeline
+   */
+  skip(handle: number): boolean;
+  /**
+   * Jump to a time (seconds): the moves, fades and cameras there; keys in between do not fire.
+   * @graphNode Seek timeline
+   * @graphDefault seconds 0
+   */
+  seek(handle: number, seconds: number): boolean;
+  /**
+   * A play's state: playing, paused, waiting (for input or a dialogue), ended (recently), or null.
+   * @graphPure
+   * @graphNode Timeline state
+   */
+  state(handle: number): 'playing' | 'paused' | 'waiting' | 'ended' | null;
+  /**
+   * A play's time in seconds (counted in fixed steps).
+   * @graphPure
+   * @graphNode Timeline time
+   */
+  time(handle: number): number;
+  /**
+   * Whether any play of this timeline is running.
+   * @graphPure
+   * @graphNode Timeline playing
+   * @graphLabel timelineId timeline
+   */
+  isPlaying(timelineId: string): boolean;
+  /**
+   * The timeline events of the previous step (started, ended, marker), in order.
+   * @graphNode skip a list of records; the Timeline ended and Timeline marker nodes check one
+   */
+  events(): readonly BehaviorTimelineEvent[];
+  /**
+   * True in the step after a play ended (finished, skipped or stopped).
+   * @graphPure
+   * @graphNode Timeline ended
+   */
+  ended(handle: number): boolean;
+  /**
+   * True in the step after a marker with this name was reached (of the play `handle`, or of any play when 0).
+   * @graphPure
+   * @graphNode Timeline marker
+   * @graphDefault handle 0
+   */
+  marker(name: string, handle?: number): boolean;
+}
+
 /**
  * Phase 23.4: `ctx.camera` — the virtual cameras (the `virtualCamera`
  * component): which is live, their rig values, shake and screen↔world
@@ -1711,6 +1808,10 @@ export interface Runtime {
   takeUiOutput?(): import('./ui').UiOutput | null;
   /** Phase 23.9a: the committed view model and shown documents. */
   uiView?(): import('./ui').UiStateView;
+  /** Phase 23.17: the timelines' screen overlay (fade, letterbox), plays and last events (null until one played). */
+  timelineView?(): import('./timeline').TimelineView | null;
+  /** Phase 23.17: the timelines' state for the step digest (null until one played). */
+  timelineState?(): string | null;
   /** Phase 23.3: the cursor a script asked for ('free' | 'locked'), or null — the active input map decides. */
   cursorRequest?(): 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */

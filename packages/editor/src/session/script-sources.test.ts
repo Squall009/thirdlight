@@ -51,7 +51,7 @@ describe('script sources (phase 16.3)', () => {
     expect(typeOfIdentifier('ctx', text, BEHAVIOR_API_TYPES)).toBe('BehaviorContext');
     const top = memberCompletion('    ctx.ti', text, BEHAVIOR_API_TYPES);
     expect(top?.prefix).toBe('ti');
-    expect(top?.members.map((m) => m.name)).toEqual(['timers']);
+    expect(top?.members.map((m) => m.name)).toEqual(['timers', 'timeline']);
     const nested = memberCompletion('    ctx.game?.', text, BEHAVIOR_API_TYPES);
     expect(nested?.members.map((m) => m.name)).toContain('add');
     const timers = memberCompletion('ctx.timers.af', text, BEHAVIOR_API_TYPES);

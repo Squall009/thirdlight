@@ -12,6 +12,7 @@
  */
 
 import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
+import { canonicalTimelines, validateTimelineReferences, validateTimelines, type TimelineAsset } from './timelines';
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, INPUT_MAPS, validateInput } from './input';
@@ -2184,8 +2185,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2360,6 +2361,16 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind']] as const));
     validateUiReferences(doc, errors, (id) => kinds.get(id));
   }
+  // Phase 23.17: timelines (v4) and what their keys name (audio assets, effects, materials).
+  if (version === 4 && doc['timelines'] !== undefined) {
+    const before = errors.length;
+    validateTimelines(doc['timelines'], '/timelines', errors);
+    if (errors.length === before) {
+      const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind'] ?? 'model'] as const));
+      const ids = (key: string, idKey: string): Set<string> => new Set((Array.isArray(doc[key]) ? (doc[key] as unknown[]) : []).filter(isPlainObject).map((x) => String(x[idKey])));
+      validateTimelineReferences(doc['timelines'] as TimelineAsset[], '/timelines', errors, { assetKind: (id) => kinds.get(id), effectIds: ids('effects', 'effectId'), materialIds: ids('materials', 'materialId') });
+    }
+  }
   if (version === 4) validateMaterialReferences(doc, errors);
   else if (Array.isArray(doc['assets'])) {
     // Phase 14.6: clips-only assets are v4 data (v3 projects upgrade on open).
@@ -2506,6 +2517,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).collisionLayers !== undefined && (c as ContentCatalogV4).collisionLayers!.length > 0 ? { collisionLayers: [...(c as ContentCatalogV4).collisionLayers!] } : {}),
     // Phase 23.19: present only when the project declares a save schema.
     ...((c as ContentCatalogV4).saveSchema !== undefined ? { saveSchema: canonicalSaveSchema((c as ContentCatalogV4).saveSchema!) } : {}),
+    // Phase 23.17: present only when there are timelines.
+    ...((c as ContentCatalogV4).timelines !== undefined && (c as ContentCatalogV4).timelines!.length > 0 ? { timelines: canonicalTimelines((c as ContentCatalogV4).timelines!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };

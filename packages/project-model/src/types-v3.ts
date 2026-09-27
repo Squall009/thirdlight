@@ -512,6 +512,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   uiDocuments?: import('./ui-documents').UiDocument[];
   /** Phase 23.9a: UI themes (named styles and icons documents share; absent = none). */
   uiThemes?: import('./ui-documents').UiTheme[];
+  /** Phase 23.17: timelines (sequencer assets; absent = none). */
+  timelines?: import('./timelines').TimelineAsset[];
   /**
    * Phase 23.3: the project's named collision layers (absent = only the
    * implicit "default" layer). A collider lists the layers it is in (absent:

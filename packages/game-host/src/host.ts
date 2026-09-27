@@ -207,6 +207,8 @@ export interface GameHostObservation {
   readonly hidden?: readonly string[];
   /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
   readonly saves?: ProjectSavesObservation;
+  /** Phase 23.17, additive: the timelines (screen fade/letterbox, plays, the last step's events) once one played. */
+  readonly timeline?: import('@thirdlight/runtime').TimelineView;
 }
 
 /**
@@ -237,6 +239,8 @@ export interface GameHostSceneObservation {
   readonly sockets?: readonly SocketObservation[];
   /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
   readonly saves?: ProjectSavesObservation;
+  /** Phase 23.17, additive: the timelines (screen fade/letterbox, plays, the last step's events) once one played. */
+  readonly timeline?: import('@thirdlight/runtime').TimelineView;
 }
 
 /** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
@@ -845,7 +849,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
 
   const serviceLetterbox = (rt: Runtime): void => {
     const lens = rt.readCameraView?.(lbPos, lbRot) ?? null;
-    const amount = lens === null || !Number.isFinite(lens.letterbox) ? 0 : Math.max(0, Math.min(0.5, lens.letterbox));
+    // Phase 23.17: a timeline's letterbox track shows over the camera's (the larger bars win).
+    const tlBars = rt.timelineView?.()?.screen.letterbox ?? 0;
+    const amount = Math.max(lens === null || !Number.isFinite(lens.letterbox) ? 0 : Math.max(0, Math.min(0.5, lens.letterbox)), Number.isFinite(tlBars) ? Math.max(0, Math.min(0.5, tlBars)) : 0);
     if (letterbox === null) {
       if (amount <= 0 || hostDom === null) return;
       const top = hostDom.createElement('div');
@@ -868,6 +874,39 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
     apply(letterbox.top, bar('top'));
     apply(letterbox.bottom, bar('bottom'));
+  };
+
+  /**
+   * Phase 23.17: a timeline's full-screen fade — one element over the view and
+   * the letterbox bars, under the project UI (a title can show over black).
+   * Made the first time a timeline fades; `data-tl-fade` carries the opacity.
+   */
+  let fadeNode: { readonly node: HostDomNode; shown: string } | null = null;
+  const serviceFade = (rt: Runtime): void => {
+    const screen = rt.timelineView?.()?.screen;
+    const opacity = screen === undefined || !Number.isFinite(screen.opacity) ? 0 : Math.max(0, Math.min(1, screen.opacity));
+    if (fadeNode === null) {
+      if (opacity <= 0 || hostDom === null) return;
+      const node = hostDom.createElement('div');
+      node.setAttribute?.('data-tl-fade', '0');
+      config.container.appendChild(node);
+      fadeNode = { node, shown: '' };
+    }
+    const color = screen !== undefined && /^#[0-9a-f]{6}$/.test(screen.fade) ? screen.fade : '#000000';
+    const key = `${color}|${Math.round(opacity * 1000) / 1000}`;
+    if (fadeNode.shown === key) return;
+    fadeNode.shown = key;
+    const css = `position:fixed;inset:0;background:${color};opacity:${Math.round(opacity * 1000) / 1000};pointer-events:none;z-index:5;${opacity > 0 ? '' : 'display:none;'}`;
+    const styled = fadeNode.node as HostDomNode & { style?: { cssText?: string } };
+    if (styled.style !== undefined) styled.style.cssText = css;
+    else fadeNode.node.setAttribute?.('style', css);
+    fadeNode.node.setAttribute?.('data-tl-fade', String(Math.round(opacity * 1000) / 1000));
+  };
+
+  /** Phase 23.17: the timelines as observers see them (once one played). */
+  const timelineObservation = (rt: Runtime): { timeline?: import('@thirdlight/runtime').TimelineView } => {
+    const v = rt.timelineView?.() ?? null;
+    return v === null ? {} : { timeline: v };
   };
 
   /** Phase 9.10: the loaded audio sources (recomputed when the scene set changes). */
@@ -1122,6 +1161,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // no game view: it only renders.
     // Phase 23.4: the live camera's letterbox (an overlay the host draws over the view).
     serviceLetterbox(runtime);
+    // Phase 23.17: a timeline's fade over the view.
+    serviceFade(runtime);
     // Phase 23.3: the cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
     serviceCursor(runtime);
     // Phase 23.19: the simulation's save requests (a thumbnail is drawn now, in this frame).
@@ -1577,6 +1618,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...savesObservation(),
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...inputObservation(runtime),
+        ...timelineObservation(runtime),
       },
     };
   };
@@ -1647,6 +1689,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...savesObservation(),
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...inputObservation(runtime),
+        ...timelineObservation(runtime),
       },
     };
   };
@@ -1738,6 +1781,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
       letterbox.top.remove();
       letterbox.bottom.remove();
       letterbox = null;
+    }
+    if (fadeNode !== null) {
+      fadeNode.node.remove();
+      fadeNode = null;
     }
     if (adapter !== null) {
       try {

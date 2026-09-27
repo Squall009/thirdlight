@@ -166,6 +166,9 @@ const OPS: readonly MutationOp[] = [
   'deleteUiDocument',
   'setUiTheme',
   'deleteUiTheme',
+  // phase 23.17: timelines
+  'setTimeline',
+  'deleteTimeline',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -211,7 +214,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1219,7 +1222,9 @@ export type ValidatedOpArgs =
   | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
   | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
   | { op: 'setUiTheme'; args: { theme: import('@thirdlight/project-model').UiTheme } }
-  | { op: 'deleteUiTheme'; args: { uiThemeId: string } };
+  | { op: 'deleteUiTheme'; args: { uiThemeId: string } }
+  | { op: 'setTimeline'; args: { timeline: import('@thirdlight/project-model').TimelineAsset } }
+  | { op: 'deleteTimeline'; args: { timelineId: string } };
 
 /** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1428,6 +1433,17 @@ export function validateOpArgs(
       const isObjectArg = op === 'setUiDocument' || op === 'setUiTheme';
       if (isObjectArg ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setUiDocument' ? 'object ({ uiDocumentId, name, root, … })' : op === 'setUiTheme' ? 'object ({ uiThemeId, name, styles, icons? })' : `string (${key})`) };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setTimeline':
+    case 'deleteTimeline': {
+      // Phase 23.17: setTimeline {timeline}; deleteTimeline {timelineId}.
+      const key = op === 'setTimeline' ? 'timeline' : 'timelineId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (op === 'setTimeline' ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setTimeline' ? 'object ({ timelineId, name, duration, tracks, … })' : 'string (timelineId)') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -270,6 +270,13 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{do: "show"|"hide"|"toggle", doc}, {do: "play", tween, widget?}. Bindings read the scripts\' view model (ctx.ui.set(path, value)); $flow.* reads the game flow (screen, level, lives, volumes, result, slots). ' +
       'setFlow flow.screens {title|paused|settings|levelComplete|gameOver|finished|load|save: uiDocumentId} replaces built-in screens. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus, events()/event(name). ' +
       'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
+      'Timelines (sequencer, played in the simulation step): setTimeline {timeline: {timelineId, name, duration (s, ≤ 600), slots? [{name, entity? (default binding)}], markers? [{name, time}], skipAction? (input action), playOnStart?, playOnSignal?, ' +
+      'tracks: [{trackId, type, name?, muted?, target? (a slot: transform|animator|activation|material), keys: [{time, …}]}]}} creates or replaces one (≤ 48 KiB, 32 tracks, 256 keys each); deleteTimeline {timelineId}. Track types and key fields: ' +
+      'camera {camera: slot | release: true, blend: cut|linear|eased, blendTime, progress: [from, to] (rail), easing} (track end: release|keep, endBlend, endBlendTime); transform {position, rotation (quaternion), scale, easing}; ' +
+      'animator {kind: set|trigger|play, name, value, fade, layer}; audio {kind: music|release|stinger|sfx, asset, fade, volume, loop, duration, at: slot} (track releaseMusic); dialogue {dialogue, node, wait}; effect {effect, duration, at, position, params}; ' +
+      'activation {active}; signal {name, onSkip: fire|drop}; fade {value 0-1, color, easing}; letterbox {value 0-0.5, easing} (track hold); wait {action, timeout} (stops until the action is pressed); material {value} (track param, material); environment {preset, blendTime}. ' +
+      'Easing (linear|step|easeIn|easeOut|easeInOut) shapes the move from the previous key. Scripts: ctx.timeline.play(id, {slot: entityId}) → handle, pause/resume/stop/skip (every track\'s end state)/seek, state/time/isPlaying, events() (started, ended, marker; next step), ended(h), marker(name). ' +
+      'They are in tl_content_query target="game" (timelines); tl_game_observe reports timeline {screen {fade, opacity, letterbox}, playing, events}. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',

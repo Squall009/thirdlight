@@ -89,6 +89,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
+import type { TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
@@ -126,6 +127,8 @@ import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
+import { TimelinesPanel } from './timeline/TimelinesPanel';
+import { newTimeline, type TimelinePreviewValue } from './timeline/TimelineDocument';
 import { LibrariesPanel } from './script/LibrariesPanel';
 import type { LibraryDraft, LibrarySaveOutcome } from './script/LibraryDocument';
 import { newLibraryFiles } from '../session/script-sources';
@@ -578,6 +581,9 @@ function EditorApp(): JSX.Element {
   const [effects, setEffects] = useState<readonly EffectDef[]>([]);
   const [effectSystems, setEffectSystems] = useState<Readonly<Record<string, string | null>>>({});
   const [effectError, setEffectError] = useState<string | null>(null);
+  // Phase 23.17: the timelines and the list's / tab's last refusal.
+  const [timelines, setTimelines] = useState<readonly TimelineAsset[]>([]);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
   // Phase 23.7: the shared script libraries and the Libraries list's last refusal.
   const [scriptLibraries, setScriptLibraries] = useState<readonly ScriptLibrary[]>([]);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -851,6 +857,7 @@ function EditorApp(): JSX.Element {
     applyEnvironmentView();
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
+    setTimelines(c.getTimelines());
     setScriptLibraries(c.getScriptLibraries());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
@@ -2895,6 +2902,18 @@ function EditorApp(): JSX.Element {
     setEffectError(err);
     return err === null;
   }, []);
+  // Phase 23.17: timeline commands (one undo step each; a key drag is one setTimeline).
+  const timelineCommand = useCallback(async (op: 'setTimeline' | 'deleteTimeline', args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const err = refusal(await c.command(op, args, c.projection.revision));
+    setTimelineError(err);
+    return err === null;
+  }, []);
+  // Phase 23.17: the timeline tab's scrub preview in the Scene view.
+  const onTimelinePreview = useCallback((p: TimelinePreviewValue | null) => {
+    viewportRef.current?.setTimelinePreview(p);
+  }, []);
   const saveAnimator = useCallback(async (controller: AnimatorController) => {
     const c = clientRef.current;
     if (!c) return;
@@ -3727,6 +3746,17 @@ function EditorApp(): JSX.Element {
         return ok ? graphId : null;
       },
     },
+    timeline: {
+      timelines,
+      entities: clientRef.current?.projection.listEntities() ?? entities,
+      sounds: assets.filter((a) => a.kind === 'audio' || a.kind === 'music').map((a) => ({ assetId: a.assetId, name: a.displayName })),
+      effects: effects.map((e) => ({ id: e.effectId, name: e.name })),
+      actions: (inputConfig ?? inputDefaults).actions.map((a) => a.name),
+      animators,
+      error: timelineError,
+      onSave: (timeline) => timelineCommand('setTimeline', { timeline }),
+      onPreview: onTimelinePreview,
+    },
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
 
@@ -4209,6 +4239,26 @@ function EditorApp(): JSX.Element {
               onDelete={(effectId) => {
                 void effectCommand('deleteEffect', { effectId }).then((ok) => {
                   if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'effect', id: effectId }) });
+                });
+              }}
+            />
+          )}
+          {bottomTab === 'timelines' && (
+            <TimelinesPanel
+              timelines={timelines}
+              openId={(() => {
+                const d = activeDoc(workspace);
+                return d !== null && d.kind === 'timeline' ? d.id : null;
+              })()}
+              error={timelineError}
+              onOpen={(id) => openDocument('timeline', id)}
+              onCreate={(name) => {
+                const timelineId = uniqueId(name, timelines.map((t) => t.timelineId), 'timeline');
+                void timelineCommand('setTimeline', { timeline: newTimeline(timelineId, name) }).then((ok) => ok && openDocument('timeline', timelineId));
+              }}
+              onDelete={(timelineId) => {
+                void timelineCommand('deleteTimeline', { timelineId }).then((ok) => {
+                  if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'timeline', id: timelineId }) });
                 });
               }}
             />
@@ -5013,7 +5063,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'libraries' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5033,6 +5083,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'graphs', label: 'Graphs' },
   // Phase 20.0: visual effects.
   { id: 'effects', label: 'Effects' },
+  // Phase 23.17: timelines (sequencer).
+  { id: 'timelines', label: 'Timelines' },
   // Phase 23.7: shared script libraries.
   { id: 'libraries', label: 'Libraries' },
   // Phase 23.6: block-layer editing.

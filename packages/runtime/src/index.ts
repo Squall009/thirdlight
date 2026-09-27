@@ -292,3 +292,29 @@ export {
 // The document types the game host draws (project-model's; the host reads them through the runtime).
 export { UI_LIMITS, uiDocumentsForRuntime, uiTextPlaceholders } from '@thirdlight/project-model';
 export type { RuntimeUiDocumentRow, UiAction, UiBinding, UiDocument, UiEngineAction, UiIcon, UiStyle, UiStyleValues, UiTheme, UiTween, UiWidget, UiWorldAnchor } from '@thirdlight/project-model';
+// Phase 23.17: the sequencer (timelines in the simulation step; the evaluation the editor's scrub preview shares).
+export {
+  TimelineSystem,
+  TIMELINE_MAX_PLAYING,
+  evaluateTimelineAt,
+  timelineBindings,
+  timelineEase,
+  transformTrackAt,
+  valueTrackAt,
+  cameraKeyAt,
+  cameraProgressAt,
+  fadeColorAt,
+  curveAt,
+  type TimelineHost,
+  type TimelineDialoguePort,
+  type TimelineEnvironmentPort,
+  type TimelineEvent,
+  type TimelineView,
+  type TimelinePreview,
+  type TimelinePlayState,
+  type TimelineTransformPose,
+} from './timeline';
+export type { BehaviorTimeline, BehaviorTimelineEvent } from './types';
+export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineTrackType } from '@thirdlight/project-model';
+// The editor may take project-model values only through the runtime (dependencies.md §4.1).
+export { TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, TIMELINE_LIMITS } from '@thirdlight/project-model';

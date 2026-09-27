@@ -18,7 +18,7 @@
 
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -315,6 +315,8 @@ export class SessionClient {
   /** Phase 23.9a: the project UI documents and themes (from queryGameConfig, then setUi changes). */
   private uiDocuments: UiDocument[] = [];
   private uiThemes: UiTheme[] = [];
+  /** Phase 23.17: the timelines (from queryGameConfig, then setTimeline changes). */
+  private timelines: TimelineAsset[] = [];
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   /** Phase 23.3: the project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
@@ -570,6 +572,8 @@ export class SessionClient {
         this.uiDocuments = Array.isArray(uiDocs) ? structuredClone(uiDocs) : [];
         const uiThemes = (g as { uiThemes?: UiTheme[] }).uiThemes;
         this.uiThemes = Array.isArray(uiThemes) ? structuredClone(uiThemes) : [];
+        const timelines = (g as { timelines?: TimelineAsset[] }).timelines;
+        this.timelines = Array.isArray(timelines) ? structuredClone(timelines) : [];
         const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;
         if (kinds !== undefined) this.graphKinds = structuredClone(kinds);
       }
@@ -789,6 +793,10 @@ export class SessionClient {
         // Phase 23.7: one library before/after (null = none); its dependents' records travel in the same change.
         const rest = this.scriptLibraries.filter((l) => l.libraryId !== change.libraryId);
         this.scriptLibraries = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1));
+      } else if (change.type === 'setTimeline') {
+        // Phase 23.17: one timeline before/after (null = none).
+        const rest = this.timelines.filter((t) => t.timelineId !== change.timelineId);
+        this.timelines = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.timelineId < b.timelineId ? -1 : 1));
       } else if (change.type === 'setUi') {
         // Phase 23.9a: one UI document or theme before/after (null = none).
         if (change.uiKind === 'document') {
@@ -1309,6 +1317,11 @@ export class SessionClient {
   /** Phase 23.9a: the project UI themes. */
   getUiThemes(): readonly UiTheme[] {
     return this.uiThemes;
+  }
+
+  /** Phase 23.17: the timelines (the editor treats them as read-only values). */
+  getTimelines(): readonly TimelineAsset[] {
+    return this.timelines;
   }
 
   /** Phase 23.7: the shared script libraries (the editor treats them as read-only values). */

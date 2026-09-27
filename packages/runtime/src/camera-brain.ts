@@ -219,6 +219,8 @@ export class CameraBrain {
   private order = 0;
   private serialCounter = 0;
   private liveId: string | null = null;
+  /** Phase 23.17: the camera a timeline forces live (null: none). */
+  private overrideId: string | null = null;
   private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle } | null = null;
   /** A blend a script asked for with the change it made (used by the next switch). */
   private pendingBlend: { style: CameraBlendStyle; seconds: number } | null = null;
@@ -289,6 +291,7 @@ export class CameraBrain {
     this.liveId = null;
     this.blend = null;
     this.pendingBlend = null;
+    this.overrideId = null;
     this.impulses = [];
     this.started = false;
     this.serialCounter = 0;
@@ -483,7 +486,28 @@ export class CameraBrain {
 
   // ---- the step ------------------------------------------------------------------
 
+  /**
+   * Phase 23.17: the camera a timeline forces live (over priorities), with
+   * the blend of the change; null gives the view back to the priorities.
+   * Inert unless a timeline uses it (every existing resolution unchanged).
+   */
+  setOverride(id: string | null, options?: unknown): boolean {
+    if (id !== null && !this.cams.has(id)) return false;
+    if (id === this.overrideId) return true;
+    this.overrideId = id;
+    this.noteBlend(options);
+    return true;
+  }
+
+  override(): string | null {
+    return this.overrideId;
+  }
+
   private best(): CamState | null {
+    if (this.overrideId !== null) {
+      const forced = this.cams.get(this.overrideId);
+      if (forced !== undefined) return forced;
+    }
     let best: CamState | null = null;
     for (const s of this.cams.values()) {
       if (!s.enabled) continue;

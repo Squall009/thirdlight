@@ -63,6 +63,8 @@ export class FrameEncoder {
   private debugRevision = 0;
   /** Phase 23.11: the socket list last sent (the runtime keeps one array while nothing changes). */
   private socketsRef: readonly unknown[] | null = null;
+  /** Phase 23.17: the timeline view last sent (the runtime keeps one object while nothing changes). */
+  private timelineRef: unknown = null;
   private shared: { sab: SharedArrayBuffer; slotFloats: number; slot: number; fresh: boolean } | null = null;
   private readonly useShared: boolean;
   private readonly visit: (id: string, p: readonly number[], r: readonly number[], s: readonly number[]) => void;
@@ -328,6 +330,12 @@ export class FrameEncoder {
       this.socketsRef = sockets;
       out.sockets = sockets;
     }
+    // Phase 23.17: the timelines' view (only when it changed; never for a game that played none).
+    const tl = rt.timelineView?.() ?? null;
+    if (tl !== this.timelineRef) {
+      this.timelineRef = tl;
+      out.tl = tl;
+    }
     if (typeof extra.memoryBytes === 'number' && extra.memoryBytes !== this.memoryBytes) {
       this.memoryBytes = extra.memoryBytes;
       out.memoryBytes = extra.memoryBytes;
@@ -406,6 +414,8 @@ export class FrameMirror {
   debugCommands: DebugCommandState | null = null;
   /** Phase 23.11: the objects riding on sockets. */
   sockets: readonly { readonly entityId: string; readonly target: string; readonly node: string }[] = Object.freeze([]);
+  /** Phase 23.17: the timelines' view. */
+  timeline: import('@thirdlight/runtime').TimelineView | null = null;
   private sharedSab: SharedArrayBuffer | null = null;
   /** The previous full transform buffer (returned to the worker for reuse). */
   spare: ArrayBuffer | null = null;
@@ -492,6 +502,7 @@ export class FrameMirror {
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
     if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;
     if (s.sockets !== undefined) this.sockets = deepFreeze(s.sockets);
+    if (s.tl !== undefined) this.timeline = s.tl === null ? null : deepFreeze(s.tl);
   }
 }
 

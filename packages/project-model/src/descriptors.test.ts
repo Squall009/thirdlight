@@ -737,6 +737,8 @@ function runAllProbes(): void {
   // Phase 23.9a: UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
+  // Phase 23.17: timelines (json items).
+  probe('timelines', contentErrors, contentDoc({ timelines: [{ timelineId: 'intro', name: 'Intro', duration: 2, tracks: [{ trackId: 's', type: 'signal', keys: [{ time: 1, name: 'go' }] }] }] }), '/timelines', block('timelines'), 'timelines:');
   // Phase 23.3: the named collision layers.
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   // Phase 23.19: the project save schema.

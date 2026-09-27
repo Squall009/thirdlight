@@ -13,6 +13,7 @@
  * before any capture. Pure: no I/O, no filesystem, no three.js.
  */
 
+import { timelineRefs, type TimelineAsset } from './timelines';
 import { uiAssetRefs, type UiDocument, type UiTheme } from './ui-documents';
 import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { fail, fieldValue, isPlainObject, withFound } from './validate';
@@ -142,6 +143,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   // Phase 23.9a: the textures (images, 9-slices, icons) and fonts the UI documents and themes use.
   const ui = uiAssetRefs((content as { uiDocuments?: UiDocument[] }).uiDocuments, (content as { uiThemes?: UiTheme[] }).uiThemes);
   for (const id of [...ui.textures, ...ui.fonts]) setRef(id);
+  // Phase 23.17: the sounds the timelines play.
+  for (const id of timelineRefs((content as { timelines?: TimelineAsset[] }).timelines).assets) setRef(id);
   // Phase 9.5: the sky images and the grading LUT.
   const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;
   if (env?.sky?.texture !== undefined) setRef(env.sky.texture);

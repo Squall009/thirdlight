@@ -671,6 +671,8 @@ export class Projection {
       case 'setBlockStamp':
       // Phase 23.9a: UI documents and themes too.
       case 'setUi':
+      // Phase 23.17: timelines too.
+      case 'setTimeline':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

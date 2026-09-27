@@ -58,6 +58,7 @@ import type {
   GraphOp,
   UiDocument,
   UiTheme,
+  TimelineAsset,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -141,7 +142,10 @@ export type V3MutationOp =
   | 'setUiDocument'
   | 'deleteUiDocument'
   | 'setUiTheme'
-  | 'deleteUiTheme';
+  | 'deleteUiTheme'
+  // phase 23.17: timelines
+  | 'setTimeline'
+  | 'deleteTimeline';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -542,6 +546,21 @@ export interface SetUiChange {
   next: UiDocument | UiTheme | null;
 }
 
+/** Phase 23.17: `setTimeline`/`deleteTimeline` change data: one timeline before and after (null = none). */
+export interface SetTimelineChange {
+  type: 'setTimeline';
+  timelineId: string;
+  previous: TimelineAsset | null;
+  next: TimelineAsset | null;
+}
+
+/** Phase 23.17: undo of a timeline op: restore the previous timeline (null = remove it). */
+export interface SetTimelineInverse {
+  kind: 'setTimeline';
+  timelineId: string;
+  restore: TimelineAsset | null;
+}
+
 /** Phase 23.9a: undo of a UI op: restore the previous document or theme (null = remove it). */
 export interface SetUiInverse {
   kind: 'setUi';
@@ -875,7 +894,8 @@ export type ChangeData =
   | SetBlockTypeChange
   | SetCellFieldsChange
   | SetBlockStampChange
-  | SetUiChange;
+  | SetUiChange
+  | SetTimelineChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -914,7 +934,8 @@ export type ForwardChange =
   | SetBlockTypeChange
   | SetCellFieldsChange
   | SetBlockStampChange
-  | SetUiChange;
+  | SetUiChange
+  | SetTimelineChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -1103,6 +1124,7 @@ export type InverseSpec =
   | SetEffectInverse
   | SetScriptLibraryInverse
   | SetUiInverse
+  | SetTimelineInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
@@ -1556,6 +1578,14 @@ export interface SetUiThemeArgs {
 export interface DeleteUiThemeArgs {
   uiThemeId: string;
 }
+/** Phase 23.17: `setTimeline` creates or replaces one timeline (by timelineId). */
+export interface SetTimelineArgs {
+  timeline: TimelineAsset;
+}
+/** Phase 23.17: `deleteTimeline` removes one timeline. */
+export interface DeleteTimelineArgs {
+  timelineId: string;
+}
 
 /** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
@@ -1602,6 +1632,8 @@ export interface DeleteBlockStampArgs {
 }
 
 export type MutationArgs =
+  | SetTimelineArgs
+  | DeleteTimelineArgs
   | EditBlocksArgs
   | SetBlockTypeArgs
   | DeleteBlockTypeArgs

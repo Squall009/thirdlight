@@ -362,6 +362,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
     // Phase 23.11: the objects riding on sockets (the worker's list).
     socketAttachments: () => mirror.sockets,
+    // Phase 23.17: the worker's timeline view (screen overlay, plays, last events).
+    timelineView: () => (gone() ? null : mirror.timeline),
     // Phase 23.9a: the project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
     queueUiEvent: (event: UiEventRecord) => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };

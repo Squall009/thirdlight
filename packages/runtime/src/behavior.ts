@@ -64,6 +64,7 @@ import type {
   BehaviorSockets,
   BehaviorDebug,
   BehaviorUi,
+  BehaviorTimeline,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -232,6 +233,8 @@ export interface BehaviorContext {
   readonly saves?: BehaviorSaves;
   /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
+  /** Phase 23.17: timelines — play, pause, skip, seek and stop project timelines; their events and markers. */
+  readonly timeline?: BehaviorTimeline;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -946,6 +949,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
         // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
+        // Phase 23.17: timelines (an engine system in the step; scripts read its events next step).
+        if (src.timeline !== undefined) fields['timeline'] = { value: src.timeline, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

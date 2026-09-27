@@ -154,6 +154,8 @@ export interface PreviewManifestV2 {
   /** Phase 23.3: the named collision layers. */
   collisionLayers?: readonly string[];
   saveSchema?: SaveSchema;
+  /** Phase 23.17: the timelines. */
+  timelines?: import('@thirdlight/runtime').TimelineAsset[];
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -395,7 +397,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -452,7 +454,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsS = manifest.saveSchema !== undefined ? ({ ...withBoundsM, saveSchema: manifest.saveSchema } as RuntimeSnapshot) : withBoundsM;
   // Phase 23.9a: the UI documents scripts show and hide (id, layer, modal; the host draws them from the manifest).
   const uiRows = uiDocumentsForRuntime(manifest.uiDocuments);
-  const withBoundsU = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
+  const withBoundsU0 = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
+  // Phase 23.17: the timelines (ctx.timeline, play-on-start / play-on-signal).
+  const withBoundsU = manifest.timelines !== undefined && manifest.timelines.length > 0 ? ({ ...withBoundsU0, timelines: manifest.timelines } as RuntimeSnapshot) : withBoundsU0;
   // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
   const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const withBounds = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
@@ -957,6 +961,8 @@ export function bootstrapPreviewM3(): void {
         ...(o.audio !== undefined ? { audio: structuredClone(o.audio) } : {}),
         // Phase 23.11: the objects riding on sockets and their world positions.
         ...(o.sockets !== undefined ? { sockets: structuredClone(o.sockets) } : {}),
+        // Phase 23.17: the timelines (screen fade/letterbox, plays, the last events).
+        ...(o.timeline !== undefined ? { timeline: structuredClone(o.timeline) } : {}),
         // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
         ...(o.pointer !== undefined ? { pointer: { ...o.pointer } } : {}),
         ...(o.cursor !== undefined ? { cursor: { ...o.cursor } } : {}),
@@ -1016,6 +1022,8 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.audio !== undefined ? { audio: structuredClone(obs.observation.audio) } : {}),
       // Phase 23.11: the objects riding on sockets and their world positions.
       ...(obs.observation.sockets !== undefined ? { sockets: structuredClone(obs.observation.sockets) } : {}),
+      // Phase 23.17: the timelines (screen fade/letterbox, plays, the last events).
+      ...(obs.observation.timeline !== undefined ? { timeline: structuredClone(obs.observation.timeline) } : {}),
       // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
       ...(obs.observation.pointer !== undefined ? { pointer: { ...obs.observation.pointer } } : {}),
       ...(obs.observation.cursor !== undefined ? { cursor: { ...obs.observation.cursor } } : {}),

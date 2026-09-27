@@ -47,6 +47,8 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   // Phase 23.9a: project UI documents and themes.
   'setUiDocument',
   'setUiTheme',
+  // Phase 23.17: timelines.
+  'setTimeline',
 ]);
 
 /** How many of our own revisions are remembered for `rebase` (a burst of edits is far smaller). */

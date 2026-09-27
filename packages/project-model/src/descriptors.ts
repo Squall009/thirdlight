@@ -47,6 +47,7 @@ import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { UI_LIMITS } from './ui-documents';
+import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
@@ -1822,6 +1823,8 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   // Phase 23.9a: project UI documents and themes (JSON widget trees; the visual editor is 23.9b).
   { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', `Up to ${UI_LIMITS.documents} documents.`, json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true }), { maxItems: UI_LIMITS.documents, default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
   { key: 'uiThemes', label: 'UI themes', tooltip: 'Named styles and icons UI documents share.', required: false, value: list('uiThemes', 'UI themes', `Up to ${UI_LIMITS.themes} themes.`, json('*', 'Theme', 'A UI theme: { uiThemeId, name, styles, icons? }.', { readOnly: true }), { maxItems: UI_LIMITS.themes, default: [] }), ops: ['setUiTheme', 'deleteUiTheme'] },
+  // Phase 23.17: timelines (tracks of keys on a time ruler; edited in the Timeline tab).
+  { key: 'timelines', label: 'Timelines', tooltip: 'Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals and fades on a time ruler, played by scripts or signals.', required: false, value: list('timelines', 'Timelines', `Up to ${TIMELINE_LIMITS.timelines} timelines.`, json('*', 'Timeline', 'A timeline: { timelineId, name, duration, slots?, markers?, tracks, … }.', { readOnly: true }), { maxItems: TIMELINE_LIMITS.timelines, default: [] }), ops: ['setTimeline', 'deleteTimeline'] },
   // Phase 16.1: standalone node graphs; their body is edited in the graph editor (graphEdit ops).
   { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', `Up to ${MAX_GRAPH_DOCUMENTS} graphs.`, json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { maxItems: MAX_GRAPH_DOCUMENTS, default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },

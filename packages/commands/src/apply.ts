@@ -58,6 +58,7 @@ import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-librar
 import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
 import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
+import { applyDeleteTimeline, applySetTimeline } from './timeline-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -395,6 +396,15 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setTimeline':
+    case 'deleteTimeline': {
+      // Phase 23.17: timelines (one whole timeline per command; one undo each).
+      const a = va.validated.args as Record<string, unknown>;
+      const op = va.validated.op;
+      const r = op === 'setTimeline' ? applySetTimeline(input, a as { timeline: import('@thirdlight/project-model').TimelineAsset }) : applyDeleteTimeline(input, String(a['timelineId']));
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setScriptLibrary':
     case 'deleteScriptLibrary': {
       // Phase 23.7: shared script libraries (a change republishes the dependents from prepared facts).
@@ -591,7 +601,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline',
         }),
       };
     }

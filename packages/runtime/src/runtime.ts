@@ -88,6 +88,8 @@ import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from 
 import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { SocketSystem } from './sockets';
+import { TimelineSystem, type TimelineView } from './timeline';
+import type { TimelineAsset } from '@thirdlight/project-model';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
@@ -1294,6 +1296,7 @@ export function instantiateRuntime(
     ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
     ...(projectSettings !== undefined ? { projectSettings } : {}),
     uiDocuments: snap.uiDocuments,
+    ...(snap.timelines !== undefined ? { timelines: snap.timelines } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1383,6 +1386,8 @@ interface RuntimeArgs {
   projectSettings?: Readonly<Record<string, unknown>>;
   /** Phase 23.9a: the project's UI documents (id, layer, modal). */
   uiDocuments: readonly RuntimeUiDocumentRow[];
+  /** Phase 23.17: the project's timelines. */
+  timelines?: readonly TimelineAsset[];
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1610,6 +1615,9 @@ class RuntimeInstance implements Runtime {
   /** UI events the host queued for the next sampled frame. */
   private uiQueue: UiEventRecord[] = [];
   private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
+  // ---- Phase 23.17: the sequencer (inert without timelines) ----
+  private readonly timelines: TimelineSystem;
+  private readonly timelineControl: import('./types').BehaviorTimeline;
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
   /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
@@ -1973,6 +1981,9 @@ class RuntimeInstance implements Runtime {
     this.sockets.add(args.initialEntities);
     this.settleSockets();
     this.socketControl = this.buildSocketControl();
+    // Phase 23.17: the timelines (inert while the project has none).
+    this.timelines = new TimelineSystem(args.timelines ?? [], this.hz, this.buildTimelineHost());
+    this.timelineControl = this.buildTimelineControl();
   }
 
   // ---- Phase 23.11: sockets ---------------------------------------------------------
@@ -3169,6 +3180,8 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
+    // Phase 23.17: the timelines (no input frame in a plain step: a wait key needs its timeout).
+    if (this.timelines.active) this.timelines.step(stepOrdinal, null);
     // Phase 23.4: the camera brain resolves the view on the step's transforms.
     this.stepCameras(null);
     // Phase 23.13: fades and clips advance; finished sounds are seen next step.
@@ -3290,6 +3303,15 @@ class RuntimeInstance implements Runtime {
       this.failStopFromError(e, stepIndex);
       return false;
     }
+    // Phase 23.17: the timelines, after every script phase and before the camera brain (on this step's input frame).
+    if (this.timelines.active) {
+      try {
+        this.timelines.step(ordinal, action);
+      } catch (e) {
+        this.failStopFromError(e, stepIndex);
+        return false;
+      }
+    }
     // Phase 23.4: the camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
     this.stepCameras(action);
@@ -3374,6 +3396,88 @@ class RuntimeInstance implements Runtime {
   /** Phase 23.9a: the committed view model and shown documents. */
   uiView(): UiStateView {
     return this.ui.view();
+  }
+
+  /** Phase 23.17: the timelines' screen overlay, plays and last events (null until a timeline played). */
+  timelineView(): TimelineView | null {
+    return this.timelines.view();
+  }
+
+  /** Phase 23.17: the timelines' state for the step digest (null until a timeline played). */
+  timelineState(): string | null {
+    return this.timelines.digestState();
+  }
+
+  /** Phase 23.17: what the sequencer drives — the runtime's own channels. */
+  private buildTimelineHost(): import('./timeline').TimelineHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const rt = this;
+    const warn = (message: string): void => rt.recordBehaviorLog('thirdlight.runtime:timeline', 'warn', message);
+    return {
+      writeTransform: (id, pose) => {
+        const t = rt.curr.get(id);
+        if (t === undefined) return false;
+        if (rt.physics3d !== undefined && id === rt.controllerEntityId && pose.position !== undefined && typeof rt.physics3d.placeCharacter === 'function') {
+          // The 3D character's body moves with it (as a script's character_place does).
+          rt.physics3d.placeCharacter({ x: pose.position[0], y: pose.position[1], z: pose.position[2] });
+          rt.lastCharacterResult3D = undefined;
+          rt.fallSpeed3d = 0;
+        } else if (rt.physics3d === undefined && id === rt.playerEntityId && pose.position !== undefined) {
+          warn(`timeline: the 2D player "${id}" is moved by its physics body; a transform track does not move it`);
+          return true;
+        }
+        if (pose.position !== undefined) for (let k = 0; k < 3; k += 1) t.position[k] = pose.position[k]!;
+        if (pose.rotation !== undefined) for (let k = 0; k < 4; k += 1) t.rotation[k] = pose.rotation[k]!;
+        if (pose.scale !== undefined) for (let k = 0; k < 3; k += 1) t.scale[k] = pose.scale[k]!;
+        return true;
+      },
+      cameraOverride: (id, blend) => void rt.cameras.setOverride(id, blend ?? undefined),
+      cameraProgress: (id, progress) => void rt.cameras.set(id, { progress }),
+      cameraActivate: (id) => void rt.cameras.activate(id),
+      animator: (id) => {
+        const m = rt.animatorMachines.get(id)?.machine;
+        if (m === undefined) return null;
+        return { set: (name, value) => m.set(name, value), trigger: (name) => m.trigger(name), play: (state, fade, layer) => m.play(state, fade, layer) };
+      },
+      audio: {
+        music: (assetId, fade) => rt.audio.music(assetId, fade),
+        releaseMusic: (fade) => rt.audio.releaseMusic(fade),
+        stinger: (assetId, volume) => rt.audio.stinger(assetId, volume !== undefined ? { volume } : undefined),
+        play: (assetId, options) => rt.audio.play(assetId, options),
+        stop: (handle, fade) => rt.audio.stop(handle, fade),
+        playing: (handle) => rt.audio.playing(handle),
+      },
+      effects: {
+        play: (effectId, options) => rt.effectsControl.play(effectId, options),
+        stop: (handle) => rt.effectsControl.stop(handle),
+      },
+      setVisible: (id, visible) => {
+        if (rt.curr.has(id)) rt.blocks?.setVisible(id, visible);
+      },
+      emitSignal: (name) => rt.signalControl.emit(name),
+      signaled: (name) => rt.signalControl.on(name),
+      setMaterial: (id, param, value, materialId) => rt.materials.api.set(id, param, value, materialId),
+      warn,
+    };
+  }
+
+  /** Phase 23.17: `ctx.timeline` (arguments checked by the system; requests apply at the end of the step). */
+  private buildTimelineControl(): import('./types').BehaviorTimeline {
+    const t = this.timelines;
+    return Object.freeze({
+      play: (timelineId: string, bindings?: Readonly<Record<string, string>>): number => t.play(timelineId, bindings),
+      pause: (handle: number): boolean => t.pause(handle),
+      resume: (handle: number): boolean => t.resume(handle),
+      stop: (handle: number): boolean => t.stop(handle),
+      skip: (handle: number): boolean => t.skip(handle),
+      seek: (handle: number, seconds: number): boolean => t.seek(handle, seconds),
+      state: (handle: number) => t.state(handle),
+      time: (handle: number): number => t.time(handle),
+      isPlaying: (timelineId: string): boolean => t.isPlaying(timelineId),
+      events: () => t.events(),
+      ended: (handle: number): boolean => t.events().some((e) => e.kind === 'ended' && e.handle === handle),
+      marker: (name: string, handle?: number): boolean => t.events().some((e) => e.kind === 'marker' && e.name === name && (handle === undefined || handle === 0 || e.handle === handle)),
+    });
   }
 
   private sampleAction(stepIndex: number): ActionFrame {
@@ -3564,6 +3668,8 @@ class RuntimeInstance implements Runtime {
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 23.4: and with its cameras as authored.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
+    // Phase 23.17: and with no timeline playing (play-on-start timelines start again).
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.timelines.reset();
     // Phase 23.13: and without the last run's script sounds (the music back to the flow).
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.audio.reset();
     // Phase 23.3: and with the cursor its input map gives (a script's request ends with the run).
@@ -4675,6 +4781,8 @@ class RuntimeInstance implements Runtime {
       fields['saves'] = { value: this.saves.api, enumerable: true };
       // Phase 23.9a: the project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
+      // Phase 23.17: timelines (ctx.timeline).
+      fields['timeline'] = { value: this.timelineControl, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
