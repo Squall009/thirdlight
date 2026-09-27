@@ -20,6 +20,14 @@ that phase plan's decision log, and move on. The owner reviews at the end.
    values: a port, library or data model that only works in 2D, on one axis
    or for one genre is demo-shaped even when every default is neutral
    (the 2D-only simulation found in 2026-09-26 was this; phase 23).
+1b. **Capabilities, never game rules** (owner, 2026-09-27, strict). Before
+   adding a component, block, field or API, ask: would a game in a
+   different genre use it unchanged? If it encodes what the game *is*
+   (winning and losing, lives, currencies, scores, enemy behaviour, level
+   order), it is project code. It goes in the game's own repo as scripts or
+   shared libraries, built on engine primitives. Neutral defaults do not
+   make a game rule generic. The engine never reads a game repo, and game
+   repos are not engine test fixtures (`docs/plan-phase-24.md`).
 2. **Everything that affects the game is an object in the editor.** Any
    data the game reads can be seen, selected and edited in the editor —
    Inspector fields, and Scene-view handles for anything with a size, range,
@@ -50,6 +58,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 21 | `docs/plan-phase-21.md` | Performance and memory pass |
 | 22 | `docs/plan-phase-22.md` | Multithreading: simulation worker, optional render worker |
 | 23 | `docs/plan-phase-23.md` | 3D game foundations: 3D physics and character controller, cameras, pointer and 3D queries, block layers, project UI, game modes, dialogue, sequencer, audio, saves (gap list from the Skyforge Tactics dogfooding project) |
+| 24 | `docs/plan-phase-24.md` | Engine/game separation: tests off Sprout, neutral starter, modules from the manifest, generic primitives, genre layer and Beacon Reach deleted, a vocabulary guard (`docs/audit-engine-game-separation.md`) |
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).
