@@ -349,7 +349,7 @@ export function composeV4(
   (content.prefabs ?? []).forEach((d, di) => {
     d.entities.forEach((e, ei) => {
       const local: ModelErrorV3[] = [];
-      physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, dimension, local, `/prefabs/${di}/entities/${ei}/components`);
+      physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, dimension, local, `/prefabs/${di}/entities/${ei}/components`, content.collisionLayers ?? []);
       for (const x of local) errors.push({ ...x, document: 'content' } as ModelErrorV3);
     });
   });
@@ -363,7 +363,7 @@ export function composeV4(
  * needs its half depth `hz` (no guessed depth); a polygon collider is a
  * 2D-plane shape (3D shapes and mesh colliders are phase 23.1).
  */
-export function physicsDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[], rotationBase: string = path): void {
+export function physicsDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[], rotationBase: string = path, collisionLayers: readonly string[] = []): void {
   blockDimensionErrors(comps, path, dimension, errors);
   const collider = comps['collider'] as { shape?: { type?: string; hz?: number } } | undefined;
   const hasController = comps['controller'] !== undefined;
@@ -374,6 +374,15 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
   if (collider === undefined) return;
   const shape = collider.shape;
   const type = shape?.type;
+  // Phase 23.3: collision layers are 3D physics (the 2D plane is unchanged); each must be the implicit
+  // "default" or one the project names.
+  const layers = (collider as { layers?: unknown }).layers;
+  if (Array.isArray(layers)) {
+    if (dimension !== 3) errors.push(withFound({ code: 'field_value', path: `${path}/components/collider/layers`, message: 'collision layers are a 3D physics feature (set physics_dimension to 3)', expected: 'absent' } as ModelErrorV3, layers));
+    else layers.forEach((name, i) => {
+      if (typeof name === 'string' && name !== 'default' && !collisionLayers.includes(name)) errors.push(withFound({ code: 'reference_missing', path: `${path}/components/collider/layers/${i}`, message: `the collision layer "${name}" is not one of the project's layers`, expected: `default or one of: ${collisionLayers.join(', ') || '(none named)'}` } as ModelErrorV3, name));
+    });
+  }
   if (dimension !== 3) {
     // Phase 23.1: the 3D shapes need a 3D project.
     if (type === 'sphere' || type === 'capsule' || type === 'convex' || type === 'mesh') {
@@ -443,7 +452,7 @@ export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: Mo
   const dimension = physicsDimensionOf(content.settings);
   s.entities.forEach((e, i) => {
     const local3: ModelErrorV3[] = [];
-    physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, dimension, local3);
+    physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, dimension, local3, `/entities/${i}`, content.collisionLayers ?? []);
     for (const x of local3) errors.push(sceneError(s.sceneId, x));
   });
   // Phase 23.5: the cells against the block types and the metadata schema.

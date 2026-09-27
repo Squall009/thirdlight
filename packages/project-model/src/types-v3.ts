@@ -503,6 +503,12 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   cellFields?: import('./block-layers').CellField[];
   /** Phase 23.5: saved cell patterns (absent = none). */
   blockStamps?: import('./block-layers').BlockStamp[];
+  /**
+   * Phase 23.3: the project's named collision layers (absent = only the
+   * implicit "default" layer). A collider lists the layers it is in (absent:
+   * "default"); script queries filter by layer. 3D physics only.
+   */
+  collisionLayers?: string[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

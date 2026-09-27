@@ -705,6 +705,8 @@ export interface StepContext {
   readonly cameraYaw?: number;
   /** Phase 23.4: the virtual cameras (`ctx.camera`; a scene without one answers false/null). */
   readonly camera?: BehaviorCamera;
+  /** Phase 23.3: the cursor a script asks for (`ctx.input.setCursor`; simulation state the host applies after the step). */
+  readonly cursor?: { readonly request: (mode: 'free' | 'locked' | 'auto') => void };
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
   /** Phase 23.5: the block layers of the loaded scenes (`ctx.grid`). */
@@ -1339,7 +1341,11 @@ export interface Runtime {
   cameraView?(): import('./camera-brain').CameraViewInfo | null;
   /** Phase 23.4: the viewport the view is drawn in (screen↔world projection uses its aspect). */
   setCameraViewport?(width: number, height: number): boolean;
-  getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
+  /** Phase 23.3: the cursor a script asked for ('free' | 'locked'), or null — the active input map decides. */
+  cursorRequest?(): 'free' | 'locked' | null;
+  /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */
+  readPointer?(): import('./actions').PointerSample | null;
+  getCamera():{ ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
 

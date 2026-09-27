@@ -49,6 +49,10 @@ export {
   type ActionSource,
   type ActionSourceDiagnostics,
   type JumpPhase,
+  // Phase 23.3: pointer samples in the frame.
+  POINTER_BUTTON_BITS,
+  validatePointerSample,
+  type PointerSample,
   // Phase 23.8: debug commands on input frames.
   validateDebugCommands,
   validateDebugCommandCall,
@@ -86,6 +90,10 @@ export {
   type ColliderShape3D,
   type KinematicPose3D,
   type OverlapShape3D,
+  // Phase 23.3: 3D queries for scripts (filters by tag and collision layer).
+  type PhysicsHit,
+  type PhysicsQueryFilter,
+  type PhysicsQueryFilter3D,
 } from './ports';
 export { DuplicateMoveError, PhaseViolationError } from './guard';
 export {
@@ -158,6 +166,8 @@ export {
   validatePhaseList,
 } from './registry';
 export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, instantiateRuntime, sessionTimingSteps } from './runtime';
+// Phase 23.3: the per-step budget of 3D script queries; the pointer state the runtime keeps.
+export { QUERY_LIMIT_3D, type HeldPointer } from './runtime';
 export {
   BEHAVIOR_MODULE_PREFIX,
   BEHAVIOR_SELF_OWNER,
