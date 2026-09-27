@@ -480,6 +480,9 @@ for (const threads of ['off', 'worker'] as const) {
     const observe = async (): Promise<{ scenes?: { loaded: string[] }; counters?: Record<string, number>; spawned?: unknown[] }> => (await relay('observe')).json as never;
     const gpu = async (): Promise<Record<string, number>> => ((await relay('diagnostics')).json['diagnostics'] as { renderer: { gpu: Record<string, number> } }).renderer.gpu;
     const loaded = async (): Promise<string[]> => (await observe()).scenes?.loaded ?? [];
+    // The simulation (worker) plays before the renderer finishes its async WebGPU probe on a loaded host:
+    // the renderer's counts exist once it is built, so the baseline waits for them.
+    await expect.poll(async () => (await gpu()) !== undefined, { timeout: 60_000 }).toBe(true);
 
     // Renderer counts are compared with the spawner paused (a pause keeps the scene set and the copies still).
     const pausedGpu = async (): Promise<Record<string, number>> => {

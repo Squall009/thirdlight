@@ -28,6 +28,9 @@ import { VisualScriptDocument, type VisualScriptDocumentProps } from '../script/
 import { LibraryDocument, type LibraryDocumentProps } from '../script/LibraryDocument';
 import { TimelineDocument, type TimelineDocumentProps } from '../timeline/TimelineDocument';
 import type { ScriptLibrary } from '@thirdlight/project-model';
+import type { UiDocument, UiTheme } from '@thirdlight/project-model';
+import { UiDocumentEditor, type UiDocumentEditorProps } from '../uidoc/UiDocumentEditor';
+import { UiThemeDocument, type UiThemeDocumentProps } from '../uidoc/UiThemeDocument';
 
 /** What document views get from the app: the data and actions of the panels they reuse. */
 export interface WorkspaceHost {
@@ -62,6 +65,13 @@ export interface WorkspaceHost {
   effect: Omit<EffectDocumentProps, 'effectId'>;
   /** Phase 23.17: the props of one timeline's tab (all timelines share them). */
   timeline: Omit<TimelineDocumentProps, 'timelineId'>;
+  /** Phase 23.9b: the project UI documents and themes, and the props of one document's / theme's tab. */
+  ui: {
+    documents: readonly UiDocument[];
+    themes: readonly UiTheme[];
+    document: (uiDocumentId: string) => UiDocumentEditorProps;
+    theme: (uiThemeId: string) => UiThemeDocumentProps;
+  };
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }
@@ -213,8 +223,31 @@ const timelineKind: DocumentKind = {
   render: (id, host) => <TimelineDocument key={id} {...host.timeline} timelineId={id} />,
 };
 
+/** A small screen-with-widgets glyph for UI tabs. */
+const UI_ICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="12" rx="1.5" fill="none" stroke="#8fb4ff" stroke-width="1.4"/><rect x="3" y="4" width="6" height="2" fill="#7ed491"/><rect x="3" y="8" width="10" height="2" rx="1" fill="#f2b544"/></svg>');
+
+/** Phase 23.9b: a UI document's visual editor ("UI: <name>"). */
+const uiDocumentKind: DocumentKind = {
+  kind: 'ui-document',
+  label: 'UI',
+  icon: UI_ICON,
+  name: (id, host) => host.ui.documents.find((d) => d.uiDocumentId === id)?.name ?? id,
+  render: (id, host) => <UiDocumentEditor key={id} {...host.ui.document(id)} />,
+};
+
+/** Phase 23.9b: a UI theme's styles and icons ("UI theme: <name>"). */
+const uiThemeKind: DocumentKind = {
+  kind: 'ui-theme',
+  label: 'UI theme',
+  icon: UI_ICON,
+  name: (id, host) => host.ui.themes.find((t) => t.uiThemeId === id)?.name ?? id,
+  render: (id, host) => <UiThemeDocument key={id} {...host.ui.theme(id)} />,
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, timelineKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, uiDocumentKind, uiThemeKind, timelineKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

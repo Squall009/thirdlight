@@ -931,3 +931,51 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
   max-height: 62%; overflow: auto; box-sizing: border-box; border-top: 1px solid var(--border, #3b4252); }
 .tl-timeline__field { display: inline-flex; flex-direction: column; font-size: 11px; gap: 2px; }
 .tl-timeline__track-head.is-active { background: rgba(143, 180, 255, 0.12); }
+/* ---- Phase 23.9b: the UI document editor ---------------------------------------- */
+.tl-uidoc, .tl-uitheme { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
+.tl-uidoc__bar .tl-flag { display: inline-flex; gap: 4px; align-items: center; }
+.tl-uidoc__main { flex: 1; display: flex; min-height: 0; gap: 6px; }
+.tl-uidoc__side { width: 230px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.tl-uidoc__row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.tl-uidoc__row .tl-input { min-width: 0; flex: 1; }
+.tl-uidoc__tree { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 4px; overflow-y: auto; }
+.tl-uidoc__node { padding: 3px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-uidoc__node:hover { background: var(--surface-2); }
+.tl-uidoc__node.is-active { background: var(--select-bg); color: var(--text); }
+.tl-uidoc__type { color: var(--text-faint); font-size: 11px; }
+.tl-uidoc__stage { flex: 1; min-width: 0; position: relative; overflow: hidden; background: repeating-conic-gradient(#1a1d22 0 25%, #15181c 0 50%) 0 0 / 16px 16px; border: 1px solid var(--line); border-radius: 4px; }
+.tl-uidoc__screen { position: absolute; left: 8px; top: 8px; transform-origin: 0 0; background: #22262d; outline: 1px solid var(--line-strong); overflow: hidden; }
+/* The layer's fixed root is contained by the scaled screen (a transformed ancestor). */
+.tl-uidoc__host { position: absolute; inset: 0; transform: translateZ(0); overflow: hidden; }
+.tl-uidoc__overlay { position: absolute; inset: 0; z-index: 20; outline: none; cursor: default; }
+.tl-uidoc__overlay:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.tl-uidoc__sel { position: absolute; box-sizing: border-box; border: 2px solid var(--select); pointer-events: none; }
+.tl-uidoc__grip { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; background: #fff; border: 2px solid var(--select); box-sizing: border-box; pointer-events: auto; }
+.tl-uidoc__grip--nw { left: 0; top: 0; cursor: nwse-resize; }
+.tl-uidoc__grip--n { left: 50%; top: 0; cursor: ns-resize; }
+.tl-uidoc__grip--ne { left: 100%; top: 0; cursor: nesw-resize; }
+.tl-uidoc__grip--e { left: 100%; top: 50%; cursor: ew-resize; }
+.tl-uidoc__grip--se { left: 100%; top: 100%; cursor: nwse-resize; }
+.tl-uidoc__grip--s { left: 50%; top: 100%; cursor: ns-resize; }
+.tl-uidoc__grip--sw { left: 0; top: 100%; cursor: nesw-resize; }
+.tl-uidoc__grip--w { left: 0; top: 50%; cursor: ew-resize; }
+.tl-uidoc__guide { position: absolute; pointer-events: none; background: #ff4fd8; }
+.tl-uidoc__guide--x { top: 0; bottom: 0; width: 2px; margin-left: -1px; }
+.tl-uidoc__guide--y { left: 0; right: 0; height: 2px; margin-top: -1px; }
+.tl-uidoc__safe { position: absolute; border: 2px dashed rgba(255, 207, 92, .8); pointer-events: none; }
+.tl-uidoc__inspector { width: 330px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.tl-uidoc__tabs, .tl-uidoc__states { display: flex; flex-wrap: wrap; gap: 4px; }
+.tl-uidoc__panel { display: flex; flex-direction: column; gap: 4px; }
+.tl-uidoc__presets { display: grid; grid-template-columns: repeat(9, 28px); gap: 3px; }
+.tl-uidoc__preset { position: relative; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface-1); cursor: pointer; }
+.tl-uidoc__preset.is-active { border-color: var(--select); background: var(--select-bg); }
+.tl-uidoc__preset-dot { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; background: var(--brand); border-radius: 2px; }
+.tl-uidoc__styles { display: flex; flex-wrap: wrap; gap: 6px; }
+.tl-uidoc__action { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 2px 0; }
+.tl-uidoc__action .tl-input { min-width: 0; flex: 1; }
+.tl-uidoc__mocktext { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; box-sizing: border-box; }
+.tl-uidoc__style, .tl-uidoc__stylemap { display: flex; flex-direction: column; gap: 4px; }
+.tl-uitheme__main { flex: 1; display: flex; gap: 12px; min-height: 0; overflow-y: auto; }
+.tl-uitheme__main > .tl-uidoc__panel { width: 360px; }
+.tl-uitheme__users { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tl-flow-panel__screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; }

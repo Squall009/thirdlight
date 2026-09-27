@@ -43,11 +43,12 @@ import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOV
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
-import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, POINTER_AXES, POINTER_BUTTONS } from './input';
+import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_HOLD_MIN, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_GLYPHS, POINTER_AXES, POINTER_BUTTONS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { UI_LIMITS } from './ui-documents';
 import { TIMELINE_LIMITS } from './timelines';
+import { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
@@ -64,7 +65,7 @@ export type DescriptorJson = null | boolean | number | string | readonly Descrip
 export type DescriptorScalar = string | number | boolean;
 
 /** The units a field may be in (display text; values are stored in these units). */
-export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices';
+export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices' | 'px';
 
 /** The Scene-view handle kinds (15.2 draws and drags them). */
 export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'segment1d', 'cone', 'direction', 'path', 'polygon', 'point', 'height'] as const;
@@ -96,7 +97,7 @@ export const ASSET_KINDS = ['model', 'audio', 'texture', 'music', 'font'] as con
 export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 
 /** What an `ref` field names (besides assets, entities and scenes). */
-export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect';
+export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget';
 
 /** String formats (validation hints and widget choices). */
 export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode';
@@ -254,7 +255,9 @@ export interface ComponentsFieldDescriptor extends FieldBase {
 export interface JsonFieldDescriptor extends FieldBase {
   readonly type: 'json';
   /** Where its type comes from, when it is typed elsewhere. */
-  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter';
+  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter' | 'uiBinding' | 'uiAction' | 'uiStyleRef' | 'uiWidget' | 'uiPadding' | 'uiStyle' | 'uiStyleState';
+  /** Phase 23.9b (`uiBinding`): the plain value a binding stands in for (the editor offers it or a view-model path). */
+  readonly valueType?: 'number' | 'text' | 'bool' | 'texture' | 'entity';
 }
 
 export type FieldDescriptor =
@@ -372,6 +375,8 @@ export interface DescriptorRegistry {
   readonly components: readonly ComponentDescriptor[];
   /** Every v4 content block. */
   readonly content: readonly ContentBlockDescriptor[];
+  /** Phase 23.9b: the fields of a UI document, a widget, a style and a tween (the UI document editor's Inspector). */
+  readonly ui?: UiDescriptors;
 }
 
 // ---- small builders ------------------------------------------------------------
@@ -1556,6 +1561,8 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
       int('y', 'Y axis', 'The stick\'s vertical axis index.', { required: true, when: when('kind', 'gamepadStick'), min: 0, max: 7 }),
       enm('button', 'Pointer button', 'The mouse (or pen/touch) button.', POINTER_BUTTONS, { required: true, when: when('kind', 'pointerButton'), default: 'left' }),
       enm('axis', 'Pointer axis', 'The pointer\'s movement along x or y (up positive; percent of the view per step), or the wheel (notches, positive towards the user).', POINTER_AXES, { required: true, when: when('kind', 'pointerAxis'), default: 'x' }),
+      // Phase 23.14: absent = a tap counts at once; 0.5 s is a deliberate hold most players read as "hold" (a starting value the designer tunes).
+      num('hold', 'Hold', 'Hold instead of tap: the binding counts only after it has been held this long.', { when: when('kind', 'key', 'gamepadButton', 'pointerButton'), min: INPUT_HOLD_MIN, max: INPUT_HOLD_MAX, step: 0.05, unit: 's', default: 0.5 }),
     ], { rules: ['A button takes keys, buttons and pointer buttons; a 1D axis also two-key, two-button, axis and pointer-axis bindings; a 2D axis four keys, a stick, the pointer position or the pointer movement.'] }), { required: true, maxItems: MAX_INPUT_BINDINGS }),
     num('deadZone', 'Dead zone', 'Axis values within this count as 0 (then rescaled).', { min: 0, max: 1, maxExclusive: true, step: 0.05, default: 0.2 }),
     bool('invert', 'Invert', 'Flip the axis.', { default: false }),
@@ -1566,6 +1573,8 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
     enm('gameplay', 'Gameplay', 'The cursor during play: free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre).', CURSOR_MODES, { default: 'free' }),
     enm('ui', 'Menus (ui)', 'The cursor while a menu is open.', CURSOR_MODES, { default: 'free' }),
   ]),
+  // Phase 23.14: the project's own glyph images (absent: the engine's generic icons).
+  map('glyphs', 'Glyphs', 'Glyph key → an image shown instead of the engine\'s generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space).', 'Glyph', asset('*', 'Image', 'The texture shown for this glyph.', ['texture']), { maxEntries: MAX_INPUT_GLYPHS }),
 ], { default: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as DescriptorJson, rules: ['Action names are unique.'] });
 
 /** One shader parameter, as a descriptor field (the schema lives in `MATERIAL_PARAMS`). */
@@ -1970,4 +1979,5 @@ export const DESCRIPTORS: DescriptorRegistry = deepFreeze({
   entity: { ...ENTITY, fields: ENTITY.fields.map((f) => (f.key === 'components' ? { ...f, allowed: COMPONENTS.map((c) => c.name) } : f)) },
   components: COMPONENTS,
   content: CONTENT,
+  ui: UI_DESCRIPTORS,
 });

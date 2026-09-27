@@ -18,7 +18,7 @@
  * Deterministic replays do not go through here: a recorded input (a replay,
  * the MCP input exercise) is per step and runs in the worker as recorded.
  */
-import type { ActionFrame, ActionSource, ActionValue, JumpPhase, PointerSample } from '@thirdlight/runtime';
+import { mergeInputStatus, type ActionFrame, type ActionSource, type ActionValue, type JumpPhase, type PointerSample } from '@thirdlight/runtime';
 
 /**
  * Phase 23.3: the pointer on a further step of the same tick — where it is
@@ -150,13 +150,16 @@ export class TickInputSource implements ActionSource {
     }
     const pointer = mergePointer(p.pointer, frame.pointer);
     if (pointer !== undefined) merged.pointer = pointer;
+    // Phase 23.14: the host's input entries of both samples (the newer device and list, the events of both).
+    const input = mergeInputStatus(p.input, frame.input);
+    if (input !== undefined) merged.input = input;
     this.pending = merged;
   }
 
   sample(stepIndex: number): ActionFrame {
     const f = this.pending;
     if (f === null) return { stepIndex, moveX: 0, jump: 'none' };
-    const out: ActionFrame = { stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}) };
+    const out: ActionFrame = { stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}), ...(f.input !== undefined ? { input: f.input } : {}) };
     // The next step of this tick sees the continuation (or the owed edge of a merge).
     const next = continueFrame(f);
     if (this.owedJump !== null) {

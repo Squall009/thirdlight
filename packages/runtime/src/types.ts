@@ -739,6 +739,8 @@ export interface StepContext {
   readonly sockets?: BehaviorSockets;
   /** Phase 23.3: the cursor a script asks for (`ctx.input.setCursor`; simulation state the host applies after the step). */
   readonly cursor?: { readonly request: (mode: 'free' | 'locked' | 'auto') => void };
+  /** Phase 23.14: the host's input status (device, bindings, rebind events) and the binding-request queue (`ctx.input`). */
+  readonly inputStatus?: import('./input-status').InputStatusView;
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
   /** Phase 23.5: the block layers of the loaded scenes (`ctx.grid`). */
@@ -1816,6 +1818,12 @@ export interface Runtime {
   cursorRequest?(): 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */
   readPointer?(): import('./actions').PointerSample | null;
+  /**
+   * Phase 23.14: the binding requests scripts made since the last call
+   * (`ctx.input.rebind`, …) and how many were dropped over the per-step
+   * limit; the host carries them out after the frame.
+   */
+  takeBindingRequests?(): { readonly requests: readonly import('./input-status').InputBindingRequest[]; readonly dropped: number };
   getCamera():{ ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };

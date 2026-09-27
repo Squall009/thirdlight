@@ -494,6 +494,7 @@ export {
   validateUiThemes,
 } from './ui-documents';
 export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiFlowScreen, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
+export { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
 export { FLOW_SCREEN_KEYS, type FlowScreenKey } from './flow';
 // Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
 export {
@@ -608,6 +609,13 @@ export {
   type CursorMode,
   type PointerAxisName,
   type PointerButtonName,
+  // Phase 23.14: the hold modifier and the project's glyph images.
+  GAMEPAD_FAMILIES,
+  GLYPH_KEY_RE,
+  HOLD_BINDING_KINDS,
+  INPUT_HOLD_MAX,
+  INPUT_HOLD_MIN,
+  MAX_INPUT_GLYPHS,
 } from './input';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';

@@ -594,6 +594,11 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 23.3: the cursor (free/locked, hidden while a gamepad drives).
       applyCursor: (mode: 'free' | 'locked') => browserInput.applyCursor(mode),
       cursorState: () => browserInput.cursorState(),
+      // Phase 23.14: listen-for-input rebinding, the device used last and the frame's input entry.
+      captureInput: (o: Parameters<typeof browserInput.captureInput>[0], cb: Parameters<typeof browserInput.captureInput>[1]) => browserInput.captureInput(o, cb),
+      activeDevice: () => browserInput.activeDevice(),
+      activeDeviceInfo: () => browserInput.activeDeviceInfo(),
+      setFrameInput: (f: Parameters<typeof browserInput.setFrameInput>[0]) => browserInput.setFrameInput(f),
     };
     // Phase 15.3: the project's sound voice count (absent: 8).
     const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
@@ -967,6 +972,8 @@ export function bootstrapPreviewM3(): void {
         ...(o.pointer !== undefined ? { pointer: { ...o.pointer } } : {}),
         ...(o.cursor !== undefined ? { cursor: { ...o.cursor } } : {}),
         ...(o.hidden !== undefined ? { hidden: [...o.hidden] } : {}),
+        // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
+        ...(o.inputBindings !== undefined ? { inputBindings: structuredClone(o.inputBindings) } : {}),
         ...rendererObservation(h),
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
@@ -1028,6 +1035,8 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.pointer !== undefined ? { pointer: { ...obs.observation.pointer } } : {}),
       ...(obs.observation.cursor !== undefined ? { cursor: { ...obs.observation.cursor } } : {}),
       ...(obs.observation.hidden !== undefined ? { hidden: [...obs.observation.hidden] } : {}),
+      // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
+      ...(obs.observation.inputBindings !== undefined ? { inputBindings: structuredClone(obs.observation.inputBindings) } : {}),
       // Phase 17.1: the renderer backend that draws this play, and why.
       ...rendererObservation(h),
       ...effectsObservation(h),

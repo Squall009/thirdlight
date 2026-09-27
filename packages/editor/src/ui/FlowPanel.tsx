@@ -11,7 +11,7 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { FlowLevel, FlowScore, GameFlow, MenuSounds } from '@thirdlight/project-model';
+import type { FlowLevel, FlowScore, FlowScreenKey, GameFlow, MenuSounds } from '@thirdlight/project-model';
 
 interface Props {
   flow: GameFlow | null;
@@ -34,6 +34,8 @@ interface Props {
   /** Phase 14.4: open the Environment window on this level's look. */
   onEditLook?: (levelId: string) => void;
   note?: string | null;
+  /** Phase 23.9b: the project's UI documents (a flow screen can be replaced by one). */
+  uiDocuments?: readonly { id: string; name: string }[];
 }
 
 /** A text input that commits on Enter or blur when it changed. */
@@ -177,6 +179,18 @@ function Ambience(p: { index: number; ambience: readonly string[]; options: read
 const nextLevelId = (levels: readonly FlowLevel[]): string => {
   for (let i = levels.length + 1; ; i++) if (!levels.some((l) => l.id === `level-${i}`)) return `level-${i}`;
 };
+
+/** Phase 23.9b: the flow screens a UI document can replace, with their labels (project-model `FLOW_SCREEN_KEYS`). */
+const SCREEN_ROWS: readonly (readonly [FlowScreenKey, string])[] = [
+  ['title', 'title'],
+  ['paused', 'pause'],
+  ['settings', 'settings'],
+  ['levelComplete', 'level complete'],
+  ['gameOver', 'game over'],
+  ['finished', 'finished'],
+  ['load', 'load'],
+  ['save', 'save'],
+];
 
 export function FlowPanel(p: Props): JSX.Element {
   const f = p.flow;
@@ -465,6 +479,35 @@ export function FlowPanel(p: Props): JSX.Element {
       </div>
 
       <ScoreSection score={f.score} counters={p.counters ?? []} onChange={(score) => p.onSave(score !== undefined ? { ...f, score } : (({ score: _s, ...rest }) => rest)(f))} />
+
+      <div className="tl-panel__title">Screens</div>
+      <p className="tl-hint">Replace a built-in screen with a UI document (its buttons use engine actions: resume, quit to title, save, load, a setting…). Built-in: the engine's own panel.</p>
+      <div className="tl-flow-panel__screens" aria-label="replaced screens">
+        {SCREEN_ROWS.map(([k, label]) => (
+          <label className="tl-field" key={k}>
+            <span className="tl-field__label">{label}</span>
+            <select
+              className="tl-input"
+              aria-label={`${label} screen`}
+              value={f.screens?.[k] ?? ''}
+              onChange={(e) => {
+                const next = { ...(f.screens ?? {}) } as Record<string, string>;
+                if (e.target.value === '') delete next[k];
+                else next[k] = e.target.value;
+                p.onSave(Object.keys(next).length === 0 ? (({ screens: _s, ...rest }) => rest)(f) : { ...f, screens: next });
+              }}
+            >
+              <option value="">built-in</option>
+              {f.screens?.[k] !== undefined && !(p.uiDocuments ?? []).some((d) => d.id === f.screens![k]) && <option value={f.screens[k]}>{f.screens[k]} (missing)</option>}
+              {(p.uiDocuments ?? []).map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
 
       <div className="tl-panel__title">Default volumes</div>
       <div className="tl-animator__row">

@@ -2789,6 +2789,39 @@ and `hidden` (the objects scripts hid). Headless browsers may refuse pointer
 lock; the `data-tl-pointer-lock` attribute on the game canvas shows whether
 the browser granted it.
 
+## Input rebinding and glyphs (phase 23.14)
+
+- **Players rebind in the built-in settings screen**: every action is listed
+  for keys/mouse and for the pad (composites one row per direction); choose
+  a row, press the new key or button (Esc cancels, 10 s timeout). An input
+  already used by another action of the same map is swapped. "Reset controls
+  to defaults" restores the project's bindings. Changes are saved in the
+  browser per player profile (`bindings:<profile>` in the game's storage
+  namespace) and load at start.
+- **Scripts** read `ctx.input.device()` / `usingGamepad()`, `bindings()`,
+  `glyph(action)` (label, icon id, the project's image) and ask for
+  `ctx.input.rebind(action, { index, part, device, policy: 'swap' | 'refuse' |
+  'allow', cancelKey, timeout })`, `cancelRebind()`, `resetBindings(action?)`,
+  `useBindingProfile(name)`; outcomes arrive in `rebindEvents()`. A game's own
+  rebinding screen is built on these. Replays stay valid: the simulation only
+  sees action values and the binding information travels in the recorded input.
+- **Hold instead of tap**: a key, pad button or mouse button binding takes a
+  `hold` time (seconds) in the Input window.
+- **Glyphs**: the engine has a neutral SVG icon set (key caps, face buttons by
+  position, bumpers/triggers, D-pad, sticks, mouse buttons); pad labels follow
+  the pad family (Xbox, PlayStation, Switch, generic) detected from the pad.
+  Projects replace icons with their own textures in the Input window's Glyphs
+  list (e.g. `xbox:pad-south`, `pad-south`, `key:Space`).
+- Observation: Play observe and the export's `window.__thirdlightObserve()`
+  report `inputBindings` (device used last, profile, listening, changed
+  actions, each action's glyph).
+- **Project UI** (UI documents): a button's engine action `rebind` (with
+  `input`: the action, optional `device`, `index`, `part`, `policy`),
+  `cancelRebind` or `resetBindings`; `{action:jump}` in a text shows the
+  action's glyph for the device in use; `$flow.input.actions` lists every
+  action's key and pad labels for a settings document.
+- Limits: 64 actions per project; 8 binding requests per step from scripts.
+
 ## Performance
 
 Phase 21 measures the engine against written budgets with generated
@@ -3085,9 +3118,9 @@ chromium`); on this LXC they use the library tree described in
 ## Project UI (UI documents)
 
 Projects draw their own HUDs, menus and screens as UI documents: JSON widget
-trees stored in the project (`setUiDocument`, `setUiTheme` through MCP; the
-visual editor tab comes with 23.9b). The game host draws them over the view in
-Play and in exported games.
+trees stored in the project (`setUiDocument`, `setUiTheme` through MCP, or the
+visual editor below). The game host draws them over the view in Play and in
+exported games.
 
 - Widgets: panel (anchors, pivot, offset, size or stretch), stack, grid, list
   (repeats a template for a bound array), text (rich text `[b] [i]
@@ -3113,3 +3146,32 @@ Play and in exported games.
   in a style's `font`.
 - Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
   view model.
+
+### The UI document editor
+
+- The **UI** tab of the bottom dock lists the UI documents and themes: create,
+  rename, delete, open. **Assets → new UI document** creates one too.
+- A document opens as a **UI: <name>** tab. Left: the widget hierarchy (add a
+  widget of any type into the selected container, delete, move up/down,
+  duplicate, move into another container — or drag a row onto a container).
+  Centre: the live preview — the same game-host code Play uses — at 16:9, 4:3,
+  21:9, portrait or the document's reference size, with a safe-area frame.
+  Click selects; drag an anchored widget to move it, drag a grip to resize;
+  it snaps to the parent's and siblings' edges and centres or to the grid
+  (hold Alt to drag freely). Arrow keys nudge (Shift: 10 px), Delete removes,
+  Ctrl+D duplicates.
+- Right: the Inspector. **Widget**: anchor presets (they keep the widget where
+  it is; Alt-click moves it onto the anchor), layout, container settings,
+  text, image / 9-slice, bar, list, input, bindings (a value or a view-model
+  path), styles, an own style, click / submit / focus actions, navigation and
+  a world anchor. **Document**: its settings, cancel action, own styles,
+  tweens (with a play button) and icons. **Theme**: the document's theme
+  styles beside the preview (the **UI theme** tab edits a theme on its own).
+  **Mock values**: a JSON object of view-model values (as scripts would set
+  with `ctx.ui.set`) that the preview's bound bars, lists and texts show;
+  "Fill from bindings" adds a sample for every bound path. Mock values stay
+  in this browser; they are not project data.
+- Every change is one command with undo/redo; a drag is one command when you
+  let go.
+- **Game flow → Screens** replaces a built-in screen (title, pause, settings,
+  level complete, game over, finished, load, save) with a UI document.

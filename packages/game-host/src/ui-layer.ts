@@ -57,8 +57,22 @@ export interface UiLayerDeps {
   readonly flowValues?: () => Readonly<Record<string, unknown>> | null;
   /** Make only these input action maps active (null: every map). */
   readonly setActiveMaps?: (maps: readonly string[] | null) => void;
+  /**
+   * Phase 23.14: an input action's glyph for the device used last (a label
+   * and an image URL — the project's texture or the engine's generic SVG);
+   * `glyphKey` changes whenever a glyph may have (device, bindings).
+   */
+  readonly glyph?: (action: string) => { readonly label: string; readonly icon: string; readonly url: string } | null;
+  readonly glyphKey?: () => string;
   /** The view size in CSS px (default: the window's). */
   readonly viewport?: () => { width: number; height: number };
+  /**
+   * Phase 23.9b: mark every widget element with its place in the document's
+   * tree (`data-tl-path`: `r` for the root, then child indices, `t` for a
+   * list's template: `r.0.2.t`) — the UI document editor's preview selects
+   * widgets by it. Off in Play and exports.
+   */
+  readonly annotate?: boolean;
 }
 
 export interface UiLayerObservation {
@@ -163,6 +177,8 @@ class DocView {
   private styleEl: UiNode | null = null;
   private readonly classOf = new Map<string, string>();
   private readonly ownCss = new Map<UiWidget, string>();
+  /** Phase 23.9b: each widget's tree path (only with `annotate`). */
+  private readonly pathOf = new Map<UiWidget, string>();
   private serial = 0;
   top: Rec | null = null;
   focus: Rec | null = null;
@@ -237,6 +253,14 @@ class DocView {
       if (w.template !== undefined) visit(w.template);
     };
     visit(this.doc.root);
+    if (this.layer.annotate) {
+      const mark = (w: UiWidget, p: string): void => {
+        this.pathOf.set(w, p);
+        (w.children ?? []).forEach((c, i) => mark(c, `${p}.${i}`));
+        if (w.template !== undefined) mark(w.template, `${p}.t`);
+      };
+      mark(this.doc.root, 'r');
+    }
     const css = this.cssText();
     const Sheet = (globalThis as { CSSStyleSheet?: new () => { replaceSync(t: string): void } }).CSSStyleSheet;
     const docLike = this.layer.dom as unknown as { adoptedStyleSheets?: unknown[] };
@@ -274,6 +298,8 @@ class DocView {
     const anchored = w.worldAnchor !== undefined;
     classes(el, ['tl-ui-w', `tl-ui-${w.type}`, anchored ? 'tl-ui-anchored' : '', ...styleNames.map((n) => this.styleClass(n)), this.ownCss.get(w) ?? '', w.type === 'text' && w.wrap === false ? 'is-nowrap' : '']);
     if (w.id !== undefined) el.setAttribute?.('data-widget', w.id);
+    const treePath = this.pathOf.get(w);
+    if (treePath !== undefined) el.setAttribute?.('data-tl-path', treePath);
     if (scope.index !== undefined) el.setAttribute?.('data-index', String(scope.index));
     if (tag === 'button') el.setAttribute?.('type', 'button');
     if (anchored) {
@@ -420,7 +446,8 @@ class DocView {
 
   private renderText(rec: Rec): void {
     const tokens = rec.tokens!;
-    const values = tokens.map((t) => (t.t === 'value' ? uiValueText(this.layer.resolvePath(t.path, rec.scope)) : t.t === 'icon' ? (this.layer.iconUrl(this, t.name) ?? '') : ''));
+    const glyphs = tokens.map((t) => (t.t === 'glyph' ? (this.layer.deps.glyph?.(t.action) ?? null) : null));
+    const values = tokens.map((t, i) => (t.t === 'value' ? uiValueText(this.layer.resolvePath(t.path, rec.scope)) : t.t === 'icon' ? (this.layer.iconUrl(this, t.name) ?? '') : t.t === 'glyph' ? `${glyphs[i]?.label ?? ''}|${glyphs[i]?.url ?? ''}` : ''));
     const key = values.join('\u0000');
     if (rec.textKey === key) return;
     rec.textKey = key;
@@ -432,7 +459,24 @@ class DocView {
       const span = dom.createElement('span') as UiNode;
       if (t.t === 'text') span.textContent = t.text;
       else if (t.t === 'value') span.textContent = values[i]!;
-      else {
+      else if (t.t === 'glyph') {
+        // Phase 23.14: the glyph image, its label for readers (and as text when there is no binding image).
+        const g = glyphs[i];
+        classes(span, ['tl-ui-glyph']);
+        span.setAttribute?.('data-action', t.action);
+        span.setAttribute?.('data-glyph', g?.label ?? '');
+        span.setAttribute?.('data-glyph-icon', g?.icon ?? '');
+        span.setAttribute?.('role', 'img');
+        span.setAttribute?.('aria-label', g?.label ?? t.action);
+        if (g === null || g === undefined) span.textContent = '?';
+        else {
+          setProp(span, 'display', 'inline-block');
+          setProp(span, 'height', '1.3em');
+          setProp(span, 'min-width', '1.3em');
+          setProp(span, 'vertical-align', 'middle');
+          setProp(span, 'background', `center / contain no-repeat url("${g.url.replace(/"/g, '%22')}")`);
+        }
+      } else {
         classes(span, ['tl-ui-icon']);
         span.setAttribute?.('data-icon', t.name);
         this.layer.styleIcon(this, span, t.name);
@@ -635,6 +679,8 @@ class LayerImpl implements UiLayer {
   private idSerial = 0;
   private dirty = true;
   private flowKey = '';
+  /** Phase 23.14: the glyph key last seen (a change redraws texts with glyphs). */
+  private glyphKeyNow = '';
   private flow: Readonly<Record<string, unknown>> | null = null;
   private activeMap: string | null | undefined = undefined;
   private readonly images = new Map<string, { url: string | null; w: number; h: number; pending: boolean }>();
@@ -642,9 +688,11 @@ class LayerImpl implements UiLayer {
   private disposed = false;
   readonly cssAssets: CssAssets;
   private readonly out: number[] = [0, 0, 0];
+  readonly annotate: boolean;
 
-  constructor(private readonly deps: UiLayerDeps) {
+  constructor(readonly deps: UiLayerDeps) {
     this.dom = deps.dom;
+    this.annotate = deps.annotate === true;
     this.docs = new Map(deps.documents.map((d) => [d.uiDocumentId, d] as const));
     this.themes = new Map((deps.themes ?? []).map((t) => [t.uiThemeId, t] as const));
     this.root = deps.dom.createElement('div') as UiNode;
@@ -891,6 +939,12 @@ class LayerImpl implements UiLayer {
   frame(): void {
     if (this.disposed) return;
     const flow = this.deps.flowValues?.() ?? null;
+    // Phase 23.14: glyphs follow the device used last and the bindings.
+    const gk = this.deps.glyphKey?.() ?? '';
+    if (gk !== this.glyphKeyNow) {
+      this.glyphKeyNow = gk;
+      this.dirty = true;
+    }
     const key = flow === null ? '' : JSON.stringify(flow);
     if (key !== this.flowKey) {
       this.flowKey = key;
