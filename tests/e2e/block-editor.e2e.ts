@@ -306,10 +306,20 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
 
 /** Select an object in the Hierarchy and drag its gizmo's X arrow (one setTransform on release). */
 async function dragGizmoX(page: Page, id: string): Promise<void> {
+  const previous = (await view(page).getAttribute('data-gizmo-grab')) ?? 'null';
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
-  await expect.poll(async () => (await view(page).getAttribute('data-gizmo-grab')) ?? 'null', { timeout: 15_000 }).not.toBe('null');
-  await page.waitForTimeout(200);
-  const g = JSON.parse((await view(page).getAttribute('data-gizmo-grab'))!) as { x: number; y: number; ax: number; ay: number };
+  await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`)).toHaveClass(/is-selected|selected/);
+  // The grip of this object (not the one selected before), settled over two reads.
+  let last = '';
+  await expect
+    .poll(async () => {
+      const now = (await view(page).getAttribute('data-gizmo-grab')) ?? 'null';
+      const settled = now !== 'null' && now !== previous && now === last;
+      last = now;
+      return settled;
+    }, { timeout: 15_000, intervals: [150] })
+    .toBe(true);
+  const g = JSON.parse(last) as { x: number; y: number; ax: number; ay: number };
   await page.mouse.move(g.ax, g.ay);
   await page.waitForTimeout(100);
   await page.mouse.down();
