@@ -89,7 +89,9 @@ export type {
 } from './types-v2';
 
 // Phase 14.0: the character capsule (default, limits, resolved form).
-export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf } from './components';
+export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, CHARACTER_3D_LIMITS, CONTROLLER_3D_FIELDS, DEFAULT_CHARACTER_3D, character3DSettingsOf, type Character3DSettings } from './components';
+// Phase 23.3: collision layers.
+export { DEFAULT_COLLISION_LAYER, MAX_COLLISION_LAYERS, validateCollisionLayers } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
@@ -530,6 +532,29 @@ export {
   type VirtualCameraComponent,
   type VirtualCameraRig,
 } from './cameras';
+// Phase 23.11: sockets (an entity on a node of another entity's model) and model rigs as simulation data.
+export {
+  SOCKET_ATTACH_CONFLICTS,
+  SOCKET_ATTACH_FIELDS,
+  SOCKET_ATTACH_LIMITS,
+  canonicalSocketAttach,
+  validateSocketAttachComponent,
+  type SocketAttachComponent,
+} from './sockets';
+export {
+  MODEL_RIG_LIMITS,
+  quatFromRotation,
+  readModelRig,
+  rigNodeNames,
+  sanitizeRigNodeName,
+  validateModelRig,
+  type ModelRig,
+  type ModelRigChannel,
+  type ModelRigClip,
+  type ModelRigNode,
+  type RigInterpolation,
+  type RigPath,
+} from './model-rig';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).
@@ -538,6 +563,8 @@ export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnim
 export {
   canonicalInput,
   DEFAULT_INPUT,
+  DEFAULT_INPUT_3D,
+  defaultInputFor,
   INPUT_ACTION_TYPES,
   MAX_INPUT_ACTIONS,
   validateInput,
@@ -545,6 +572,13 @@ export {
   type InputActionType,
   type InputBinding,
   type InputConfig,
+  // Phase 23.3: pointer bindings and the cursor per map.
+  CURSOR_MODES,
+  POINTER_AXES,
+  POINTER_BUTTONS,
+  type CursorMode,
+  type PointerAxisName,
+  type PointerButtonName,
 } from './input';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
@@ -686,3 +720,96 @@ export {
   type StringFieldDescriptor,
   type VecFieldDescriptor,
 } from './descriptors';
+
+// Phase 23.5 (E8): block layers — data model, grid, edits, meshing, PNG heightmaps.
+export {
+  BLOCK_LAYER_DEFAULT,
+  BLOCK_LIMITS,
+  BLOCK_SHAPES,
+  CELL_FIELD_KEY_RE,
+  CELL_FIELD_TYPES,
+  CHUNK_SIZE,
+  REGION_ID_RE,
+  blockCellKey,
+  blockTypeSolid,
+  canonicalBlockCell,
+  canonicalBlockChunk,
+  canonicalBlockLayerComponent,
+  canonicalBlockFootprint,
+  validateBlockFootprintComponent,
+  BLOCK_FOOTPRINT_MAX,
+  type BlockFootprintComponent,
+  canonicalBlockStamp,
+  canonicalBlockStamps,
+  canonicalBlockType,
+  canonicalBlockTypes,
+  canonicalCellFields,
+  canonicalRuns,
+  canonicalSceneBlocks,
+  cellFieldDefault,
+  cellFieldValueError,
+  composeBlockContent,
+  composeBlockLayers,
+  rotatedFootprint,
+  validateBlockCell,
+  validateBlockLayerComponent,
+  validateBlockRegion,
+  validateBlockStamp,
+  validateBlockStamps,
+  validateBlockType,
+  validateBlockTypes,
+  validateCellFields,
+  validateSceneBlocks,
+  type BlockCell,
+  type BlockChunk,
+  type BlockContentView,
+  type BlockLayerComponent,
+  type BlockLayerData,
+  type BlockRegion,
+  type BlockShape,
+  type BlockStamp,
+  type BlockType,
+  type BlockVariant,
+  type CellField,
+  type CellFieldType,
+  type CellMetaValue,
+} from './block-layers';
+export {
+  BLOCK_EDIT_KINDS,
+  BLOCK_EDIT_MAX_CELLS,
+  BLOCK_EDIT_MAX_EDITS,
+  blockEditsShapeError,
+  BlockGrid,
+  applyBlockEdits,
+  autoVariant,
+  boxContains,
+  cellCenter,
+  cellKeyOf,
+  cellOfKey,
+  chunkKeyOf,
+  compareChunkKeys,
+  effectiveCellMeta,
+  pickCell,
+  regionCells,
+  regionContains,
+  subtractBox,
+  worldToCell,
+  type BlockEdit,
+  type BlockEditContext,
+  type BlockEditResult,
+  type BlockPick,
+  type BlockRotation,
+  type Vec3Like,
+} from './block-grid';
+export {
+  COLLISION_PIECE_LIMITS,
+  chunkOfCell,
+  collisionMeshChunk,
+  meshBlockChunk,
+  shapeSource,
+  type BlockLookResolver,
+  type BlockMeshSource,
+  type ChunkMeshPart,
+  type CollisionMeshPiece,
+} from './block-mesh';
+export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng } from './png-decode';

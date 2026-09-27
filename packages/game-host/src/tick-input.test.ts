@@ -76,3 +76,20 @@ describe('threading mode (phase 22.0)', () => {
     expect(threadingLogLine('worker', 'the default', 'message', false)).toBe('[thirdlight] simulation: worker (the default); transforms by messages (cross-origin isolated: no)');
   });
 });
+
+describe('phase 23.2: the worker\'s live input keeps the second move axis', () => {
+  it('a frame\'s moveY reaches every step of its tick and survives a merge; frames without it stay without', () => {
+    const src = new TickInputSource();
+    src.push({ stepIndex: 0, moveX: 0.5, moveY: -1, jump: 'none' });
+    expect(src.sample(1)).toEqual({ stepIndex: 1, moveX: 0.5, moveY: -1, jump: 'none' });
+    expect(src.sample(2)).toEqual({ stepIndex: 2, moveX: 0.5, moveY: -1, jump: 'none' });
+    expect(continueFrame({ stepIndex: 0, moveX: 0, moveY: 1, jump: 'pressed' })).toEqual({ stepIndex: 0, moveX: 0, moveY: 1, jump: 'held' });
+    const merged = new TickInputSource();
+    merged.push({ stepIndex: 0, moveX: 0, moveY: 1, jump: 'pressed' });
+    merged.push({ stepIndex: 1, moveX: 0, moveY: 0.5, jump: 'held' });
+    expect(merged.sample(1)).toEqual({ stepIndex: 1, moveX: 0, moveY: 0.5, jump: 'pressed' });
+    const old = new TickInputSource();
+    old.push({ stepIndex: 0, moveX: 1, jump: 'none' });
+    expect('moveY' in old.sample(1)).toBe(false);
+  });
+});

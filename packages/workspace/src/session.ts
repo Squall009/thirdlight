@@ -1247,6 +1247,8 @@ const QUERY_OPS = [
   // is the same read path (wiring completed by the coordinator repair; the
   // pure function is `commands`' single implementation).
   'queryGameConfig',
+  // Phase 23.5: block-layer cells and regions.
+  'queryBlocks',
 ] as const;
 type QueryOp = (typeof QUERY_OPS)[number];
 

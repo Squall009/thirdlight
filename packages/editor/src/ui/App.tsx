@@ -27,6 +27,7 @@ import { Projection, type ProjectedEntity } from '../session/projection';
 import { draggedRoots, effectiveFlagsOf, subtreeOrder } from '../session/hierarchy';
 import { scatterProblem, scatterTransforms } from '../session/instances';
 import { TagsPanel } from './TagsPanel';
+import { CollisionLayersPanel } from './CollisionLayersPanel';
 import type { AssetView } from '../session/content-projection';
 import {
   importFailed,
@@ -114,6 +115,12 @@ import { activeDoc, docKey } from '../session/workspace-tabs';
 import type { DeclarationSave } from './DeclarationEditor';
 import { PlayDebugView } from './PlayDebugView';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
+import { BlocksPanel, type BlockLayerRow, type BlockPanelHandlers } from './BlocksPanel';
+import type { BlockEditor } from '../viewport/block-editor';
+import { BlockGrid } from '@thirdlight/runtime';
+import type { BlockEdit, BlockFootprintComponent, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
+import { footprintCells, footprintEdits, snapToCellTop, yawQuarterTurns, type PropLayer } from '../session/block-footprint';
+import { DEFAULT_SNAP_SETTINGS, loadSnapSettings, saveSnapSettings, snapSettingError, type SnapSettings } from '../session/snapping';
 import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
@@ -398,7 +405,7 @@ function EditorApp(): JSX.Element {
   /** A dismissible message over the viewport (e.g. why Play failed). */
   const [notice, setNotice] = useState<string | null>(null);
   /** The open modal (File → Export…, Help → Shortcuts / About). */
-  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | 'playFrom' | null>(null);
+  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | 'playFrom' | 'snapping' | null>(null);
   /** Phase 23.8: the "Play from…" form (a scene, script variables as JSON, a save slot). */
   const [playFromForm, setPlayFromForm] = useState({ sceneId: '', variables: '', saveSlot: '', busy: false, error: null as string | null });
   /** Phase 12 (c): the exit-zone dialog (a new exit, or the zone being edited). */
@@ -541,6 +548,9 @@ function EditorApp(): JSX.Element {
   const [sceneHeaders, setSceneHeaders] = useState<SceneHeaderView[] | null>(null);
   const [closedScenes, setClosedScenes] = useState<{ sceneId: string; name: string }[]>([]);
   const [tagsError, setTagsError] = useState<string | null>(null);
+  /** Phase 23.3: the named collision layers and the last setCollisionLayers error. */
+  const [collisionLayers, setCollisionLayers] = useState<string[]>([]);
+  const [layersError, setLayersError] = useState<string | null>(null);
   const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
 
   // ---- packet 27: content browser + local snapping -------------------------
@@ -618,6 +628,21 @@ function EditorApp(): JSX.Element {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assetPreview, setAssetPreview] = useState<AssetPreviewView | null>(null);
   const [snapping, setSnapping] = useState(true);
+  // Phase 23.6: the snapping steps and cell-top snapping (editor settings per project, in this browser).
+  const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
+  const [snapDraft, setSnapDraft] = useState<{ translateM: string; rotateDeg: string; scale: string; cellTops: boolean } | null>(null);
+  // Phase 23.6: block-layer editing (the Blocks panel and the Scene view's block tools).
+  const [blockEditor, setBlockEditor] = useState<BlockEditor | null>(null);
+  const [blockRows, setBlockRows] = useState<readonly BlockLayerRow[]>([]);
+  const [blockTypes, setBlockTypes] = useState<readonly BlockType[]>([]);
+  const [cellFields, setCellFields] = useState<readonly CellField[]>([]);
+  const [blockStamps, setBlockStamps] = useState<readonly BlockStamp[]>([]);
+  const [blockLayerId, setBlockLayerId] = useState<string | null>(null);
+  const blockLayerIdRef = useRef<string | null>(null);
+  blockLayerIdRef.current = blockLayerId;
+  const blockHandlersRef = useRef<BlockPanelHandlers | null>(null);
+  /** Each layer's cells as a grid (props snap to them and footprints read them), by the client's block revision. */
+  const propGridsRef = useRef<{ revision: number; grids: Map<string, BlockGrid> }>({ revision: -1, grids: new Map() });
   const modelInstancesRef = useRef<ModelInstances | null>(null);
   const previewSessionRef = useRef<AssetPreviewSession | null>(null);
   const previewStageRef = useRef<PreviewStage | null>(null);
@@ -802,6 +827,7 @@ function EditorApp(): JSX.Element {
     setRegistry(c.getDescriptors());
     setSettings(stable('settings', c.getSettings()));
     setTags(stable('tags', c.getTags()));
+    setCollisionLayers(stable('collisionLayers', c.getCollisionLayers()));
     const mats = stable('materials', c.getMaterials());
     const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
@@ -837,6 +863,29 @@ function EditorApp(): JSX.Element {
       lightingKeyRef.current = lightingKey;
       viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>, loadTextureRef.current);
     }
+    // Phase 23.5: the block layers (cells, block types) at their entities' positions.
+    const blockLayers = c.getBlockLayers();
+    if (blockLayers.size > 0 || c.getBlockRevision() > 0) {
+      const byId = new Map(c.projection.listEntities().map((e) => [e.id, e]));
+      const layers = new Map([...blockLayers].filter(([id]) => byId.has(id)).map(([id, l]) => [id, { component: l.component, chunks: l.chunks, origin: byId.get(id)!.position }]));
+      // Phase 23.6: an inactive layer object is not drawn.
+      const flags = effectiveFlagsOf(c.projection.listEntities());
+      for (const [id, l] of layers) (l as { hidden?: boolean }).hidden = flags.get(id)?.active === false;
+      viewportRef.current?.setBlockLayers(c.getBlockTypes(), layers, c.getBlockRevision());
+      // Phase 23.6: the Blocks panel's layer list and the Scene view's selected layer.
+      const rows: BlockLayerRow[] = [...blockLayers]
+        .filter(([id]) => byId.has(id))
+        .map(([id, l]) => ({ entityId: id, name: byId.get(id)!.name ?? id, component: l.component, regions: l.regions, active: flags.get(id)?.active !== false, locked: flags.get(id)?.locked === true }));
+      setBlockRows(stable('blockRows', rows));
+      const sel = blockLayerIdRef.current;
+      const l = sel !== null ? layers.get(sel) : undefined;
+      const row = rows.find((r) => r.entityId === sel);
+      viewportRef.current?.blockEditor()?.setLayer(l !== undefined && row !== undefined ? { entityId: sel!, component: l.component, origin: l.origin, chunks: l.chunks, regions: row.regions, locked: row.locked, hidden: !row.active } : null, c.getBlockRevision());
+    } else setBlockRows(stable('blockRows', []));
+    setBlockTypes(stable('blockTypes', c.getBlockTypes()));
+    setCellFields(stable('cellFields', c.getCellFields()));
+    setBlockStamps(stable('blockStamps', c.getBlockStamps()));
+    viewportRef.current?.blockEditor()?.setContent(c.getBlockTypes(), c.getCellFields(), c.getBlockStamps());
     setUi((s) => (s.revision === c.projection.revision ? s : { ...s, revision: c.projection.revision }));
   }, [applyEnvironmentView, stable]);
 
@@ -909,8 +958,11 @@ function EditorApp(): JSX.Element {
         g.setLocal(transform);
         const outcome = g.decideCommit();
         if (outcome.kind !== 'commit') return restore();
+        const before = client.entityTransform(id);
         const res = await client.command('setTransform', { entityId: id, transform: outcome.command.args.transform }, outcome.command.expectedRevision);
         if (res.ok) {
+          // Phase 23.6: a prop's block footprint follows it (its metadata leaves the old cells, lands on the new).
+          void writeFootprintRef.current(id, before, outcome.command.args.transform as { position: number[]; rotation: number[] });
           return;
         }
         if (res.response.ok === false && res.response.code === 'revision_conflict') {
@@ -1035,6 +1087,22 @@ function EditorApp(): JSX.Element {
     }, { snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
+    // Phase 23.6: the block tools (a stroke is one editBlocks, sent on release).
+    const blockEd = viewport.blockEditor({
+      onCommit: async (entityId, edits) => {
+        const r = await client.command('editBlocks', { entityId, edits }, client.projection.revision);
+        if (!r.ok && (r.response as { code?: string }).code === 'no_change') return false;
+        if (!r.ok) setNotice(`Block edit failed: ${(r.response as { message?: string }).message ?? (r.response as { code?: string }).code ?? 'unknown error'}`);
+        else blockHandlersRef.current?.onCommitted(entityId, edits);
+        return r.ok;
+      },
+      onPick: (cell) => blockHandlersRef.current?.onPick(cell),
+      onSelect: (box) => blockHandlersRef.current?.onSelect(box),
+      onHover: (at, cell) => blockHandlersRef.current?.onHover(at, cell),
+      onRefused: (message) => setNotice(message),
+    });
+    setBlockEditor(blockEd);
+    setSnapSettingsState(loadSnapSettings(typeof window !== 'undefined' ? window.localStorage : null, config.projectId));
     // Packet 27: one shared GLB realization path for placements + preview. The
     // resolver is the editor's authenticated byte read; the renderer never
     // receives the token (sessions.md §16.1).
@@ -1229,6 +1297,10 @@ function EditorApp(): JSX.Element {
         void (e.key.toLowerCase() === 'z' && !e.shiftKey ? undo() : redo());
         return;
       }
+      if (!typing && !sceneHidden && blockHandlersRef.current?.onKey(e) === true) {
+        e.preventDefault();
+        return;
+      }
       if (!typing && !sceneHidden) {
         const mod = e.ctrlKey || e.metaKey;
         const key = e.key.toLowerCase();
@@ -1307,6 +1379,11 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setDescriptors(registry);
   }, [registry]);
+  // Phase 23.2: handles of one physics dimension (a 3D character's heights) follow the project's.
+  const physicsDimension = settings?.['physics_dimension'] === 3 ? 3 : 2;
+  useEffect(() => {
+    viewportRef.current?.setPhysicsDimension(physicsDimension);
+  }, [physicsDimension]);
   // Phase 15.2: the cameras' frustums use the game view's aspect: the preview while it plays, else the window (an export fills it).
   useEffect(() => {
     const update = (): void => {
@@ -1838,6 +1915,14 @@ function EditorApp(): JSX.Element {
     if (res.ok) setTagsError(null);
     else setTagsError((res.response as { message?: string }).message ?? 'the tags could not be saved');
   }, []);
+  /** Phase 23.3: replace the named collision layers (one setCollisionLayers command). */
+  const saveCollisionLayers = useCallback(async (next: string[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setCollisionLayers', { layers: next }, c.projection.revision);
+    if (res.ok) setLayersError(null);
+    else setLayersError((res.response as { message?: string }).message ?? 'the collision layers could not be saved');
+  }, []);
   /** Phase 12 (b): set an entity's own tags, by name. */
   const setEntityTags = useCallback(async (entityId: string, names: string[]) => {
     const c = clientRef.current;
@@ -1850,6 +1935,80 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     reportFailure(`Set ${flag}`, await c.command('updateEntity', { entityId, [flag]: value }, c.projection.revision));
   }, [reportFailure]);
+  // ---- Phase 23.6: block layers -------------------------------------------------
+  /** The block layers props sit on (their cells as grids, rebuilt when the client's cells change). */
+  const propLayers = useCallback((only?: string): PropLayer[] => {
+    const c = clientRef.current;
+    if (!c) return [];
+    const cache = propGridsRef.current;
+    if (cache.revision !== c.getBlockRevision()) propGridsRef.current = { revision: c.getBlockRevision(), grids: new Map() };
+    const grids = propGridsRef.current.grids;
+    const out: PropLayer[] = [];
+    for (const [id, l] of c.getBlockLayers()) {
+      if (only !== undefined && id !== only) continue;
+      const e = c.projection.getEntity(id);
+      if (!e || e.active === false) continue;
+      let g = grids.get(id);
+      if (g === undefined) grids.set(id, (g = BlockGrid.from(l.component, { entityId: id, chunks: [...l.chunks.values()] })));
+      const grid = g;
+      out.push({ entityId: id, component: l.component, origin: e.position, columnTop: (x, z) => grid.columnTop(x, z) });
+    }
+    return out;
+  }, []);
+  /** Write a prop's block footprint: its fields leave the cells under `before` and land on those under `after` (one editBlocks per layer). */
+  const writeFootprint = useCallback(async (entityId: string, before: { position: number[]; rotation: number[] } | null, after: { position: number[]; rotation: number[] }, fp?: BlockFootprintComponent) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const footprint = fp ?? ((c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint);
+    if (footprint === undefined) return;
+    for (const layer of propLayers(footprint.layer)) {
+      const was = before === null ? [] : footprintCells(layer, before.position, before.rotation, footprint);
+      const now = footprintCells(layer, after.position, after.rotation, footprint);
+      const edits = footprintEdits(was, now, footprint.set);
+      if (edits === null) continue;
+      const r = await c.command('editBlocks', { entityId: layer.entityId, edits }, c.projection.revision);
+      if (!r.ok && (r.response as { code?: string }).code !== 'no_change') reportFailure('Block footprint', r);
+    }
+  }, [propLayers, reportFailure]);
+  const writeFootprintRef = useRef(writeFootprint);
+  writeFootprintRef.current = writeFootprint;
+  // Cell-top snapping: moved and dropped objects land on the block cells under them.
+  useEffect(() => {
+    const v = viewportRef.current;
+    if (!v) return;
+    v.setCellTopSnap(
+      snapSettings.cellTops
+        ? (entityId, position, rotation) => {
+            const c = clientRef.current;
+            if (!c) return null;
+            if (entityId !== null && c.getBlockLayers().has(entityId)) return null;
+            const fp = entityId !== null ? ((c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint) : undefined;
+            return snapToCellTop(propLayers(fp?.layer), position, fp?.size, yawQuarterTurns(rotation));
+          }
+        : null,
+    );
+  }, [snapSettings.cellTops, propLayers, blockEditor]);
+  const blockRun = useCallback(async (what: string, op: string, args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const r = await c.command(op, args, c.projection.revision);
+    if (!r.ok && (r.response as { code?: string }).code === 'no_change') return false;
+    reportFailure(what, r);
+    return r.ok;
+  }, [reportFailure]);
+  const blockEdit = useCallback((what: string, entityId: string, edits: BlockEdit[]) => blockRun(what, 'editBlocks', { entityId, edits }), [blockRun]);
+  const createBlockLayer = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    const value = presetValue(registry, 'blockLayer');
+    if (value === null) return setNotice('New block layer failed: the component defaults have not arrived yet');
+    const res = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Block layer', transform: { position: [0, 0, 0] } }, c.projection.revision);
+    if (!res.ok || res.createdId === undefined) return reportFailure('New block layer', res);
+    const id = res.createdId;
+    reportFailure('New block layer', await c.command('setComponent', { entityId: id, component: 'blockLayer', value }, c.projection.revision));
+    setBlockLayerId(id);
+  }, [registry, reportFailure]);
+
   /** GameObject → Folder: inside the selected folder, else at the root. */
   const createFolder = useCallback(async () => {
     const c = clientRef.current;
@@ -2375,8 +2534,11 @@ function EditorApp(): JSX.Element {
     const player = createAnimatorPlayer(res.session.root, res.session.animationClips, assetId, { clipsOf: (id) => foreign.get(id) ?? null });
     let last = performance.now();
     let raf = 0;
+    let elapsed = 0;
     const tick = (now: number): void => {
-      machine.step(Math.min(0.1, Math.max(0, (now - last) / 1000)));
+      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
+      elapsed += dt;
+      machine.step(dt);
       last = now;
       player.apply(machine.pose());
       raf = requestAnimationFrame(tick);
@@ -2388,6 +2550,15 @@ function EditorApp(): JSX.Element {
       trigger: (name) => void machine.trigger(name),
       state: () => machine.stateName(),
       layerStates: () => Array.from({ length: machine.layerCount() }, (_, i) => machine.stateName(i)),
+      // Phase 23.11: the preview plays at the speed a script would set (the same machine the game steps).
+      setSpeed: (speed) => void machine.setSpeed(speed),
+      elapsed: () => elapsed,
+      clipTime: () => {
+        const clips = machine.pose().clips;
+        let best = clips[0];
+        for (const c of clips) if (best === undefined || c.weight > best.weight) best = c;
+        return best?.time ?? 0;
+      },
       dispose: () => {
         if (done) return;
         done = true;
@@ -2756,6 +2927,25 @@ function EditorApp(): JSX.Element {
     return (r?.clips ?? []).map((x) => ({ name: x.name, duration: x.durationSeconds }));
   }, []);
   // Phase 14.6: a model's skeleton (the Animator's bone mask picker).
+  // Phase 23.11: the node names of the models socket targets carry (the Inspector's node list), read once per version.
+  const [modelNodeNames, setModelNodeNames] = useState<Readonly<Record<string, readonly string[] | 'failed'>>>({});
+  const modelNodeLoads = useRef(new Set<string>());
+  const modelNodesOf = useCallback(
+    (assetId: string): readonly string[] | null | undefined => {
+      const version = clientRef.current?.content.resolveVersion(assetId)?.version;
+      if (version === undefined) return undefined;
+      const key = `${assetId}@${version}`;
+      const have = modelNodeNames[key];
+      if (have === 'failed') return undefined;
+      if (have !== undefined) return have;
+      if (!modelNodeLoads.current.has(key)) {
+        modelNodeLoads.current.add(key);
+        void (modelInstancesRef.current?.nodeNames(assetId) ?? Promise.resolve(null)).then((names) => setModelNodeNames((m) => ({ ...m, [key]: names ?? 'failed' })));
+      }
+      return null;
+    },
+    [modelNodeNames],
+  );
   const skeletonOf = useCallback(async (assetId: string) => {
     const r = await modelInstancesRef.current?.prepared(assetId);
     return r === null || r === undefined ? [] : r.skeleton().map((b) => ({ name: b.name, parent: b.parent, depth: b.depth }));
@@ -3557,6 +3747,16 @@ function EditorApp(): JSX.Element {
     }
     return usage;
   }, [entities]);
+  /** Phase 23.3: how many colliders list each collision layer ("default": those listing none). */
+  const layerUsageMemo = useMemo(() => {
+    const usage = new Map<string, number>();
+    for (const e of entities) {
+      if (e.collider === undefined) continue;
+      const layers = (e.collider as { layers?: unknown }).layers;
+      for (const name of Array.isArray(layers) ? (layers as string[]) : ['default']) usage.set(name, (usage.get(name) ?? 0) + 1);
+    }
+    return usage;
+  }, [entities]);
   const allEntitiesMemo = clientRef.current?.projection.listEntities() ?? entities;
   const projectScenes = clientRef.current?.projection.scenes;
   const fieldContextBase = useMemo(
@@ -3586,8 +3786,14 @@ function EditorApp(): JSX.Element {
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
       // Phase 23.1: the "+ Add component" presets follow the project's physics dimension.
       physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
+      // Phase 23.11: a socket's node list comes from its target's model.
+      modelNodes: (entityId: string) => {
+        const e = allEntitiesMemo.find((x) => x.id === entityId);
+        const assetId = (e?.components as { model?: { asset?: { assetId?: unknown } } } | undefined)?.model?.asset?.assetId;
+        return typeof assetId === 'string' ? modelNodesOf(assetId) : undefined;
+      },
     }),
-    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings],
+    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf],
   );
   const selectedSceneId = selectedEntity?.sceneId;
   const fieldContextMemo: FieldContext = useMemo(
@@ -3673,6 +3879,7 @@ function EditorApp(): JSX.Element {
         { label: 'Delete', shortcut: 'Del', disabled: noSelection, reason: need, onSelect: () => void del() },
         'separator',
         { label: `Snapping: ${snapping ? 'on' : 'off'}`, onSelect: () => setSnapping((v) => !v) },
+        { label: 'Snapping settings…', onSelect: () => { setSnapDraft({ translateM: String(snapSettings.translateM), rotateDeg: String(snapSettings.rotateDeg), scale: String(snapSettings.scale), cellTops: snapSettings.cellTops }); setDialog('snapping'); } },
       ],
     },
     {
@@ -4015,6 +4222,31 @@ function EditorApp(): JSX.Element {
               }}
             />
           )}
+          {bottomTab === 'blocks' && (
+            <BlocksPanel
+              editor={blockEditor}
+              visible={bottomTab === 'blocks' && activeDoc(workspace) === null}
+              layers={blockRows}
+              layerId={blockLayerId}
+              onLayer={(id) => {
+                setBlockLayerId(id);
+                blockLayerIdRef.current = id;
+                refreshEntities();
+              }}
+              types={blockTypes}
+              fields={cellFields}
+              stamps={blockStamps}
+              registry={registry}
+              fieldContext={gameFieldContext}
+              thumbnails={assetThumbs}
+              handlers={blockHandlersRef}
+              run={blockRun}
+              edit={blockEdit}
+              onCreateLayer={() => void createBlockLayer()}
+              onSetFlag={(id, flag, value) => void setFlag(id, flag, value)}
+              onNotice={setNotice}
+            />
+          )}
           {bottomTab === 'problems' && (
             <ProblemsPanel
               graphIssues={[...graphIssues, ...scriptIssues, ...materialIssues]}
@@ -4223,6 +4455,15 @@ function EditorApp(): JSX.Element {
               onSetTags={(next) => void saveTags(next)}
             />
           )}
+          {bottomTab === 'tags' && (
+            <CollisionLayersPanel
+              layers={collisionLayers}
+              usage={layerUsageMemo}
+              dimension={settings?.['physics_dimension'] === 3 ? 3 : 2}
+              error={layersError}
+              onSetLayers={(next) => void saveCollisionLayers(next)}
+            />
+          )}
           {bottomTab === 'media' && (
             <MediaPanel
               assets={assets}
@@ -4425,6 +4666,32 @@ function EditorApp(): JSX.Element {
             selected === null
               ? {}
               : {
+                  // Phase 23.6: write the footprint's metadata into the cells beneath, or land the object on the cell tops.
+                  blockFootprint: (
+                    <div className="tl-inspector__modes">
+                      <button className="tl-btn tl-btn--small" title="Write the footprint's metadata into the block cells beneath the object" onClick={() => void writeFootprint(selected.id, null, { position: selected.position, rotation: selected.rotation })}>
+                        Write to cells
+                      </button>
+                      <button
+                        className="tl-btn tl-btn--small"
+                        title="Move the object onto the top of the block cells under it"
+                        onClick={() => {
+                          const c = clientRef.current;
+                          if (!c) return;
+                          const fp = (selected.components as { blockFootprint?: BlockFootprintComponent }).blockFootprint;
+                          const at = snapToCellTop(propLayers(fp?.layer), selected.position, fp?.size, yawQuarterTurns(selected.rotation));
+                          if (at === null) return setNotice('Not over a block layer.');
+                          const before = { position: selected.position, rotation: selected.rotation };
+                          void c.command('setTransform', { entityId: selected.id, transform: { position: at } }, c.projection.revision).then((r) => {
+                            if (r.ok) void writeFootprint(selected.id, before, { position: at, rotation: selected.rotation });
+                            else if ((r.response as { code?: string }).code !== 'no_change') reportFailure('Snap to cell top', r);
+                          });
+                        }}
+                      >
+                        Snap to cell top
+                      </button>
+                    </div>
+                  ),
                   // Phase 15.2: one copy of an instance set, and the copy brush.
                   instances: (
                     <div className="tl-inspector__copies" data-copy={selectedCopy ?? ''}>
@@ -4576,6 +4843,39 @@ function EditorApp(): JSX.Element {
           </button>
         </Dialog>
       )}
+      {dialog === 'snapping' && snapDraft !== null && (
+        <Dialog title="Snapping settings" onClose={() => setDialog(null)}>
+          <div className="tl-snapform" aria-label="snapping settings">
+            <p className="tl-note">Editor settings for this project in this browser (not project data). Shift held turns snapping off for one gesture.</p>
+            {([['translateM', 'Move step (m)'], ['rotateDeg', 'Rotate step (°)'], ['scale', 'Scale step']] as const).map(([k, label]) => (
+              <label key={k} className="tl-snapform__row">
+                <span>{label}</span>
+                <input aria-label={label} type="number" step="any" value={snapDraft[k]} onChange={(e) => setSnapDraft({ ...snapDraft, [k]: e.target.value })} />
+                {snapSettingError(k, Number(snapDraft[k])) !== null && <span className="tl-prop__error">{snapSettingError(k, Number(snapDraft[k]))}</span>}
+              </label>
+            ))}
+            <label className="tl-snapform__row">
+              <input type="checkbox" aria-label="snap to cell tops" checked={snapDraft.cellTops} onChange={(e) => setSnapDraft({ ...snapDraft, cellTops: e.target.checked })} />
+              <span>Snap objects to block cell tops (moved and dropped objects land on the block layer under them)</span>
+            </label>
+            <div className="tl-dialog__actions">
+              <button className="tl-btn" onClick={() => setSnapDraft({ translateM: String(DEFAULT_SNAP_SETTINGS.translateM), rotateDeg: String(DEFAULT_SNAP_SETTINGS.rotateDeg), scale: String(DEFAULT_SNAP_SETTINGS.scale), cellTops: false })}>
+                Defaults
+              </button>
+              <button
+                className="tl-btn"
+                disabled={(['translateM', 'rotateDeg', 'scale'] as const).some((k) => snapSettingError(k, Number(snapDraft[k])) !== null)}
+                onClick={() => {
+                  setSnapSettingsState(saveSnapSettings(window.localStorage, cfg.current.ok ? cfg.current.config.projectId : 'default', { translateM: Number(snapDraft.translateM), rotateDeg: Number(snapDraft.rotateDeg), scale: Number(snapDraft.scale), cellTops: snapDraft.cellTops }));
+                  setDialog(null);
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </Dialog>
+      )}
       {dialog === 'shortcuts' && (
         <Dialog title="Keyboard shortcuts" onClose={() => setDialog(null)}>
           <table className="tl-shortcuts">
@@ -4590,6 +4890,9 @@ function EditorApp(): JSX.Element {
                 ['Middle-click a tab', 'Close a document tab'],
                 ['Double-click a controller or behavior', 'Open it in a centre tab'],
                 ['Shift (held)', 'Disable snapping for one gesture'],
+                ['PageUp / PageDown, ] / [', 'Blocks: move the height slice'],
+                ['Q', 'Blocks: turn the brush'],
+                ['Alt+drag, right-drag', 'Blocks: orbit while the block tools are on'],
                 ['Escape', 'Cancel a gesture / clear the selection / close a menu'],
                 ['Double-click a name', 'Rename in the hierarchy'],
                 ['Drag a row onto another', 'Reparent'],
@@ -4696,7 +4999,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -4716,6 +5019,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'effects', label: 'Effects' },
   // Phase 23.7: shared script libraries.
   { id: 'libraries', label: 'Libraries' },
+  // Phase 23.6: block-layer editing.
+  { id: 'blocks', label: 'Blocks' },
   { id: 'problems', label: 'Problems' },
 ];
 

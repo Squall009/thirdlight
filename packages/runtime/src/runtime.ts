@@ -19,6 +19,8 @@
  *   guard, transform-ownership validation, the settle pre-roll, per-step
  *   action sampling and fail-stop with no rollback.
  */
+import { RuntimeGrid, type GridRenderChange } from './grid';
+import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   GAME_TIMING_DEFAULTS,
   controllerTuningOf,
@@ -43,11 +45,13 @@ import {
   type ActionSource,
   type DebugCommandCall,
   type JumpPhase,
+  type PointerSample,
 } from './actions';
+
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
-import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
+import { byEntityId, capsuleInZone, character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -68,6 +72,8 @@ import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
+import { SocketSystem } from './sockets';
+import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { MotionSegments, TransformMirror } from './step-buffers';
@@ -85,9 +91,14 @@ import {
   type CharacterClearanceResult,
   type CharacterMoveResult,
   type CharacterMoveResult3D,
+  type CharacterState3D,
   type PhysicsPort,
   type PhysicsPort3D,
   type PhysicsVec3,
+  type PhysicsHit,
+  type PhysicsQueryFilter3D,
+  type OverlapShape3D,
+  type PhysicsQuat,
   type StaticColliderSpec3D,
   type PhysicsResetPort,
   type PhysicsStepClient,
@@ -148,6 +159,57 @@ import {
   type DebugCommandSpec,
   type DebugCommandState,
 } from './types';
+
+/** Phase 23.3: the pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
+export interface HeldPointer extends PointerSample {
+  readonly entered?: boolean;
+  readonly left?: boolean;
+}
+
+
+/**
+ * Phase 23.3: at most this many 3D physics queries (rays, overlaps, picks) a
+ * step, for every script together — twice the 2D plane's 32, because a 3D
+ * scene's scripts pick, test line of sight and probe volumes around several
+ * objects each step; beyond it a query finds nothing (warned once).
+ */
+export const QUERY_LIMIT_3D = 64;
+
+/** Phase 23.3: a query's [x, y, z] (a script error when it is not three finite numbers). */
+function queryVec3(v: unknown, what: string): [number, number, number] {
+  if (!Array.isArray(v) || v.length < 3 || !v.slice(0, 3).every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is [x, y, z] (finite numbers)`);
+  return [v[0] as number, v[1] as number, v[2] as number];
+}
+
+/** Phase 23.3: a query's optional rotation quaternion [x, y, z, w] (normalized; absent: none). */
+function queryQuat(v: unknown, what: string): PhysicsQuat | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is a quaternion [x, y, z, w]`);
+  const len = Math.hypot(v[0] as number, v[1] as number, v[2] as number, v[3] as number);
+  if (!(len > 1e-9)) throw new Error(`${what} is a quaternion [x, y, z, w] of non-zero length`);
+  return { x: (v[0] as number) / len, y: (v[1] as number) / len, z: (v[2] as number) / len, w: (v[3] as number) / len };
+}
+
+function queryPositive(v: unknown, what: string): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${what} is a positive number (m)`);
+  return v;
+}
+
+/**
+ * Phase 23.3: the entity a physics collider belongs to — a block layer's
+ * chunk collider (`<layer>#blocks:<chunk>:<piece>`, phase 23.5) is its layer.
+ */
+function colliderEntityOf(colliderId: string): string {
+  const i = colliderId.indexOf('#blocks:');
+  return i > 0 ? colliderId.slice(0, i) : colliderId;
+}
+
+/** Phase 23.3: a query's reach (absent: `fallback`; at most 10 km). */
+function queryDistance(v: unknown, fallback: number, what: string): number {
+  if (v === undefined || v === null) return fallback;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${what} maxDistance is a positive number (m)`);
+  return Math.min(v, 10_000);
+}
 
 /** runtime.md §3.1 default (the M1 constant). */
 const DEFAULT_FIXED_STEP_HZ = 120;
@@ -245,6 +307,12 @@ interface MutableIntentSet {
   axesTag: number;
   /** Accepted intents committed in this step. */
   count: number;
+  /** Phase 23.2: the committed control_move's second axis, and the character intents with their writers (null: none this step). */
+  moveY: number | null;
+  characterMove: { x: number; z: number; run: boolean } | null;
+  characterPlace: { x: number; y: number; z: number } | null;
+  characterEnabled: boolean | null;
+  characterWriters: Map<string, string>;
 }
 
 function emptyMutableIntents(stepIndex: number): MutableIntentSet {
@@ -258,6 +326,11 @@ function emptyMutableIntents(stepIndex: number): MutableIntentSet {
     axes: new Map(),
     axesTag: 1,
     count: 0,
+    moveY: null,
+    characterMove: null,
+    characterPlace: null,
+    characterEnabled: null,
+    characterWriters: new Map(),
   };
 }
 
@@ -270,6 +343,11 @@ function resetMutableIntents(s: MutableIntentSet, stepIndex: number): void {
   s.transformWrites.length = 0;
   s.axesTag += 1;
   s.count = 0;
+  s.moveY = null;
+  s.characterMove = null;
+  s.characterPlace = null;
+  s.characterEnabled = null;
+  if (s.characterWriters.size > 0) s.characterWriters.clear();
 }
 
 interface WallAnchor {
@@ -820,7 +898,8 @@ export function instantiateRuntime(
       };
     }
     const needsPort = selected.some((s) => s.requiresPhysicsPort === true);
-    if (needsPort && physics === undefined) {
+    // Phase 23.2: a 3D port serves a module that needs physics too (the 3D character controller).
+    if (needsPort && physics === undefined && physics3d === undefined) {
       return {
         ok: false,
         error: fail('config_invalid', 'the selected module set requires an injected physics port', {
@@ -964,6 +1043,15 @@ export function instantiateRuntime(
     ...(liveTags !== null ? { tags: liveTags } : {}),
     // Phase 23.1: a 3D project (scripts may drive colliders through intents there).
     ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
+    // Phase 23.2: the 3D character controller's read-only world queries.
+    ...(physics3d !== undefined
+      ? {
+          character3D: {
+            raycast: (origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number) => (typeof physics3d.raycast === 'function' ? physics3d.raycast(origin, direction, maxDistance) : null),
+            clearance: (origin: PhysicsVec3) => (typeof physics3d.characterClearance === 'function' ? physics3d.characterClearance(origin) : null),
+          },
+        }
+      : {}),
   });
   const entries: ModuleEntry[] = [];
   const disposeCreated = (): void => {
@@ -1164,11 +1252,16 @@ export function instantiateRuntime(
     sceneRows,
     startBatches,
     liveTags,
+    // Phase 23.3: the tag index 3D queries filter by (the live one when the project has a scene catalog).
+    queryTags: liveTags ?? (physics3d !== undefined ? createTagQuery(frozenSnapshot) : null),
     animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
     modelBounds: snap.modelBounds,
+    ...(snap.rigs !== undefined ? { rigs: snap.rigs } : {}),
     ...(variables !== undefined ? { variables } : {}),
+    blockTypes: snap.blockTypes,
+    cellFields: snap.cellFields,
   });
   return { ok: true, runtime: rt };
 }
@@ -1234,6 +1327,7 @@ interface RuntimeArgs {
   sceneRows: readonly RuntimeSceneRow[] | null;
   startBatches: readonly { sceneId: string; entities: EntityV3[] }[];
   liveTags: LiveTagIndex | null;
+  queryTags: LiveTagIndex | null;
   /** Phase 9.7: the controllers, and the snapshot scene's entities (their `animator` components). */
   animatorControllers: readonly AnimatorControllerLike[];
   initialEntities: readonly EntityV3[];
@@ -1241,8 +1335,13 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
   modelBounds: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.11: model rigs (sockets are resolved on them). */
+  rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
   /** Phase 23.8: injected script variables (validated; ctx.save from step 0). */
   variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.5: the block types and cell fields of the project's block layers. */
+  blockTypes: readonly BlockType[];
+  cellFields: readonly CellField[];
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1318,6 +1417,10 @@ class RuntimeInstance implements Runtime {
   /** Phase 23.0: the character's vertical speed under gravity (m/s; 3D, no movement input yet). */
   private fallSpeed3d = 0;
   private lastCharacterResult3D?: CharacterMoveResult3D;
+  /** Phase 23.2: the character's step-up height and ground snap (the 3D result check allows them). */
+  private character3DClimb?: { stepHeight: number; groundSnap: number };
+  /** Phase 23.2: where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
+  private cameraYawSource: (() => number | undefined) | null = null;
   /**
    * Phase 23.1: the collider-bearing entities of a 3D world (their authored
    * components, to re-add a collider as kinematic), the colliders scripts
@@ -1387,6 +1490,16 @@ class RuntimeInstance implements Runtime {
   private phaseAction: ActionFrame = neutralFrame(0);
   /** Phase 21.2: the last validated input frame (its frozen action values are reused when equal). */
   private lastInputFrame: ActionFrame | null = null;
+  /** Phase 23.3: the pointer state after the last sampled step (null before the first pointer sample). */
+  private heldPointer: HeldPointer | null = null;
+  /** Phase 23.3: the cursor a script asked for (null: the active input map decides). */
+  private cursorMode: 'free' | 'locked' | null = null;
+  /** Phase 23.3: `ctx.input.setCursor` (the StepContext's cursor channel). */
+  private readonly cursorControl = Object.freeze({
+    request: (mode: 'free' | 'locked' | 'auto'): void => {
+      this.cursorMode = mode === 'auto' ? null : mode;
+    },
+  });
   private frozenOrderSource: readonly string[] | null = null;
   private frozenOrderCopy: readonly string[] = Object.freeze([]);
   /** Accepted intents committed in this runtime instance. */
@@ -1435,6 +1548,8 @@ class RuntimeInstance implements Runtime {
   private sceneRevision = 0;
   private sceneSetCache: SceneSetView | null = null;
   private readonly liveTags: LiveTagIndex | null;
+  /** Phase 23.3: the tag index 3D queries filter by. */
+  private readonly queryTags: LiveTagIndex | null;
   // ---- Phase 9.7: animators ----
   private readonly animatorControllers = new Map<string, AnimatorControllerLike>();
   private readonly animatorMachines = new Map<string, { machine: AnimatorMachine; entity: EntityV3 }>();
@@ -1446,10 +1561,17 @@ class RuntimeInstance implements Runtime {
   // ---- Phase 23.4: the camera brain (virtual cameras; inert without one) ----
   private readonly cameras: CameraBrain;
   private readonly cameraControl: import('./types').BehaviorCamera;
+  /** Phase 23.11: sockets (entities riding on model nodes) and the script API over them. */
+  private readonly sockets: SocketSystem;
+  private readonly socketControl: import('./types').BehaviorSockets;
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
+  /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
+  private readonly grid: RuntimeGrid;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
+  /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
+  private queryLimitWarned = false;
   private readonly signalControl = Object.freeze({
     emit: (name: string): void => {
       if (typeof name === 'string' && name.length > 0 && name.length <= 64) this.blocks?.emit(name);
@@ -1657,6 +1779,11 @@ class RuntimeInstance implements Runtime {
       for (const e of args.initialEntities) {
         const c = e.components as unknown as Record<string, unknown>;
         if (c['collider'] !== undefined && c['controller'] === undefined) this.colliderComponents3D.set(e.id, c);
+        // Phase 23.2: the character's step-up height and ground snap.
+        if (c['controller'] !== undefined) {
+          const climb = character3DPhysicsOf(c['controller'], args.settings.max_slope_climb_deg);
+          this.character3DClimb = { stepHeight: climb.stepHeight, groundSnap: climb.groundSnap };
+        }
       }
     }
     this.settings = args.settings;
@@ -1678,6 +1805,7 @@ class RuntimeInstance implements Runtime {
       this.recordBehaviorLog(moduleId, level, message);
     this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
+    this.queryTags = args.queryTags;
     this.startBatchSource = new Map(args.startBatches.map((b) => [b.sceneId, b.entities]));
     const pinned = new Set<string>([args.cameraInfo.id]);
     if (args.controllerEntityId !== undefined) pinned.add(args.controllerEntityId);
@@ -1699,6 +1827,10 @@ class RuntimeInstance implements Runtime {
     this.sceneControl = this.buildSceneControl();
     this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
     this.spawnControl = this.buildSpawnControl();
+    // Phase 23.5: the start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined);
+    this.grid.addLayers(args.initialEntities);
+    this.grid.flushCollision(args.physics3d);
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
     // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
@@ -1764,7 +1896,74 @@ class RuntimeInstance implements Runtime {
           trigger: (name: string) => m.trigger(String(name)),
           get: (name: string) => m.get(String(name)),
           state: (layer?: number) => m.stateName(typeof layer === 'number' && Number.isInteger(layer) && layer >= 0 ? layer : 0),
+          // Phase 23.11: per-instance playback speed and morph weights.
+          setSpeed: (speed: number) => m.setSpeed(speed),
+          speed: () => m.speed(),
+          setMorph: (name: string, weight: number) => m.setMorph(String(name), weight),
+          morph: (name: string) => m.morph(String(name)),
         });
+      },
+    });
+    // Phase 23.11: sockets — the start set's authored ones attach now and sit on their nodes from the first frame.
+    this.sockets = new SocketSystem(args.rigs, {
+      get curr() {
+        return rt.curr;
+      },
+      parentOf: (id: string) => rt.entities.get(id)?.parentId ?? (rt.entities.has(id) ? null : undefined),
+      componentsOf: (id: string) => rt.entities.get(id)?.componentKinds ?? (rt.entities.has(id) ? [] : undefined),
+      poseOf: (id: string) => rt.animatorMachines.get(id)?.machine.pose() ?? null,
+      warn: (message: string) => rt.recordBehaviorLog('thirdlight.runtime:sockets', 'warn', message),
+    });
+    this.sockets.add(args.initialEntities);
+    this.settleSockets();
+    this.socketControl = this.buildSocketControl();
+  }
+
+  // ---- Phase 23.11: sockets ---------------------------------------------------------
+
+  /**
+   * Pose the attached entities now and make `prev` (and the committed copy)
+   * agree, so the next frame draws them on their nodes without a streak from
+   * where they were (the start of a game or a run).
+   */
+  private settleSockets(): void {
+    if (!this.sockets.active) return;
+    this.sockets.resolve(this.committed);
+    for (const a of this.sockets.list()) {
+      const c = this.curr.get(a.entityId);
+      const p = this.prev.get(a.entityId);
+      if (c === undefined || p === undefined || p === c) continue;
+      for (let k = 0; k < 3; k += 1) p.position[k] = c.position[k]!;
+      for (let k = 0; k < 4; k += 1) p.rotation[k] = c.rotation[k]!;
+      for (let k = 0; k < 3; k += 1) p.scale[k] = c.scale[k]!;
+    }
+  }
+
+  /** The step's socket pass (after the animators stepped): attached entities follow their nodes. */
+  private stepSockets(mirror: Map<string, TransformState> | null): void {
+    if (this.sockets.active) this.sockets.resolve(mirror);
+  }
+
+  socketAttachments(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[] {
+    return this.sockets.list();
+  }
+
+  private buildSocketControl(): import('./types').BehaviorSockets {
+    const sockets = this.sockets;
+    const vec = (v: unknown): readonly number[] | undefined => (Array.isArray(v) ? (v as number[]) : undefined);
+    return Object.freeze({
+      attach: (entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean =>
+        sockets.attach(String(entityId), targetId === undefined || targetId === null ? undefined : String(targetId), node === undefined || node === null ? undefined : String(node), vec(position), vec(rotation), vec(scale)),
+      detach: (entityId: string, keepWorld?: boolean): boolean => sockets.detach(String(entityId), keepWorld !== false),
+      attachedTo: (entityId: string) => {
+        const a = sockets.attachedTo(String(entityId));
+        return a === null ? null : Object.freeze({ target: a.target, nodeName: a.node });
+      },
+      nodePose: (targetId: string, node: string) => {
+        const p: number[] = [0, 0, 0];
+        const r: number[] = [0, 0, 0, 1];
+        if (!sockets.nodeWorld(String(targetId), String(node), p, r)) return null;
+        return Object.freeze({ position: Object.freeze([p[0]!, p[1]!, p[2]!] as const), rotation: Object.freeze([r[0]!, r[1]!, r[2]!, r[3]!] as const) });
       },
     });
   }
@@ -1928,6 +2127,21 @@ class RuntimeInstance implements Runtime {
     const out = this.effectQueue;
     this.effectQueue = [];
     return out;
+  }
+
+  /**
+   * Phase 23.5: the block-layer chunks to re-mesh since the last call (their
+   * cells now; null: no cells left) — cells scripts wrote, layers of scenes
+   * loaded, a new run back to the authored cells. The renderer applies them
+   * to its copy of each layer. Taking them changes nothing the simulation computes.
+   */
+  takeGridChanges(): GridRenderChange[] {
+    return this.grid.takeRenderChanges();
+  }
+
+  /** Phase 23.5: the cells changed since the run started (tests, saves). */
+  gridDiff(): import('./grid').GridDiff {
+    return this.grid.api.diff();
   }
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
@@ -2269,8 +2483,9 @@ class RuntimeInstance implements Runtime {
       live: (): string | null => brain.live(),
       blending: (): boolean => brain.blending(),
       get: (cameraId: string) => brain.get(String(cameraId)),
-      worldToScreen: (position: readonly number[]) => brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]),
-      screenToRay: (x: number, y: number) => brain.screenToRay(Number(x), Number(y)),
+      // Phase 23.3: without a live virtual camera the projection is the scene camera's (it was a fixed default pose).
+      worldToScreen: (position: readonly number[]) => (this.brainHasView() ? brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]) : this.baseWorldToScreen(Array.isArray(position) ? position : [0, 0, 0])),
+      screenToRay: (x: number, y: number) => this.screenRay(Number(x), Number(y)),
     }) as import('./types').BehaviorCamera;
   }
 
@@ -2626,6 +2841,7 @@ class RuntimeInstance implements Runtime {
   private stepOnce(): boolean {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
+    this.grid.beginStep(this.stepIndex + 1);
     // §5.1: copy curr before the step; restore it if any module throws
     // (no partial module application). Phase 23.0: into the reused step
     // buffer `prev` does not hold (as the M2 step does since phase 21.2) — a
@@ -2697,6 +2913,10 @@ class RuntimeInstance implements Runtime {
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
     this.stepAnimators();
+    // Phase 23.11: attached entities follow their nodes (posed by the animators just stepped).
+    this.stepSockets(null);
+    // Phase 23.5: cells written after the physics phase collide from the next step.
+    this.grid.flushCollision(this.physics3d);
     return true;
   }
 
@@ -2731,6 +2951,7 @@ class RuntimeInstance implements Runtime {
     }
     if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
     this.respawnRequested = false;
+    this.grid.beginStep(ordinal);
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
@@ -2778,6 +2999,8 @@ class RuntimeInstance implements Runtime {
     this.intentsVersion += 1;
     try {
       this.runPhase('intent', action);
+      // Phase 23.2: a script's character_place takes effect before the controller runs.
+      if (this.physics3d !== undefined && this.intents.characterPlace !== null) this.applyCharacterPlace3D();
       this.runPhase('controller', action);
       this.runPhysicsPhase();
       this.runPhase('transform', action);
@@ -2811,6 +3034,8 @@ class RuntimeInstance implements Runtime {
     this.prev = backup;
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz;
+    // Phase 23.5: cells written after the physics phase collide from the next step.
+    this.grid.flushCollision(this.physics3d);
     this.committedMirror.copyFrom(this.curr, this.currShape);
     this.committed = this.committedMirror.map;
     // M3 commit (gameplay.md §3.2 item 8): the last completed motion
@@ -2821,6 +3046,8 @@ class RuntimeInstance implements Runtime {
       this.lastGameView = this.buildGameView(this.stepIndex, this.simTime);
     }
     this.stepAnimators();
+    // Phase 23.11: attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
+    this.stepSockets(this.committed);
     // Phase 12 (c): the step's scene requests commit with it; exit zones are
     // checked on the committed motion.
     if (this.stepSceneOps.length > 0) {
@@ -2851,7 +3078,67 @@ class RuntimeInstance implements Runtime {
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
     this.deliverDebugCommands(check.frame);
-    return check.frame;
+    return this.withHeldPointer(check.frame);
+  }
+
+  /**
+   * Phase 23.3: the frame modules see carries the complete pointer state —
+   * the sample's own values, or (a frame without a sample) the last
+   * position, buttons and over/locked state with no movement — and its edges:
+   * a button pressed/released when the held mask changed (or the sample says
+   * so: a click between two samples), `entered`/`left` when `over` changed.
+   * Before the first sample there is no pointer (the frame is unchanged, so
+   * every recorded replay without pointer samples plays exactly as before).
+   */
+  private withHeldPointer(frame: ActionFrame): ActionFrame {
+    const sample = frame.pointer;
+    const prev = this.heldPointer;
+    if (sample === undefined && prev === null) return frame;
+    const prevButtons = prev?.buttons ?? 0;
+    const prevOver = prev === null ? false : prev.over !== false;
+    let next: HeldPointer;
+    if (sample === undefined) {
+      const p = prev!;
+      // No new sample: the same state without this step's movement and edges (reused when it had none).
+      if (p.dx === undefined && p.dy === undefined && p.wheel === undefined && p.pressed === undefined && p.released === undefined && p.entered === undefined && p.left === undefined) return { ...frame, pointer: p };
+      next = { x: p.x, y: p.y, buttons: prevButtons, over: prevOver, locked: p.locked === true };
+    } else {
+      const buttons = sample.buttons ?? 0;
+      const over = sample.over !== false;
+      const pressed = (sample.pressed ?? 0) | (buttons & ~prevButtons);
+      const released = (sample.released ?? 0) | (prevButtons & ~buttons);
+      next = {
+        x: sample.x,
+        y: sample.y,
+        buttons,
+        over,
+        locked: sample.locked === true,
+        ...(sample.dx !== undefined && sample.dx !== 0 ? { dx: sample.dx } : {}),
+        ...(sample.dy !== undefined && sample.dy !== 0 ? { dy: sample.dy } : {}),
+        ...(sample.wheel !== undefined && sample.wheel !== 0 ? { wheel: sample.wheel } : {}),
+        ...(pressed !== 0 ? { pressed } : {}),
+        ...(released !== 0 ? { released } : {}),
+        ...(over && !prevOver ? { entered: true } : {}),
+        ...(!over && prevOver ? { left: true } : {}),
+      };
+    }
+    this.heldPointer = Object.freeze(next);
+    return { ...frame, pointer: this.heldPointer };
+  }
+
+  /** Phase 23.3: the pointer state as of the last step (null before the first sample; observers, the host). */
+  readPointer(): Readonly<HeldPointer> | null {
+    return this.heldPointer;
+  }
+
+  /**
+   * Phase 23.3: the cursor a script asked for (`ctx.input.setCursor`): 'free',
+   * 'locked', or null — the active input map decides. Simulation state: a new
+   * run starts with none.
+   */
+  cursorRequest(): 'free' | 'locked' | null {
+    return this.cursorMode;
+
   }
 
   /**
@@ -2944,6 +3231,8 @@ class RuntimeInstance implements Runtime {
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 23.4: and with its cameras as authored.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
+    // Phase 23.3: and with the cursor its input map gives (a script's request ends with the run).
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.cursorMode = null;
     // Phase 12 (c): a replay starts from the start scenes again.
     if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
     if (outcome.reset !== null) {
@@ -3129,8 +3418,18 @@ class RuntimeInstance implements Runtime {
     });
     // Phase 9.7: a replay or a new run starts the animators over.
     if (reset === 'replay' || reset === 'start') this.resetAnimators();
+    // Phase 23.11: and the authored sockets attach again (on their nodes from the first frame).
+    if (reset === 'replay' || reset === 'start') {
+      this.sockets.reset();
+      this.settleSockets();
+    }
     // Phase 9.9: a new run resets the level's blocks; a respawn restores health.
     if (reset === 'replay' || reset === 'start') this.blocks?.resetRun();
+    // Phase 23.5: a new run starts from the authored cells (colliders rebuilt now).
+    if (reset === 'replay' || reset === 'start') {
+      this.grid.reset();
+      this.grid.flushCollision(this.physics3d);
+    }
     // Phase 9.11: a loaded save's run on top of the fresh one.
     if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
       const r = this.pendingRestore;
@@ -3261,7 +3560,7 @@ class RuntimeInstance implements Runtime {
     const session = this.session;
     if (session === null) return frame;
     if (session.runState !== 'playing') {
-      return { ...frame, moveX: 0, jump: 'none' };
+      return { ...frame, moveX: 0, ...(frame.moveY !== undefined ? { moveY: 0 } : {}), jump: 'none' };
     }
     if (session.isFirstLiveStep(ordinal)) {
       return { ...frame, jump: 'none' };
@@ -3455,6 +3754,15 @@ class RuntimeInstance implements Runtime {
     }
     const ids = new Set(frozen.map((e) => e.id));
     this.attachEntities(frozen);
+    // Phase 23.5: the scene's block layers and their colliders (at this step boundary).
+    if (this.grid.addLayers(frozen).length > 0) {
+      try {
+        this.grid.flushCollision(this.physics3d);
+      } catch (e) {
+        this.failStop('physics_port_error', 'scene_colliders', `adding the block colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.stepIndex);
+        return false;
+      }
+    }
     this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
@@ -3488,6 +3796,8 @@ class RuntimeInstance implements Runtime {
     this.addAnimators(frozen);
     this.blocks?.add(frozen);
     this.cameras.add(frozen);
+    // Phase 23.11: their models and authored sockets (resolved at the end of the step).
+    this.sockets.add(frozen);
   }
 
   /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
@@ -3544,6 +3854,8 @@ class RuntimeInstance implements Runtime {
 
   /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
   private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
+    // Phase 23.11: sockets of (and on) these entities let go.
+    this.sockets.remove(ids);
     for (const id of ids) {
       this.colliderComponents3D.delete(id);
       this.scriptColliders3D.delete(id);
@@ -3559,6 +3871,15 @@ class RuntimeInstance implements Runtime {
       // Phase 14.1: owners that left ("@self" carriers) are released.
       const owners = instance.transformOwners;
       if (Array.isArray(owners)) entry.owners = owners.filter((id) => !ids.has(id));
+    }
+    // Phase 23.5: unloaded block layers take their chunk colliders along.
+    const gridColliders = this.grid.removeLayers(ids);
+    if (gridColliders.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
+      try {
+        this.physics3d.removeStaticColliders(gridColliders);
+      } catch (e) {
+        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the block colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+      }
     }
     if (colliderIds.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
       try {
@@ -3996,12 +4317,20 @@ class RuntimeInstance implements Runtime {
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
       // Phase 23.4: the virtual cameras (ctx.camera).
       fields['camera'] = { value: this.cameraControl, enumerable: true };
+      // Phase 23.11: sockets (ctx.sockets).
+      fields['sockets'] = { value: this.socketControl, enumerable: true };
+      // Phase 23.3: the cursor channel (ctx.input.setCursor).
+      fields['cursor'] = { value: this.cursorControl, enumerable: true };
       // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
       const debugControl = this.debugControl;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
+      // Phase 23.5: the block layers.
+      fields['grid'] = { value: this.grid.api, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
+      // Phase 23.2 (3D): the active camera's yaw for the character's move input (absent: world axes).
+      if (this.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
       views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);
     }
     return views;
@@ -4024,6 +4353,11 @@ class RuntimeInstance implements Runtime {
       transformWrites: Object.freeze(s.transformWrites.slice()),
       // Phase 9.9: a stomp/hit bounce for the controller this step.
       ...(this.stepBounce !== null ? { bounce: this.stepBounce } : {}),
+      // Phase 23.2: present only when committed (a 2D step's view keeps its old shape).
+      ...(s.moveY !== null ? { moveY: s.moveY } : {}),
+      ...(s.characterMove !== null ? { characterMove: Object.freeze({ ...s.characterMove }) } : {}),
+      ...(s.characterPlace !== null ? { characterPlace: Object.freeze({ ...s.characterPlace }) } : {}),
+      ...(s.characterEnabled !== null ? { characterEnabled: s.characterEnabled } : {}),
     });
     this.intentViewCache = view;
     this.intentViewVersion = this.intentsVersion;
@@ -4052,6 +4386,24 @@ class RuntimeInstance implements Runtime {
       this.bumpIntentCount();
       this.intents.move = quantizeIntentMove(intent.value);
       this.intents.moveWriter = entry.id;
+      // Phase 23.2: the second axis (a 3D character's forward input).
+      if (intent.y !== undefined) this.intents.moveY = quantizeIntentMove(intent.y);
+      return;
+    }
+    if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
+      // Phase 23.2: the 3D character controller's channels (one writer each per step).
+      if (this.physics3d === undefined) {
+        throw new BehaviorIntentError('behavior_intent_invalid', 'value', `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
+      }
+      const writer = this.intents.characterWriters.get(intent.kind);
+      if (writer !== undefined) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `${intent.kind} already committed by "${writer}" and "${entry.id}"`);
+      }
+      this.bumpIntentCount();
+      this.intents.characterWriters.set(intent.kind, entry.id);
+      if (intent.kind === 'character_move') this.intents.characterMove = { x: intent.x, z: intent.z, run: intent.run === true };
+      else if (intent.kind === 'character_place') this.intents.characterPlace = { x: intent.position[0], y: intent.position[1], z: intent.position[2] };
+      else this.intents.characterEnabled = intent.enabled;
       return;
     }
     if (intent.kind === 'respawn') {
@@ -4221,7 +4573,38 @@ class RuntimeInstance implements Runtime {
 
   private readonly physicsClient: PhysicsStepClient = {
     stageCharacterMove: (entityId: string, delta: Vec2): void => this.stageMove(entityId, delta),
-    characterResult: (): CharacterMoveResult | undefined => this.lastCharacterResult,
+    // Phase 23.2: in 3D the 3D result (its vectors carry z too).
+    characterResult: (): CharacterMoveResult | undefined => (this.physics3d !== undefined ? (this.lastCharacterResult3D as unknown as CharacterMoveResult | undefined) : this.lastCharacterResult),
+    characterState: (): CharacterState3D | undefined => this.characterState3D(),
+    // Phase 23.3 (3D): rays, overlaps and picks with filters; at most QUERY_LIMIT_3D a step.
+    raycast3d: (origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: unknown) => {
+      const o = queryVec3(origin, 'raycast3d origin');
+      const d = queryVec3(direction, 'raycast3d direction');
+      return this.castRay3D(o, d, queryDistance(maxDistance, 100, 'raycast3d'), filter);
+    },
+    overlapSphere: (center: readonly number[], radius: number, filter?: unknown): string[] =>
+      this.overlap3D({ type: 'sphere', radius: queryPositive(radius, 'overlapSphere radius') }, queryVec3(center, 'overlapSphere center'), undefined, filter),
+    overlapBox3d: (center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: unknown): string[] => {
+      const h = queryVec3(half, 'overlapBox3d half');
+      return this.overlap3D({ type: 'box', hx: queryPositive(h[0], 'overlapBox3d half x'), hy: queryPositive(h[1], 'overlapBox3d half y'), hz: queryPositive(h[2], 'overlapBox3d half z') }, queryVec3(center, 'overlapBox3d center'), queryQuat(rotation, 'overlapBox3d rotation'), filter);
+    },
+    overlapCapsule: (center: readonly number[], radius: number, height: number, rotation?: readonly number[], filter?: unknown): string[] => {
+      const r = queryPositive(radius, 'overlapCapsule radius');
+      const h = queryPositive(height, 'overlapCapsule height');
+      return this.overlap3D({ type: 'capsule', radius: r, halfHeight: Math.max(0, h / 2 - r) }, queryVec3(center, 'overlapCapsule center'), queryQuat(rotation, 'overlapCapsule rotation'), filter);
+    },
+    pickAt: (x: number, y: number, maxDistance?: number, filter?: unknown) => {
+      if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) throw new Error('pickAt takes a screen point x, y (numbers, 0-1 from the top left)');
+      const ray = this.screenRay(x, y);
+      return this.castRay3D(ray.origin, ray.direction, queryDistance(maxDistance, 1000, 'pickAt'), filter);
+    },
+    pickAtPointer: (maxDistance?: number, filter?: unknown) => {
+      const max = queryDistance(maxDistance, 1000, 'pickAtPointer');
+      const p = this.heldPointer;
+      if (p === null || (p.over === false && p.locked !== true)) return null;
+      const ray = p.locked === true ? this.screenRay(0.5, 0.5) : this.screenRay(p.x, p.y);
+      return this.castRay3D(ray.origin, ray.direction, max, filter);
+    },
     // Phase 9.9: at most 32 queries (rays and overlaps) per step for modules and scripts.
     raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
       if (this.raycastsThisStep >= 32 || this.physics?.raycast === undefined) return null;
@@ -4239,6 +4622,113 @@ class RuntimeInstance implements Runtime {
       return this.physics.overlap({ type: 'circle', radius: Number(radius) }, { x: Number(center?.x), y: Number(center?.y) });
     },
   };
+
+  /** Phase 23.3: one query from the step's 3D budget (null past it — warned once — or without a 3D port). */
+  private takeQuery3D(): PhysicsPort3D | null {
+    const port = this.physics3d;
+    if (port === undefined) return null;
+    if (this.raycastsThisStep >= QUERY_LIMIT_3D) {
+      if (!this.queryLimitWarned) {
+        this.queryLimitWarned = true;
+        this.recordBehaviorLog('thirdlight.runtime:physics', 'warn', `more than ${QUERY_LIMIT_3D} physics queries in one step (step ${this.stepIndex}): the rest of the step's queries find nothing (warned once)`);
+      }
+      return null;
+    }
+    this.raycastsThisStep += 1;
+    return port;
+  }
+
+  /** Phase 23.3: a script's query filter as the port takes it (tags and exclusions become the accept test). */
+  private queryFilter3D(filter: unknown): PhysicsQueryFilter3D | undefined {
+    if (filter === undefined || filter === null) return undefined;
+    if (typeof filter !== 'object' || Array.isArray(filter)) throw new Error('a query filter is { tags?, layers?, exclude? }');
+    const f = filter as Record<string, unknown>;
+    for (const k of Object.keys(f)) if (k !== 'tags' && k !== 'layers' && k !== 'exclude') throw new Error(`unknown query filter field "${k.slice(0, 32)}" (tags, layers, exclude)`);
+    const names = (v: unknown, what: string): string[] | undefined => {
+      if (v === undefined) return undefined;
+      if (!Array.isArray(v) || v.length > 64 || !v.every((s) => typeof s === 'string')) throw new Error(`query filter ${what} is a list of up to 64 names`);
+      return v as string[];
+    };
+    const tags = names(f['tags'], 'tags');
+    const layers = names(f['layers'], 'layers');
+    const exclude = names(f['exclude'], 'exclude');
+    // Tag names resolve like ctx.tags.mask (an unknown name is a script error).
+    const tagIndex = this.queryTags;
+    const mask = tags === undefined ? undefined : tags.length === 0 ? 0 : tagIndex === null ? 0 : tagIndex.mask(...tags);
+    const skip = exclude === undefined || exclude.length === 0 ? null : new Set(exclude);
+    const accept =
+      mask === undefined && skip === null
+        ? undefined
+        : (colliderId: string): boolean => {
+            const id = colliderEntityOf(colliderId);
+            return (skip === null || !skip.has(id)) && (mask === undefined || (mask !== 0 && tagIndex !== null && tagIndex.has(id, mask)));
+          };
+    return { ...(layers !== undefined ? { layers } : {}), ...(accept !== undefined ? { accept } : {}) };
+  }
+
+  /** Phase 23.3: a filtered 3D ray (origin, direction not normalized) into a script's hit. */
+  private castRay3D(origin: readonly number[], direction: readonly number[], maxDistance: number, filter: unknown): PhysicsHit | null {
+    const f = this.queryFilter3D(filter);
+    const len = Math.hypot(direction[0]!, direction[1]!, direction[2]!);
+    if (!(len > 0)) return null;
+    const port = this.takeQuery3D();
+    if (port === null || typeof port.raycast !== 'function') return null;
+    const u = [direction[0]! / len, direction[1]! / len, direction[2]! / len];
+    const hit = port.raycast({ x: origin[0]!, y: origin[1]!, z: origin[2]! }, { x: u[0]!, y: u[1]!, z: u[2]! }, maxDistance, f);
+    if (hit === null) return null;
+    const p = hit.point ?? { x: origin[0]! + u[0]! * hit.distance, y: origin[1]! + u[1]! * hit.distance, z: origin[2]! + u[2]! * hit.distance };
+    const entityId = colliderEntityOf(hit.entityId);
+    // A block layer's chunk: the layer, and the cell just inside the surface the ray hit (1 mm behind it).
+    let cell: [number, number, number] | undefined;
+    if (entityId !== hit.entityId) {
+      const c = this.grid.api.worldToCell(entityId, [p.x - hit.normal.x * 1e-3, p.y - hit.normal.y * 1e-3, p.z - hit.normal.z * 1e-3]);
+      if (c !== null) cell = [c.x, c.y, c.z];
+    }
+    return Object.freeze({ entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance, ...(cell !== undefined ? { cell } : {}) }) as PhysicsHit;
+  }
+
+  /** Phase 23.3: a filtered 3D overlap (sorted ids, at most 64). */
+  private overlap3D(shape: OverlapShape3D, center: readonly number[], rotation: PhysicsQuat | undefined, filter: unknown): string[] {
+    const f = this.queryFilter3D(filter);
+    const port = this.takeQuery3D();
+    if (port === null || typeof port.overlap !== 'function') return [];
+    // A block layer's chunk colliders are reported as their layer (once).
+    return [...new Set(port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f).map(colliderEntityOf))].sort();
+  }
+
+  /** Phase 23.3: the camera brain has resolved a view (a virtual camera is loaded and it has stepped). */
+  private brainHasView(): boolean {
+    return this.cameras.active && this.cameras.hasView();
+  }
+
+  /** Phase 23.3: the scene camera's pose now (its world transform and lens) — the view when no virtual camera is live. */
+  private basePose(): CameraPose {
+    const pos = [0, 0, 0];
+    const rot = [0, 0, 0, 1];
+    if (!this.worldTransformOf(this.cameraInfo.id, pos, rot)) {
+      pos.fill(0);
+      rot[0] = 0;
+      rot[1] = 0;
+      rot[2] = 0;
+      rot[3] = 1;
+    }
+    return { position: [pos[0]!, pos[1]!, pos[2]!], rotation: [rot[0]!, rot[1]!, rot[2]!, rot[3]!], fovY: this.cameraInfo.fovY, near: this.cameraInfo.near, far: this.cameraInfo.far, letterbox: 0 };
+  }
+
+  /**
+   * Phase 23.3: the ray from the active camera through a screen point
+   * (normalized, 0,0 top left): the camera brain's resolved view when a
+   * virtual camera is live, else the scene camera's.
+   */
+  private screenRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] } {
+    if (this.brainHasView()) return this.cameras.screenToRay(x, y);
+    return poseScreenToRay(this.basePose(), this.cameras.viewportSize().aspect, Number.isFinite(x) ? x : 0.5, Number.isFinite(y) ? y : 0.5);
+  }
+
+  private baseWorldToScreen(position: readonly number[]): { x: number; y: number; depth: number; onScreen: boolean } {
+    const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    return poseWorldToScreen(this.basePose(), this.cameras.viewportSize().aspect, n(position[0]), n(position[1]), n(position[2]));
+  }
 
   private stageMove(entityId: string, delta: unknown): void {
     if (this.currentPhase !== 'controller') {
@@ -4319,12 +4809,18 @@ class RuntimeInstance implements Runtime {
    * position (x, y and z) is committed to the controller's transform.
    */
   private runPhysicsPhase3D(port: PhysicsPort3D): void {
+    // Phase 23.5: cells written this step collide in this step's sweep.
+    this.grid.flushCollision(port);
     const controllerId = this.controllerEntityId;
     const t = controllerId !== undefined ? this.curr.get(controllerId) : undefined;
     const previous: PhysicsVec3 = t ? { x: t.position[0], y: t.position[1], z: t.position[2] } : { x: 0, y: 0, z: 0 };
     const dt = 1 / this.hz;
     let requested = controllerId !== undefined ? this.staged3d.get(controllerId) : undefined;
-    if (requested === undefined) {
+    if (requested === undefined && controllerId === undefined) {
+      // Phase 23.3: a world without a character (colliders for queries and movers): nothing falls.
+      requested = { x: 0, y: 0, z: 0 };
+      port.stageCharacterMove(requested);
+    } else if (requested === undefined) {
       const grounded = this.lastCharacterResult3D?.grounded === true;
       this.fallSpeed3d = grounded ? 0 : Math.max(this.settings.max_fall_speed, this.fallSpeed3d + this.settings.gravity_y * dt);
       // Phase 23.1: plus the platform it stands on (a mover's or script-driven collider's motion) and a mover's push.
@@ -4339,7 +4835,7 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new PhysicsPortFailure('threw', `physics port step() threw: ${messageOf(e)}`);
     }
-    const check = validateCharacterMoveResult3D(raw, previous, requested);
+    const check = validateCharacterMoveResult3D(raw, previous, requested, this.character3DClimb);
     if (!check.ok) throw new PhysicsPortFailure('result', `physics port returned an invalid result: ${check.failure.detail}`);
     this.lastCharacterResult3D = check.result;
     // A landing (or a head bump) ends the fall; the next step starts from rest.
@@ -4351,6 +4847,88 @@ class RuntimeInstance implements Runtime {
     }
     if (this.staged.size > 0) this.staged.clear();
     if (this.staged3d.size > 0) this.staged3d.clear();
+  }
+
+  /**
+   * Phase 23.2: the active camera's yaw for the 3D character's move input —
+   * radians about +Y (0 looking along −Z) — or undefined (world axes). It is
+   * the camera brain's committed view (phase 23.4: resolved in the
+   * simulation at the end of the previous step, so a replay reads the same
+   * yaw); without virtual cameras the character moves along world axes. An
+   * injected source (`cameraYawSource`) takes precedence.
+   */
+  private cameraYaw3D(): number | undefined {
+    const source = this.cameraYawSource;
+    if (source !== null) {
+      const v = source();
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    }
+    if (!this.cameras.active || !this.cameras.hasView()) return undefined;
+    const q = this.cameras.view().rotation;
+    // The view's forward (−Z turned by the rotation), flattened onto the ground.
+    const [x, y, z, w] = [q[0]!, q[1]!, q[2]!, q[3]!];
+    let fx = -2 * (x * z + w * y);
+    let fz = -(1 - 2 * (x * x + y * y));
+    if (!(Math.hypot(fx, fz) > 1e-3)) {
+      // Looking straight down (or up): the screen's up is the way forward on the ground.
+      fx = 2 * (x * y - w * z);
+      fz = 2 * (y * z + w * x);
+      if (!(Math.hypot(fx, fz) > 1e-9)) return undefined;
+    }
+    return Math.atan2(-fx, -fz);
+  }
+
+  /**
+   * Phase 23.2: apply a committed `character_place` (after the intent phase,
+   * before the controller runs): the port re-places the capsule and clears
+   * its motion; the controller's transform takes the new origin (the
+   * controller module starts from rest there).
+   */
+  private applyCharacterPlace3D(): void {
+    const place = this.intents.characterPlace;
+    const port = this.physics3d;
+    const id = this.controllerEntityId;
+    if (place === null || port === undefined || id === undefined) return;
+    if (typeof port.placeCharacter !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot place the character');
+    try {
+      port.placeCharacter({ x: place.x, y: place.y, z: place.z });
+    } catch (e) {
+      throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
+    }
+    const t = this.curr.get(id);
+    if (t !== undefined) {
+      t.position[0] = place.x;
+      t.position[1] = place.y;
+      t.position[2] = place.z;
+    }
+    this.lastCharacterResult3D = undefined;
+    this.fallSpeed3d = 0;
+  }
+
+  /** Phase 23.2: `ctx.physics.characterState` — the 3D character after the last step (undefined in 2D or before it). */
+  private characterState3D(): CharacterState3D | undefined {
+    const r = this.lastCharacterResult3D;
+    if (this.physics3d === undefined || r === undefined) return undefined;
+    let status: { enabled?: unknown; climbing?: unknown; yaw?: unknown } | null = null;
+    for (const entry of this.entries) {
+      const probe = entry.instance as { character3DStatus?: () => { enabled: boolean; climbing: boolean; yaw: number } };
+      if (typeof probe.character3DStatus === 'function') {
+        status = probe.character3DStatus();
+        break;
+      }
+    }
+    const yaw = typeof status?.yaw === 'number' ? status.yaw : 0;
+    return Object.freeze({
+      position: Object.freeze({ x: r.position.x, y: r.position.y, z: r.position.z }),
+      velocity: Object.freeze({ x: r.applied.x * this.hz, y: r.applied.y * this.hz, z: r.applied.z * this.hz }),
+      grounded: r.grounded,
+      contacts: Object.freeze({ ...r.contacts }),
+      supportNormal: Object.freeze({ x: r.supportNormal.x, y: r.supportNormal.y, z: r.supportNormal.z }),
+      groundEntityId: r.groundEntityId ?? null,
+      enabled: status?.enabled !== false,
+      climbing: status?.climbing === true,
+      facing: (yaw * 180) / Math.PI,
+    });
   }
 
   /**

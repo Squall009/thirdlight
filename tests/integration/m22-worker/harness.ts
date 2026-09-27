@@ -105,10 +105,14 @@ export interface HarnessConfig {
   readonly enginePins?: readonly { id: string; version: string; apiVersion: number }[];
   readonly loadScene?: (sceneId: string) => Promise<Any>;
   readonly digestSteps?: boolean;
+  /** Phase 23.2: the manifest's module list (absent: the host's default set). */
+  readonly modules?: readonly string[];
   /** Extra host config (flow, audio, …). */
   readonly host?: Record<string, unknown>;
   /** Phase 23.8: script variables injected at the start (ctx.save from step 0), in both modes. */
   readonly variables?: Record<string, unknown>;
+  /** Phase 23.5, single mode only: wrap the physics port (a test observes its calls). */
+  readonly wrapPhysics?: (port: Any) => Any;
 }
 
 export interface Harness {
@@ -153,6 +157,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     assetPaths: {},
     document: { createElement: () => new FakeNode() },
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),
+    ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
     ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
     ...(cfg.host ?? {}),
   };
@@ -162,7 +167,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       // Phase 23.0: a 3D config (dimension 3) makes the 3D port.
       const made = cfg.physics.dimension === 3 ? await createPhysicsPort3D(cfg.physics) : await createPhysicsPort(cfg.physics);
       if (!made.ok) throw new Error(JSON.stringify(made.error));
-      physics = made.port;
+      physics = cfg.wrapPhysics !== undefined ? cfg.wrapPhysics(made.port) : made.port;
     }
     const behaviorModules = await linkBehaviorModules(rows, pins, (path) => import(/* @vite-ignore */ urls[path]!));
     const host = createGameHost({ ...baseConfig, behaviorModules, ...(physics !== undefined ? { physics } : {}) });
@@ -198,6 +203,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       behaviors: { rows, urls, enginePins: pins },
       ...(cfg.replay !== undefined ? { replay: cfg.replay } : {}),
       ...(cfg.digestSteps === true ? { digestSteps: true } : {}),
+      ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
       ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
     },
     input: recorded !== null ? null : liveInput,

@@ -7,7 +7,8 @@
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { ContentDocument, HistoryState } from '@thirdlight/commands';
-import { composeV4, DEFAULT_INPUT, DESCRIPTORS, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { BlockGrid, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
+import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
@@ -43,6 +44,8 @@ import {
   migrateDirV3ToV4,
   rollForwardJournal,
   sceneFileBytes,
+  sceneChunkFiles,
+  isChunkRel,
   sceneRel,
   snapshotForeignFile,
   writeTransaction,
@@ -269,7 +272,9 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     // Phase 21.4: a scene the command did not touch is the same object (or
     // holds the same entity array) — skip it without serializing it; only the
     // edited scene is compared by value.
-    if (prev !== undefined && (prev === scene || prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))) continue;
+    // Phase 23.5: the scene's block cells count too (they live in its chunk files).
+    const sameBlocks = prev !== undefined && (prev.blocks === scene.blocks || JSON.stringify(prev.blocks ?? null) === JSON.stringify(scene.blocks ?? null));
+    if (prev !== undefined && (prev === scene || (sameBlocks && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
     const rel = sceneRel(id);
     const recs = appendTo(rel);
     const stamped: SceneV4 = { ...scene, revision: after.revision };
@@ -278,6 +283,18 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
     fileRecords.set(rel, recs);
     after.scenes.set(id, stamped);
+    // Phase 23.5: the chunk files that changed, appeared or went away.
+    const chunks = sceneChunkFiles(projectId, stamped);
+    for (const [crel, f] of chunks) {
+      if (files.get(crel)?.hash === f.hash) continue;
+      writes.push({ rel: crel, bytes: f.bytes });
+      files.set(crel, f);
+    }
+    for (const crel of [...files.keys()]) {
+      if (!isChunkRel(crel, id) || chunks.has(crel)) continue;
+      writes.push({ rel: crel, bytes: null });
+      files.delete(crel);
+    }
   }
   for (const id of before.scenes.keys()) {
     if (after.scenes.has(id)) continue;
@@ -285,6 +302,11 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     writes.push({ rel, bytes: null });
     files.delete(rel);
     fileRecords.delete(rel);
+    for (const crel of [...files.keys()]) {
+      if (!isChunkRel(crel, id)) continue;
+      writes.push({ rel: crel, bytes: null });
+      files.delete(crel);
+    }
   }
   // Content: written when it changed (or when no scene carries the record).
   const contentChanged = before.content !== after.content && JSON.stringify(before.content) !== JSON.stringify(after.content);
@@ -412,6 +434,11 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
     const bytes = sceneFileBytes(s.projectId, scene, []);
     writes.push({ rel: sceneRel(scene.sceneId), bytes });
     files.set(sceneRel(scene.sceneId), { bytes, hash: sha256Hex(bytes) });
+    // Phase 23.5: its chunk files, canonical.
+    for (const [crel, f] of sceneChunkFiles(s.projectId, scene)) {
+      writes.push({ rel: crel, bytes: f.bytes });
+      files.set(crel, f);
+    }
   }
   const man = manifestV2Bytes(state.manifest);
   files.set(MANIFEST_REL_V4, { bytes: man, hash: sha256Hex(man) });
@@ -522,7 +549,7 @@ export function sceneOfEntity(state: V4State, entityId: string): SceneV4 | null 
   return null;
 }
 
-type QueryOp = 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig';
+type QueryOp = 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks';
 
 function failure(op: string, projectId: string, error: import('@thirdlight/commands').CommandError): QueryResult {
   return { ok: false, op, projectId, error } as unknown as QueryResult;
@@ -564,14 +591,21 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         lighting: state.content.lighting !== undefined ? (JSON.parse(JSON.stringify(state.content.lighting)) as unknown) : null,
         animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
-        inputDefaults: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as unknown,
+        // Phase 23.2: a 3D project's defaults (a 2D move and a run button).
+        inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(physicsDimensionOf(state.content.settings) === 3 ? 3 : 2))) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
         // Phase 16.1: standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
         graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown,
         // Phase 20.0: visual effects (systems and their graphs).
         effects: JSON.parse(JSON.stringify((state.content as { effects?: unknown[] }).effects ?? [])) as unknown,
+        // Phase 23.5: block types, the cell metadata schema and stamps.
+        blockTypes: JSON.parse(JSON.stringify((state.content as { blockTypes?: unknown[] }).blockTypes ?? [])) as unknown,
+        cellFields: JSON.parse(JSON.stringify((state.content as { cellFields?: unknown[] }).cellFields ?? [])) as unknown,
+        blockStamps: JSON.parse(JSON.stringify((state.content as { blockStamps?: unknown[] }).blockStamps ?? [])) as unknown,
         // Phase 23.7: shared script libraries (their files).
         scriptLibraries: JSON.parse(JSON.stringify((state.content as { scriptLibraries?: unknown[] }).scriptLibraries ?? [])) as unknown,
+        // Phase 23.3: the named collision layers.
+        collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
         // Phase 17.1: the settings map (the editor's Scene view reads render_backend at load).
         settings: JSON.parse(JSON.stringify((state.content as { settings?: unknown }).settings ?? {})) as unknown,
         ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown, graphKinds: JSON.parse(JSON.stringify(GRAPH_KINDS)) as unknown } : {}),
@@ -580,6 +614,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
     return result as unknown as QueryResult;
   }
   const a = args ?? {};
+  if (op === 'queryBlocks') return serveQueryBlocks(state, projectId, a);
   if (op === 'queryProject') {
     for (const k of Object.keys(a)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'queryProject takes no args'));
     const scene = primaryScene(state);
@@ -673,4 +708,98 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
     entities: page.map((r) => r.entity),
     entitySceneIds: page.map((r) => r.sceneId),
   } as unknown as QueryResult;
+}
+
+/**
+ * Phase 23.5: `queryBlocks` — block-layer cells and regions for editors, MCP
+ * and tools. `{sceneId?}` lists the layers (entity, component, cell count,
+ * chunk keys, regions); `{entityId}` one layer: with `chunks: [[cx, cz], …]`
+ * those chunks in their stored form (palette + runs; the editor reads what a
+ * change named), with `box: [x0, y0, z0, x1, y1, z1]` the cells inside it as
+ * `[x, y, z, paletteIndex]` rows plus the palette and each distinct value's
+ * effective metadata (at most 65,536 cells), with `region: id` that region's
+ * boxes and cells (at most 65,536).
+ */
+function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
+  const op = 'queryBlocks';
+  for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'chunks', 'box', 'region'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, chunks, box, region'));
+  const layersOf = (sc: SceneV4): { entityId: string; sceneId: string; component: BlockLayerComponent; data: BlockLayerData | null }[] =>
+    sc.entities
+      .filter((e) => (e.components as { blockLayer?: unknown }).blockLayer !== undefined)
+      .map((e) => ({ entityId: e.id, sceneId: sc.sceneId, component: (e.components as { blockLayer: BlockLayerComponent }).blockLayer, data: sc.blocks?.find((b) => b.entityId === e.id) ?? null }));
+  const cellCount = (d: BlockLayerData | null): number => (d?.chunks ?? []).reduce((n, c) => n + c.columns.reduce((m, col) => { let t = 0; for (let i = 3; i < col.length; i += 3) t += col[i]!; return m + t; }, 0), 0);
+  if (a['entityId'] === undefined) {
+    const sceneId = a['sceneId'];
+    if (sceneId !== undefined && (typeof sceneId !== 'string' || !state.scenes.has(sceneId))) return failure(op, projectId, fieldValueType('/args/sceneId', sceneId, 'a scene id of the project', 'no such scene'));
+    const scenes = sceneId !== undefined ? [state.scenes.get(sceneId as string)!] : [...state.scenes.values()];
+    const layers = scenes.flatMap(layersOf).map((l) => ({
+      entityId: l.entityId,
+      sceneId: l.sceneId,
+      component: l.component,
+      cells: cellCount(l.data),
+      chunks: (l.data?.chunks ?? []).map((c) => [c.cx, c.cz]),
+      regions: (l.data?.regions ?? []).map((r) => r.regionId),
+    }));
+    return { ok: true, projectId, revision: state.revision, layers } as unknown as QueryResult;
+  }
+  const entityId = a['entityId'];
+  if (typeof entityId !== 'string') return failure(op, projectId, fieldTypeError('/args/entityId', entityId, 'string'));
+  const scene = sceneOfEntity(state, entityId);
+  const layer = scene === null ? undefined : layersOf(scene).find((l) => l.entityId === entityId);
+  if (scene === null || layer === undefined) return failure(op, projectId, entityNotFound(entityId));
+  const out: Record<string, unknown> = { ok: true, projectId, revision: state.revision, sceneId: scene.sceneId, entityId, component: layer.component, cells: cellCount(layer.data), regions: layer.data?.regions ?? [] };
+  const chunks = a['chunks'];
+  if (chunks !== undefined) {
+    if (!Array.isArray(chunks) || chunks.length > 4096 || !chunks.every((c) => Array.isArray(c) && c.length === 2 && Number.isSafeInteger(c[0]) && Number.isSafeInteger(c[1]))) return failure(op, projectId, fieldValueType('/args/chunks', chunks, 'up to 4096 [cx, cz] pairs', 'chunks is a list of [cx, cz]'));
+    const byKey = new Map((layer.data?.chunks ?? []).map((c) => [`${c.cx},${c.cz}`, c]));
+    // A chunk that holds no cells any more is reported as null (the reader drops it).
+    out['chunks'] = (chunks as number[][]).map((c) => ({ cx: c[0], cz: c[1], chunk: byKey.get(`${c[0]},${c[1]}`) ?? null }));
+  } else if (a['box'] === undefined && a['region'] === undefined) {
+    out['chunks'] = (layer.data?.chunks ?? []).map((c) => ({ cx: c.cx, cz: c.cz, chunk: c }));
+  }
+  const listCells = (inside: (x: number, y: number, z: number) => boolean): { rows: number[][]; palette: BlockCell[]; meta: Record<string, unknown>[] } | null => {
+    const grid = BlockGrid.from(layer.component, layer.data);
+    const types = new Map(((state.content as { blockTypes?: BlockType[] }).blockTypes ?? []).map((t) => [t.blockId, t]));
+    const fields = (state.content as { cellFields?: CellField[] }).cellFields ?? [];
+    const rows: number[][] = [];
+    const palette: BlockCell[] = [];
+    const meta: Record<string, unknown>[] = [];
+    const remap = new Map<number, number>();
+    let over = false;
+    grid.forEach((x, y, z, idx) => {
+      if (over || !inside(x, y, z)) return;
+      if (rows.length >= 65_536) {
+        over = true;
+        return;
+      }
+      let p = remap.get(idx);
+      if (p === undefined) {
+        p = palette.length;
+        remap.set(idx, p);
+        const v = grid.valueOf(idx);
+        palette.push(v);
+        meta.push(effectiveCellMeta(v, types, fields));
+      }
+      rows.push([x, y, z, p]);
+    });
+    return over ? null : { rows, palette, meta };
+  };
+  const box = a['box'];
+  if (box !== undefined) {
+    if (!Array.isArray(box) || box.length !== 6 || !box.every((v) => Number.isSafeInteger(v))) return failure(op, projectId, fieldValueType('/args/box', box, '[x0, y0, z0, x1, y1, z1] integers', 'box is [x0, y0, z0, x1, y1, z1] (max exclusive)'));
+    const b = box as number[];
+    const listed = listCells((x, y, z) => boxContains(b, x, y, z));
+    if (listed === null) return failure(op, projectId, fieldValueType('/args/box', box, 'a box holding at most 65536 cells', 'the box holds more than 65,536 cells; ask for a smaller box or for chunks'));
+    out['box'] = { box: b, cells: listed.rows, palette: listed.palette, meta: listed.meta };
+  }
+  const region = a['region'];
+  if (region !== undefined) {
+    const r = (layer.data?.regions ?? []).find((x) => x.regionId === region);
+    if (r === undefined) return failure(op, projectId, fieldValueType('/args/region', region, 'a region id of this layer', 'no such region in this layer'));
+    const cells = regionCells(r.boxes, 65_536);
+    if (cells === null) return failure(op, projectId, fieldValueType('/args/region', region, 'a region of at most 65536 cells', 'the region covers more than 65,536 cells'));
+    const listed = listCells((x, y, z) => regionContains(r.boxes, x, y, z));
+    out['region'] = { regionId: r.regionId, boxes: r.boxes, cells, occupied: listed?.rows ?? [], palette: listed?.palette ?? [], meta: listed?.meta ?? [] };
+  }
+  return out as unknown as QueryResult;
 }

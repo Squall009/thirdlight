@@ -36,17 +36,20 @@
  * Pure: no I/O, no three.js, no UI code.
  */
 
+import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
 import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOVER_EASINGS, MOVER_MODES, PICKUP_KINDS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
-import { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES } from './components';
+import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
-import { DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
+import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, POINTER_AXES, POINTER_BUTTONS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
+import { BLOCK_LIMITS } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
 import { MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
+import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
 import { GAME_ZONE_ROLES_V4, MAX_INSTANCES, MAX_TAGS } from './types-v3';
@@ -58,10 +61,10 @@ export type DescriptorJson = null | boolean | number | string | readonly Descrip
 export type DescriptorScalar = string | number | boolean;
 
 /** The units a field may be in (display text; values are stored in these units). */
-export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices';
+export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices';
 
 /** The Scene-view handle kinds (15.2 draws and drags them). */
-export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'segment1d', 'cone', 'direction', 'path', 'polygon', 'point'] as const;
+export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'segment1d', 'cone', 'direction', 'path', 'polygon', 'point', 'height'] as const;
 export type HandleKind = (typeof HANDLE_KINDS)[number];
 
 /**
@@ -82,6 +85,8 @@ export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string
   path: [['points']],
   polygon: [['vertices']],
   point: [['point']],
+  // Phase 23.2: a height above the object's origin (or above the feet of a capsule, `from`), dragged up and down.
+  height: [['height']],
 };
 
 export const ASSET_KINDS = ['model', 'audio', 'texture', 'music'] as const;
@@ -91,7 +96,7 @@ export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect';
 
 /** String formats (validation hints and widget choices). */
-export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName';
+export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode';
 
 /** A condition on a sibling field (`key`) or, with `../key`, on a field of the enclosing object. */
 export interface FieldCondition {
@@ -121,6 +126,8 @@ interface FieldBase {
   readonly unit?: DescriptorUnit;
   /** The Scene-view handle that edits this field (see the component's `handles`). */
   readonly handle?: HandleKind;
+  /** Phase 23.2: the project physics dimension the field applies in (absent: both); the Inspector shows the project's. */
+  readonly dimension?: 2 | 3;
 }
 
 export interface NumberFieldDescriptor extends FieldBase {
@@ -294,6 +301,10 @@ export interface HandleDescriptor {
   readonly band?: string;
   /** Phase 15.2 (`path`): the path closes back to its start while this holds. */
   readonly loop?: FieldCondition;
+  /** Phase 23.2: the project physics dimension the handle applies in (absent: both). */
+  readonly dimension?: 2 | 3;
+  /** Phase 23.2 (`height`): a capsule field (pointer to its object) whose feet the height is measured from (read, not dragged). */
+  readonly from?: string;
 }
 
 /**
@@ -431,6 +442,7 @@ const model: ComponentDescriptor = {
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],
   excludes: [
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'box', reason: 'an object shows one model, box or camera' },
     { component: 'camera', reason: 'an object shows one model, box or camera' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
@@ -453,6 +465,7 @@ const box: ComponentDescriptor = {
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
   excludes: [
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'model', reason: 'an object shows one model, box or camera' },
     { component: 'camera', reason: 'an object shows one model, box or camera' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
@@ -475,6 +488,8 @@ const camera: ComponentDescriptor = {
   add: { kind: 'menu', value: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } },
   handles: [],
   excludes: [
+    { component: 'socketAttach', reason: 'a socket poses the object every step; the scene camera is posed by its camera module' },
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'model', reason: 'an object shows one model, box or camera' },
     { component: 'box', reason: 'an object shows one model, box or camera' },
     { component: 'instances', reason: 'an instance set is scenery, not a camera' },
@@ -560,6 +575,8 @@ const collider: ComponentDescriptor = {
       }),
     ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'Sphere, capsule, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).'] }),
     bool('oneWay', 'One-way', 'The player can jump up through it and land on top (a platform).', { default: false, omitDefault: true }),
+    // Phase 23.3: absent = the implicit "default" layer (every collider is in one layer; none has to be named).
+    list('layers', 'Collision layers', `The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers.`, str('*', 'Layer', 'A collision layer: "default" or one the project names.', { format: 'identifier', minLength: 1, maxLength: 32 }), { minItems: 1, maxItems: 16, unique: true }),
   ]),
   add: { kind: 'menu', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
   presets: [
@@ -580,6 +597,8 @@ const collider: ComponentDescriptor = {
     { kind: 'capsule', label: 'Capsule', bind: { radius: 'shape/radius', height: 'shape/height' }, space: 'local', when: when('shape/type', 'capsule'), follows: 'transform' },
   ],
   excludes: [
+    { component: 'socketAttach', reason: 'a socket poses the object every step; a physics body is posed by physics' },
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'controller', reason: 'the player controller has its own capsule' },
     { component: 'enemy', reason: 'an enemy\'s size is its body' },
     { component: 'gameZone', reason: 'a zone never blocks movement' },
@@ -592,6 +611,8 @@ const collider: ComponentDescriptor = {
 
 const CT = DEFAULT_CONTROLLER_TUNING;
 const TL = CONTROLLER_TUNING_LIMITS;
+const C3 = DEFAULT_CHARACTER_3D;
+const C3L = CHARACTER_3D_LIMITS;
 const BD = BLOCK_DEFAULTS;
 const BL = BLOCK_TUNING_LIMITS;
 
@@ -615,12 +636,34 @@ const controller: ComponentDescriptor = {
     num('jumpRelease', 'Jump release', 'Share of the upward speed kept when jump is released early (1: a fixed jump height).', { group: 'Jump', ...TL.jumpRelease, step: 0.05, unit: '×', default: CT.jumpRelease }),
     num('groundSnap', 'Ground snap', 'Pulls the character down onto ground this close below it (walking down slopes and bumps).', { group: 'Collision', ...TL.groundSnap, step: 0.01, unit: 'm', default: CT.groundSnap }),
     num('skin', 'Skin', 'The small gap the character keeps from walls and floors.', { group: 'Collision', ...TL.skin, step: 0.001, unit: 'm', default: CT.skin }),
-    bool('autostep', 'Autostep', 'Climb low steps without jumping.', { group: 'Collision', default: CT.autostep }),
-    num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight }),
-  ], { rules: ['The steepest walkable slope is the project setting max_slope_climb_deg; run speed, jump speed and gravity are project settings too.'] }),
+    // Phase 23.2: the 2D plane's autostep; a 3D character steps up with `stepHeight` instead.
+    bool('autostep', 'Autostep', 'Climb low steps without jumping.', { group: 'Collision', default: CT.autostep, dimension: 2 }),
+    num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight, dimension: 2 }),
+    // Phase 23.2: the 3D character (physics_dimension 3; a 2D plane ignores these).
+    num('walkSpeed', 'Walk speed', 'Speed with the move input fully pushed (2: a brisk walk).', { group: 'Movement', ...C3L.walkSpeed, step: 0.1, unit: 'm/s', default: C3.walkSpeed, dimension: 3 }),
+    num('runSpeed', 'Run speed', 'Speed while the "run" input action is held (absent: the project run speed setting).', { group: 'Movement', ...C3L.runSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
+    num('airControl', 'Air control', 'Share of the acceleration it has in the air (0: no steering mid-jump, 1: as on the ground).', { group: 'Movement', ...C3L.airControl, step: 0.05, unit: '×', default: C3.airControl, dimension: 3 }),
+    num('gravityScale', 'Gravity scale', 'Multiplies the project gravity for this character.', { group: 'Movement', ...C3L.gravityScale, step: 0.1, unit: '×', default: C3.gravityScale, dimension: 3 }),
+    num('turnSpeed', 'Turn speed', 'How fast it turns to face where it moves (0: at once).', { group: 'Movement', ...C3L.turnSpeed, step: 10, unit: 'deg/s', default: C3.turnSpeed, dimension: 3 }),
+    bool('faceMovement', 'Face movement', 'Turn the object about its up axis to face the direction it moves (its +Z forward).', { group: 'Movement', default: C3.faceMovement, dimension: 3 }),
+    bool('jump', 'Can jump', 'The jump input makes it jump (off: a character that only walks).', { group: 'Jump', default: C3.jump, dimension: 3 }),
+    num('jumpSpeed', 'Jump speed', 'Upward speed at a jump (absent: the project jump velocity setting).', { group: 'Jump', when: when('jump', true), ...C3L.jumpSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
+    num('slopeLimit', 'Slope limit', 'The steepest slope it walks up (absent: the project max_slope_climb_deg setting).', { group: 'Collision', ...C3L.slopeLimit, step: 1, unit: 'deg', dimension: 3 }),
+    num('stepHeight', 'Step-up height', 'Steps up to this height are climbed without a jump (0.3: a stair riser; 0: off). The ground snap is at least this, so it walks down them too.', { group: 'Collision', ...C3L.stepHeight, step: 0.01, unit: 'm', default: C3.stepHeight, dimension: 3, handle: 'height' }),
+    bool('ledgeClimb', 'Ledge climb', 'Pushing against a ledge higher than a step pulls the character up onto it.', { group: 'Collision', default: C3.ledgeClimb, dimension: 3 }),
+    num('ledgeHeight', 'Ledge height', 'The highest ledge it climbs (above its feet).', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeHeight, step: 0.05, unit: 'm', default: C3.ledgeHeight, dimension: 3, handle: 'height' }),
+    num('ledgeClimbTime', 'Climb time', 'How long a ledge climb takes.', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeClimbTime, step: 0.05, unit: 's', default: C3.ledgeClimbTime, dimension: 3 }),
+  ], { rules: ['The steepest walkable slope is the project setting max_slope_climb_deg; run speed, jump speed and gravity are project settings too (a 3D character may override them).'] }),
   add: { kind: 'menu', value: {} },
-  handles: [{ kind: 'capsule', label: 'Capsule', bind: { radius: 'capsule/radius', height: 'capsule/height', offset: 'capsule/offset' }, space: 'local' }],
+  handles: [
+    { kind: 'capsule', label: 'Capsule', bind: { radius: 'capsule/radius', height: 'capsule/height', offset: 'capsule/offset' }, space: 'local' },
+    // Phase 23.2 (3D): the step-up and ledge heights above the capsule's feet.
+    { kind: 'height', label: 'Step-up height', bind: { height: 'stepHeight' }, space: 'local', from: 'capsule', dimension: 3 },
+    { kind: 'height', label: 'Ledge height', bind: { height: 'ledgeHeight' }, space: 'local', from: 'capsule', when: when('ledgeClimb', true), dimension: 3 },
+  ],
   excludes: [
+    { component: 'socketAttach', reason: 'a socket poses the object every step; the player is moved by its controller' },
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'collider', reason: 'the player controller has its own capsule' },
     { component: 'mover', reason: 'the player moves by input, not along waypoints' },
     { component: 'enemy', reason: 'the player is not an enemy' },
@@ -719,7 +762,7 @@ const cameraFollow: ComponentDescriptor = {
   add: { kind: 'menu', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } },
   handles: [{ kind: 'box2', label: 'Bounds', bind: { minX: 'bounds/minX', maxX: 'bounds/maxX', minY: 'bounds/minY', maxY: 'bounds/maxY' }, space: 'world' }],
   requiresAnyOf: { components: ['camera'], reason: 'the follow settings belong to the camera' },
-  excludes: [{ component: 'virtualCamera', reason: 'the follow settings belong to the scene camera' }],
+  excludes: [{ component: 'virtualCamera', reason: 'the follow settings belong to the scene camera' }, { component: 'socketAttach', reason: 'a socket poses the object every step; the scene camera is posed by its camera module' }],
   prefab: false,
 };
 
@@ -802,6 +845,27 @@ const cameraPath: ComponentDescriptor = {
   add: { kind: 'menu', value: { points: [[0, 0, 0], [6, 0, 0]] } },
   handles: [{ kind: 'path', label: 'Path', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
   excludes: [],
+  prefab: false,
+};
+
+// Phase 23.11: an object riding on a node of another object's model.
+const socketAttach: ComponentDescriptor = {
+  name: 'socketAttach',
+  label: 'Socket',
+  tooltip: 'Rides on a named node (a bone or any node) of another object\'s model, with an offset: equipment in a hand, a rider on a mount, a pilot in a cockpit. The simulation places it every step, following the target\'s animation; scripts attach and detach at run time (ctx.sockets).',
+  category: 'Object',
+  value: obj('socketAttach', 'Socket', 'The node this object rides on and its offset from it.', [
+    entity('target', 'Target', 'The object whose model carries the node.', { required: true, component: 'model' }),
+    str('node', 'Node', 'The node (or bone) of the target\'s model it rides on (the list shows the model\'s nodes).', { required: true, minLength: 1, maxLength: SOCKET_ATTACH_LIMITS.nodeName, format: 'socketNode' }),
+    vec3('position', 'Offset', 'The offset from the node, in the node\'s space.', { min: -SOCKET_ATTACH_LIMITS.offset, max: SOCKET_ATTACH_LIMITS.offset, step: 0.05, unit: 'm', default: [0, 0, 0] }),
+    { type: 'quat', key: 'rotation', label: 'Rotation offset', tooltip: 'The rotation from the node\'s (the Inspector shows degrees).', default: [0, 0, 0, 1] },
+    vec3('scale', 'Scale', 'Scale relative to the node.', { min: SOCKET_ATTACH_LIMITS.scaleMin, max: SOCKET_ATTACH_LIMITS.scaleMax, step: 0.05, default: [1, 1, 1] }),
+    bool('attached', 'Attached at start', 'Rides on the node from the start (off: a script attaches it later with ctx.sockets.attach).', { default: true }),
+  ]),
+  // A socket needs its target (picked first; the node starts as a placeholder name picked from the target's list next).
+  add: { kind: 'pick', value: {}, pick: ['target'] },
+  handles: [],
+  excludes: SOCKET_ATTACH_CONFLICTS.map((c) => ({ component: c, reason: c === 'camera' || c === 'cameraFollow' ? 'the scene camera is posed by its camera module' : 'a physics body is posed by physics, not by a socket' })),
   prefab: false,
 };
 
@@ -932,7 +996,10 @@ const instances: ComponentDescriptor = {
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],
-  excludes: ['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'gameZone', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
+  excludes: [
+    ...['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'gameZone', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
+    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
+  ],
   prefab: false,
 };
 
@@ -1011,6 +1078,47 @@ const fogVolume: ComponentDescriptor = {
   rules: ['At most 16 fog volumes per scene.'],
 };
 
+// Phase 23.5 (E8): a grid of blocks (its cells are scene data written by editBlocks).
+const blockLayer: ComponentDescriptor = {
+  name: 'blockLayer',
+  label: 'Block layer',
+  tooltip: 'A grid of blocks for building levels (terrain, buildings, a tactics map); its cells are painted and edited with block commands.',
+  category: 'Rendering',
+  value: obj('blockLayer', 'Block layer', 'The grid: cell size and bounds. The object\'s position is the min corner of cell [0, 0, 0].', [
+    vec3('cellSize', 'Cell size', 'Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]).', { required: true, min: 0.05, max: 64, step: 0.05, unit: 'm', default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
+    json('bounds', 'Bounds', 'The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024).', { required: true }),
+    bool('metadataOnly', 'Metadata only', 'Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn.', { default: false }),
+    bool('collision', 'Collision', 'The blocks\' collision shapes are colliders (3D projects).', { default: true }),
+    bool('castShadow', 'Cast shadows', 'The blocks cast the directional light\'s shadow.', { default: true }),
+    bool('receiveShadow', 'Receive shadows', 'Shadows fall on the blocks.', { default: true }),
+  ]),
+  // Phase 23.5: 1 m cells over 64 × 16 × 64 — a common kit module over the E8 interactive-editing target; no genre assumed.
+  add: { kind: 'menu', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } },
+  handles: [],
+  excludes: ['model', 'box', 'camera', 'collider', 'controller', 'instances'].map((c) => ({ component: c, reason: 'a block layer is its own level geometry' })),
+  prefab: false,
+  rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.'],
+};
+
+// Phase 23.6 (E8): a prop's occupancy footprint (the editor writes it into the block cells beneath the prop).
+const blockFootprint: ComponentDescriptor = {
+  name: 'blockFootprint',
+  label: 'Block footprint',
+  tooltip: 'The cell metadata this object writes into the block-layer cells beneath it when it is placed or moved (a house marks its cells blocked).',
+  category: 'Gameplay',
+  value: obj('blockFootprint', 'Block footprint', 'Which cells (a rectangle centred on the object, turned with it) take which metadata.', [
+    entity('layer', 'Layer', 'The block layer written (none: every layer under the object).', { component: 'blockLayer' }),
+    vec2('size', 'Size', 'Cells along x and z, centred on the object and turned with its quarter turns.', { min: 1, max: 64, step: 1, default: [1, 1], labels: ['x', 'z'] }),
+    json('set', 'Metadata', 'The metadata the cells take: field key → value (fields of the project\'s cell schema).', { required: true }),
+  ]),
+  // Starts empty (writes nothing) until its metadata is chosen.
+  add: { kind: 'menu', value: { set: {} } },
+  handles: [],
+  excludes: [],
+  prefab: true,
+  rules: ['The cells are written when the object is placed or moved in the editor (one metadata edit of the layer); moving it clears the fields it wrote where it stood.'],
+};
+
 const animator: ComponentDescriptor = {
   name: 'animator',
   label: 'Animator',
@@ -1044,7 +1152,7 @@ const mover: ComponentDescriptor = {
   // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
   handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', loop: when('mode', 'loop') }],
-  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }],
+  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }, { component: 'socketAttach', reason: 'a socket poses the object every step; a mover follows its waypoints' }],
   prefab: true,
 };
 
@@ -1418,14 +1526,14 @@ const FLOW: FieldDescriptor = obj('flow', 'Game flow', 'Levels, lives, the title
 ], { rules: ['Level scenes and spawns, music, logo and sounds must exist in the project.'] });
 
 const KEY_CODE = { format: 'keyCode' as const, minLength: 1, maxLength: 32 };
-const BINDING_KINDS = ['key', 'gamepadButton', 'gamepadAxis', 'keys1d', 'keys2d', 'gamepadButtons1d', 'gamepadStick'] as const;
+const BINDING_KINDS = ['key', 'gamepadButton', 'gamepadAxis', 'keys1d', 'keys2d', 'gamepadButtons1d', 'gamepadStick', 'pointerButton', 'pointerPosition', 'pointerDelta', 'pointerAxis'] as const;
 const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and their keys and gamepad bindings (absent: the default actions).', [
   list('actions', 'Actions', `Up to ${MAX_INPUT_ACTIONS} named actions.`, obj('*', 'Action', 'A named action and its bindings.', [
     str('name', 'Name', 'The action name scripts and blocks read (a letter or _, then letters, digits or _).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
     enm('type', 'Type', 'A button, a 1D axis (left/right) or a 2D axis.', INPUT_ACTION_TYPES, { required: true, default: 'button', labels: { axis1d: 'Axis (1D)', axis2d: 'Axis (2D)' } }),
     enm('map', 'Map', 'Read by the game (gameplay) or the menus (ui).', INPUT_MAPS, { required: true, default: 'gameplay', labels: { ui: 'UI' } }),
     list('bindings', 'Bindings', `Up to ${MAX_INPUT_BINDINGS} keys, buttons, axes or composites.`, obj('*', 'Binding', 'One binding (it must fit the action type).', [
-      enm('kind', 'Kind', 'What is bound.', BINDING_KINDS, { required: true, default: 'key', labels: { gamepadButton: 'Gamepad button', gamepadAxis: 'Gamepad axis', keys1d: 'Two keys (1D)', keys2d: 'Four keys (2D)', gamepadButtons1d: 'Two gamepad buttons (1D)', gamepadStick: 'Gamepad stick' } }),
+      enm('kind', 'Kind', 'What is bound.', BINDING_KINDS, { required: true, default: 'key', labels: { gamepadButton: 'Gamepad button', gamepadAxis: 'Gamepad axis', keys1d: 'Two keys (1D)', keys2d: 'Four keys (2D)', gamepadButtons1d: 'Two gamepad buttons (1D)', gamepadStick: 'Gamepad stick', pointerButton: 'Pointer button', pointerPosition: 'Pointer position (2D)', pointerDelta: 'Pointer movement (2D)', pointerAxis: 'Pointer axis (1D)' } }),
       str('code', 'Key', 'A keyboard key (KeyboardEvent.code).', { ...KEY_CODE, required: true, when: when('kind', 'key') }),
       int('button', 'Button', 'A standard gamepad button index.', { required: true, when: when('kind', 'gamepadButton'), min: 0, max: 31 }),
       int('axis', 'Axis', 'A standard gamepad axis index.', { required: true, when: when('kind', 'gamepadAxis'), min: 0, max: 7 }),
@@ -1439,11 +1547,18 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
       str('right', 'Right', 'The key for right.', { ...KEY_CODE, required: true, when: when('kind', 'keys2d') }),
       int('x', 'X axis', 'The stick\'s horizontal axis index.', { required: true, when: when('kind', 'gamepadStick'), min: 0, max: 7 }),
       int('y', 'Y axis', 'The stick\'s vertical axis index.', { required: true, when: when('kind', 'gamepadStick'), min: 0, max: 7 }),
-    ], { rules: ['A button takes keys and buttons; a 1D axis also two-key, two-button and axis bindings; a 2D axis four keys or a stick.'] }), { required: true, maxItems: MAX_INPUT_BINDINGS }),
+      enm('button', 'Pointer button', 'The mouse (or pen/touch) button.', POINTER_BUTTONS, { required: true, when: when('kind', 'pointerButton'), default: 'left' }),
+      enm('axis', 'Pointer axis', 'The pointer\'s movement along x or y (up positive; percent of the view per step), or the wheel (notches, positive towards the user).', POINTER_AXES, { required: true, when: when('kind', 'pointerAxis'), default: 'x' }),
+    ], { rules: ['A button takes keys, buttons and pointer buttons; a 1D axis also two-key, two-button, axis and pointer-axis bindings; a 2D axis four keys, a stick, the pointer position or the pointer movement.'] }), { required: true, maxItems: MAX_INPUT_BINDINGS }),
     num('deadZone', 'Dead zone', 'Axis values within this count as 0 (then rescaled).', { min: 0, max: 1, maxExclusive: true, step: 0.05, default: 0.2 }),
     bool('invert', 'Invert', 'Flip the axis.', { default: false }),
     num('scale', 'Scale', 'Multiply the value.', { min: 0, minExclusive: true, max: 10, step: 0.1, unit: '×', default: 1 }),
   ]), { required: true, maxItems: MAX_INPUT_ACTIONS }),
+  // Phase 23.3: free by default for both maps — a pointer-driven game needs a visible cursor; mouse-look opts in to locked.
+  obj('cursor', 'Cursor', 'The cursor while each map is active (absent: free). It is hidden while a gamepad drives the game.', [
+    enm('gameplay', 'Gameplay', 'The cursor during play: free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre).', CURSOR_MODES, { default: 'free' }),
+    enm('ui', 'Menus (ui)', 'The cursor while a menu is open.', CURSOR_MODES, { default: 'free' }),
+  ]),
 ], { default: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as DescriptorJson, rules: ['Action names are unique.'] });
 
 /** One shader parameter, as a descriptor field (the schema lives in `MATERIAL_PARAMS`). */
@@ -1577,6 +1692,10 @@ const ANIMATOR_ITEM = obj('*', 'Animator controller', 'A state machine for model
     num('time', 'Time', 'Seconds into the clip.', { required: true, min: 0, max: 600, step: 0.01, unit: 's', default: 0 }),
     str('name', 'Name', 'A letter or _, then letters, digits or _.', { required: true, format: 'identifier', minLength: 1, maxLength: 64 }),
   ]), { required: true, maxItems: MAX_ANIMATOR_EVENTS, default: [] }),
+  list('morphs', 'Morph targets', `Up to ${MAX_ANIMATOR_MORPHS} morph targets (blend shapes) whose weight follows a float parameter (clamped to 0–1); scripts may set others.`, obj('*', 'Morph target', 'A morph target driven by a parameter.', [
+    str('target', 'Target', 'The morph target\'s name in the model.', { ...NAME, required: true }),
+    ref('parameter', 'Parameter', 'The float parameter whose value (0–1) is the weight.', 'animatorParameter', { required: true, paramTypes: ['float'] }),
+  ]), { maxItems: MAX_ANIMATOR_MORPHS }),
   list('layers', 'Layers', `1–${MAX_ANIMATOR_LAYERS} override layers over the base layer (absent: the base layer only).`, obj('*', 'Layer', 'An override layer driving some bones.', [
     str('name', 'Name', 'Shown in the editor.', { ...NAME, required: true }),
     list('mask', 'Bones', `The bones this layer drives (up to ${MAX_LAYER_MASK}; empty: every bone).`, str('*', 'Bone', 'A bone (node) name of the model\'s skeleton.', { ...NAME, format: 'boneName' }), { required: true, maxItems: MAX_LAYER_MASK, unique: true, default: [] }),
@@ -1641,9 +1760,62 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'effects', label: 'Effects', tooltip: 'Visual effects: particle systems authored as node graphs.', required: false, value: list('effects', 'Effects', `Up to ${EFFECT_LIMITS.effects} effects.`, EFFECT_ITEM, { maxItems: EFFECT_LIMITS.effects, default: [] }), ops: ['setEffect', 'deleteEffect', 'renameEffect', 'graphEdit'] },
   // Phase 23.7: shared script libraries; their files are edited in the script editor (Library tab).
   { key: 'scriptLibraries', label: 'Script libraries', tooltip: 'Shared TypeScript and JSON modules every script can import as @lib/<id>.', required: false, value: list('scriptLibraries', 'Script libraries', `Up to ${SCRIPT_LIBRARY_LIMITS.libraries} libraries.`, json('*', 'Library', 'A script library: { libraryId, name, files: [{ path, text }] }.', { readOnly: true }), { maxItems: SCRIPT_LIBRARY_LIMITS.libraries, default: [] }), ops: ['setScriptLibrary', 'deleteScriptLibrary'] },
+  // Phase 23.5 (E8): block types, the cell metadata schema and stamps for block layers.
+  {
+    key: 'blockTypes',
+    label: 'Block types',
+    tooltip: 'The blocks block layers are built from: their looks, collision shape, footprint, rotations and default cell metadata.',
+    required: false,
+    value: list('blockTypes', 'Block types', `Up to ${BLOCK_LIMITS.blockTypes} block types.`, obj('*', 'Block type', 'One block.', [
+      str('blockId', 'Id', 'The stable block id cells name.', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in the block palette.', { ...NAME, required: true }),
+      json('variants', 'Looks', `1–${BLOCK_LIMITS.variants} weighted looks: {model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, each with an optional weight (a cell without a variant picks one by weight, stably by position).`, { required: true }),
+      enm('shape', 'Collision shape', 'The collision shape (and the coloured stand-in\'s shape): full, half, ramp, stairs (rising toward +Z), custom boxes or none.', ['full', 'half', 'ramp', 'stairs', 'custom', 'none'], { required: true }),
+      json('boxes', 'Custom boxes', `1–${BLOCK_LIMITS.customBoxes} boxes [x0, y0, z0, x1, y1, z1] in footprint units (0–1).`, { required: true, when: when('shape', 'custom') }),
+      bool('solid', 'Solid', 'Fills its cell and hides the faces of neighbours touching it (absent: a full shape is solid).'),
+      vec3('footprint', 'Footprint', 'Cells along x, y and z (a 2 × 1 × 2 well); the cells it covers stay empty.', { min: 1, max: BLOCK_LIMITS.footprint, step: 1, default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
+      json('rotations', 'Rotations', 'The allowed rotations in degrees: a set of 0, 90, 180, 270 (absent: all).'),
+      json('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field key → value).'),
+      json('materials', 'Materials', 'Model material mapping: source material name (or "*") → materialId.'),
+    ]), { maxItems: BLOCK_LIMITS.blockTypes, default: [] }),
+    ops: ['setBlockType', 'deleteBlockType'],
+  },
+  {
+    key: 'cellFields',
+    label: 'Cell fields',
+    tooltip: 'The project\'s cell metadata schema (walkable, hazard, move cost, terrain…): what every block-layer cell can carry.',
+    required: false,
+    value: list('cellFields', 'Cell fields', `Up to ${BLOCK_LIMITS.cellFields} fields.`, obj('*', 'Cell field', 'One metadata field.', [
+      str('key', 'Key', 'The field name scripts read (an identifier).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
+      enm('type', 'Type', 'Boolean, choice, whole number, number or text.', ['bool', 'enum', 'int', 'float', 'string'], { required: true }),
+      json('default', 'Default', 'The value a cell has when neither its block nor the cell sets one (absent: false / the first choice / 0 / "").'),
+      list('values', 'Choices', `The choices (1–${BLOCK_LIMITS.enumValues}).`, str('*', 'Choice', 'One choice.', { minLength: 1, maxLength: BLOCK_LIMITS.stringLength }), { required: true, minItems: 1, maxItems: BLOCK_LIMITS.enumValues, unique: true, when: when('type', 'enum') }),
+      num('min', 'Min', 'The smallest value.', { when: when('type', 'int', 'float') }),
+      num('max', 'Max', 'The largest value.', { when: when('type', 'int', 'float') }),
+      color('color', 'Overlay colour', 'The colour the editor paints this field with.'),
+      str('label', 'Label', 'Shown in the editor.', { minLength: 1, maxLength: 64 }),
+    ]), { maxItems: BLOCK_LIMITS.cellFields, default: [] }),
+    ops: ['setCellFields'],
+  },
+  {
+    key: 'blockStamps',
+    label: 'Block stamps',
+    tooltip: 'Saved patterns of cells (a cottage footprint, a bridge span) placed on block layers.',
+    required: false,
+    value: list('blockStamps', 'Block stamps', `Up to ${BLOCK_LIMITS.stamps} stamps.`, obj('*', 'Stamp', 'A saved pattern.', [
+      str('stampId', 'Id', 'The stable stamp id.', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in the stamp list.', { ...NAME, required: true }),
+      vec3('size', 'Size', 'The pattern\'s extent in cells.', { required: true, min: 1, max: BLOCK_LIMITS.stampSize, step: 1, labels: ['x', 'y', 'z'] }),
+      json('palette', 'Palette', 'The cell values the runs name.', { required: true, readOnly: true }),
+      json('columns', 'Cells', `Run-length columns [x, z, y, n, p, …] (at most ${BLOCK_LIMITS.stampCells} cells).`, { required: true, readOnly: true }),
+    ]), { maxItems: BLOCK_LIMITS.stamps, default: [] }),
+    ops: ['setBlockStamp', 'deleteBlockStamp'],
+  },
   // Phase 16.1: standalone node graphs; their body is edited in the graph editor (graphEdit ops).
   { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', `Up to ${MAX_GRAPH_DOCUMENTS} graphs.`, json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { maxItems: MAX_GRAPH_DOCUMENTS, default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },
+  // Phase 23.3: named collision layers (3D physics); "default" is implicit.
+  { key: 'collisionLayers', label: 'Collision layers', tooltip: 'Named collision layers colliders are in and script queries filter by (3D; "default" is implicit).', required: false, value: list('collisionLayers', 'Collision layers', `Up to ${MAX_COLLISION_LAYERS} names ("default" is implicit).`, str('*', 'Layer', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_COLLISION_LAYERS, unique: true, default: [] }), ops: ['setCollisionLayers'] },
   { key: 'settings', label: 'Gameplay settings', tooltip: 'Gravity, run speed, jump, slopes, and the engine settings (step rate, sound voices, music fade, animation blend).', required: true, value: SETTINGS, ops: ['setSettings'] },
   { key: 'scenes', label: 'Scenes', tooltip: 'The project\'s scenes.', required: true, value: list('scenes', 'Scenes', `1–${MAX_SCENES} scenes.`, obj('*', 'Scene', 'A scene file.', [str('sceneId', 'Id', 'The stable scene id.', { ...ID, required: true, readOnly: true }), str('name', 'Name', 'Shown in the scene list.', { ...NAME, required: true })]), { required: true, minItems: 1, maxItems: MAX_SCENES }), ops: ['createScene', 'renameScene', 'deleteScene'] },
   { key: 'startScenes', label: 'Start scenes', tooltip: 'The scenes loaded when the game starts (without a flow).', required: true, value: list('startScenes', 'Start scenes', `1–${MAX_SCENES} scenes.`, scene('*', 'Scene', 'A start scene.'), { required: true, minItems: 1, maxItems: MAX_SCENES, unique: true }), ops: ['setStartScenes'] },
@@ -1720,6 +1892,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   cameraFollow,
   virtualCamera,
   cameraPath,
+  socketAttach,
   light,
   gameZone,
   playerSpawn,
@@ -1736,6 +1909,8 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   behavior,
   prefab,
   folder,
+  blockLayer,
+  blockFootprint,
 ];
 
 function deepFreeze<T>(v: T): T {

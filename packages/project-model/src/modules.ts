@@ -35,6 +35,8 @@ export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.physics-rapier:2d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   // Phase 23.0: the 3D backend (a project whose physics_dimension is 3).
   { id: 'thirdlight.physics-rapier:3d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
+  // Phase 23.2: the 3D kinematic character controller (a runtime built-in, like the demo module).
+  { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: ['thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad'] },
   { id: 'thirdlight.platformer:controller', package: '@thirdlight/platformer', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'] },
   { id: 'thirdlight.platformer-game:session', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer:controller'] },
   { id: 'thirdlight.platformer-game:camera', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer-game:session'] },
@@ -114,7 +116,10 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
   }
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
-    if (c['controller'] !== undefined) want(threeD ? 'thirdlight.physics-rapier:3d' : 'thirdlight.platformer:controller', 'scene');
+    // Phase 23.2: in 3D the character controller module (which needs the 3D backend and input).
+    if (c['controller'] !== undefined) want(threeD ? 'thirdlight.character3d:controller' : 'thirdlight.platformer:controller', 'scene');
+    // Phase 23.3: in 3D a collider alone needs the backend too (a scene without a player still answers rays and picks).
+    else if (threeD && (c['collider'] !== undefined || c['blockLayer'] !== undefined)) want('thirdlight.physics-rapier:3d', 'scene');
     if (c['model'] !== undefined) want('thirdlight.three-adapter:gltf-loader', 'scene');
   }
   for (const b of input.behaviors ?? []) {

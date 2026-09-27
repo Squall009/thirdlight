@@ -30,7 +30,7 @@ export type { GameZoneRole };
 import type { ActionFrame, ActionSource, DebugCommandArg, DebugCommandCall } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode, RuntimeError } from './errors';
-import type { PhysicsPort, PhysicsPort3D, PhysicsStepClient, Vec2 } from './ports';
+import type { CharacterClearanceResult3D, PhysicsPort, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
 
 /** One entity of any supported normalized scene version. */
 export type RuntimeSnapshotEntity = ResolvedSceneV3['entities'][number];
@@ -85,6 +85,16 @@ export interface RuntimeSnapshot {
    * without a size collects over its model's bounds.
    */
   modelBounds?: Readonly<Record<string, ModelBounds>>;
+  /**
+   * Phase 23.11, v4 only, optional: model assetId -> its rig (nodes and node
+   * animation channels, read from the GLB by the play/export closure) — the
+   * data sockets are resolved on (the runtime never loads a model).
+   */
+  rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
+  /** Phase 23.5, v4 only, optional: the block types block layers use (`content.blockTypes`). */
+  blockTypes?: readonly import('@thirdlight/project-model').BlockType[];
+  /** Phase 23.5, v4 only, optional: the cell metadata schema (`content.cellFields`). */
+  cellFields?: readonly import('@thirdlight/project-model').CellField[];
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -348,6 +358,19 @@ export interface ModuleConfig {
   tags?: BehaviorTagQuery;
   /** Phase 23.1: 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
   physicsDimension?: 3;
+  /**
+   * Phase 23.2 (3D projects): read-only queries of the 3D world for the
+   * character controller module (a ray; the clearance of the character's
+   * capsule at an origin) — not part of the scripts' context.
+   */
+  character3D?: Character3DQueries;
+}
+
+/** Phase 23.2: the 3D world queries the character controller uses to find a ledge and room on top of it. */
+export interface Character3DQueries {
+  raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null;
+  /** The clearance of the character capsule if its origin were at `origin` (null: the port cannot tell). */
+  clearance(origin: PhysicsVec3): CharacterClearanceResult3D | null;
 }
 
 /**
@@ -679,10 +702,23 @@ export interface StepContext {
   readonly triggerEvents?: readonly TriggerEventRecord[];
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
+  /**
+   * Phase 23.2 (3D projects): the active camera's yaw this step — radians
+   * about +Y, 0 looking along −Z (three.js' default camera) — when a camera
+   * rig provides one; the 3D character reads its move input relative to it.
+   * Absent: world axes (the input's y pushes along −Z, its x along +X).
+   */
+  readonly cameraYaw?: number;
   /** Phase 23.4: the virtual cameras (`ctx.camera`; a scene without one answers false/null). */
   readonly camera?: BehaviorCamera;
+  /** Phase 23.11: sockets (`ctx.sockets`). */
+  readonly sockets?: BehaviorSockets;
+  /** Phase 23.3: the cursor a script asks for (`ctx.input.setCursor`; simulation state the host applies after the step). */
+  readonly cursor?: { readonly request: (mode: 'free' | 'locked' | 'auto') => void };
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
+  /** Phase 23.5: the block layers of the loaded scenes (`ctx.grid`). */
+  readonly grid?: import('./grid').BehaviorGrid;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1090,6 +1126,45 @@ export interface BehaviorCamera {
   screenToRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] };
 }
 
+/**
+ * Phase 23.11: `ctx.sockets` — objects riding on named nodes (bones or any
+ * node) of other objects' models. The simulation places an attached object
+ * at the end of every step, after the animators, so it follows the target's
+ * animation in Play, the worker and the export alike.
+ */
+export interface BehaviorSockets {
+  /**
+   * Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body or the scene camera.
+   * @graphNode Attach to socket
+   * @graphLabel entityId object
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  attach(entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean;
+  /**
+   * Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached.
+   * @graphNode Detach from socket
+   * @graphLabel entityId object
+   * @graphDefault keepWorld true
+   */
+  detach(entityId: string, keepWorld?: boolean): boolean;
+  /**
+   * The socket an object rides on (the target object and the node's name), or null.
+   * @graphPure
+   * @graphNode Socket of
+   * @graphLabel entityId object
+   */
+  attachedTo(entityId: string): { readonly target: string; readonly nodeName: string } | null;
+  /**
+   * A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.
+   * @graphPure
+   * @graphNode Node pose
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  nodePose(targetId: string, node: string): { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
+}
+
 /** Phase 9.9: `ctx.signals`. */
 export interface BehaviorSignals {
   /**
@@ -1164,6 +1239,31 @@ export interface BehaviorAnimatorHandle {
    * @graphNode Animator state
    */
   state(layer?: number): string;
+  /**
+   * Phase 23.11: set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10.
+   * @graphNode Set animation speed
+   * @graphDefault speed 1
+   */
+  setSpeed(speed: number): boolean;
+  /**
+   * Phase 23.11: this animator's playback speed.
+   * @graphPure
+   * @graphNode Animation speed
+   */
+  speed(): number;
+  /**
+   * Phase 23.11: set a morph target's weight (0–1) by its name in the model (over the controller's parameter binding of that target, if any).
+   * @graphNode Set morph weight
+   * @graphLabel name morph target
+   */
+  setMorph(name: string, weight: number): boolean;
+  /**
+   * Phase 23.11: a morph target's weight now (0 when nothing sets it).
+   * @graphPure
+   * @graphNode Morph weight
+   * @graphLabel name morph target
+   */
+  morph(name: string): number;
 }
 
 export interface BehaviorAnimatorControl {
@@ -1287,6 +1387,10 @@ export interface Runtime {
   takeAudioRequests?(): { assetId: string; volume: number; stepIndex: number }[];
   /** Phase 20.2: the effect requests (scripts, effect-component signals, gameplay hooks) since the last call; the adapter plays them. */
   takeEffectRequests?(): EffectRequest[];
+  /** Phase 23.5: the block-layer chunks to re-mesh since the last call (their cells now); the adapter applies them. */
+  takeGridChanges?(): import('./grid').GridRenderChange[];
+  /** Phase 23.5: the block cells changed since the run started (plain data). */
+  gridDiff?(): import('./grid').GridDiff;
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */
@@ -1309,7 +1413,13 @@ export interface Runtime {
   cameraView?(): import('./camera-brain').CameraViewInfo | null;
   /** Phase 23.4: the viewport the view is drawn in (screen↔world projection uses its aspect). */
   setCameraViewport?(width: number, height: number): boolean;
-  getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
+  /** Phase 23.11: the objects riding on sockets now (entity, target, node; a stable array while nothing changes). */
+  socketAttachments?(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
+  /** Phase 23.3: the cursor a script asked for ('free' | 'locked'), or null — the active input map decides. */
+  cursorRequest?(): 'free' | 'locked' | null;
+  /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */
+  readPointer?(): import('./actions').PointerSample | null;
+  getCamera():{ ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
 

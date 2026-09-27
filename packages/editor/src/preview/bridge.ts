@@ -80,7 +80,11 @@ function defaultNonce(): string {
 export interface BridgeRelayFrame {
   stepOffset: number;
   moveX: number;
+  /** Phase 23.2: the second move axis. */
+  moveY?: number;
   jump: string;
+  /** Phase 23.2: named input actions this step. */
+  actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>;
 }
 
 /**

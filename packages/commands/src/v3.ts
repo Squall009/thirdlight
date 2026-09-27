@@ -18,6 +18,8 @@
  */
 
 import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
+import { validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
+import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
   validateCameraFollowComponent,
@@ -71,6 +73,12 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   // Phase 23.4: the camera framework (project-model cameras.ts field order).
   virtualCamera: VIRTUAL_CAMERA_FIELDS,
   cameraPath: CAMERA_PATH_FIELDS,
+  // Phase 23.11: sockets (project-model sockets.ts field order).
+  socketAttach: SOCKET_ATTACH_FIELDS,
+  // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
+  blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
+  // Phase 23.6: a prop's block footprint (`set` is replaced whole).
+  blockFootprint: ['layer', 'size', 'set'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -129,6 +137,12 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   // Phase 23.4: v4 scenes only.
   'virtualCamera',
   'cameraPath',
+  // Phase 23.11: v4 scenes only.
+  'socketAttach',
+  // Phase 23.5: v4 scenes only.
+  'blockLayer',
+  // Phase 23.6: v4 scenes only.
+  'blockFootprint',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -220,8 +234,17 @@ export function validateV3ComponentValue(
     case 'cameraPath':
       validateCameraPathComponent(value, path, errors as unknown as Parameters<typeof validateCameraPathComponent>[2]);
       break;
+    case 'socketAttach':
+      validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);
+      break;
     case 'fogVolume':
       validateFogVolumeComponent(value, path, errors as unknown as Parameters<typeof validateFogVolumeComponent>[2]);
+      break;
+    case 'blockLayer':
+      validateBlockLayerComponent(value, path, errors as unknown as Parameters<typeof validateBlockLayerComponent>[2]);
+      break;
+    case 'blockFootprint':
+      validateBlockFootprintComponent(value, path, errors as unknown as Parameters<typeof validateBlockFootprintComponent>[2]);
       break;
     case 'animator':
       validateAnimatorComponent(value, path, errors as unknown as Parameters<typeof validateAnimatorComponent>[2]);

@@ -40,7 +40,7 @@
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
 import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
-import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
+import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   browserContextFactory,
@@ -102,10 +102,17 @@ interface ExportManifestV2 {
   lighting?: Record<string, LightingBakeLike>;
   /** Phase 9.7: the animator controllers. */
   animators?: unknown[];
+  /** Phase 23.11: model rigs (sockets are resolved on them). */
+  rigs?: Record<string, unknown>;
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: unknown[];
+  /** Phase 23.5: the block types and cell fields block layers use. */
+  blockTypes?: unknown[];
+  cellFields?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
+  /** Phase 23.3: the named collision layers. */
+  collisionLayers?: readonly string[];
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -140,7 +147,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -255,6 +262,11 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.prefabs !== undefined ? { prefabs: manifest.prefabs } : {}),
     // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
     ...(modelBounds !== undefined ? { modelBounds } : {}),
+    // Phase 23.11: the model rigs sockets are resolved on (bound by the buildId).
+    ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
+    // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
+    ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}),
+    ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
@@ -293,12 +305,12 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
 
   // The physics config (physics-rapier; the manifest's resolved gravity_y drives the solver).
   // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
-  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings) : physicsConfigFromSnapshot(snapshot, settings);
+  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
   if (physicsConfig === null && snapshot.game !== null) throw new Error('the game requires a player controller entity');
   // (no game block and no controller: scene mode — the scene plays as authored)
 
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
-  const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
+  const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
   focusGameSurface(canvas);
   const behaviorRows = (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [];
   const enginePins = (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [];
@@ -474,7 +486,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     assetPaths: assetPathsById,
     // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
     ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
-    inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
+    inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
     setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
     // Phase 14.5: the title screen's background scene and camera pan.

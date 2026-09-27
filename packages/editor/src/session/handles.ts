@@ -23,7 +23,7 @@ import type { DescriptorJson, DescriptorRegistry, FieldCondition, FieldDescripto
 
 import { applies, deepEqual, fieldAt, setAt, type FieldPath, type Level } from './descriptor-fields';
 import type { ProjectedEntity } from './projection';
-import { SNAP_TRANSLATE_M } from './snapping';
+import { getSnapSettings } from './snapping';
 
 /** The size snapping step (m): fine enough for a character's or a trigger's size in any genre, still round numbers. */
 export const SNAP_SIZE_M = 0.05;
@@ -69,7 +69,9 @@ export type HandleModel =
   | { type: 'cone'; dir: P3; angle: number; range: number }
   | { type: 'direction'; dir: P3 }
   | { type: 'points'; pts: P3[]; dims: 2 | 3; closed: boolean; start: boolean; minItems: number; maxItems: number }
-  | { type: 'point'; p: P3; dims: 2 | 3 };
+  | { type: 'point'; p: P3; dims: 2 | 3 }
+  /** Phase 23.2: a height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius. */
+  | { type: 'height'; base: P3; h: number; r: number };
 
 export interface HandleShape {
   entityId: string;
@@ -161,7 +163,7 @@ const frameOf = (h: HandleDescriptor): Frame => (h.space === 'world' ? 'world' :
 // ---- reading shapes -----------------------------------------------------------
 
 /** The handle shapes of one object (its components in registry order, each handle whose `when` holds). */
-export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | null): HandleShape[] {
+export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | null, dimension: 2 | 3 = 2): HandleShape[] {
   if (reg === null) return [];
   const out: HandleShape[] = [];
   for (const c of reg.components) {
@@ -170,6 +172,8 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
     if (raw === undefined || !isObj(raw)) continue;
     const root = c.value;
     c.handles.forEach((h, handleIndex) => {
+      // Phase 23.2: a handle of one physics dimension shows only in a project of that dimension.
+      if (h.dimension !== undefined && h.dimension !== dimension) return;
       if (!conditionsHold(root, raw, h.when)) return;
       const shape = readShape(e.id, c.name, handleIndex, h, root, raw);
       if (shape !== null) out.push(shape);
@@ -290,6 +294,21 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       const dims = Array.isArray(pt.v) && pt.v.length === 3 ? 3 : 2;
       return { ...base, model: { type: 'point', p: p3(v[0]!, v[1]!, dims === 3 ? N(v[2]) : 0), dims } };
     }
+    case 'height': {
+      const hv = at('height');
+      lim('height', hv.f);
+      // Measured from the feet of a capsule (`from`: its height and offset, defaults included), else the origin.
+      let feet = p3(0, 0, 0);
+      let r = 0.3;
+      if (h.from !== undefined) {
+        const radius = N(effective(root, value, `${h.from}/radius`).v, 0.3);
+        const height = N(effective(root, value, `${h.from}/height`).v, 1.8);
+        const off = vec(effective(root, value, `${h.from}/offset`).v, 2) ?? [0, 0];
+        feet = p3(off[0]!, off[1]! - height / 2, typeof off[2] === 'number' ? off[2] : 0);
+        r = radius;
+      }
+      return { ...base, model: { type: 'height', base: feet, h: N(hv.v), r } };
+    }
   }
 }
 
@@ -368,6 +387,8 @@ export function gripsOf(s: HandleShape): Grip[] {
     }
     case 'point':
       return [{ id: 'point', at: m.p, drag: 'plane', role: 'vertex' }];
+    case 'height':
+      return [{ id: 'height', at: p3(m.base.x + m.r, m.base.y + m.h, m.base.z), drag: 'axis', axis: p3(0, 1, 0), role: 'size' }];
   }
 }
 
@@ -433,7 +454,7 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
     }
     case 'bounds': {
       const r = L['minX'];
-      const g = (v: number): number => round3(clamp(snapTo(v, SNAP_TRANSLATE_M, snap), r));
+      const g = (v: number): number => round3(clamp(snapTo(v, getSnapSettings().translateM, snap), r));
       if (id === 'left') return { ...s, model: { ...m, minX: Math.min(g(p.x), round3(m.maxX - MIN_GAP_M)) } };
       if (id === 'right') return { ...s, model: { ...m, maxX: Math.max(g(p.x), round3(m.minX + MIN_GAP_M)) } };
       if (id === 'bottom') return { ...s, model: { ...m, minY: Math.min(g(p.y), round3(m.maxY - MIN_GAP_M)) } };
@@ -487,15 +508,17 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
     case 'points': {
       const i = Number(id.slice(1));
       if (!id.startsWith('p') || !Number.isInteger(i) || m.pts[i] === undefined) return s;
-      const step = s.kind === 'path' ? SNAP_TRANSLATE_M : SNAP_SIZE_M;
+      const step = s.kind === 'path' ? getSnapSettings().translateM : SNAP_SIZE_M;
       const r = L[s.kind === 'path' ? 'points' : 'vertices'];
       const pts = m.pts.map((q, j) => (j === i ? p3(round3(clamp(snapTo(p.x, step, snap), r)), round3(clamp(snapTo(p.y, step, snap), r)), q.z) : q));
       return withError({ ...s, model: { ...m, pts } });
     }
     case 'point': {
       const r = L['point'];
-      return { ...s, model: { ...m, p: p3(round3(clamp(snapTo(p.x, SNAP_TRANSLATE_M, snap), r)), round3(clamp(snapTo(p.y, SNAP_TRANSLATE_M, snap), r)), m.p.z) } };
+      return { ...s, model: { ...m, p: p3(round3(clamp(snapTo(p.x, getSnapSettings().translateM, snap), r)), round3(clamp(snapTo(p.y, getSnapSettings().translateM, snap), r)), m.p.z) } };
     }
+    case 'height':
+      return { ...s, model: { ...m, h: round3(clamp(size(p.y - m.base.y), L['height'])) } };
   }
 }
 
@@ -556,6 +579,8 @@ function fieldWrites(s: HandleShape): [string, DescriptorJson][] {
       return [[b[s.kind === 'path' ? 'points' : 'vertices']!, m.pts.map((q) => r3(q, m.dims))]];
     case 'point':
       return [[b['point']!, r3(m.p, m.dims)]];
+    case 'height':
+      return [[b['height']!, round3(m.h)]];
   }
 }
 
@@ -645,6 +670,12 @@ export function linesOf(s: HandleShape): P3[][] {
     }
     case 'point':
       return [[p3(m.p.x - 0.2, m.p.y, m.p.z), p3(m.p.x + 0.2, m.p.y, m.p.z)], [p3(m.p.x, m.p.y - 0.2, m.p.z), p3(m.p.x, m.p.y + 0.2, m.p.z)]];
+    case 'height': {
+      // A ring around the capsule at the height, and a post from the feet up to it.
+      const y = m.base.y + m.h;
+      const ring = Array.from({ length: 33 }, (_, i) => p3(m.base.x + m.r * Math.cos((i / 32) * 2 * Math.PI), y, m.base.z + m.r * Math.sin((i / 32) * 2 * Math.PI)));
+      return [ring, [p3(m.base.x + m.r, m.base.y, m.base.z), p3(m.base.x + m.r, y, m.base.z)]];
+    }
   }
 }
 

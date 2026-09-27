@@ -4,11 +4,14 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_INPUT } from '../packages/project-model/src/input';
-import { DEFAULT_INPUT_CONFIG } from '../packages/input/src/actions';
+import { DEFAULT_INPUT, DEFAULT_INPUT_3D } from '../packages/project-model/src/input';
+import { DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D } from '../packages/input/src/actions';
 
 describe('input defaults parity', () => {
   it('the input package and project-model agree on the default actions', () => {
     expect(JSON.parse(JSON.stringify(DEFAULT_INPUT_CONFIG))).toEqual(JSON.parse(JSON.stringify(DEFAULT_INPUT)));
+  });
+  it('phase 23.2: and on the 3D defaults', () => {
+    expect(JSON.parse(JSON.stringify(DEFAULT_INPUT_CONFIG_3D))).toEqual(JSON.parse(JSON.stringify(DEFAULT_INPUT_3D)));
   });
 });

@@ -294,7 +294,8 @@ function main() {
     sample: 'beacon-reach',
     generatedBy: 'samples/beacon-reach/tools/generate-assets.mjs',
     license: LICENSE_ID,
-    licenseText: join(SAMPLE_ROOT, 'LICENSE'),
+    // Relative to provenance.json's folder (an absolute path would differ per checkout).
+    licenseText: '../LICENSE',
     assets: [],
   };
 

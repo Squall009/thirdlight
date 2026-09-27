@@ -137,8 +137,21 @@ export interface AnimatorController {
   events: AnimatorEvent[];
   /** Phase 14.6: override layers over the base layer (absent = the base layer only). */
   layers?: AnimatorLayer[];
+  /**
+   * Phase 23.11: morph targets (blend shapes) whose weight follows a float
+   * parameter, clamped to 0–1 (absent = none; scripts may set others).
+   */
+  morphs?: AnimatorMorphBinding[];
   /** Phase 16.2: the base layer's graph layout (editor-only). */
   layout?: AnimatorLayout;
+}
+
+/** Phase 23.11: one morph target driven by a parameter. */
+export interface AnimatorMorphBinding {
+  /** The morph target's name in the model's meshes. */
+  target: string;
+  /** A float parameter of the controller (its value, clamped to 0–1, is the weight). */
+  parameter: string;
 }
 
 export interface AnimatorComponent {
@@ -158,6 +171,8 @@ export const MAX_BLEND_CHILDREN = 16;
 export const MAX_ANIMATOR_LAYERS = 3;
 /** Phase 14.6: bone names in one layer mask (the import cap on joints per skin). */
 export const MAX_LAYER_MASK = 128;
+/** Phase 23.11: morph bindings per controller (a face rig's expression set). */
+export const MAX_ANIMATOR_MORPHS = 32;
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const PARAM_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -340,7 +355,7 @@ function checkGraph(v: Record<string, unknown>, path: string, params: ReadonlyMa
 export function validateAnimatorController(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'an animator controller is an object', value);
   const v = value;
-  onlyKeys(v, ['controllerId', 'name', 'parameters', 'states', 'transitions', 'entry', 'events', 'layers', 'layout'], path, errors);
+  onlyKeys(v, ['controllerId', 'name', 'parameters', 'states', 'transitions', 'entry', 'events', 'layers', 'morphs', 'layout'], path, errors);
   if (typeof v['controllerId'] !== 'string' || !ID_RE.test(v['controllerId'])) err(errors, 'field_value', `${path}/controllerId`, 'controllerId is an id (a-z, 0-9, _ and -)', v['controllerId']);
   if (!isName(v['name'])) err(errors, 'field_value', `${path}/name`, 'name is 1–128 characters', v['name']);
 
@@ -390,6 +405,24 @@ export function validateAnimatorController(value: unknown, path: string, errors:
         if (l['weightParameter'] !== undefined && params.get(l['weightParameter'] as string) !== 'float') err(errors, 'reference_missing', `${lp}/weightParameter`, 'weightParameter names a float parameter', l['weightParameter']);
         checkGraph(l, lp, params, stateIds, true, errors);
       });
+  }
+
+  // Phase 23.11: morph targets driven by float parameters.
+  const morphs = v['morphs'];
+  if (morphs !== undefined) {
+    if (!Array.isArray(morphs) || morphs.length > MAX_ANIMATOR_MORPHS) err(errors, 'field_value', `${path}/morphs`, `morphs is a list of at most ${MAX_ANIMATOR_MORPHS} { target, parameter }`, morphs);
+    else {
+      const seen = new Set<string>();
+      morphs.forEach((m, i) => {
+        const mp = `${path}/morphs/${i}`;
+        if (!isPlainObject(m)) return err(errors, 'field_type', mp, 'a morph binding is { target, parameter }', m);
+        onlyKeys(m, ['target', 'parameter'], mp, errors);
+        if (!isName(m['target'])) err(errors, 'field_value', `${mp}/target`, 'target is a morph target name (1–128 characters)', m['target']);
+        else if (seen.has(m['target'] as string)) err(errors, 'field_value', `${mp}/target`, 'each morph target is bound once', m['target']);
+        else seen.add(m['target'] as string);
+        if (params.get(m['parameter'] as string) !== 'float') err(errors, 'reference_missing', `${mp}/parameter`, 'parameter names a float parameter of this controller', m['parameter']);
+      });
+    }
   }
 
   const elist = v['events'];
@@ -506,6 +539,8 @@ export function canonicalAnimatorController(c: AnimatorController): AnimatorCont
           })),
         }
       : {}),
+    // Phase 23.11: morph bindings (a controller without them keeps its exact old form).
+    ...(c.morphs !== undefined && c.morphs.length > 0 ? { morphs: c.morphs.map((m) => ({ target: m.target, parameter: m.parameter })) } : {}),
     ...withLayout(c.layout),
   };
 }

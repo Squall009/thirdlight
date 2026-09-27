@@ -280,10 +280,10 @@ for editor items, commit/push/restart, decision log).
 |---|---|
 | 23.0 Dimensional model | done 2026-09-26 — two backends (rapier2d untouched for plane2d, rapier3d 0.20.0 for 3d), `physics_dimension`, box `hz`, PhysicsPort3D; 2D rotated-collider bug fixed (no pinned values moved) |
 | 23.1 3D physics world, colliders, triggers | done 2026-09-26 — sphere/capsule/hull/mesh colliders (3D), `_COL`/model-derived colliders stored as data, 3D triggers, kinematic movers carry, scripts may own colliders in 3D; gameZone/respawn in 3D wait for 23.10 |
-| 23.2 3D character controller | in progress |
+| 23.2 3D character controller | done 2026-09-27 — built-in module `thirdlight.character3d:controller` (walk/run, accel, air control, jump, slope, step-up, optional ledge climb, facing), camera-relative input, `ActionFrame.moveY`, script intents |
 | 23.3 Pointer input and 3D queries | in progress |
 | 23.4 Camera framework | done 2026-09-26 — `virtualCamera` (follow/orbit, orbit-point snapped, top-down, fixed/look-at, rail on `cameraPath`), priority + cut/linear/eased blends, seeded shake, letterbox, `ctx.camera` + VS nodes; brain in the sim step; `depth_buffer` setting; owner look pending |
-| 23.5 Block layers — core | in progress |
+| 23.5 Block layers — core | done 2026-09-27 — block types, schema-driven cell fields, stamps, chunked per-file storage, `editBlocks` bulk ops incl. heightmap, merged chunk meshes with hidden-face removal, per-chunk trimesh colliders, `ctx.grid`; block-layer lightmaps and chunk LOD not done |
 | 23.6 Block layers — editor | planned |
 | 23.7 Scripting conveniences | done 2026-09-26 — `@lib/<id>` shared libraries (recompile dependents atomically), `.json` imports, seeded `ctx.random` + streams, `ctx.world.find/findAll/withComponent`, quaternion/facing on intents |
 | 23.8 Test and debug entry points | done 2026-09-26 — one Play-start path (editor "Play from…" and `tl_play_start`: scene, variables, save/slot, mode noted until 23.10); `ctx.debug.command` on input frames, `tl_game_control debugCommand`, in-game console (exports only with `debug_console`) |
@@ -606,6 +606,127 @@ for editor items, commit/push/restart, decision log).
   the project's other libraries, nothing written; answers the scripts that
   import it) and Save (one patch command; the trust prompt when a dependent
   will link the new digest; "Recompiled …" on success).
+- 2026-09-26 (23.2): **where the 3D controller lives.** A runtime built-in
+  simulation module, `thirdlight.character3d:controller` (package
+  `@thirdlight/runtime`, like the demo module; `runtime/src/character3d.ts`),
+  phases controller and transform, owning the controller entity — not a new
+  package (it needs only runtime and project-model, and a package would add a
+  lockfile, pin, boundary and export-closure row for no isolation gain) and
+  not a part of `@thirdlight/platformer` (2D by construction, its frozen
+  traces untouched). In 3D the project model resolves a `controller` to this
+  module (which requires the 3D backend and input), so a 3D project's
+  manifest selects it and its scene runs on the M2 step path (input sampled,
+  controller → physics → transform); the runtime's 23.0 gravity-only phase
+  stays as the fallback for a module set without it. The host registers it
+  like the platformer specs.
+- 2026-09-26 (23.2): **settings are controller data, 3D-only fields.** New
+  optional controller fields (canonical order after the tuning fields):
+  walkSpeed 2 m/s, runSpeed, airControl 0.5, gravityScale 1, jump true,
+  jumpSpeed, slopeLimit, stepHeight 0.3 m (0: off), ledgeClimb false,
+  ledgeHeight 1.2 m, ledgeClimbTime 0.6 s, turnSpeed 720°/s (0: at once),
+  faceMovement true — reasons in `DEFAULT_CHARACTER_3D`. runSpeed, jumpSpeed
+  and slopeLimit are absent by default and then read the project settings
+  (`run_speed`, `jump_velocity`, `max_slope_climb_deg`), gravity is the
+  project's × gravityScale, so a project has one source per value;
+  acceleration, deceleration, coyote time, jump buffer/release, ground snap
+  and skin are shared with the 2D controller. Descriptor fields and handles
+  gained an optional `dimension` (the Inspector shows a project's own: the 3D
+  fields in 3D, autostep/autostepHeight only on the 2D plane); commands accept
+  every field in both (a 2D plane ignores the 3D ones, as it ignores `hz`).
+  In 3D the ground snap is at least the step-up height (a character that
+  climbs a riser walks down it without a fall) — no separate field.
+- 2026-09-26 (23.2): **stepping up is the port's own.** Rapier's autostep
+  (rapier3d-compat 0.20.0) missed risers above about 0.15 m with a capsule
+  whatever its minimum width (measured: a 0.2 m riser blocked a walking 0.3 m
+  capsule). The 3D port now probes a riser it is blocked by (grounded, less
+  than half the move across): up by the step height plus two skins, across
+  by the capsule radius plus two skins, down; when that lands grounded on
+  walkable ground ≤ step height + skin higher, the character is lifted by the
+  rise this step and moves on at that height, snap off, until the ground
+  under its centre is the top (a capsule's rounded bottom would otherwise
+  slide back off the edge) — ends when it stops pushing that way, jumps, or
+  after one second. The measured result: 0.3 m climbs, 0.31 m and 0.6 m block
+  with the default. Two more port changes found while walking: the grounded
+  character's small downward request is now swept as it is (the 23.0 port
+  dropped it like the 2D port, which made Rapier's grounded status flicker
+  every other step), and a grounded character asked for nothing across and
+  moving less than its skin on a non-kinematic support stays exactly where it
+  is (Rapier's sweep and snap alternated it by ~0.1 mm per step, so it never
+  came to rest). The runtime's 3D result check allows the step height, the
+  snap and the skin. All 23.0/23.1 tests stay green unchanged.
+- 2026-09-26 (23.2): **input.** `ActionFrame.moveY` is optional (absent: 0;
+  `validateActionFrame` accepts it like moveX, so every recorded replay and
+  2D frame validates and digests exactly as before). The browser input owner
+  fills moveX/moveY from the project's `move` action when that is a 2D axis
+  (a 1D `move` keeps the M2 mapping bit for bit). A 3D project without its own
+  input gets `DEFAULT_INPUT_3D` (move as a 2D axis on W/A/S/D, arrows and the
+  left stick; a `run` button on Shift and the left-stick press; the rest as
+  the 2D defaults) in Play, the export and the editor's input defaults. The
+  worker's live input (`TickInputSource`), the exclusive-test relay and the
+  whole `tl_input_exercise` chain (MCP tool, backend route, WS event, bridge,
+  preview, worker) carry `moveY` — and now the named `actions`, which the MCP
+  tool accepted but dropped before and the bridge refused.
+- 2026-09-26 (23.2): **camera yaw is a small input** — `StepContext.cameraYaw`
+  (radians about +Y, 0 looking along −Z, three.js' default camera). With
+  23.4 merged it is the camera brain's committed view (resolved in the
+  simulation at the end of the previous step, so replays read the same yaw;
+  looking straight down, the screen's up gives the heading); without virtual
+  cameras it is absent and the input moves along world axes (+x → +X,
+  forward → −Z). An internal `cameraYawSource` override exists for tests. The
+  controller turns the move vector by it (right = (cos, 0, −sin), forward =
+  (−sin, 0, −cos)).
+- 2026-09-26 (23.2): **facing.** With faceMovement the controller turns the
+  entity about +Y toward the pushed direction at turnSpeed (+Z forward, the
+  glTF forward, as 23.7's facing), writing the controller entity's rotation
+  in the transform phase (it owns it); off leaves the authored rotation.
+- 2026-09-26 (23.2): **ledge climb** (module): pushing into a wall (last
+  step: wall contact, less than half the move across) with ledgeClimb on, a
+  ray down from ledgeHeight + 5 cm above the feet, one capsule width ahead,
+  must find a walkable top higher than the step-up height and at most
+  ledgeHeight up, the capsule must fit on top (`characterClearance` ok) and
+  have room to rise (not blocked); then the character rises alongside the
+  wall for 60% of ledgeClimbTime and moves onto the top for the rest, input
+  and gravity ignored, each step a staged move the port sweeps (never
+  through geometry). The module gets read-only ray/clearance queries through
+  `ModuleConfig.character3D` (not part of the scripts' context; scripts'
+  3D queries are 23.3).
+- 2026-09-26 (23.2): **scripts drive the character through intents**
+  (intent phase, one writer per channel per step, refused on a 2D plane):
+  `character_move {x, z, run?}` (a world direction this step, replacing the
+  input), `character_place {position: [x, y, z]}` (the runtime calls the
+  port's `placeCharacter` after the intent phase and commits the origin; the
+  controller starts from rest), `character_enable {enabled}` (lasting; off:
+  no input, no gravity, a zero move staged so what it stands on still carries
+  it), and `control_move` takes an optional `y` (`@graphNode skip`, so the
+  existing node and pinned graph code are unchanged). Reading:
+  `ctx.physics.characterState(id)` (position, velocity = the last applied
+  motion × step rate, grounded, contacts, support normal, ground entity,
+  enabled, climbing, facing in degrees); `characterResult` returns the 3D
+  result in 3D. New graph nodes: Walk character, Place character, Enable
+  character, Character state (additive; no existing node's code moved).
+  Respawn/spawn clearance in 3D stays with 23.10.
+- 2026-09-26 (23.5): **where the cells live.** A layer is an entity with the `blockLayer` component (settings only); its cells and regions are scene data (`scene.blocks[]`, one entry per layer holding any), not a component field — Inspector edits and entity copies stay small and the 64 KiB command cap never meets a layer. The origin is the entity's position (the min corner of cell 0), the layer a root at identity rotation and unit scale (the cell size carries the scale; blocks turn per cell). Deleting the entity drops its entry (undo restores it); removing the component while cells remain is refused (clear first); copying a layer entity copies its settings, not its cells.
+- 2026-09-26 (23.5): **storage.** Each chunk (16 × 16 columns) is its own file `scenes/<sceneId>.blocks/<entityId>.<cx>.<cz>.json` (palette one value per line, one run-length column per line); the scene file lists them (`blockChunks`) and keeps the revision and retry records, so every cell change rewrites the scene file plus the changed chunk files in one journaled transaction. Chunk files are known files: external-edit detection, accept/discard and leftover temps work as for scene files; the journal accepts chunk paths.
+- 2026-09-26 (23.5): **commands.** One scene op `editBlocks {entityId, edits[]}` with compact edit kinds (fill, cells, array runs, replace, meta, flood, column, stamp, copy/move/mirror/turn, region CRUD, heightmap) — 23.6's brushes, selections, stamps and paste are these. Its change is compact (`chunks`, `regions`, `cells`); clients read chunks back with `queryBlocks`, so a big fill stays small in events and retry records; undo/redo restore whole layer entries. Content ops `setBlockType`/`deleteBlockType`, `setCellFields`, `setBlockStamp` (whole, or saved from a selection)/`deleteBlockStamp`. References (block types, rotations, variants, fields, footprints) are project rules, so a type or field still in use cannot be deleted.
+- 2026-09-26 (23.5): **metadata is schema-driven** (owner rule: generic only). `content.cellFields` defines every field (bool/enum/int/float/string, default, range, overlay colour); the engine has no built-in field names. Effective value = schema default, then the block's default, then the cell's override.
+- 2026-09-26 (23.5): **variants and footprints.** A cell without a variant shows one picked from the weights by a hash of its coordinates (stable everywhere, nothing stored). A multi-cell block is stored at its footprint's min corner; covered cells stay empty (validated; `ctx.grid.get` of a covered cell reports the anchor). Footprint blocks neither hide nor lose faces.
+- 2026-09-26 (23.5): **prefab looks** use the prefab's root model (visual only): entities per cell would not merge and would add scripts/colliders per cell; props with behaviour sit on top of cells (23.6 snapping).
+- 2026-09-26 (23.5): **hidden faces by profile.** A triangle on a cell boundary plane is dropped when the neighbour is solid or shows the same face profile (points + area) on the opposite side — works for stand-ins and kit models whose outer faces lie on the boundary; nothing visible is dropped. The same mesher builds collision triangles from the collision shapes (neighbour rule: a full single-cell shape), vertices merged, split into pieces within the port's mesh limits (1,024 vertices / 2,048 triangles).
+- 2026-09-26 (23.5): **rendering** is one `BlockLayerView` (three-adapter) used by the Play/export adapter and the editor's Scene view: merged geometry per look and material per chunk rather than instancing (instances cannot drop hidden faces); per-chunk bounds give frustum culling. **No chunk LOD**: kit models' LOD1 would need per-cell LOD choice inside merged meshes; merged chunks at hidden-face counts measured cheap (below). Runtime cell writes reach the renderer as chunk changes (`takeGridChanges`, through the worker frame like effect requests).
+- 2026-09-26 (23.5): **light baking does not target block layers**: chunk meshes carry no lightmap UV1 and the bake assigns atlases per entity (≤ 4,096 entries); layers are occluders of the bake and keep realtime lighting. Gap for 23.20 / the owner.
+- 2026-09-26 (23.5): **collision timing.** Script writes change cells and queries at once; the touched chunks' colliders are rebuilt before the step's 3D physics sweep (and at step end for later writes) with one batched remove/add. Measured: the digging step's sweep already has no support; the player's position first moves one step later because the 23.0 character phase starts a fall from rest at the step after support goes away (as when walking off an edge). 2D-plane projects draw layers without collision.
+- 2026-09-26 (23.5): **`ctx.grid`** takes positions/directions as `[x, y, z]` arrays (the graph generator's vector input) and returns `{x, y, z}`; `pick` is a DDA over cells (deterministic, physics-independent; half blocks and ramps pick by their cell). `changes()` shows the previous step's writes; `diff()`/`applyDiff()` give plain data for saves (23.19 decides where saves keep it). 4,096 writes per step (engine limit). A new run restores the authored cells.
+- 2026-09-26 (23.5): **heightmap PNGs** are decoded by a small pure decoder in project-model (inflate included), so the import is an ordinary command edit (MCP sends base64): grey value → `round(v / 255 × scale)` cells; an optional colour PNG picks each column's cell by nearest listed colour.
+- 2026-09-26 (23.5): **measured** (`TL_PERF=1 npx vitest run tests/perf/block-layers.test.ts`, this host): editing a 64 × 64 × 16 layer (65,536 cells) through the command path — one cell 8.1 ms, a 5 × 5 × 2 stroke 8.0 ms, undo 8.9 ms, a whole-layer fill 105 ms; a 40 × 40 × 12 terrain (11,146 cells, 9 chunks, 3 types, grass with 3 looks) — 4.9 merged meshes per chunk, 9,976 triangles (133,752 without hidden-face removal), meshing 219 ms and collision 96 ms for the whole map. Frame rate on WebGPU is 23.20's budget run (the phase 21 harness has no block class yet).
+- 2026-09-27 (23.6): **UI only on 23.5's commands.** Every brush, selection op, stamp and region action is one `editBlocks` (or a content op) — no new command. A stroke previews locally and commits once on release (one undo step per gesture): freehand strokes (paint, erase, raise/lower) apply their new cells to a copy of the layer with the project-model's own `applyBlockEdits` and re-mesh only the touched chunks; shape tools (line, rectangle, box, select, region, stamp, paste) draw a ghost; click tools (flood, replace-all, eyedropper) act on release. The editor may only import project-model types, so the runtime re-exports `applyBlockEdits`, `effectiveCellMeta` and `pickCell` (it already re-exported `BlockGrid` for the renderer) — a local preview of the gesture, never a second mutation path; the backend's result replaces it (identical chunks re-mesh nothing).
+- 2026-09-27 (23.6): **targets and the slice.** The pointer's cell comes from the project-model DDA (`pickCell`, what `ctx.grid.pick` uses) against the stroke-start cells, so a stroke never climbs onto what it just painted: adding tools take the empty cell in front of the face under the pointer, the others the block itself; with no block before it, the height-slice plane (PageUp/PageDown or ] / [, and a panel control) gives the cell. Rectangle-shaped strokes stay on the press cell's row. The slice is a working plane, not a cut-away (hiding the cells above it would need per-cell filtering inside merged chunk meshes).
+- 2026-09-27 (23.6): **brush semantics.** Box = the dragged rectangle raised to the brush height (a numeric field), so rectangle and box share one gesture; raise/lower adds the brush block (or a copy of each column's top) or removes the top (Ctrl held or the Lower toggle); flood is 4-connected in the row (`xz`); replace-all replaces the clicked cell's type in the whole layer keeping metadata overrides. "Randomize looks" paints cells without a variant, so each shows a look picked by the variants' weights from its position (23.5's stable hash — the same in the editor, Play and exports, nothing stored); off paints the chosen look index. Rotate (Q) steps through the type's allowed rotations. While the tools are on, the left button paints and Alt+drag / the right button orbit.
+- 2026-09-27 (23.6): **selections.** Select drags a box (inclusive of both picked cells); copy/cut and paste are a `copy` edit (move: true for cut) within the layer, or an `array` edit (−1 for empty source cells, so they do not erase) into another layer; mirror and rotate are `copy` edits in place with `move: true` (the source is cleared first; a rotated box keeps its min corner and swaps width and depth). "Save as stamp" is `setBlockStamp` from the selection; the stamp library places with rotation and mirror.
+- 2026-09-27 (23.6): **metadata overlay.** Colours come from the schema: a field's `color` (bool true, a set string, int/float off their default shaded along min–max), or a generated palette of evenly spaced hues for an enum's choices (from the field's colour when set, else its key's hash). One instanced plate per coloured cell on its top face, one mesh per shown field, with a legend. The metadata brush paints `meta` edits by cells or rectangle, optionally occupied cells only, or clears the field.
+- 2026-09-27 (23.6): **layer visibility and lock are the object's Hierarchy flags** (`active`, `locked`; `updateEntity`): an inactive layer is not drawn in the Scene view and the tools refuse a locked or hidden layer. Named regions: listed per layer, painted with the Region tool (`region add` / `remove` with Ctrl), made from the selection, renamed (double-click or Rename) and deleted — all `region` edits.
+- 2026-09-27 (23.6): **prop footprint = a `blockFootprint` component** `{layer?, size? [x, z], set: {field: value}}` (v4 scenes and prefabs; validated shape only — fields are the project's schema, checked when written). The editor writes it: when the object is moved with the gizmo (after its `setTransform` is stored), from the Inspector's "Write to cells", or "Snap to cell top": one `editBlocks` per layer clearing the component's fields (null) on the cells it left and setting them on the cells beneath it (the footprint rectangle centred on the object, turned by its quarter turns about +Y, on the row its base stands on). Two undo steps (the move, then the cells), not one atomic command — a combined op would be a new cross-document command; logged as a known limit. Deleting the prop does not clear its cells. The runtime ignores the component.
+- 2026-09-27 (23.6): **snapping is editor settings** (Edit → Snapping settings…): move step (m), rotate step (°), scale step, and "snap objects to block cell tops"; remembered per project in this browser (`localStorage`), not project data — they never reach the game, its build id or other users; defaults are the old constants (0.25 m, 15°, 0.25), so existing behaviour and tests hold. The gizmo, drops, handles and the gesture maths read `getSnapSettings()`. Cell-top snapping moves a translated or dropped object onto the highest column top under its footprint (a cell centre for odd sides, a corner for even ones); the object's origin is taken as its base.
+- 2026-09-27 (23.6): **measured** (e2e `tests/e2e/block-editor.e2e.ts`, a 64 × 64 × 16 layer holding 32,768 cells, this host under other agents' load, WebGL 2): a three-cell paint stroke's worst pointer-move preview 38–54 ms (the first move also copies the layer for the preview; each move applies its cells and re-meshes the touched chunk), release → stored 107–159 ms.
 - 2026-09-26 (23.8): **one start path.** "Play from…" and `tl_play_start`
   send the same play-start body (`options.sceneId / mode / variables / save /
   saveSlot`); the backend resolves it against the captured project
@@ -712,3 +833,99 @@ for editor items, commit/push/restart, decision log).
   both are applied after the lights.
 - 2026-09-27 (23.15): no toon/cel template ships — the shading itself is
   project content (the e2e graphs are neutral two-band fixtures).
+- 2026-09-27 (23.11): **sockets are resolved in the simulation, on rigs shipped as data.** The runtime's animator state machine decides clips, times and weights, but node poses were only computed by three.js in the renderer, so a socket resolved there would not exist in the worker, the export's simulation or a replay. The play/export closure (the one builder both use) now reads each model's rig from its digest-verified GLB (`readModelRig`, project-model: the default scene's nodes depth-first with rest TRS, and every clip's translation/rotation/scale channels, normalized integers scaled like three.js) and ships it in the manifest's new optional `rigs` key; the runtime poses a node from the animator pose with three.js's rules (`RigPoser`: linear/slerp, step and glTF cubic-spline sampling, PropertyMixer's weighted running mix with the rest pose making up a total weight under 1, the same-clip crossfade merge, override layers with bone masks and their Π(1 − L) factors). An integration test loads the same GLB with the real GLTFLoader, poses it with the renderer's own `createAnimatorPlayer` and matches every named node's world matrix (1e-5). Node names follow GLTFLoader's naming (sanitized, repeats `_1`, `_2` in its reservation order: scene names, then nodes depth-first with their camera and light names) — the parity test pins a clash with the scene name.
+- 2026-09-27 (23.11): **rigs only when a project uses sockets.** A rig for every model would change the manifest (and buildId) of every existing project with models; the closure adds `rigs` only when a scene or prefab entity has `socketAttach` or a compiled script names `sockets` (a false positive only ships data). Budgets: 262,144 key numbers per model, 1,048,576 per project (clips past them are dropped, the rig is `truncated`, a socket on it warns once). Clips of animation-only files ("clips for" a model) join that model's rig and bind by node name, as in the renderer.
+- 2026-09-27 (23.11): **when and how a socket is resolved.** At the end of every fixed step, right after the animators step (plain and phased steps alike; the committed copy is patched too), so an attached entity uses the pose drawn in that frame; its transform is written relative to its own parent (`W_parent⁻¹ · W_target · node · offset`, full 4×4 matrices decomposed like three.js, so non-uniform scale behaves as in the renderer). Chains (an object on an object on a socket) resolve in dependency order; a loop is refused at attach time. Authored sockets attach at load and are settled before the first frame (prev = curr, no streak); a new run (start/replay) re-attaches the authored ones and lets scripted ones go where they are. A camera following a socketed object sees it one step late (the camera brain runs before the animators) — accepted, 8 ms at 120 Hz. Removing a target lets go of what rides on it (keeping world poses).
+- 2026-09-27 (23.11): **API shape.** A `socketAttach` component (target, node, position/rotation/scale offset, `attached` — absent true) and `ctx.sockets` (`attach(entityId, targetId?, node?, position?, rotation?, scale?)`, `detach(entityId, keepWorld = true)`, `attachedTo` → `{target, nodeName}` (not `node`: the behavior compiler refuses the text `node:` in script output), `nodePose`) rather than transform intents: attaching is a relation that persists across steps, not a per-step write, and positional arguments because the visual-script generator reads small option objects as vectors. Without a target, `attach` uses the entity's own component (a socket authored as data, attached by a script later). A detach keeps the world pose, or snaps back to the transform the entity had when it was attached. Physics bodies (collider, controller, mover) and the scene camera (camera, cameraFollow) cannot ride on sockets (a validation conflict and a runtime refusal): they are posed by physics or their module, and 2D bodies must stay roots — kinematic socketed colliders in 3D are not built (backlog). Not a prefab component: its target is a scene entity; spawned copies attach by script. The component's canonical position is last (existing entities keep their bytes).
+- 2026-09-27 (23.11): **per-instance playback speed** multiplies the time every layer of one animator advances by (clip time and crossfades; transitions still test every step), 0–10: 0 holds the pose, negative speeds are refused (crossfades and exit times only run forwards). ×1 leaves `dt` untouched, so every existing pose and digest is unchanged; the speed is not part of the pose (the pose's JSON is in the step digest). The Animator live preview has a speed slider over the same machine.
+- 2026-09-27 (23.11): **morph targets** (optional in the plan, done because it was small): a controller's optional `morphs: [{target, parameter}]` (≤ 32, float parameters, clamped 0–1) and `setMorph/morph` on the script handle (≤ 64 names per animator; a script value overrides a binding of the same target). The pose carries `morphs` only when there are some (existing digests unchanged); the renderer's animator player sets `morphTargetInfluences` by name on every mesh of the model after the mixer. The binding list has no dedicated Animator-tab UI yet (MCP `setAnimator` and the content descriptor carry it).
+- 2026-09-27 (23.11): **the Inspector's node list** comes from `readModelRig` on the GLB bytes the editor already reads (re-exported by the runtime: the editor's project-model edge is types-only), so it lists exactly the names the game resolves; a `socketNode` string format shows a select when the target's model is known, a text field otherwise. The Scene view still draws an attached object at its own authored transform (Play places it on the node) — not built.
+- 2026-09-27 (23.11): **observing sockets.** `tl_game_observe` / `__thirdlightObserve()` report `sockets: [{entityId, target, node, position}]` (the drawn world position) while any object rides on a socket; the worker sends the list in the frame state only when it changes (`FrameState.sockets`).
+- 2026-09-27 (23.3): **pointer samples are input.** `ActionFrame.pointer`
+  (optional: `x, y` 0–1 of the view from the top left — the camera's screen
+  coordinates — `dx, dy` in view fractions, `wheel` in notches, `buttons` /
+  `pressed` / `released` masks 1 left, 2 right, 4 middle, `over`, `locked`),
+  quantized to 1e-4 by the browser owner and strictly validated (old frames
+  and replays stay valid; nothing changes until a pointer is seen). The
+  runtime keeps the pointer between samples (a relay or recording may be
+  sparse: position and held buttons hold, no movement, no edges) and derives
+  the edges (pressed/released from the held mask as well as from the sample —
+  a click between two samples still counts; `entered`/`left` from `over`), so
+  modules and scripts see a complete pointer. The worker's tick source spends
+  movement, wheel and edges on the first step of a tick and adds them up when
+  two samples meet before a step; action values that are amounts per sample
+  carry `i: 1` for the same rule (a mouse-look axis would otherwise count
+  twice at 120 Hz steps).
+- 2026-09-27 (23.3): **pointer bindings and hover edges.** Binding kinds
+  `pointerButton {button}`, `pointerAxis {axis: x|y|wheel}` (movement in
+  percent of the view per step, so 1 % a step drives like a full stick; up
+  positive like a stick), `pointerPosition` and `pointerDelta` (axis2d, not
+  clipped to length 1). "Hover edges" in the engine are the pointer entering
+  or leaving the view; which object is hovered is a pick the script compares
+  with its last one — a per-object hover state in the engine would need a
+  pick every step for every project and one filter for all scripts.
+- 2026-09-27 (23.3): **cursor.** `content.input.cursor {gameplay?, ui?}`
+  (free/locked, absent free: a pointer-driven game needs a visible cursor;
+  mouse-look opts in). The host resolves the mode every frame: the ui map's
+  while a menu is open or the game is paused, else a script's request
+  (`ctx.input.setCursor`, simulation state carried per frame from the worker,
+  cleared at a run start), else the gameplay map's. The browser owner locks
+  (pointer lock, asked again on the next click in the view because browsers
+  want a gesture), releases and hides the cursor (locked, or a gamepad used
+  last — pointer movement counts as the keyboard/mouse device) and reports
+  `data-tl-cursor` / `data-tl-pointer-lock` / `data-tl-cursor-hidden`. A
+  locked pointer's position is the view's centre. Real pointer lock was not
+  exercised in a browser (unit tests with fake DOM; owner look pending on a
+  desktop).
+- 2026-09-27 (23.3): **script queries (3D).** New `PhysicsStepClient`
+  members appended after the 2D ones (the 2D methods, their graph nodes and
+  types are unchanged): `raycast3d`, `overlapSphere`, `overlapBox3d`
+  (rotation), `overlapCapsule`, `pickAt`, `pickAtPointer`; vectors as
+  `[x, y, z]` arrays so `ctx.camera.screenToRay` chains into them; hits
+  `{entityId, point, normal, distance}` — the hit collider's entity, so a
+  23.5 block-layer chunk collider is reported by its entity and `ctx.grid`
+  can map it to a cell later. Filters `{tags?, layers?, exclude?}`: tag
+  names resolve like `ctx.tags.mask` (unknown = script error). Budget 64
+  queries a step for all scripts (twice the 2D plane's 32: a 3D scene picks,
+  tests line of sight and probes several objects a step), then nothing,
+  warned once. Without a live virtual camera `pickAt` and
+  `ctx.camera.screenToRay/worldToScreen` use the scene camera's current pose
+  (the brain answered with a default pose before). Graph nodes generated
+  (Raycast 3D, Overlap sphere / box 3D / capsule, Pick at screen point /
+  pointer, Pointer, Pointer pressed / released / held, Set cursor); no
+  existing node changed.
+- 2026-09-27 (23.3): **collision layers** are project data:
+  `content.collisionLayers` (≤ 15 names; "default" implicit — bit 0), op
+  `setCollisionLayers {layers}` (whole list, undoable), collider `layers`
+  (v4, 1–16 names, checked against the list in the project composition;
+  refused on the 2D plane, which is unchanged). The manifest carries the list
+  (`collisionLayers`, after `input`; absent keeps every existing buildId).
+  Rapier groups: a collider is a member of its layers and filters nothing,
+  so contacts and the character's sweep are unchanged; a query's groups are
+  all memberships filtering to the named layers; tags and exclusions are the
+  query's predicate. Editor: a Collision layers list under the tags
+  (File → Project tags); the collider's field comes from its descriptor.
+- 2026-09-27 (23.3): **a 3D world without a player.** `physics3DConfigOf`
+  returns a `noCharacter` config (a disabled placeholder capsule; its step
+  poses movers and updates the world) when the start scene has colliders but
+  no controller — a pointer-picked scene need not have a player; with
+  neither it stays null. Module resolution wants the 3D backend for a
+  collider in 3D too. Colliders that only arrive with a later-loaded scene
+  do not make a physics world (as before).
+- 2026-09-27 (23.3): **relay fixes found on the way:** the MCP
+  `tl_input_exercise` dropped `actions`, and the backend→editor relay event
+  and the preview bridge stripped/refused them; `actions` and `pointer` now
+  travel end to end (validated by the backend's relay parse). Observations
+  gain `pointer`, `cursor` and `hidden` (the objects scripts hid).
+- 2026-09-27 (23.3, after 23.5): **a 3D hit on a block layer maps to its
+  cell.** A block layer's chunk colliders (`<layer>#blocks:<chunk>:<piece>`)
+  are reported by the layer's entity id in every 3D query (hits, overlaps —
+  once — and the tag/exclude filters), and a hit carries `cell: [x, y, z]`,
+  the cell just inside the surface (1 mm behind the hit along the normal —
+  `ctx.grid` coordinates, the same cell `ctx.grid.pick` finds on that ray).
+  So `ctx.physics.pickAtPointer()` picks cells too (no separate
+  `ctx.grid.pickAtPointer`: `ctx.grid.pick(ctx.camera.screenToRay(...))`
+  covers grid-only picks). Chunk colliders are triangle meshes, so an
+  overlap finds a layer where the volume crosses its surface, not deep
+  inside it. A 3D scene whose only collision is a block layer gets a physics
+  world (and the 3D backend) too.

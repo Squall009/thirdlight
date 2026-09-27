@@ -278,7 +278,8 @@ async function playThrough(mode: Mode): Promise<void> {
   }
 }
 
-describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headless play-through)', () => {
+// TL_SKIP_SPROUT=1: skip while the external Sprout repo is mid-edit (its uncommitted state is not Thirdlight's).
+describe.skipIf(!existsSync(join(DIR, 'content.json')) || process.env['TL_SKIP_SPROUT'] === '1')('Sprout meadows (headless play-through)', () => {
   for (const mode of MODES) {
     it(`both levels can be played from the title screen to the end (threading: ${mode})`, () => playThrough(mode), 2_400_000);
   }

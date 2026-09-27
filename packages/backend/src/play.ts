@@ -81,7 +81,11 @@ export type RelayOutcome =
 /** One bounded input-exercise relay frame (sessions.md §18.1.1). */export interface InputRelayFrame {
   stepOffset: number;
   moveX: number;
+  /** Phase 23.2: the second move axis. */
+  moveY?: number;
   jump: string;
+  /** Phase 9.8: named input actions. */
+  actions?: Record<string, unknown>;
 }
 
 export type InputRelayOutcome =

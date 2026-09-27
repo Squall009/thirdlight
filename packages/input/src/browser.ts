@@ -24,12 +24,12 @@
  *    state, idempotently.
  */
 import type { ActionFrame, ActionSource } from '@thirdlight/runtime';
-import { mapRawStep, type StepState } from './mapping';
+import { mapRawStep, quantizeMove, type StepState } from './mapping';
 import {
   createMenuController,
   type MenuSample,
 } from './menu';
-import { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type InputConfigLike, type PlatformerPad } from './actions';
+import { actionKeys, bindsPointerButton, bindsWheel, createActionEvaluator, cursorPresentation, DEFAULT_INPUT_CONFIG, platformerKeys, platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type InputConfigLike, type PlatformerPad, type RawPointerState } from './actions';
 import {
   DEFAULT_KEYBOARD_MAP,
   GAMEPAD_DEAD_ZONE,
@@ -53,6 +53,37 @@ interface GamepadEventLike {
 
 interface VisibilityEventLike {
   target?: unknown;
+}
+
+/** Phase 23.3: the pointer/wheel event surface the owner reads (real DOM events satisfy it). */
+interface PointerEventLike {
+  clientX?: unknown;
+  clientY?: unknown;
+  movementX?: unknown;
+  movementY?: unknown;
+  button?: unknown;
+  buttons?: unknown;
+  pointerType?: unknown;
+  deltaY?: unknown;
+  deltaMode?: unknown;
+  preventDefault?: () => void;
+}
+
+/** Phase 23.3: DOM `button` (0 left, 1 middle, 2 right) → the frame's button bit (1 left, 2 right, 4 middle). */
+function buttonBit(button: unknown): number {
+  return button === 0 ? 1 : button === 2 ? 2 : button === 1 ? 4 : 0;
+}
+
+/** Phase 23.3: a wheel event's notches (pixel deltas: 100 px a notch — Chrome's line; lines: 3 a notch; pages: 1). */
+function wheelNotches(deltaY: unknown, deltaMode: unknown): number {
+  const d = typeof deltaY === 'number' && Number.isFinite(deltaY) ? deltaY : 0;
+  return deltaMode === 1 ? d / 3 : deltaMode === 2 ? d : d / 100;
+}
+
+/** Phase 23.3: 1e-4 quantization (the frame's), negative zero normalized. */
+function q4(v: number): number {
+  const r = Math.round(v * 1e4) / 1e4;
+  return r === 0 ? 0 : r;
 }
 
 
@@ -174,6 +205,16 @@ export function attachBrowserInput(
   capturePadButton(onButton: (button: number | null) => void): () => void;
   /** Phase 15.5: the device the player used last (a key press, or a pad button/stick) — the HUD names its bindings. */
   activeDevice(): 'keyboard' | 'gamepad';
+  /**
+   * Phase 23.3: the cursor the game wants now (the host resolves it every
+   * frame from the input map and a script's request): locked → pointer lock
+   * on the view (taken on the next click in the view when the browser wants
+   * a gesture), free → released. The cursor is hidden while locked or while
+   * a gamepad drives.
+   */
+  applyCursor(mode: 'free' | 'locked'): void;
+  /** Phase 23.3: the cursor as it is (the mode asked for, whether the browser holds the lock, whether it is hidden). */
+  cursorState(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
 } {
   const globalWindow =
     typeof globalThis === 'object'
@@ -200,11 +241,18 @@ export function attachBrowserInput(
   /** Phase 14.5: the pad buttons/axes of the platformer's move and jump (rebindable). */
   let PAD: PlatformerPad = STANDARD_PLATFORMER_PAD;
   let evaluator: ReturnType<typeof createActionEvaluator> | null = null;
+  /** Phase 23.2: the project's `move` action is a 2D axis (a 3D character's move vector: the frame's moveX and moveY). */
+  let MOVE_2D = false;
   /** Every key an action uses (held keys and taps between samples feed the evaluator). */
   let ACTION_CODES = new Set<string>();
   /** Phase 9.10: the ui actions' keys (menus). */
   let UI_KEYS: { up: Set<string>; down: Set<string>; left: Set<string>; right: Set<string>; submit: Set<string>; cancel: Set<string>; pause: Set<string> } = uiKeys(DEFAULT_INPUT_CONFIG);
+  /** Phase 23.3: the view keeps its context menu / the page scroll from the right button / wheel when an action binds them. */
+  let SUPPRESS_CONTEXT_MENU = false;
+  let SUPPRESS_WHEEL = false;
   const applyConfig = (cfg: InputConfigLike | undefined): void => {
+    SUPPRESS_CONTEXT_MENU = cfg !== undefined && bindsPointerButton(cfg, 'right');
+    SUPPRESS_WHEEL = cfg !== undefined && bindsWheel(cfg);
     const keyMap = cfg !== undefined ? platformerKeys(cfg) : DEFAULT_KEYBOARD_MAP;
     LEFT_CODES = new Set(keyMap.left);
     RIGHT_CODES = new Set(keyMap.right);
@@ -213,6 +261,7 @@ export function attachBrowserInput(
     evaluator = cfg !== undefined ? createActionEvaluator(cfg) : null;
     ACTION_CODES = new Set(cfg?.actions.flatMap(actionKeys) ?? []);
     UI_KEYS = uiKeys(cfg ?? DEFAULT_INPUT_CONFIG);
+    MOVE_2D = cfg?.actions.some((a) => a.name === 'move' && a.type === 'axis2d') === true;
   };
   applyConfig(options.inputConfig);
   /** Menu edges in arrival order; `sampleUi` hands out one per call (fast key bursts keep their order). */
@@ -306,6 +355,12 @@ export function attachBrowserInput(
     actionHeld.clear();
     actionPressed.clear();
     evaluator?.reset();
+    // Phase 23.3: held pointer buttons are let go (the next sample reports their release) and pending movement dropped.
+    pointerButtons = 0;
+    pointerPressed = 0;
+    pointerDx = 0;
+    pointerDy = 0;
+    pointerWheel = 0;
     menu.clear('all'); // focus/visibility loss: every held key/button and the
     // menu latch clear (delivery.md §4.6)
     freshActivation();
@@ -535,6 +590,184 @@ export function attachBrowserInput(
 
   const onFocusOut = (): void => suspend('focusout');
 
+  // --- phase 23.3: the pointer ----------------------------------------------
+
+  /** Seen once (a pointer event over the view): from then on every sample carries the pointer. */
+  let pointerSeen = false;
+  let pointerX = 0.5;
+  let pointerY = 0.5;
+  let pointerOver = false;
+  let pointerButtons = 0;
+  let pointerPressed = 0;
+  let pointerReleased = 0;
+  let pointerDx = 0;
+  let pointerDy = 0;
+  let pointerWheel = 0;
+  let cursorMode: 'free' | 'locked' = 'free';
+  let cursorHidden = false;
+  const targetEl = target as (EventTarget & { getBoundingClientRect?: () => { left: number; top: number; width: number; height: number }; requestPointerLock?: () => unknown; style?: { cursor?: string }; setAttribute?: (k: string, v: string) => void }) | null;
+  const rectOf = (): { left: number; top: number; width: number; height: number } | null => {
+    try {
+      const r = targetEl?.getBoundingClientRect?.();
+      return r !== undefined && r.width > 0 && r.height > 0 ? r : null;
+    } catch {
+      return null;
+    }
+  };
+  const isLocked = (): boolean => doc !== null && (doc as { pointerLockElement?: unknown }).pointerLockElement === target && target !== null;
+  const finiteOr0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const movePointer = (e: PointerEventLike): void => {
+    const r = rectOf();
+    if (r === null) return;
+    if (isLocked()) {
+      // Locked: the position stays at the centre; only the movement counts.
+      pointerDx += finiteOr0(e.movementX) / r.width;
+      pointerDy += finiteOr0(e.movementY) / r.height;
+      pointerX = 0.5;
+      pointerY = 0.5;
+    } else {
+      const x = Math.min(1, Math.max(0, (finiteOr0(e.clientX) - r.left) / r.width));
+      const y = Math.min(1, Math.max(0, (finiteOr0(e.clientY) - r.top) / r.height));
+      if (pointerSeen) {
+        pointerDx += x - pointerX;
+        pointerDy += y - pointerY;
+      }
+      pointerX = x;
+      pointerY = y;
+    }
+    pointerSeen = true;
+  };
+  const onPointerMove = (event: Event): void => {
+    if (detached) return;
+    const e = event as unknown as PointerEventLike;
+    movePointer(e);
+    pointerOver = true;
+    if (e.pointerType !== 'touch') lastDevice = 'keyboard'; // keyboard and mouse are one device for the HUD
+  };
+  const onPointerDown = (event: Event): void => {
+    if (detached) return;
+    const e = event as unknown as PointerEventLike;
+    movePointer(e);
+    pointerOver = true;
+    lastDevice = 'keyboard';
+    const bit = buttonBit(e.button);
+    if (bit !== 0 && (pointerButtons & bit) === 0) {
+      pointerButtons |= bit;
+      pointerPressed |= bit;
+    }
+    // Locked mode waits for a click in the view when the browser needs a gesture for the lock.
+    if (cursorMode === 'locked' && !isLocked()) requestLock();
+  };
+  const onPointerUp = (event: Event): void => {
+    if (detached) return;
+    const e = event as unknown as PointerEventLike;
+    const bit = buttonBit(e.button);
+    if (bit !== 0 && (pointerButtons & bit) !== 0) {
+      pointerButtons &= ~bit;
+      pointerReleased |= bit;
+    }
+  };
+  const onPointerEnter = (event: Event): void => {
+    if (detached) return;
+    movePointer(event as unknown as PointerEventLike);
+    pointerOver = true;
+  };
+  const onPointerLeave = (): void => {
+    if (detached || isLocked()) return;
+    pointerOver = false;
+  };
+  const onWheel = (event: Event): void => {
+    if (detached) return;
+    const e = event as unknown as PointerEventLike;
+    pointerWheel += wheelNotches(e.deltaY, e.deltaMode);
+    pointerSeen = true;
+    if (SUPPRESS_WHEEL && typeof e.preventDefault === 'function') e.preventDefault();
+  };
+  const onContextMenu = (event: Event): void => {
+    if (detached || !SUPPRESS_CONTEXT_MENU) return;
+    const e = event as unknown as PointerEventLike;
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+  };
+  const requestLock = (): void => {
+    try {
+      const r = targetEl?.requestPointerLock?.() as { catch?: (f: () => void) => void } | undefined;
+      // The promise form rejects without a user gesture; the next click in the view asks again.
+      if (r !== undefined && r !== null && typeof r.catch === 'function') r.catch(() => undefined);
+    } catch {
+      // an environment without pointer lock keeps the cursor free (the mode is still reported)
+    }
+  };
+  const releaseLock = (): void => {
+    try {
+      if (isLocked()) (doc as { exitPointerLock?: () => void } | null)?.exitPointerLock?.();
+    } catch {
+      /* nothing to release */
+    }
+  };
+  const onPointerLockChange = (): void => {
+    if (detached) return;
+    if (isLocked()) {
+      pointerX = 0.5;
+      pointerY = 0.5;
+      pointerOver = true;
+      pointerSeen = true;
+    }
+    presentCursor();
+  };
+  /** Hide or show the cursor over the view and report the state on the element (tests, the observation). */
+  const presentCursor = (): void => {
+    const pres = cursorPresentation(cursorMode, lastDevice);
+    const hide = pres.hide;
+    if (targetEl?.style !== undefined && hide !== cursorHidden) targetEl.style.cursor = hide ? 'none' : '';
+    cursorHidden = hide;
+    const lock = isLocked() ? 'on' : 'off';
+    const shown = `${cursorMode}|${lock}|${hide}`;
+    if (shown === cursorShown) return;
+    cursorShown = shown;
+    try {
+      targetEl?.setAttribute?.('data-tl-cursor', cursorMode);
+      targetEl?.setAttribute?.('data-tl-pointer-lock', lock);
+      targetEl?.setAttribute?.('data-tl-cursor-hidden', hide ? 'true' : 'false');
+    } catch {
+      /* a fake target without attributes */
+    }
+  };
+  let cursorShown = '';
+  /** The pointer part of one sample (null before the pointer is first seen); the accumulators are cleared. */
+  const takePointer = (): RawPointerState | null => {
+    if (!pointerSeen) return null;
+    const out: RawPointerState = { x: pointerX, y: pointerY, dx: pointerDx, dy: pointerDy, wheel: pointerWheel, buttons: pointerButtons, pressed: pointerPressed };
+    return out;
+  };
+  const clearPointerEdges = (): void => {
+    pointerDx = 0;
+    pointerDy = 0;
+    pointerWheel = 0;
+    pointerPressed = 0;
+    pointerReleased = 0;
+  };
+  const clamp10 = (v: number): number => (v > 10 ? 10 : v < -10 ? -10 : v);
+  /** The frame's pointer sample (quantized; only the non-zero movement, wheel and edges). */
+  const pointerSample = (): NonNullable<ActionFrame['pointer']> | null => {
+    if (!pointerSeen) return null;
+    const locked = isLocked();
+    const dx = q4(clamp10(pointerDx));
+    const dy = q4(clamp10(pointerDy));
+    const wheel = q4(clamp10(pointerWheel));
+    return {
+      x: q4(locked ? 0.5 : pointerX),
+      y: q4(locked ? 0.5 : pointerY),
+      ...(dx !== 0 ? { dx } : {}),
+      ...(dy !== 0 ? { dy } : {}),
+      ...(wheel !== 0 ? { wheel } : {}),
+      ...(pointerButtons !== 0 ? { buttons: pointerButtons } : {}),
+      ...(pointerPressed !== 0 ? { pressed: pointerPressed } : {}),
+      ...(pointerReleased !== 0 ? { released: pointerReleased } : {}),
+      ...(!pointerOver && !locked ? { over: false } : {}),
+      ...(locked ? { locked: true } : {}),
+    };
+  };
+
   const listeners: Array<{ target: EventTarget; type: string; handler: EventListener }> = [];
   const listen = (on: EventTarget | null | undefined, type: string, handler: EventListener): void => {
     if (!on || typeof on.addEventListener !== 'function') return;
@@ -553,6 +786,16 @@ export function attachBrowserInput(
   listen(win, 'gamepadconnected', onGamepadConnected);
   listen(win, 'gamepaddisconnected', onGamepadDisconnected);
   listen(doc, 'visibilitychange', onVisibilityChange);
+  // Phase 23.3: the pointer over the view (a release outside it still counts), the wheel, pointer lock.
+  listen(target, 'pointermove', onPointerMove);
+  listen(target, 'pointerdown', onPointerDown);
+  listen(win, 'pointerup', onPointerUp);
+  listen(win, 'pointercancel', onPointerUp);
+  listen(target, 'pointerenter', onPointerEnter);
+  listen(target, 'pointerleave', onPointerLeave);
+  listen(target, 'wheel', onWheel);
+  listen(target, 'contextmenu', onContextMenu);
+  listen(doc, 'pointerlockchange', onPointerLockChange);
 
   // --- availability (input.md §5.5) ----------------------------------------
 
@@ -633,10 +876,21 @@ export function attachBrowserInput(
     });
     state = next;
     jumpLatch = false; // the latch is cleared after the sample, in the same call
-    if (evaluator === null) return frame;
-    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null });
+    // Phase 23.3: the pointer (once seen) rides in every frame; the cursor follows the last device.
+    const pointer = pointerSample();
+    const rawPointer = takePointer();
+    presentCursor();
+    if (evaluator === null) {
+      clearPointerEdges();
+      return pointer === null ? frame : { ...frame, pointer };
+    }
+    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null, pointer: rawPointer });
     actionPressed.clear();
-    return { ...frame, actions };
+    clearPointerEdges();
+    // Phase 23.2: a 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the M2 mapping exactly.
+    const move = MOVE_2D ? actions['move'] : undefined;
+    if (move !== undefined) return { ...frame, moveX: quantizeMove(move.x ?? 0), moveY: quantizeMove(move.y ?? 0), actions, ...(pointer !== null ? { pointer } : {}) };
+    return { ...frame, actions, ...(pointer !== null ? { pointer } : {}) };
   };
 
   const reset = (reason?: string): void => suspend(reason ?? 'reset');
@@ -666,6 +920,13 @@ export function attachBrowserInput(
     activeId = null;
     tracked.clear();
     reportedMappingIds.clear();
+    // Phase 23.3: give the cursor back.
+    releaseLock();
+    if (targetEl?.style !== undefined && cursorHidden) targetEl.style.cursor = '';
+    cursorHidden = false;
+    pointerSeen = false;
+    pointerButtons = 0;
+    clearPointerEdges();
   };
 
   return {
@@ -682,6 +943,19 @@ export function attachBrowserInput(
     },
     activeDevice(): 'keyboard' | 'gamepad' {
       return lastDevice;
+    },
+    applyCursor(mode: 'free' | 'locked'): void {
+      if (detached) return;
+      const next = mode === 'locked' ? 'locked' : 'free';
+      if (next !== cursorMode) {
+        cursorMode = next;
+        if (next === 'locked') requestLock();
+        else releaseLock();
+      }
+      presentCursor();
+    },
+    cursorState(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean } {
+      return { mode: cursorMode, locked: isLocked(), hidden: cursorHidden };
     },
     /** The host consumed a confirm sample: the held press now needs a release. */
     markConfirmConsumed(): void {

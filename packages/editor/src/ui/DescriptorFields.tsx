@@ -47,6 +47,12 @@ export interface FieldContext extends PickerData {
   readonly effectParameters?: Readonly<Record<string, readonly { key: string; type: string; default: number | number[] | string; label?: string }[]>>;
   /** Phase 23.1: the project's physics dimension (absent: the 2D plane) — which presets "+ Add component" offers. */
   readonly physicsDimension?: 2 | 3;
+  /**
+   * Phase 23.11: the node names of an object's model, as the game resolves
+   * sockets on them — an array once read, null while it is being read,
+   * undefined when the object has no model.
+   */
+  readonly modelNodes?: (entityId: string) => readonly string[] | null | undefined;
 }
 
 export type Edit = (path: FieldPath, next: unknown) => void;
@@ -325,7 +331,19 @@ export function FieldRow(p: RowProps): JSX.Element | null {
     }
     case 'signal':
     case 'text':
-    case 'multiline':
+    case 'multiline': {
+      // Phase 23.11: a socket's node is picked from its target's model nodes (typed while they load or without a model).
+      if (f.type === 'string' && f.format === 'socketNode') {
+        const target = p.level?.value['target'];
+        const nodes = typeof target === 'string' ? p.ctx.modelNodes?.(target) : undefined;
+        if (Array.isArray(nodes) && nodes.length > 0) {
+          return (
+            <Row f={f} label={p.label} isDefault={isDefault}>
+              <SelectWidget aria={aria} value={typeof shown === 'string' ? shown : ''} options={nodes.map((n) => ({ value: n, label: n }))} none={null} onPick={(v) => (v === '' ? undefined : p.onEdit(p.path, v))} />
+            </Row>
+          );
+        }
+      }
       return (
         <Row f={f} label={p.label} isDefault={isDefault}>
           <CommitInput
@@ -349,6 +367,7 @@ export function FieldRow(p: RowProps): JSX.Element | null {
           )}
         </Row>
       );
+    }
     case 'object':
       return <ObjectWidget {...p} aria={aria} />;
     case 'list':
@@ -629,7 +648,9 @@ export function ObjectFields(p: {
   skip?: readonly string[];
 }): JSX.Element {
   const level: Level = { desc: p.desc, value: p.value, ...(p.parent !== undefined ? { parent: p.parent } : {}) };
-  const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key));
+  // Phase 23.2: a field of one physics dimension shows only in a project of that dimension (a 3D character's settings, the 2D plane's autostep).
+  const dimension = p.ctx.physicsDimension ?? 2;
+  const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key) && (f.dimension === undefined || f.dimension === dimension));
   return (
     <>
       {groupFields(fields).map((g) => (

@@ -49,6 +49,10 @@ export {
   type ActionSource,
   type ActionSourceDiagnostics,
   type JumpPhase,
+  // Phase 23.3: pointer samples in the frame.
+  POINTER_BUTTON_BITS,
+  validatePointerSample,
+  type PointerSample,
   // Phase 23.8: debug commands on input frames.
   validateDebugCommands,
   validateDebugCommandCall,
@@ -78,6 +82,7 @@ export {
   type PhysicsPort3D,
   type PhysicsQuat,
   type RaycastHit3D,
+  type CharacterState3D,
   type StaticColliderSpec3D,
   type PhysicsVec3,
   // Phase 23.1: 3D shapes, kinematic poses, overlap queries and clearance.
@@ -85,6 +90,10 @@ export {
   type ColliderShape3D,
   type KinematicPose3D,
   type OverlapShape3D,
+  // Phase 23.3: 3D queries for scripts (filters by tag and collision layer).
+  type PhysicsHit,
+  type PhysicsQueryFilter,
+  type PhysicsQueryFilter3D,
 } from './ports';
 export { DuplicateMoveError, PhaseViolationError } from './guard';
 export {
@@ -113,6 +122,7 @@ export {
   type InterpolatedTransform,
   type InterpolatedVisitor,
   type ModuleConfig,
+  type Character3DQueries,
   type ModuleResetContext,
   type MotionSegment,
   type PlayerMotion,
@@ -156,6 +166,8 @@ export {
   validatePhaseList,
 } from './registry';
 export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, instantiateRuntime, sessionTimingSteps } from './runtime';
+// Phase 23.3: the per-step budget of 3D script queries; the pointer state the runtime keeps.
+export { QUERY_LIMIT_3D, type HeldPointer } from './runtime';
 export {
   BEHAVIOR_MODULE_PREFIX,
   BEHAVIOR_SELF_OWNER,
@@ -193,6 +205,9 @@ export {
   type BehaviorLogLevel,
   type ControlJumpIntent,
   type ControlMoveIntent,
+  type CharacterMoveIntent,
+  type CharacterPlaceIntent,
+  type CharacterEnableIntent,
   type IntentKind,
   type IntentSet,
   type IntentTransformWrite,
@@ -211,7 +226,13 @@ export { capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3
 export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
 // Phase 9.7/9.8: animators and ctx.input.
-export { AnimatorMachine, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
+export { AnimatorMachine, ANIMATOR_SPEED_LIMITS, MAX_SCRIPT_MORPHS, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
+// Phase 23.11: sockets and the rig poser (model nodes posed by an animator pose, as three.js poses them).
+export { MAX_SOCKET_ATTACHMENTS, SocketSystem, type SocketAttachment, type SocketHost } from './sockets';
+export { RigPoser, composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, sampleChannel, type Mat4 } from './rig-pose';
+export type { BehaviorSockets } from './types';
+// Phase 23.11: the rig reader (hosts and the editor read the node names the game resolves sockets on).
+export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
 export { inputView, type BehaviorInputView } from './behavior';
 // Phase 14.1: ctx.spawn / ctx.destroy (prefab copies in the running game).
 export { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions, type SpawnOptions, type SpawnPlacement } from './spawn';
@@ -224,9 +245,17 @@ export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random'
 export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';
+// Phase 23.2: the 3D kinematic character controller module.
+export { CHARACTER_3D_MODULE_ID, RUN_ACTION, character3DSpec, createCharacter3DModule, type Character3DStatus } from './character3d';
+export { character3DPhysicsOf } from './scene-set';
 // Phase 23.4: the camera framework — the script API, the brain and its pure rig maths (the editor's frustum previews use it).
 export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './types';
 export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';
 export { lookAtQuat, orbitOffset, pointOnPath, quatFromYawPitch, samplePath, screenToRay, worldToScreen, yawPitchOf, type CameraPose, type SampledPath, type ScreenPoint } from './camera-rig';
 export { debugCallProblem } from './debug-commands';
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
+// Phase 23.5 (E8): block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
+export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridDiff, type GridPick, type GridRenderChange, type GridVec3 } from './grid';
+// Phase 23.6: the editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).
+export { applyBlockEdits, effectiveCellMeta, pickCell, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
+export { BlockGrid, CHUNK_SIZE, autoVariant, blockTypeSolid, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockType, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';

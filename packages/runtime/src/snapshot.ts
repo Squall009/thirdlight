@@ -8,6 +8,8 @@
  * `validateSceneV3`/`validateMergedSceneV4` re-check (project-model §23) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
+import { validateModelRig, type ModelRig } from '@thirdlight/project-model';
+import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
 import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
@@ -17,7 +19,7 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -65,6 +67,9 @@ export function validateRuntimeSnapshot(
       animators: readonly AnimatorController[];
       prefabs: readonly PrefabDefinition[];
       modelBounds: Readonly<Record<string, ModelBounds>>;
+      rigs?: Readonly<Record<string, ModelRig>>;
+      blockTypes: readonly BlockType[];
+      cellFields: readonly CellField[];
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -276,6 +281,33 @@ export function validateRuntimeSnapshot(
     }
     modelBounds = mb as Record<string, ModelBounds>;
   }
+  // Phase 23.11: the optional v4 model rigs (assetId -> nodes and node animation channels; sockets are resolved on them).
+  let rigs: Readonly<Record<string, ModelRig>> | undefined;
+  if (snap.rigs !== undefined) {
+    const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/rigs', message } });
+    if (sceneVersion !== 4) return bad('snapshot field "rigs" is v4-only');
+    const r = snap.rigs as unknown;
+    if (typeof r !== 'object' || r === null || Array.isArray(r) || Object.keys(r).length > MAX_MODEL_BOUNDS) return bad(`rigs must be an object of at most ${MAX_MODEL_BOUNDS} rows`);
+    for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+      const why = validateModelRig(v);
+      if (why !== null) return bad(`rigs["${k}"]: ${why}`);
+    }
+    rigs = r as Record<string, ModelRig>;
+  }
+  // Phase 23.5: the optional v4 block types and cell fields (block layers).
+  let blockTypes: readonly BlockType[] = [];
+  let cellFields: readonly CellField[] = [];
+  if (snap.blockTypes !== undefined || snap.cellFields !== undefined) {
+    if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/blockTypes', message: 'snapshot fields "blockTypes"/"cellFields" are v4-only' } };
+    const blockErrors: ModelErrorV2[] = [];
+    if (snap.blockTypes !== undefined) validateBlockTypes(snap.blockTypes, '/blockTypes', blockErrors);
+    if (snap.cellFields !== undefined) validateCellFields(snap.cellFields, '/cellFields', blockErrors);
+    if (blockErrors.length > 0) {
+      return { error: { code: 'snapshot_invalid', reason: 'scene_validation', message: clipSceneMessage(blockErrors), errors: blockErrors.slice(0, 10), errorTotal: blockErrors.length } };
+    }
+    blockTypes = (snap.blockTypes ?? []) as BlockType[];
+    cellFields = (snap.cellFields ?? []) as CellField[];
+  }
   // Phase 12 (c): the optional v4 scene catalog.
   let scenes: readonly RuntimeSceneRow[] | null = null;
   if (snap.scenes !== undefined) {
@@ -309,7 +341,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

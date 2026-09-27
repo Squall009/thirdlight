@@ -4,7 +4,7 @@
  * root offset of a load, the live tag index that follows loads and unloads,
  * and the exit-zone entry test. No I/O, no three.js.
  */
-import { controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { ColliderShape3D, PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
 import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, ModelBounds, PlayerCapsule } from './types';
@@ -196,7 +196,7 @@ export function colliderShape3DOf(shape: unknown, scale: readonly number[] = [1,
  * drives (`kinematic`).
  */
 export function staticColliderOf3D(entityId: string, components: Readonly<Record<string, unknown>>, kinematic = false): StaticColliderSpec3D | null {
-  const collider = components['collider'] as { shape?: unknown } | undefined;
+  const collider = components['collider'] as { shape?: unknown; layers?: unknown } | undefined;
   if (collider === undefined) return null;
   const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[]; scale?: readonly number[] } | undefined;
   const p = t?.position ?? [0, 0, 0];
@@ -208,6 +208,8 @@ export function staticColliderOf3D(entityId: string, components: Readonly<Record
     position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
     rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 },
     ...(kinematic || components['mover'] !== undefined ? { kinematic: true } : {}),
+    // Phase 23.3: the collision layers it is in (absent: "default").
+    ...(Array.isArray(collider.layers) ? { layers: [...(collider.layers as string[])] } : {}),
   };
 }
 
@@ -215,24 +217,30 @@ export function staticColliderOf3D(entityId: string, components: Readonly<Record
  * Phase 23.0: the 3D physics init config of a scene's (resolved) entities —
  * every collider but the player's as a static, the controller entity as the
  * character with its capsule (the offset's z included) and its tuning, the
- * project's step rate and gravity along −Y, the slope angles. Null without a
- * controller entity. The one builder the Play preview, the export, the
- * simulation worker's host and the tests use.
+ * project's step rate and gravity along −Y, the slope angles. The one
+ * builder the Play preview, the export, the simulation worker's host and the
+ * tests use. Phase 23.3: `options.layers` — the project's named collision
+ * layers; without a controller entity the world has no character
+ * (`noCharacter`: its colliders answer queries and carry movers — a scene
+ * picked with the pointer need not have a player); it was null before, so a
+ * 3D scene without a player had no physics at all. Null with neither a
+ * controller nor a collider.
  */
 export function physics3DConfigOf(
   entities: readonly { id: string; components?: unknown }[],
   settings: { gravity_y: number; max_slope_climb_deg: number; min_slope_slide_deg: number; fixed_step_hz?: number },
+  options: { layers?: readonly string[] } = {},
 ): PhysicsInitConfig3D | null {
   const statics: StaticColliderSpec3D[] = [];
   let character: PhysicsInitConfig3D['character'] | null = null;
-  let tuning = playerPhysicsOf(undefined);
+  let controller: unknown = undefined;
   for (const e of entities) {
     const c = (e.components ?? {}) as Record<string, unknown>;
     if (c['controller'] !== undefined) {
       const t = c['transform'] as { position?: readonly number[] } | undefined;
       const p = t?.position ?? [0, 0, 0];
       const capsule = playerCapsuleOf(c['controller']);
-      tuning = playerPhysicsOf(c['controller']);
+      controller = c['controller'];
       character = {
         position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
         radius: capsule.radius,
@@ -244,21 +252,45 @@ export function physics3DConfigOf(
     const spec = staticColliderOf3D(e.id, c);
     if (spec !== null) statics.push(spec);
   }
-  if (character === null) return null;
+  const noCharacter = character === null;
+  // Nothing to simulate or query: no physics (the module resolution then needs no 3D backend either).
+  // Phase 23.3: a block layer's chunks become colliders at run time (23.5), so it needs a world too.
+  if (character === null && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
+  if (character === null) {
+    // A placeholder the port ignores (the default capsule at the origin).
+    const capsule = playerCapsuleOf(undefined);
+    character = { position: { x: 0, y: 0, z: 0 }, radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: 0, y: 0, z: 0 } };
+  }
+  // Phase 23.2: the 3D character's settings — its step-up height (0: off) is
+  // the port's autostep, its ground snap at least that height, its slope limit
+  // (else the project's) the steepest climb.
+  const c3 = character3DPhysicsOf(controller, settings.max_slope_climb_deg);
   return {
     dimension: 3,
     character,
     statics,
+    ...(options.layers !== undefined && options.layers.length > 0 ? { layers: [...options.layers] } : {}),
+    ...(noCharacter ? { noCharacter: true as const } : {}),
     solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
     controller: {
-      offsetSkin: tuning.offsetSkin,
-      groundSnap: tuning.groundSnap,
-      maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
-      minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
-      autostep: tuning.autostep,
-      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
+      offsetSkin: c3.skin,
+      groundSnap: c3.groundSnap,
+      maxSlopeClimbRad: (c3.slopeLimit * Math.PI) / 180,
+      minSlopeSlideRad: (Math.min(settings.min_slope_slide_deg, c3.slopeLimit) * Math.PI) / 180,
+      autostep: c3.stepHeight > 0,
+      ...(c3.stepHeight > 0 ? { autostepHeight: c3.stepHeight } : {}),
     },
   };
+}
+
+/**
+ * Phase 23.2: the parts of a 3D character's settings the physics port and the
+ * runtime's result check use (skin, ground snap, step-up height, slope limit).
+ */
+export function character3DPhysicsOf(controller: unknown, maxSlopeClimbDeg: number): { skin: number; groundSnap: number; stepHeight: number; slopeLimit: number } {
+  // run speed, jump and gravity do not reach the port (placeholders for the resolver's other fields).
+  const s = character3DSettingsOf(controller, { run_speed: 0, jump_velocity: 0, gravity_y: 0, max_fall_speed: 0, max_slope_climb_deg: maxSlopeClimbDeg });
+  return { skin: s.skin, groundSnap: s.groundSnap, stepHeight: s.stepHeight, slopeLimit: s.slopeLimit };
 }
 
 /**

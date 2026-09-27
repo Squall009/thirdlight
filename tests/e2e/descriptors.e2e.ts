@@ -39,7 +39,8 @@ test('the editor gets the descriptor registry with its first game query', async 
   const names = registry.components.map((c) => c.name);
   for (const n of ['transform', 'controller', 'trigger', 'enemy', 'light', 'animator', 'fogVolume', 'gameZone']) expect(names).toContain(n);
   const controller = registry.components.find((c) => c.name === 'controller')!;
-  expect(controller.handles.map((h) => h.kind)).toEqual(['capsule']);
+  // Phase 23.2 added the 3D-only step-up and ledge height handles (dimension 3).
+  expect(controller.handles.map((h) => h.kind)).toEqual(['capsule', 'height', 'height']);
   expect(registry.content.map((b) => b.key)).toEqual(expect.arrayContaining(['game', 'flow', 'environment', 'input', 'materials', 'animators']));
 
   expect(asked[0]).toBe(true);

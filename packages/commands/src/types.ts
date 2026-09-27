@@ -108,6 +108,8 @@ export type V3MutationOp =
   | 'deleteAnimator'
   | 'setInput'
   | 'setFlow'
+  // phase 23.3: named collision layers (3D physics)
+  | 'setCollisionLayers'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -123,7 +125,14 @@ export type V3MutationOp =
   | 'renameEffect'
   // phase 23.7: shared script libraries
   | 'setScriptLibrary'
-  | 'deleteScriptLibrary';
+  | 'deleteScriptLibrary'
+  // phase 23.5: block layers
+  | 'editBlocks'
+  | 'setBlockType'
+  | 'deleteBlockType'
+  | 'setCellFields'
+  | 'setBlockStamp'
+  | 'deleteBlockStamp';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -273,6 +282,10 @@ export type V3OwnedComponent =
   | 'materials'
   /** Phase 9.5, v4 scenes only: a fog volume. */
   | 'fogVolume'
+  /** Phase 23.5, v4 scenes only: a grid of blocks. */
+  | 'blockLayer'
+  /** Phase 23.6, v4 scenes only: the metadata a prop writes into the block cells beneath it. */
+  | 'blockFootprint'
   /** Phase 9.7, v4 scenes only: an animator controller on a model. */
   | 'animator'
   /** Phase 9.9, v4 scenes only: gameplay building blocks. */
@@ -290,7 +303,9 @@ export type V3OwnedComponent =
   | 'effect'
   /** Phase 23.4, v4 scenes only: a virtual camera shot and a camera path. */
   | 'virtualCamera'
-  | 'cameraPath';
+  | 'cameraPath'
+  /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
+  | 'socketAttach';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -439,6 +454,65 @@ export interface SetScriptLibraryChange {
   behaviors: { behaviorId: string; previous: BehaviorRecord; next: BehaviorRecord }[];
 }
 
+/**
+ * Phase 23.5: `editBlocks` change data — the layer, the chunks [cx, cz] and
+ * regions whose contents changed, and how many cells changed. Compact on
+ * purpose (a large fill stays small in events and retry records); clients
+ * read the chunks back with `queryBlocks`.
+ */
+export interface EditBlocksChange {
+  type: 'editBlocks';
+  entityId: string;
+  chunks: [number, number][];
+  regions: string[];
+  cells: number;
+}
+
+/** Phase 23.5: undo/redo of `editBlocks` — the layer's whole entry before and after (null = none). */
+export interface EditBlocksInverse {
+  kind: 'editBlocks';
+  entityId: string;
+  restore: import('@thirdlight/project-model').BlockLayerData | null;
+  next: import('@thirdlight/project-model').BlockLayerData | null;
+}
+
+/** Phase 23.5: `setBlockType`/`deleteBlockType` change data. */
+export interface SetBlockTypeChange {
+  type: 'setBlockType';
+  blockId: string;
+  previous: import('@thirdlight/project-model').BlockType | null;
+  next: import('@thirdlight/project-model').BlockType | null;
+}
+export interface SetBlockTypeInverse {
+  kind: 'setBlockType';
+  blockId: string;
+  restore: import('@thirdlight/project-model').BlockType | null;
+}
+
+/** Phase 23.5: `setCellFields` change data (the whole schema before and after). */
+export interface SetCellFieldsChange {
+  type: 'setCellFields';
+  previous: import('@thirdlight/project-model').CellField[];
+  next: import('@thirdlight/project-model').CellField[];
+}
+export interface SetCellFieldsInverse {
+  kind: 'setCellFields';
+  restore: import('@thirdlight/project-model').CellField[];
+}
+
+/** Phase 23.5: `setBlockStamp`/`deleteBlockStamp` change data. */
+export interface SetBlockStampChange {
+  type: 'setBlockStamp';
+  stampId: string;
+  previous: import('@thirdlight/project-model').BlockStamp | null;
+  next: import('@thirdlight/project-model').BlockStamp | null;
+}
+export interface SetBlockStampInverse {
+  kind: 'setBlockStamp';
+  stampId: string;
+  restore: import('@thirdlight/project-model').BlockStamp | null;
+}
+
 /** Phase 23.7: undo of a library op: restore the library and its dependents' records. */
 export interface SetScriptLibraryInverse {
   kind: 'setScriptLibrary';
@@ -466,6 +540,13 @@ export interface SetFlowChange {
   type: 'setFlow';
   previous: GameFlow | null;
   next: GameFlow | null;
+}
+
+/** Phase 23.3: `setCollisionLayers` change data (the whole list; empty = only "default"). */
+export interface SetCollisionLayersChange {
+  type: 'setCollisionLayers';
+  previous: string[];
+  next: string[];
 }
 
 /** Phase 9.8: `setInput` change data (null = the defaults). */
@@ -746,12 +827,17 @@ export type ChangeData =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetCollisionLayersChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
   | SetGraphChange
   | SetEffectChange
-  | SetScriptLibraryChange;
+  | SetScriptLibraryChange
+  | EditBlocksChange
+  | SetBlockTypeChange
+  | SetCellFieldsChange
+  | SetBlockStampChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -778,12 +864,17 @@ export type ForwardChange =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetCollisionLayersChange
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
   | SetGraphChange
   | SetEffectChange
-  | SetScriptLibraryChange;
+  | SetScriptLibraryChange
+  | EditBlocksChange
+  | SetBlockTypeChange
+  | SetCellFieldsChange
+  | SetBlockStampChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -812,6 +903,8 @@ export interface RestoreSubtreeInverse {
   entries: readonly RestoreSubtreeEntry[];
   /** The root's parent (or null); the parent always survives subtree deletion. */
   restoredParentId: string | null;
+  /** Phase 23.5: the deleted block layers' cells and regions (absent: none). */
+  blocks?: import('@thirdlight/project-model').BlockLayerData[];
 }
 
 /** `publishAsset` inverse: restore the previous record (or remove it). */
@@ -910,6 +1003,12 @@ export interface SetFlowInverse {
   restore: GameFlow | null;
 }
 
+/** Phase 23.3: undo of `setCollisionLayers`: restore the previous list. */
+export interface SetCollisionLayersInverse {
+  kind: 'setCollisionLayers';
+  restore: string[];
+}
+
 /** Undo of `setInput`: restore the previous actions (null = the defaults). */
 export interface SetInputInverse {
   kind: 'setInput';
@@ -949,6 +1048,10 @@ export interface SetSceneIndexInverse {
 }
 
 export type InverseSpec =
+  | EditBlocksInverse
+  | SetBlockTypeInverse
+  | SetCellFieldsInverse
+  | SetBlockStampInverse
   | GraphEditInverse
   | SetGraphInverse
   | SetEffectInverse
@@ -958,6 +1061,7 @@ export type InverseSpec =
   | SetLightingInverse
   | SetAnimatorsInverse
   | SetInputInverse
+  | SetCollisionLayersInverse
   | SetFlowInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse
@@ -1404,7 +1508,41 @@ export interface RenameEffectArgs {
   name: string;
 }
 
+/** Phase 23.5: `editBlocks` — bulk edits of one block layer (`entityId`) as one undo step. */
+export interface EditBlocksArgs {
+  entityId: string;
+  edits: import('@thirdlight/project-model').BlockEdit[];
+}
+/** Phase 23.5: `setBlockType` creates or replaces one block type. */
+export interface SetBlockTypeArgs {
+  block: import('@thirdlight/project-model').BlockType;
+}
+export interface DeleteBlockTypeArgs {
+  blockId: string;
+}
+/** Phase 23.5: `setCellFields` replaces the cell metadata schema. */
+export interface SetCellFieldsArgs {
+  fields: import('@thirdlight/project-model').CellField[];
+}
+/** Phase 23.5: `setBlockStamp` stores a stamp, or saves a layer selection (`entityId` + `box`) as one. */
+export interface SetBlockStampArgs {
+  stamp?: import('@thirdlight/project-model').BlockStamp;
+  stampId?: string;
+  name?: string;
+  entityId?: string;
+  box?: number[];
+}
+export interface DeleteBlockStampArgs {
+  stampId: string;
+}
+
 export type MutationArgs =
+  | EditBlocksArgs
+  | SetBlockTypeArgs
+  | DeleteBlockTypeArgs
+  | SetCellFieldsArgs
+  | SetBlockStampArgs
+  | DeleteBlockStampArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
   | SetEffectArgs

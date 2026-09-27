@@ -120,6 +120,104 @@ export interface PhysicsStepClient {
    * @graphDefault radius 0.5
    */
   overlapCircle?(center: Vec2, radius: number): string[];
+  /**
+   * Phase 23.2 (3D projects): the player character's state after the last
+   * completed step — position, velocity, grounding, contacts, whether its
+   * controller is on and whether it is climbing a ledge — or undefined (a 2D
+   * plane, or before the first step).
+   * @graphPure
+   * @graphNode Character state
+   */
+  characterState?(entityId: string): CharacterState3D | undefined;
+  /**
+   * Phase 23.3 (3D projects): the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
+   * @graphNode Raycast 3D
+   * @graphDefault direction [0, -1, 0]
+   * @graphDefault maxDistance 100
+   */
+  raycast3d?(origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
+  /**
+   * Phase 23.3 (3D projects): the objects whose colliders overlap a sphere (sorted ids, at most 64).
+   * @graphNode Overlap sphere
+   * @graphDefault radius 0.5
+   */
+  overlapSphere?(center: readonly number[], radius: number, filter?: PhysicsQueryFilter): string[];
+  /**
+   * Phase 23.3 (3D projects): the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w].
+   * @graphNode Overlap box 3D
+   * @graphDefault half [0.5, 0.5, 0.5]
+   */
+  overlapBox3d?(center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
+  /**
+   * Phase 23.3 (3D projects): the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
+   * @graphNode Overlap capsule
+   * @graphDefault radius 0.3
+   * @graphDefault height 1.8
+   */
+  overlapCapsule?(center: readonly number[], radius: number, height: number, rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
+  /**
+   * Phase 23.3 (3D projects): what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
+   * @graphNode Pick at screen point
+   * @graphDefault x 0.5
+   * @graphDefault y 0.5
+   * @graphDefault maxDistance 1000
+   */
+  pickAt?(x: number, y: number, maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
+  /**
+   * Phase 23.3 (3D projects): what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
+   * @graphNode Pick at pointer
+   * @graphDefault maxDistance 1000
+   */
+  pickAtPointer?(maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
+}
+
+/** Phase 23.2: the 3D player character's state (`ctx.physics.characterState`). */
+export interface CharacterState3D {
+  /** Its origin (m). */
+  readonly position: PhysicsVec3;
+  /** How fast it moved in the last step (m/s; its actual motion, collisions included). */
+  readonly velocity: PhysicsVec3;
+  /** Standing on something. */
+  readonly grounded: boolean;
+  /** What it touched: ground, a wall, its head, a slope too steep to walk. */
+  readonly contacts: { readonly ground: boolean; readonly wall: boolean; readonly head: boolean; readonly steepSlope: boolean };
+  /** The normal of what it stands on (up when in the air). */
+  readonly supportNormal: PhysicsVec3;
+  /** The object it stands on, or null. */
+  readonly groundEntityId: string | null;
+  /** Its controller is on (a script may switch it off). */
+  readonly enabled: boolean;
+  /** Climbing onto a ledge (input is ignored until it is up). */
+  readonly climbing: boolean;
+  /** The way it faces, in degrees about the up axis (0: +Z). */
+  readonly facing: number;
+}
+
+/** Phase 23.3: which objects a 3D query sees (every part optional; absent: all colliders). */
+export interface PhysicsQueryFilter {
+  /** Only objects carrying at least one of these tags. */
+  tags?: readonly string[];
+  /** Only colliders in at least one of these collision layers ("default": colliders that list no layers). */
+  layers?: readonly string[];
+  /** Objects to skip (their ids). */
+  exclude?: readonly string[];
+}
+
+/** Phase 23.3: a 3D ray or pick hit. */
+export interface PhysicsHit {
+  /** The object whose collider was hit. */
+  entityId: string;
+  /** Where the ray hit [x, y, z]. */
+  point: [number, number, number];
+  /** The surface normal there [x, y, z] (unit). */
+  normal: [number, number, number];
+  /** Metres from the ray's origin. */
+  distance: number;
+  /**
+   * A block layer's cell when the ray hit one (then `entityId` is the layer):
+   * [x, y, z] in `ctx.grid` coordinates — the cell just inside the surface.
+   */
+  cell?: [number, number, number];
 }
 
 /** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */
@@ -259,6 +357,20 @@ export interface StaticColliderSpec3D {
   rotation: PhysicsQuat;
   /** Phase 23.1: a mover's collider (a kinematic body posed every step with `setKinematicPoses`). */
   kinematic?: boolean;
+  /** Phase 23.3: the collision layers the collider is in (absent: "default"); names the config's `layers` resolve. */
+  layers?: readonly string[];
+}
+
+/**
+ * Phase 23.3: what a 3D query sees. `layers`: only colliders in at least one
+ * of these collision layers ("default" — colliders without layers; a name
+ * the project does not have matches nothing); `accept`: called with each
+ * candidate collider's entity, false skips it (tags, exclusions — the
+ * runtime's filter). Absent: every collider (the character excluded).
+ */
+export interface PhysicsQueryFilter3D {
+  layers?: readonly string[];
+  accept?: (entityId: string) => boolean;
 }
 
 /**
@@ -315,6 +427,8 @@ export interface RaycastHit3D {
   entityId: string;
   distance: number;
   normal: PhysicsVec3;
+  /** Phase 23.3: where the ray hit (origin + unit direction × distance). */
+  point?: PhysicsVec3;
 }
 
 /**
@@ -331,6 +445,17 @@ export interface PhysicsInitConfig3D {
   solver: { hz: number; gravityY: number };
   /** The character controller's tuning (the 2D controller's fields: skin, snap, slope angles, autostep). */
   controller: { offsetSkin: number; groundSnap: number; maxSlopeClimbRad: number; minSlopeSlideRad: number; autostep: boolean; autostepHeight?: number };
+  /**
+   * Phase 23.3: the project's named collision layers, in order (bit 1 + index;
+   * bit 0 is "default"). Absent: only "default".
+   */
+  layers?: readonly string[];
+  /**
+   * Phase 23.3: the scene has no controller entity — the world holds colliders
+   * for queries (picking, rays, overlaps) and movers, but no character capsule
+   * (`character` is then a placeholder the port ignores; its step moves nothing).
+   */
+  noCharacter?: true;
 }
 
 /**
@@ -349,12 +474,12 @@ export interface PhysicsPort3D {
   /** A loaded / unloaded scene's static colliders (at a step boundary). */
   addStaticColliders?(specs: readonly StaticColliderSpec3D[]): void;
   removeStaticColliders?(entityIds: readonly string[]): void;
-  /** The nearest collider hit by a ray (the character excluded). */
-  raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number): RaycastHit3D | null;
+  /** The nearest collider hit by a ray (the character excluded; phase 23.3: only those the filter lets through). */
+  raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
   /** Phase 23.1: where the kinematic (mover) colliders go with this step's world update (after the character's sweep). */
   setKinematicPoses?(poses: readonly KinematicPose3D[]): void;
   /** Phase 23.1: the entities whose colliders overlap `shape` at `center` turned by `rotation` (the character excluded), sorted, at most 64. */
-  overlap?(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat): string[];
+  overlap?(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[];
   /** Phase 23.1: query only — the clearance of the character capsule if its origin were at `origin`. */
   characterClearance?(origin: PhysicsVec3): CharacterClearanceResult3D;
   /** Phase 23.1: re-place the character (its origin) and return its clearance there; clears its motion caches. */
@@ -376,6 +501,12 @@ export function validateCharacterMoveResult3D(
   value: unknown,
   previousPosition: PhysicsVec3,
   requested: PhysicsVec3,
+  /**
+   * Phase 23.2: the character's step-up height and ground snap (m) — a step
+   * climbed or a snap down a stair may move it that much beyond the request
+   * (absent: the 23.0 allowance only).
+   */
+  climb?: { stepHeight: number; groundSnap: number },
 ): { ok: true; result: CharacterMoveResult3D } | { ok: false; failure: CharacterMoveResultFailure } {
   const bad = (detail: string): { ok: false; failure: CharacterMoveResultFailure } => ({ ok: false, failure: { reason: 'result', detail } });
   if (typeof value !== 'object' || value === null) return bad('result must be an object');
@@ -402,7 +533,9 @@ export function validateCharacterMoveResult3D(
   // Phase 23.1: a mover that moved into the character may push it by up to that move (as in 2D).
   const ks = (result as { kinematicSlack?: unknown }).kinematicSlack;
   const slack = typeof ks === 'number' && Number.isFinite(ks) ? Math.min(0.5, Math.max(0, ks)) : 0;
-  const allowance = (result.snapped ? 0.11 : 0.001) + slack;
+  const step = climb !== undefined && Number.isFinite(climb.stepHeight) ? Math.min(2, Math.max(0, climb.stepHeight)) : 0;
+  const snap = climb !== undefined && Number.isFinite(climb.groundSnap) ? Math.min(1, Math.max(0, climb.groundSnap)) : 0;
+  const allowance = (result.snapped ? Math.max(0.11, snap + 0.11) : 0.001) + step + slack;
   if (Math.hypot(a.x, a.y, a.z) > Math.hypot(requested.x, requested.y, requested.z) + allowance + 1e-12) {
     return bad('|applied| exceeds |requested| + allowance');
   }

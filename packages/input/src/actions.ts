@@ -13,8 +13,8 @@ import type { ActionValue, JumpPhase } from '@thirdlight/runtime';
 export interface InputBindingLike {
   readonly kind: string;
   readonly code?: string;
-  readonly button?: number;
-  readonly axis?: number;
+  readonly button?: number | string;
+  readonly axis?: number | string;
   readonly negative?: string | number;
   readonly positive?: string | number;
   readonly up?: string;
@@ -37,6 +37,24 @@ export interface InputActionLike {
 
 export interface InputConfigLike {
   readonly actions: readonly InputActionLike[];
+  /** Phase 23.3: the cursor while each map is active (absent: free). */
+  readonly cursor?: { readonly gameplay?: 'free' | 'locked'; readonly ui?: 'free' | 'locked' };
+}
+
+/**
+ * Phase 23.3: the pointer as one sample reads it — the position (fractions of
+ * the view, 0,0 top left), the movement and wheel since the previous sample,
+ * the held buttons and those pressed since the previous sample (bits: 1
+ * left, 2 right, 4 middle).
+ */
+export interface RawPointerState {
+  readonly x: number;
+  readonly y: number;
+  readonly dx: number;
+  readonly dy: number;
+  readonly wheel: number;
+  readonly buttons: number;
+  readonly pressed: number;
 }
 
 /** The raw state one sample reads (plain data). */
@@ -47,7 +65,19 @@ export interface RawDeviceState {
   readonly pressedKeys: ReadonlySet<string>;
   /** The active standard-mapped pad, or null. */
   readonly gamepad: { readonly buttons: readonly boolean[]; readonly axes: readonly number[] } | null;
+  /** Phase 23.3: the pointer (absent/null: none seen yet). */
+  readonly pointer?: RawPointerState | null;
 }
+
+const POINTER_BUTTON_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, right: 2, middle: 4 });
+/**
+ * Phase 23.3: a pointer movement axis in an action is the movement since the
+ * last step in percent of the view (moving a tenth of the view in a step is
+ * 10, the most an action value holds) — a stick's full push is 1, so 1% of
+ * the view per step drives like a full stick; `scale` tunes it.
+ */
+const POINTER_AXIS_PERCENT = 100;
+const clamp10 = (v: number): number => (v > 10 ? 10 : v < -10 ? -10 : v);
 
 const DEFAULT_STICK_DEAD_ZONE = 0.2;
 
@@ -86,13 +116,37 @@ export function createActionEvaluator(config: InputConfigLike): {
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
 
-  const evaluate = (a: InputActionLike, raw: RawDeviceState): { v: number; x?: number; y?: number } => {
+  const pointerButton = (raw: RawDeviceState, button: unknown): number => {
+    const bit = POINTER_BUTTON_BIT[String(button)] ?? 0;
+    const p = raw.pointer;
+    return p !== undefined && p !== null && ((p.buttons | p.pressed) & bit) !== 0 ? 1 : 0;
+  };
+  const pointerAxis = (raw: RawDeviceState, axis: unknown): number => {
+    const p = raw.pointer;
+    if (p === undefined || p === null) return 0;
+    if (axis === 'x') return clamp10(p.dx * POINTER_AXIS_PERCENT);
+    if (axis === 'y') return clamp10(-p.dy * POINTER_AXIS_PERCENT); // up positive, like a stick
+    if (axis === 'wheel') return clamp10(p.wheel);
+    return 0;
+  };
+
+  const evaluate = (a: InputActionLike, raw: RawDeviceState): { v: number; x?: number; y?: number; i?: 1 } => {
     if (a.type === 'axis2d') {
       let best: [number, number] = [0, 0];
+      // Phase 23.3: a pointer position / movement is taken as it is (no length clip) and a movement is per sample.
+      let bestKind = '';
       for (const b of a.bindings) {
         let x = 0;
         let y = 0;
-        if (b.kind === 'keys2d') {
+        if (b.kind === 'pointerPosition') {
+          const p = raw.pointer;
+          if (p === undefined || p === null) continue;
+          x = p.x;
+          y = p.y;
+        } else if (b.kind === 'pointerDelta') {
+          x = pointerAxis(raw, 'x');
+          y = pointerAxis(raw, 'y');
+        } else if (b.kind === 'keys2d') {
           x = key(raw, b.right) - key(raw, b.left);
           y = key(raw, b.up) - key(raw, b.down);
         } else if (b.kind === 'gamepadStick') {
@@ -104,30 +158,47 @@ export function createActionEvaluator(config: InputConfigLike): {
           x = len > 0 ? (x / len) * scaled : 0;
           y = len > 0 ? (y / len) * scaled : 0;
         }
-        if (Math.hypot(x, y) > Math.hypot(best[0], best[1])) best = [x, y];
+        if (Math.hypot(x, y) > Math.hypot(best[0], best[1]) || (b.kind === 'pointerPosition' && bestKind === '')) {
+          best = [x, y];
+          bestKind = b.kind;
+        }
       }
       let [x, y] = best;
       const len = Math.hypot(x, y);
-      if (len > 1) {
+      if (len > 1 && bestKind !== 'pointerPosition' && bestKind !== 'pointerDelta') {
         x /= len;
         y /= len;
       }
       const s = (a.invert === true ? -1 : 1) * (a.scale ?? 1);
-      x = q(x * s);
-      y = q(y * s);
-      return { v: q(Math.hypot(x, y)), x, y };
+      x = q(clamp10(x * s));
+      y = q(clamp10(y * s));
+      return { v: q(clamp10(Math.hypot(x, y))), x, y, ...(bestKind === 'pointerDelta' ? { i: 1 as const } : {}) };
     }
     let best = 0;
+    let impulse = false;
     for (const b of a.bindings) {
       let v = 0;
-      if (b.kind === 'key') v = key(raw, b.code);
+      if (b.kind === 'pointerButton') v = pointerButton(raw, b.button);
+      else if (b.kind === 'pointerAxis') {
+        v = pointerAxis(raw, b.axis);
+        if (Math.abs(v) > Math.abs(best)) {
+          best = v;
+          impulse = true;
+        }
+        continue;
+      } else if (b.kind === 'key') v = key(raw, b.code);
       else if (b.kind === 'gamepadButton') v = pad(raw, b.button);
       else if (b.kind === 'keys1d') v = key(raw, b.positive) - key(raw, b.negative);
       else if (b.kind === 'gamepadButtons1d') v = pad(raw, b.positive) - pad(raw, b.negative);
-      else if (b.kind === 'gamepadAxis') v = deadZone(axisOf(raw, b.axis), a.deadZone ?? DEFAULT_STICK_DEAD_ZONE);
-      if (Math.abs(v) > Math.abs(best)) best = v;
+      else if (b.kind === 'gamepadAxis') v = deadZone(axisOf(raw, typeof b.axis === 'number' ? b.axis : undefined), a.deadZone ?? DEFAULT_STICK_DEAD_ZONE);
+      if (Math.abs(v) > Math.abs(best)) {
+        best = v;
+        impulse = false;
+      }
     }
     const s = (a.invert === true ? -1 : 1) * (a.scale ?? 1);
+    // A pointer axis may exceed a stick's range (up to 10); everything else stays within [-1, 1].
+    if (impulse) return { v: q(clamp10(best * s)), i: 1 };
     return { v: q(Math.max(-1, Math.min(1, best)) * s) };
   };
 
@@ -140,7 +211,7 @@ export function createActionEvaluator(config: InputConfigLike): {
         const was = prevDown.get(a.name) ?? false;
         const p: JumpPhase = down ? (was ? 'held' : 'pressed') : was ? 'released' : 'none';
         prevDown.set(a.name, down);
-        out[a.name] = Object.freeze({ v: e.v, ...(e.x !== undefined ? { x: e.x, y: e.y! } : {}), p });
+        out[a.name] = Object.freeze({ v: e.v, ...(e.x !== undefined ? { x: e.x, y: e.y! } : {}), p, ...(e.i === 1 ? { i: 1 as const } : {}) });
       }
       return out;
     },
@@ -148,6 +219,25 @@ export function createActionEvaluator(config: InputConfigLike): {
       prevDown.clear();
     },
   };
+}
+
+/**
+ * Phase 23.3: what the browser does with the cursor — lock it (pointer lock)
+ * in locked mode; hide it when locked or while a gamepad is the device the
+ * player used last (it shows again when the pointer or a key is used).
+ */
+export function cursorPresentation(mode: 'free' | 'locked', device: 'keyboard' | 'gamepad'): { lock: boolean; hide: boolean } {
+  return { lock: mode === 'locked', hide: mode === 'locked' || device === 'gamepad' };
+}
+
+/** Phase 23.3: whether an action binds a pointer button (right: the view's context menu is suppressed then). */
+export function bindsPointerButton(config: InputConfigLike, button: 'left' | 'right' | 'middle'): boolean {
+  return config.actions.some((a) => a.bindings.some((b) => b.kind === 'pointerButton' && (b as { button?: unknown }).button === button));
+}
+
+/** Phase 23.3: whether an action binds the wheel (the view then keeps the wheel from scrolling the page). */
+export function bindsWheel(config: InputConfigLike): boolean {
+  return config.actions.some((a) => a.bindings.some((b) => b.kind === 'pointerAxis' && (b as { axis?: unknown }).axis === 'wheel'));
 }
 
 /** The keyboard codes the platformer's move and jump come from (the M2 mapping reads these). */
@@ -243,5 +333,18 @@ export const DEFAULT_INPUT_CONFIG: InputConfigLike = Object.freeze({
     { name: 'submit', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'Enter' }, { kind: 'gamepadButton', button: 0 }] },
     { name: 'cancel', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'Backspace' }, { kind: 'gamepadButton', button: 1 }] },
     { name: 'navigate', type: 'axis2d', map: 'ui', bindings: [{ kind: 'keys2d', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, { kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, { kind: 'gamepadStick', x: 0, y: 1 }] },
+  ],
+} as InputConfigLike);
+
+/**
+ * Phase 23.2: the default actions of a 3D project (a copy of project-model's
+ * `DEFAULT_INPUT_3D`; tests/input-defaults-parity.test.ts keeps them equal):
+ * `move` is a 2D axis (W/A/S/D, arrows, left stick) and `run` a button.
+ */
+export const DEFAULT_INPUT_CONFIG_3D: InputConfigLike = Object.freeze({
+  actions: [
+    { name: 'move', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, { kind: 'keys2d', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, { kind: 'gamepadStick', x: 0, y: 1 }] },
+    { name: 'run', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'ShiftLeft' }, { kind: 'key', code: 'ShiftRight' }, { kind: 'gamepadButton', button: 10 }] },
+    ...DEFAULT_INPUT_CONFIG.actions.filter((a) => a.name !== 'move'),
   ],
 } as InputConfigLike);

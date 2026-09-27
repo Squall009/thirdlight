@@ -69,6 +69,15 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       raycast: rec('physics.raycast', { entityId: 'wall-1', distance: 2, normal: { x: -1, y: 0 } }),
       overlapBox: rec('physics.overlapBox', () => ['crate-1']),
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
+      // Phase 23.2: the 3D character's state.
+      characterState: rec('physics.characterState', { position: { x: 1, y: 2, z: 3 }, velocity: { x: 0, y: 0, z: 2 }, grounded: true, contacts: { ground: true, wall: false, head: false, steepSlope: false }, supportNormal: { x: 0, y: 1, z: 0 }, groundEntityId: null, enabled: true, climbing: false, facing: 0 }),
+      // Phase 23.3: 3D queries.
+      raycast3d: rec('physics.raycast3d', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
+      overlapSphere: rec('physics.overlapSphere', () => ['crate-1']),
+      overlapBox3d: rec('physics.overlapBox3d', () => ['crate-1']),
+      overlapCapsule: rec('physics.overlapCapsule', () => ['crate-1']),
+      pickAt: rec('physics.pickAt', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
+      pickAtPointer: rec('physics.pickAtPointer', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
     },
     tags: { mask: rec('tags.mask', 1), of: rec('tags.of', 1), has: rec('tags.has', true), query: rec('tags.query', () => ['box-1']) },
     world: { transform: rec('world.transform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }), find: rec('world.find', 'box-2'), findAll: rec('world.findAll', () => ['box-2']), withComponent: rec('world.withComponent', () => ['box-2']) },
@@ -84,10 +93,11 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       },
     },
     scenes: { load: rec('scenes.load'), unload: rec('scenes.unload'), status: rec('scenes.status', 'loaded'), loaded: rec('scenes.loaded', () => ['scene-main']) },
-    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true) },
+    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor') },
     animator: (id: string) => {
       calls.push('animator');
-      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle') };
+      // Phase 23.11: per-instance speed and morph weights.
+      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle'), setSpeed: rec('animator.setSpeed', true), speed: rec('animator.speed', 1), setMorph: rec('animator.setMorph', true), morph: rec('animator.morph', 0.5) };
     },
     events: [
       { type: 'enter', trigger: 'trigger-1', stepIndex: stepIndex - 1 },
@@ -101,6 +111,26 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     audio: { play: rec('audio.play') },
     effects: { play: (...a: unknown[]) => { rec('effects.play')(...a); return 1; }, stop: rec('effects.stop') },
     save: { get: rec('save.get', 4), set: rec('save.set', true), remove: rec('save.remove'), keys: rec('save.keys', () => ['k']) },
+    // Phase 23.5: block layers.
+    grid: {
+      layers: rec('grid.layers', () => ['layer-1']),
+      get: rec('grid.get', { block: 'stone', rot: 0, variant: 0, meta: { walkable: true } }),
+      set: rec('grid.set', true),
+      clear: rec('grid.clear', true),
+      columnTop: rec('grid.columnTop', 2),
+      worldToCell: rec('grid.worldToCell', { x: 1, y: 2, z: 3 }),
+      cellToWorld: rec('grid.cellToWorld', { x: 1.5, y: 2.5, z: 3.5 }),
+      meta: rec('grid.meta', true),
+      setMeta: rec('grid.setMeta', true),
+      pick: rec('grid.pick', { layer: 'layer-1', x: 1, y: 0, z: 2, normal: { x: 0, y: 1, z: 0 }, distance: 3, point: { x: 1.5, y: 0.5, z: 2.5 } }),
+      neighbours: rec('grid.neighbours', () => [{ x: 1, y: 0, z: 0 }]),
+      regions: rec('grid.regions', () => ['zone.a']),
+      region: rec('grid.region', () => [{ x: 0, y: 0, z: 0 }]),
+      inRegion: rec('grid.inRegion', true),
+      changes: rec('grid.changes', () => []),
+      diff: rec('grid.diff', { version: 1, layers: [] }),
+      applyDiff: rec('grid.applyDiff', true),
+    },
     spawn: rec('spawn', 'spawn-1'),
     destroy: rec('destroy', true),
     emit: rec('emit'),
@@ -119,6 +149,13 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       get: rec('camera.get', () => ({ rig: 'follow', enabled: true, priority: 0, live: true, target: 'box-1', distance: 5, yaw: 0, pitch: 20, progress: 0, railSpeed: 0, fovY: 60, letterbox: 0 })),
       worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
       screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
+    },
+    // Phase 23.11: sockets.
+    sockets: {
+      attach: rec('sockets.attach', true),
+      detach: rec('sockets.detach', true),
+      attachedTo: rec('sockets.attachedTo', () => ({ target: 'box-2', nodeName: 'hand' })),
+      nodePose: rec('sockets.nodePose', () => ({ position: [1, 2, 3], rotation: [0, 0, 0, 1] })),
     },
   };
 }
@@ -236,6 +273,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
       'debug.command',
+      // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
+      'emit(control_move).y',
       'emit(pose).facing',
       'emit(pose).quaternion',
       'emit(pose).up',
@@ -243,6 +282,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'emit(transform).quaternion',
       'emit(transform).up',
       'events',
+      // Phase 23.5: the grid's change list and save diff are read as data by scripts.
+      'grid.applyDiff',
+      'grid.changes',
+      'grid.diff',
       'log',
       'physics.stageCharacterMove',
       'random.pick',
@@ -256,6 +299,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       ['api.emit.transform', 'transform'],
       ['api.emit.pose', 'transform'],
       ['api.emit.respawn', 'intent'],
+      // Phase 23.2: the 3D character intents.
+      ['api.emit.character_move', 'intent'],
+      ['api.emit.character_place', 'intent'],
+      ['api.emit.character_enable', 'intent'],
     ]);
   });
 

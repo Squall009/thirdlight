@@ -39,6 +39,7 @@ import { validateFlow } from './flow';
 import { validateInput } from './input';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, validateEnvironment, validateMaterials } from './materials';
 import { validateEffects } from './effects';
+import { validateBlockStamps, validateBlockTypes, validateCellFields } from './block-layers';
 import { V4_REGISTRY, validateSceneV4 } from './scene-v3';
 
 type J = unknown;
@@ -452,7 +453,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
-    { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 } },
+    { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },
     { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } },
     // Phase 23.1: the 3D shapes (their dimension rule is the project's, not the scene's).
     { shape: { type: 'sphere', radius: 0.5 } },
@@ -460,8 +461,13 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] } },
     { shape: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]] } },
   ],
-  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3 }],
+  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
+  // Phase 23.11: a socket with its offset, and one a script attaches later.
+  socketAttach: [
+    { target: 'spawn-0001', node: 'hand_R', position: [0.1, 0, -0.05], rotation: [0, 0.7071067811865476, 0, 0.7071067811865476], scale: [1, 2, 1], attached: false },
+    { target: 'spawn-0001', node: 'Armature Bone.001' },
+  ],
   virtualCamera: [
     { rig: 'follow', priority: 5, enabled: false, target: 'spawn-0001', targetOffset: [0, 1.5, 0], distance: 6, minDistance: 1, maxDistance: 20, yaw: 30, pitch: 25, pitchMin: -20, pitchMax: 60, yawAction: 'look', pitchAction: 'tilt', rotateSpeed: 90, zoomAction: 'zoom', zoomSpeed: 5, collision: false, collisionRadius: 0.3, damping: 0.2, fovY: 50, near: 0.2, far: 500, blend: 'linear', blendTime: 1, letterbox: 0.1, shakeAmplitude: 0.05, shakeFrequency: 6, shakeRotation: 1 },
     { rig: 'orbitPoint', distance: 15, minDistance: 5, maxDistance: 40, yaw: 45, pitch: 45, pitchMin: 20, pitchMax: 70, pitchAction: 'tilt', rotateSpeed: 60, zoomAction: 'zoom', zoomSpeed: 10, turnLeftAction: 'left', turnRightAction: 'right', yawStep: 90, turnTime: 0.3, point: [1, 0, 2], damping: 0.1, blend: 'cut' },
@@ -504,6 +510,10 @@ const COMPONENT_BASES: Record<string, J[]> = {
   behavior: [{ behaviorId: 'beh-a', values: { speed: 3 } }],
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
+  // Phase 23.5: a block layer (every optional flag set to its non-default value).
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false }],
+  // Phase 23.6: a prop's block footprint.
+  blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
 
 const SKY_PROCEDURAL = { mode: 'procedural', turbidity: 6, rayleigh: 1.5, mieCoefficient: 0.005, mieDirectionalG: 0.8, sunFromLight: false, sunElevation: 35, sunAzimuth: 160, intensity: 1, environmentIntensity: 1 };
@@ -545,8 +555,13 @@ const BINDINGS: { type: string; binding: Obj }[] = [
   { type: 'axis1d', binding: { kind: 'gamepadButtons1d', negative: 14, positive: 15 } },
   { type: 'axis2d', binding: { kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' } },
   { type: 'axis2d', binding: { kind: 'gamepadStick', x: 0, y: 1 } },
+  // Phase 23.3: the pointer bindings.
+  { type: 'button', binding: { kind: 'pointerButton', button: 'right' } },
+  { type: 'axis1d', binding: { kind: 'pointerAxis', axis: 'wheel' } },
+  { type: 'axis2d', binding: { kind: 'pointerPosition' } },
+  { type: 'axis2d', binding: { kind: 'pointerDelta' } },
 ];
-const INPUT_BASES: J[] = BINDINGS.map((b) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }] }));
+const INPUT_BASES: J[] = BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' } } : {}) }));
 
 // Phase 20.0: an effect with a parameter of every type and one system.
 const EFFECT_GRAPH = { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] };
@@ -610,6 +625,8 @@ function animatorBase(o: { firstParam: 'float' | 'int' | 'bool' | 'trigger'; fir
       transitions: [{ from: 'idle', to: 'run', conditions: [cond], duration: 0.2, exitTime: 0.5, interruption: 'source' }],
       entry: 'idle',
       events: [{ assetId: 'model-a', clip: 'run', time: 0.1, name: 'step' }],
+      // Phase 23.11: a morph target driven by a float parameter.
+      morphs: [{ target: 'smile', parameter: 'speed' }],
       layers: [
         {
           name: 'Upper body',
@@ -699,6 +716,14 @@ function runAllProbes(): void {
   probe('graphs', contentErrors, contentDoc({ graphs: [{ graphId: 'g-1', kind: 'test', name: 'G', graph: { nodes: [], edges: [] } }] }), '/graphs', block('graphs'), 'graphs:');
   // Phase 23.7: shared script libraries (the files are free text, the item is json).
   probe('scriptLibraries', contentErrors, contentDoc({ scriptLibraries: [{ libraryId: 'lib-a', name: 'Lib', files: [{ path: 'src/index.ts', text: 'export const a = 1;\n' }] }] }), '/scriptLibraries', block('scriptLibraries'), 'scriptLibraries:');
+  // Phase 23.5: block types, cell fields and stamps.
+  probe('blockTypes', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'grass', name: 'Grass', variants: [{ color: '#55aa55', weight: 2 }], shape: 'full', solid: true, footprint: [1, 1, 1], rotations: [0, 90], metadata: { walkable: true }, materials: { '*': 'mat-a' } }], '', block('blockTypes'), 'blockTypes:');
+  probe('blockTypes[1]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'odd', name: 'Odd', variants: [{ model: { assetId: 'model-a', piece: 'Rock' } }], shape: 'custom', boxes: [[0, 0, 0, 1, 0.5, 1]] }], '', block('blockTypes'), 'blockTypes:');
+  probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
+  probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
+  probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
+  // Phase 23.3: the named collision layers.
+  probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
   // the content block's own keys (each block's inside is probed above)

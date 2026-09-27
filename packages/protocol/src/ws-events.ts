@@ -214,12 +214,13 @@ export function makeDiagnosticsRequest(relayId: string): string {
  */
 export function makeInputRelayRequest(
   requestId: string,
-  frames: readonly { readonly stepOffset: number; readonly moveX: number; readonly jump: string }[],
+  frames: readonly { readonly stepOffset: number; readonly moveX: number; readonly moveY?: number; readonly jump: string; readonly actions?: Readonly<Record<string, unknown>>; readonly pointer?: unknown }[],
 ): string {
   return emit({
     type: 'input.request',
     requestId,
-    frames: frames.map((f) => ({ stepOffset: f.stepOffset, moveX: f.moveX, jump: f.jump })),
+    // Phase 23.2: the second move axis and the named actions (and, phase 23.3, the pointer) travel too (absent: as before).
+    frames: frames.map((f) => ({ stepOffset: f.stepOffset, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}) })),
   });
 }
 

@@ -65,7 +65,8 @@ test('Play renders a fresh project scene in the isolated preview', async ({ page
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 
   await page.getByTitle('Stop the play preview').click();
-  await expect(frame).toHaveCount(0);
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
 });
 
 test('the play preview fills the centre view and its page is not scrollable', async ({ page }) => {

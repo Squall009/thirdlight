@@ -654,6 +654,7 @@ export class Projection {
       case 'setLighting':
       case 'setAnimators':
       case 'setInput':
+      case 'setCollisionLayers':
       case 'setFlow':
       // Phase 16.1: graphs are tracked by the client from the change data.
       case 'graphEdit':
@@ -662,6 +663,11 @@ export class Projection {
       case 'setEffect':
       // Phase 23.7: script libraries too (their dependents' records by the prefab projection).
       case 'setScriptLibrary':
+      // Phase 23.5: block content and cells are tracked by the client (it reads the chunks a change names).
+      case 'editBlocks':
+      case 'setBlockType':
+      case 'setCellFields':
+      case 'setBlockStamp':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

@@ -61,7 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -94,7 +94,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
-import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
+import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 
 /**
@@ -137,10 +137,17 @@ export interface PreviewManifestV2 {
   lighting?: Record<string, LightingBakeLike>;
   /** Phase 9.7: the animator controllers. */
   animators?: unknown[];
+  /** Phase 23.11: model rigs (sockets are resolved on them). */
+  rigs?: Record<string, unknown>;
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: unknown[];
+  /** Phase 23.5: the block types and cell fields block layers use. */
+  blockTypes?: unknown[];
+  cellFields?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
+  /** Phase 23.3: the named collision layers. */
+  collisionLayers?: readonly string[];
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -382,7 +389,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -424,22 +431,26 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // Phase 9.7: the animator controllers come from the verified manifest.
   const withAnimators0 = manifest.animators !== undefined ? ({ ...authored, animators: manifest.animators } as RuntimeSnapshot) : authored;
   // Phase 14.1: the prefabs scripts spawn (from the verified manifest).
-  const withAnimators = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
+  const withPrefabs = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
+  // Phase 23.5: the block types and cell fields of the block layers (from the verified manifest).
+  const withAnimators = { ...withPrefabs, ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}), ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}) } as RuntimeSnapshot;
   // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
   const modelBounds = modelBoundsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
-  const withBounds = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;
+  const withBounds0 = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;
+  // Phase 23.11: the model rigs sockets are resolved on (from the verified manifest).
+  const withBounds = manifest.rigs !== undefined ? ({ ...withBounds0, rigs: manifest.rigs } as RuntimeSnapshot) : withBounds0;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
   // Physics runs only for a game (a player controller); a plain scene plays
   // without it.
   // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
-  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings) : physicsConfigFromSnapshot(snapshot, settings);
+  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
   if (physicsConfig === null && (snapshot.game ?? null) !== null) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the game requires a player controller entity');
   }
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
-  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
+  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
   // Phase 21.5: what this composition attaches to the page is released with it
   // (the input listeners, the focus listener, the audio owner and its context,
   // the unlock listeners) — a new snapshot composes again on the same canvas —
@@ -553,6 +564,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 14.5: pad rebinding in the settings.
       capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
       configure: (c: InputConfigLike) => browserInput.configure(c),
+      // Phase 23.3: the cursor (free/locked, hidden while a gamepad drives).
+      applyCursor: (mode: 'free' | 'locked') => browserInput.applyCursor(mode),
+      cursorState: () => browserInput.cursorState(),
     };
     // Phase 15.3: the project's sound voice count (absent: 8).
     const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
@@ -610,7 +624,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       assetPaths: assetPathsById,
       // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
       ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
-      inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
+      inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
       setQuality: (level) => adapterRef.current?.setQuality?.(level),
       setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
       // Phase 14.5: the title screen's background scene and camera pan.
@@ -828,7 +842,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.input.request', (m) => {
-    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; moveX: number; jump: string }> };
+    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>; pointer?: ActionFrame['pointer']; }> };
     if (handle === null) {
       bridge.sendInputResult(playId, body.requestId, notReady);
       return;
@@ -908,6 +922,12 @@ export function bootstrapPreviewM3(): void {
         ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
         ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
         ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
+        // Phase 23.11: the objects riding on sockets and their world positions.
+        ...(o.sockets !== undefined ? { sockets: structuredClone(o.sockets) } : {}),
+        // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
+        ...(o.pointer !== undefined ? { pointer: { ...o.pointer } } : {}),
+        ...(o.cursor !== undefined ? { cursor: { ...o.cursor } } : {}),
+        ...(o.hidden !== undefined ? { hidden: [...o.hidden] } : {}),
         ...rendererObservation(h),
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
@@ -957,6 +977,12 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
       // Phase 23.4: the resolved camera (virtual cameras: the live one, a blend, the pose and lens).
       ...(obs.observation.camera !== undefined ? { camera: structuredClone(obs.observation.camera) } : {}),
+      // Phase 23.11: the objects riding on sockets and their world positions.
+      ...(obs.observation.sockets !== undefined ? { sockets: structuredClone(obs.observation.sockets) } : {}),
+      // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
+      ...(obs.observation.pointer !== undefined ? { pointer: { ...obs.observation.pointer } } : {}),
+      ...(obs.observation.cursor !== undefined ? { cursor: { ...obs.observation.cursor } } : {}),
+      ...(obs.observation.hidden !== undefined ? { hidden: [...obs.observation.hidden] } : {}),
       // Phase 17.1: the renderer backend that draws this play, and why.
       ...rendererObservation(h),
       ...effectsObservation(h),

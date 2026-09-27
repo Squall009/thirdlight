@@ -43,6 +43,8 @@ import {
   type ProjectManifestV2,
   type SceneV3,
   type SceneV4,
+  type BlockChunk,
+  type BlockLayerData,
 } from '@thirdlight/project-model';
 
 import { sha256Hex } from './digest';
@@ -58,6 +60,21 @@ export const sceneRel = (sceneId: string): string => `scenes/${sceneId}.json`;
 
 const CONTENT_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'revision', 'content', 'retry'] as const;
 const SCENE_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'scene', 'retry'] as const;
+/** Phase 23.5: a scene file lists its block chunk files (only when it has some). */
+const SCENE_FILE_OPTIONAL_KEYS = ['blockChunks'] as const;
+const CHUNK_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'sceneId', 'entityId', 'cx', 'cz', 'palette', 'columns'] as const;
+
+/**
+ * Phase 23.5: one block-layer chunk per file,
+ * `scenes/<sceneId>.blocks/<entityId>.<cx>.<cz>.json`. The scene file lists
+ * the chunk files it owns (`blockChunks`, the index) and carries the
+ * revision and the retry records: every change to a scene's cells rewrites
+ * its scene file and the chunk files that changed, in one transaction.
+ */
+export const chunkRel = (sceneId: string, entityId: string, cx: number, cz: number): string => `scenes/${sceneId}.blocks/${entityId}.${cx}.${cz}.json`;
+const CHUNK_REL_RE = /^scenes\/[a-z0-9][a-z0-9_-]{0,63}\.blocks\/[a-z0-9][a-z0-9_-]{0,63}\.-?\d{1,4}\.-?\d{1,4}\.json$/;
+/** The directory holding a scene's chunk files. */
+export const chunkDirRel = (sceneId: string): string => `scenes/${sceneId}.blocks`;
 
 /** A file as this backend last wrote or loaded it. */
 export interface KnownFile {
@@ -128,13 +145,66 @@ export function contentFileBytes(projectId: string, revision: number, content: C
 }
 
 export function sceneFileBytes(projectId: string, scene: SceneV4, records: readonly RetryRecord[]): Uint8Array {
+  const split = splitSceneBlocks(scene);
   return fileJsonBytes({
     storageVersion: 4,
     type: 'scene',
     projectId,
-    scene,
+    scene: split.scene,
+    ...(split.index.length > 0 ? { blockChunks: split.index } : {}),
     retry: { recordVersion: RETRY_RECORD_VERSION, retention: RETRY_RETENTION, records },
   });
+}
+
+/**
+ * Phase 23.5: a scene as its file stores it (each layer entry without its
+ * chunks; entries with regions only keep them) plus the chunk index.
+ */
+function splitSceneBlocks(scene: SceneV4): { scene: SceneV4; index: { entityId: string; cx: number; cz: number }[] } {
+  if (scene.blocks === undefined || scene.blocks.length === 0) return { scene, index: [] };
+  const index: { entityId: string; cx: number; cz: number }[] = [];
+  const entries: BlockLayerData[] = [];
+  for (const b of scene.blocks) {
+    for (const c of b.chunks ?? []) index.push({ entityId: b.entityId, cx: c.cx, cz: c.cz });
+    entries.push({ entityId: b.entityId, ...(b.regions !== undefined ? { regions: b.regions } : {}) });
+  }
+  return { scene: { ...scene, blocks: entries }, index };
+}
+
+const chunkBytesCache = new WeakMap<BlockChunk, { key: string; bytes: Uint8Array; hash: string }>();
+
+/** Phase 23.5: a chunk file's bytes (palette one value per line, one column per line: a diff shows the columns that changed). */
+export function chunkFileBytes(projectId: string, sceneId: string, entityId: string, chunk: BlockChunk): { bytes: Uint8Array; hash: string } {
+  const key = `${projectId}|${sceneId}|${entityId}`;
+  const hit = chunkBytesCache.get(chunk);
+  if (hit !== undefined && hit.key === key) return hit;
+  const head = [
+    `  "storageVersion": 4`,
+    `  "type": "block-chunk"`,
+    `  "projectId": ${JSON.stringify(projectId)}`,
+    `  "sceneId": ${JSON.stringify(sceneId)}`,
+    `  "entityId": ${JSON.stringify(entityId)}`,
+    `  "cx": ${chunk.cx}`,
+    `  "cz": ${chunk.cz}`,
+    `  "palette": [\n${chunk.palette.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
+    `  "columns": [\n${chunk.columns.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
+  ];
+  const bytes = new TextEncoder().encode(`{\n${head.join(',\n')}\n}\n`);
+  const out = { key, bytes, hash: sha256Hex(bytes) };
+  chunkBytesCache.set(chunk, out);
+  return out;
+}
+
+/** Phase 23.5: every chunk file of a scene (relative path → bytes, hash). */
+export function sceneChunkFiles(projectId: string, scene: SceneV4): Map<string, { bytes: Uint8Array; hash: string }> {
+  const out = new Map<string, { bytes: Uint8Array; hash: string }>();
+  for (const b of scene.blocks ?? []) for (const c of b.chunks ?? []) out.set(chunkRel(scene.sceneId, b.entityId, c.cx, c.cz), chunkFileBytes(projectId, scene.sceneId, b.entityId, c));
+  return out;
+}
+
+/** Whether a relative path is a chunk file of `sceneId` (or of any scene). */
+export function isChunkRel(rel: string, sceneId?: string): boolean {
+  return CHUNK_REL_RE.test(rel) && (sceneId === undefined || rel.startsWith(`${chunkDirRel(sceneId)}/`));
 }
 
 export function manifestV2Bytes(manifest: ProjectManifestV2): Uint8Array {
@@ -168,9 +238,9 @@ function readJson(ops: WriteOps, path: string): { ok: true; value: Record<string
   return { ok: true, value: parsed.value as Record<string, unknown>, bytes };
 }
 
-function checkFileKeys(doc: Record<string, unknown>, keys: readonly string[], type: string, projectId: string, label: string): LoadDetail | null {
+function checkFileKeys(doc: Record<string, unknown>, keys: readonly string[], type: string, projectId: string, label: string, optional: readonly string[] = []): LoadDetail | null {
   for (const k of keys) if (!(k in doc)) return { code: 'envelope_invalid', path: `/${pointerSegment(k)}`, message: `${label}: required key '${k}' is missing`, expected: keys.join(', ') };
-  for (const k of Object.keys(doc)) if (!keys.includes(k)) return { code: 'envelope_invalid', path: `/${pointerSegment(k)}`, message: `${label}: unknown key '${k}'`, expected: keys.join(', ') };
+  for (const k of Object.keys(doc)) if (!keys.includes(k) && !optional.includes(k)) return { code: 'envelope_invalid', path: `/${pointerSegment(k)}`, message: `${label}: unknown key '${k}'`, expected: [...keys, ...optional].join(', ') };
   if (doc['storageVersion'] !== 4) return { code: 'storage_version_unsupported', path: '/storageVersion', message: `${label}: storageVersion must be 4`, expected: '4' };
   if (doc['type'] !== type) return { code: 'envelope_invalid', path: '/type', message: `${label}: type must be "${type}"`, expected: type };
   if (doc['projectId'] !== projectId) return { code: 'envelope_invalid', path: '/projectId', message: `${label}: projectId must equal the project directory name`, expected: projectId };
@@ -204,14 +274,17 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
     const rel = sceneRel(id);
     const f = readJson(ops, join(dir, rel));
     if (!f.ok) return blocked('envelope_invalid', [{ ...f.error, path: `/${rel}` }]);
-    const se = checkFileKeys(f.value, SCENE_FILE_KEYS, 'scene', projectId, rel);
+    const se = checkFileKeys(f.value, SCENE_FILE_KEYS, 'scene', projectId, rel, SCENE_FILE_OPTIONAL_KEYS);
     if (se !== null) return blocked(se.code as UnavailableReason, [se]);
     const scene = f.value['scene'] as { revision?: unknown; sceneId?: unknown } | null;
     if (scene?.sceneId !== id) {
       return blocked('manifest_scene_mismatch', [{ code: 'manifest_scene_mismatch', path: `/${rel}`, message: `${rel} holds scene "${String(scene?.sceneId)}" (the file name is the scene id)`, expected: id }]);
     }
     files.set(rel, { bytes: f.bytes, hash: sha256Hex(f.bytes) });
-    sceneDocs.push(f.value['scene']);
+    // Phase 23.5: the scene's block chunks, one file each (listed by the scene file).
+    const joined = joinChunkFiles(ops, dir, projectId, id, f.value['scene'], f.value['blockChunks'], files);
+    if (!joined.ok) return blocked('envelope_invalid', [joined.error]);
+    sceneDocs.push(joined.scene);
     const r = typeof scene.revision === 'number' ? scene.revision : 0;
     sceneRetry.push({ rel, retry: f.value['retry'], revision: r });
     if (r > revision) revision = r;
@@ -254,6 +327,50 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
   };
 }
 
+/**
+ * Phase 23.5: read the chunk files a scene file lists and put the chunks
+ * back into the scene's layer entries (the model validates the result).
+ */
+function joinChunkFiles(
+  ops: WriteOps,
+  dir: string,
+  projectId: string,
+  sceneId: string,
+  scene: unknown,
+  index: unknown,
+  files: Map<string, KnownFile>,
+): { ok: true; scene: unknown } | { ok: false; error: LoadDetail } {
+  if (index === undefined) return { ok: true, scene };
+  const bad = (path: string, message: string): { ok: false; error: LoadDetail } => ({ ok: false, error: { code: 'envelope_invalid', path, message, expected: 'a valid block chunk index and chunk files' } });
+  const rel0 = sceneRel(sceneId);
+  if (!Array.isArray(index)) return bad(`/${rel0}/blockChunks`, `${rel0}: blockChunks is a list of {entityId, cx, cz}`);
+  if (typeof scene !== 'object' || scene === null) return { ok: true, scene };
+  const blocks = new Map<string, Record<string, unknown>>();
+  const listed = (scene as { blocks?: unknown }).blocks;
+  if (Array.isArray(listed)) for (const b of listed) if (typeof b === 'object' && b !== null && typeof (b as { entityId?: unknown }).entityId === 'string') blocks.set((b as { entityId: string }).entityId, { ...(b as Record<string, unknown>) });
+  for (let i = 0; i < index.length; i++) {
+    const e = index[i] as { entityId?: unknown; cx?: unknown; cz?: unknown } | null;
+    if (e === null || typeof e !== 'object' || typeof e.entityId !== 'string' || !Number.isSafeInteger(e.cx) || !Number.isSafeInteger(e.cz)) return bad(`/${rel0}/blockChunks/${i}`, `${rel0}: a chunk index entry is {entityId, cx, cz}`);
+    const rel = chunkRel(sceneId, e.entityId, e.cx as number, e.cz as number);
+    if (!CHUNK_REL_RE.test(rel)) return bad(`/${rel0}/blockChunks/${i}`, `${rel0}: a chunk index entry names no valid chunk file`);
+    const f = readJson(ops, join(dir, rel));
+    if (!f.ok) return { ok: false, error: { ...f.error, path: `/${rel}` } };
+    const ce = checkFileKeys(f.value, CHUNK_FILE_KEYS, 'block-chunk', projectId, rel);
+    if (ce !== null) return { ok: false, error: ce };
+    if (f.value['sceneId'] !== sceneId || f.value['entityId'] !== e.entityId || f.value['cx'] !== e.cx || f.value['cz'] !== e.cz) return bad(`/${rel}`, `${rel} holds a different chunk than its name and the index say`);
+    files.set(rel, { bytes: f.bytes, hash: sha256Hex(f.bytes) });
+    let entry = blocks.get(e.entityId);
+    if (entry === undefined) {
+      entry = { entityId: e.entityId };
+      blocks.set(e.entityId, entry);
+    }
+    const chunks = (entry['chunks'] as unknown[] | undefined) ?? [];
+    chunks.push({ cx: f.value['cx'], cz: f.value['cz'], palette: f.value['palette'], columns: f.value['columns'] });
+    entry['chunks'] = chunks;
+  }
+  return { ok: true, scene: { ...(scene as Record<string, unknown>), blocks: [...blocks.values()] } };
+}
+
 /** Whether a project directory uses the v4 layout (a `content.json`). */
 export function isV4Layout(ops: WriteOps, dir: string): boolean {
   return ops.fileExists(join(dir, CONTENT_REL));
@@ -263,6 +380,7 @@ export function isV4Layout(ops: WriteOps, dir: string): boolean {
 const V4_TEMP_IN_PROJECT = /^\.(content|project)\.json\.tmp-/;
 const V4_TEMP_IN_SCENES = /^\.[a-z0-9][a-z0-9_-]{0,63}\.json\.tmp-/;
 const V4_TEMP_IN_THIRDLIGHT = /^\.journal\.json\.tmp-/;
+const V4_TEMP_IN_CHUNKS = /^\.[a-z0-9][a-z0-9_-]{0,63}\.-?\d{1,4}\.-?\d{1,4}\.json\.tmp-/;
 
 /**
  * Leftover `W` temps of the v4 project files (workspace.md §5.4): of
@@ -272,7 +390,11 @@ const V4_TEMP_IN_THIRDLIGHT = /^\.journal\.json\.tmp-/;
 export function listLeftoverTempsV4(ops: WriteOps, dir: string, sceneDir: string, thirdlightDir: string): string[] {
   const out: string[] = [];
   for (const n of ops.listDir(dir)) if (V4_TEMP_IN_PROJECT.test(n)) out.push(n);
-  for (const n of ops.listDir(sceneDir)) if (V4_TEMP_IN_SCENES.test(n)) out.push(`scenes/${n}`);
+  for (const n of ops.listDir(sceneDir)) {
+    if (V4_TEMP_IN_SCENES.test(n)) out.push(`scenes/${n}`);
+    // Phase 23.5: temps of chunk files in a scene's `.blocks` directory.
+    else if (/^[a-z0-9][a-z0-9_-]{0,63}\.blocks$/.test(n)) for (const m of ops.listDir(join(sceneDir, n))) if (V4_TEMP_IN_CHUNKS.test(m)) out.push(`scenes/${n}/${m}`);
+  }
   for (const n of ops.listDir(thirdlightDir)) if (V4_TEMP_IN_THIRDLIGHT.test(n)) out.push(`.thirdlight/${n}`);
   return out.sort();
 }
@@ -323,7 +445,7 @@ function fromBase64(s: string): Uint8Array {
 }
 
 function relSafe(rel: string): boolean {
-  return rel === CONTENT_REL || rel === MANIFEST_REL_V4 || /^scenes\/[a-z0-9][a-z0-9_-]{0,63}\.json$/.test(rel);
+  return rel === CONTENT_REL || rel === MANIFEST_REL_V4 || /^scenes\/[a-z0-9][a-z0-9_-]{0,63}\.json$/.test(rel) || CHUNK_REL_RE.test(rel);
 }
 
 function applyWrite(ops: WriteOps, dir: string, w: FileWrite): { ok: true } | { ok: false; errno?: string } {
@@ -337,9 +459,23 @@ function applyWrite(ops: WriteOps, dir: string, w: FileWrite): { ok: true } | { 
       return { ok: false, errno: (e as { code?: string }).code };
     }
   }
+  ensureChunkDir(ops, dir, w.rel);
   const res = writeAtomic({ dir: dirname(target), target, bytes: w.bytes, allowedPreHashes: [], previousHash: null, ops });
   if (res.failed) return { ok: false, ...(res.failed.errno !== undefined ? { errno: res.failed.errno } : {}) };
   return { ok: true };
+}
+
+/** Phase 23.5: a chunk file's directory (`scenes/<sceneId>.blocks`) is made on first write. */
+function ensureChunkDir(ops: WriteOps, dir: string, rel: string): void {
+  if (!CHUNK_REL_RE.test(rel)) return;
+  const d = dirname(join(dir, rel));
+  if (ops.dirExists(d)) return;
+  try {
+    mkdirSync(d, { recursive: true, mode: 0o755 });
+    ops.fsyncDir(dirname(d));
+  } catch {
+    // the atomic write below reports a real failure
+  }
 }
 
 /**
@@ -431,6 +567,7 @@ export function writeTransaction(
   if (writes.length === 1) {
     const w = writes[0] as FileWrite;
     const target = join(dir, w.rel);
+    if (w.bytes !== null) ensureChunkDir(ops, dir, w.rel);
     if (w.bytes === null) {
       const r = applyWrite(ops, dir, w);
       return r.ok ? { ok: true } : { ok: false, failed: { onDiskState: 'previous', ...(r.errno !== undefined ? { errno: r.errno } : {}) } };
