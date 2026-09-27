@@ -10,6 +10,7 @@ import { buildPlayContentM3 } from './play-m3';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
 import type { HeadlessEditors } from './headless';
+import { resolvePlayStart } from './play-start';
 
 // ---- ID / token allocation (sessions.md §3: hex, CSPRNG) ----------------------
 
@@ -196,11 +197,27 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayArtifact[] };
+    let startNotes: string[] = [];
     {
       const captured = service.readCapturedV3(projectId);
       if (!captured.ok) {
         sendError(res, workspaceError(captured.error), statusFor(captured.error.cls));
         return;
+      }
+      // Phase 23.8: a test/debug start (scene, mode, variables, save), checked against the project.
+      if (parsedReq.request.start !== undefined) {
+        const resolved = resolvePlayStart(parsedReq.request.start, {
+          content: captured.read.content as Record<string, unknown>,
+          ...(captured.read.scenes !== undefined ? { scenes: captured.read.scenes, startScenes: captured.read.startScenes ?? [] } : {}),
+          sceneId: state.scene.sceneId as string,
+        });
+        if (!resolved.ok) {
+          sendError(res, resolved.error, statusFor(resolved.error.cls));
+          return;
+        }
+        snapshot.start = resolved.start;
+        startNotes = resolved.notes;
+        for (const note of startNotes) logStartup(`play start: ${note}`);
       }
       if (captured.read.revision !== state.revision) {
         sendError(
@@ -315,6 +332,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       snapshotId,
       revision: rec.revision,
       demo: rec.demo,
+      // Phase 23.8: the resolved start (and what was ignored, e.g. a mode before the project has modes).
+      ...(snapshot.start !== undefined ? { start: { ...snapshot.start, ...(startNotes.length > 0 ? { notes: startNotes } : {}) } } : {}),
       expiresAt: new Date(rec.expiresAt).toISOString(),
       playContent: {
         contentId: published.contentId,
@@ -667,7 +686,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     const relayId = `relay-${hex(16)}`;
-    const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId, parsedReq.request.sceneId);
+    const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId, parsedReq.request.sceneId, parsedReq.request.name !== undefined ? { name: parsedReq.request.name, args: parsedReq.request.args ?? {} } : undefined);
     const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'control', relayId, payload, relayTimeoutMs());
     if (outcome.ok) {
       sessions.record(owner, 'play', relayId, rec.revision, nowMs(), 'game_control');

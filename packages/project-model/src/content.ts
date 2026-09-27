@@ -1535,7 +1535,19 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // Phase 23.7: the seed of the scripts' ctx.random (every stream mixes it with the
   // script, object and stream name). 0: any fixed value keeps runs and replays
   // repeatable; a game changes it to reshuffle every random choice at once.
+  // Phase 23.8: the in-game debug console in an exported game (Play always has
+  // it). 0, off: a release build must never ship a console by accident; a
+  // test or playtest build turns it on.
+  { key: 'debug_console', type: 'number', default: 0, values: [0, 1], valueLabels: ['Off', 'On'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Debug console in export', tooltip: 'Whether an exported game has the debug console (the ` key: the project\'s debug commands). Play always has it. Leave it off for a release build.' },
   { key: 'random_seed', type: 'number', default: 0, min: 0, max: 4294967295, integer: true, unit: '', optional: true, group: 'Engine', label: 'Random seed', tooltip: 'The seed of the scripts\' random numbers (ctx.random): the same seed gives the same numbers in every run, replay and export; change it to get a different, still repeatable, sequence (0 to 4294967295).' },
+  // Phase 23.4: the depth buffer's precision (three-adapter DEPTH_BUFFER_SETTING_VALUES).
+  // 1, standard: what every project drew with before; a level of any genre at
+  // the usual near/far planes needs nothing else. Logarithmic or reversed-Z keep
+  // near geometry sharp while far vistas (kilometres out) still sort — a
+  // choice of the game (they cost a little: logarithmic writes depth per pixel,
+  // reversed-Z needs WebGPU or WebGL 2's EXT_clip_control and falls back to
+  // standard without it).
+  { key: 'depth_buffer', type: 'number', default: 1, values: [1, 2, 3], valueLabels: ['Standard', 'Logarithmic (far vistas)', 'Reversed Z (far vistas)'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Depth precision', tooltip: 'How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard).' },
 ];
 
 /** Phase 23.0: the simulation's dimension (the `physics_dimension` setting's values). */
@@ -1547,6 +1559,12 @@ export const PHYSICS_DIMENSIONS: readonly PhysicsDimension[] = [2, 3];
  * the project sets `physics_dimension` to 3, else 2 (the 2D plane every
  * project had before the setting existed).
  */
+/** Phase 23.4: the depth buffer the renderer uses (the `depth_buffer` setting; absent or unknown: standard). */
+export function depthBufferOf(settings: unknown): 'standard' | 'logarithmic' | 'reversed' {
+  const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['depth_buffer'] : undefined;
+  return v === 2 ? 'logarithmic' : v === 3 ? 'reversed' : 'standard';
+}
+
 export function physicsDimensionOf(settings: unknown): PhysicsDimension {
   return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['physics_dimension'] === 3 ? 3 : 2;
 }

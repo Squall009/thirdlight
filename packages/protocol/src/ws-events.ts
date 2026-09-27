@@ -90,6 +90,28 @@ export interface RuntimeSnapshotDoc {
   };
   /** v3: the project's game block (null = scene mode). */
   game?: unknown;
+  /**
+   * Phase 23.8: a test/debug start, resolved by the backend against the
+   * project (a level, or start scenes and a spawn; a save; variables; a mode).
+   * The preview hands it to the host; it is not part of the runtime snapshot.
+   */
+  start?: PlayStartResolved;
+}
+
+/** Phase 23.8: the resolved start of a play (`RuntimeSnapshotDoc.start`). */
+export interface PlayStartResolved {
+  /** The scene asked for (as given). */
+  sceneId?: string;
+  /** A game with levels: the level that loads the scene. */
+  levelId?: string;
+  /** Without levels: the scenes the game starts with, and the spawn the player starts at. */
+  scenes?: string[];
+  spawnId?: string;
+  variables?: Record<string, unknown>;
+  save?: Record<string, unknown>;
+  saveSlot?: 'auto' | '1' | '2' | '3';
+  /** A game mode (validated when the project defines modes). */
+  mode?: string;
 }
 
 // ---- server → client builders (§7.1) ------------------------------------------
@@ -205,10 +227,15 @@ export function makeInputRelayRequest(
  * §20.1 control request forwarded to the owner editor (packet-42 §7.1 row;
  * this catalog's M1 set predates §20). Never carries bytes or a capability.
  */
-export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string, sceneId?: string): string {
+export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string, sceneId?: string, debug?: { name: string; args: Record<string, number | string | boolean> }): string {
   const obj: Record<string, unknown> = { type: 'game.control.request', relayId, command };
   if (expectedRunId !== undefined) obj.expectedRunId = expectedRunId;
   if (sceneId !== undefined) obj.sceneId = sceneId;
+  // Phase 23.8: a debug command's name and arguments.
+  if (debug !== undefined) {
+    obj.name = debug.name;
+    obj.args = debug.args;
+  }
   return emit(obj);
 }
 

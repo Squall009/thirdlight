@@ -12,6 +12,9 @@
 import type {
   ActionFrame,
   AnimatorPose,
+  CameraViewInfo,
+  DebugCommandCall,
+  DebugCommandState,
   EffectRequest,
   LoadedSceneBatch,
   GameView,
@@ -66,6 +69,8 @@ export interface SimInitMessage {
   /** Transforms through shared memory (only when the page is cross-origin isolated). */
   readonly shared?: boolean;
   readonly memoryCapBytes?: number;
+  /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
+  readonly variables?: Readonly<Record<string, unknown>>;
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */
@@ -84,6 +89,10 @@ export type SimCommand =
   | { readonly op: 'setPaused'; readonly paused: boolean }
   | { readonly op: 'requestScene'; readonly sceneOp: 'load' | 'unload'; readonly sceneId: string }
   | { readonly op: 'setViewport'; readonly width: number; readonly height: number }
+  /** Phase 23.4: the viewport the view is drawn in (screen↔world projection's aspect). */
+  | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
+  // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
+  | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   | { readonly op: 'stop' };
 
 export type SimQuery =
@@ -146,12 +155,20 @@ export interface FrameState {
   readonly sceneSet?: SceneSetWire;
   readonly audio?: readonly { assetId: string; volume: number; stepIndex: number }[];
   readonly effects?: readonly EffectRequest[];
+  /**
+   * Phase 23.4: the resolved camera (virtual cameras), every frame while the game has one:
+   * the interpolated view [px, py, pz, qx, qy, qz, qw, fovY, near, far, letterbox] and the
+   * committed view (null: no virtual camera).
+   */
+  readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
   /** Phase 23.5: block-layer chunks to re-mesh (their cells now). */
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };
   readonly memoryBytes?: number;
+  /** Phase 23.8: the debug commands (registered, applied) when they changed. */
+  readonly debugCommands?: DebugCommandState;
 }
 
 export type WorkerToMain =

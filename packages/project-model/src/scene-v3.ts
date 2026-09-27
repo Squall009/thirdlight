@@ -20,6 +20,7 @@
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
+import { canonicalCameraPath, canonicalVirtualCamera, validateCameraPathComponent, validateVirtualCameraComponent, type CameraPathComponent, type VirtualCameraComponent } from './cameras';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
 import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, type FogVolumeComponent, type MaterialParamsComponent } from './materials';
 import {
@@ -132,8 +133,8 @@ export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer'];
 // Phase 23.5: `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'blockLayer'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 /** Phase 15.3 (v4): the follow distance and the speed cap. */
@@ -935,6 +936,9 @@ function validateEntityComponentsV3(
   }
   // Phase 20.0: a visual effect played from the entity (any entity may carry one).
   if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
+  // Phase 23.4: a virtual camera shot and a path rail cameras ride (any entity may carry them).
+  if (comps['virtualCamera'] !== undefined) validateVirtualCameraComponent(comps['virtualCamera'], `${path}/virtualCamera`, errors);
+  if (comps['cameraPath'] !== undefined) validateCameraPathComponent(comps['cameraPath'], `${path}/cameraPath`, errors);
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
   if (comps['blockLayer'] !== undefined) {
@@ -1003,6 +1007,21 @@ function validateEntityComponentsV3(
           expected: 'components.camera on the same entity',
         },
         'cameraFollow',
+      ),
+    );
+  }
+  // Phase 23.4: a virtual camera is a shot, not the scene camera (which draws whichever shot is live).
+  if (comps['virtualCamera'] !== undefined && (comps['camera'] !== undefined || comps['cameraFollow'] !== undefined)) {
+    errors.push(
+      withFound(
+        {
+          code: 'component_conflict',
+          path: `${path}/virtualCamera`,
+          message: 'a virtual camera is a separate shot: it does not sit on the scene camera (camera, cameraFollow)',
+          reason: 'camera_target',
+          expected: 'no camera or cameraFollow on a virtualCamera entity',
+        },
+        'virtualCamera',
       ),
     );
   }
@@ -1224,6 +1243,9 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     if (comps[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(comps[name]);
   }
   if (comps['effect'] !== undefined) (components as { effect?: EffectComponent }).effect = canonicalEffectComponent(comps['effect'] as EffectComponent);
+  // Phase 23.4: last, so every existing entity keeps its exact canonical bytes.
+  if (comps['virtualCamera'] !== undefined) (components as { virtualCamera?: VirtualCameraComponent }).virtualCamera = canonicalVirtualCamera(comps['virtualCamera'] as VirtualCameraComponent);
+  if (comps['cameraPath'] !== undefined) (components as { cameraPath?: CameraPathComponent }).cameraPath = canonicalCameraPath(comps['cameraPath'] as CameraPathComponent);
   if (comps['blockLayer'] !== undefined) {
     // Phase 23.5 (a merged runtime scene keeps the attached `data`).
     const bl = comps['blockLayer'] as BlockLayerComponent & { data?: BlockLayerData };

@@ -17,6 +17,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
+import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
 import { validateBlockLayerComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
@@ -63,11 +64,14 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   switch: ['mode', 'signal', 'size', 'once'],
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
   // Phase 18.0: free-form keys (materialIds); a setComponent replaces the whole value.
   materialParams: [],
   // Phase 20.0: the effect and its parameter overrides (`params` is replaced whole).
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
+  // Phase 23.4: the camera framework (project-model cameras.ts field order).
+  virtualCamera: VIRTUAL_CAMERA_FIELDS,
+  cameraPath: CAMERA_PATH_FIELDS,
   // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
   blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
 };
@@ -125,6 +129,9 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'materialParams',
   // Phase 20.0: v4 scenes only.
   'effect',
+  // Phase 23.4: v4 scenes only.
+  'virtualCamera',
+  'cameraPath',
   // Phase 23.5: v4 scenes only.
   'blockLayer',
 ];
@@ -211,6 +218,12 @@ export function validateV3ComponentValue(
       break;
     case 'effect':
       validateEffectComponent(value, path, errors as unknown as Parameters<typeof validateEffectComponent>[2]);
+      break;
+    case 'virtualCamera':
+      validateVirtualCameraComponent(value, path, errors as unknown as Parameters<typeof validateVirtualCameraComponent>[2]);
+      break;
+    case 'cameraPath':
+      validateCameraPathComponent(value, path, errors as unknown as Parameters<typeof validateCameraPathComponent>[2]);
       break;
     case 'fogVolume':
       validateFogVolumeComponent(value, path, errors as unknown as Parameters<typeof validateFogVolumeComponent>[2]);

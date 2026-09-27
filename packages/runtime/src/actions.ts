@@ -33,7 +33,30 @@ export interface ActionFrame {
    * axis, `p` the button phase. Absent: only move and jump exist.
    */
   actions?: Readonly<Record<string, ActionValue>>;
+  /**
+   * Phase 23.8, optional: the debug commands run in this step (a tool, the
+   * in-game console) — part of the input so a recording replays them exactly.
+   * Absent: none (every older frame and recording is unchanged).
+   * @graphNode skip a script receives its debug commands with ctx.debug.command
+   */
+  commands?: readonly DebugCommandCall[];
 }
+
+/** Phase 23.8: one debug command call carried by an input frame. */
+export interface DebugCommandCall {
+  /** The command a script registered (`ctx.debug.command(name, …)`). */
+  readonly name: string;
+  /** Its arguments by name: numbers, text (≤ 256 characters) or true/false. */
+  readonly args: Readonly<Record<string, DebugCommandArg>>;
+}
+export type DebugCommandArg = number | string | boolean;
+
+/** Phase 23.8: engine limits of debug commands (per frame; arguments per call). */
+export const MAX_FRAME_COMMANDS = 8;
+export const MAX_COMMAND_ARGS = 8;
+export const MAX_COMMAND_TEXT = 256;
+/** A debug command or argument name. */
+export const DEBUG_COMMAND_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,31}$/;
 
 /** Phase 9.8: one input action's value in a step. */
 export interface ActionValue {
@@ -120,7 +143,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'commands') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -157,8 +180,15 @@ export function validateActionFrame(
   if (typeof jump !== 'string' || !JUMP_PHASES.includes(jump as JumpPhase)) {
     return { ok: false, field: 'jump', message: 'jump must be one of none | pressed | held | released' };
   }
+  // Phase 23.8: the frame's debug commands (validated and frozen; absent keeps the frame as it was).
+  let commands: readonly DebugCommandCall[] | undefined;
+  if (value['commands'] !== undefined) {
+    const c = validateDebugCommands(value['commands']);
+    if (!c.ok) return c;
+    commands = c.commands;
+  }
   const rawActions = value['actions'];
-  if (rawActions === undefined) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase } };
+  if (rawActions === undefined) return { ok: true, frame: commands !== undefined ? { stepIndex, moveX, jump: jump as JumpPhase, commands } : { stepIndex, moveX, jump: jump as JumpPhase } };
   if (!isPlainObject(rawActions) || ownKeyCount(rawActions) > MAX_FRAME_ACTIONS) {
     return { ok: false, field: 'actions', message: `actions must map at most ${MAX_FRAME_ACTIONS} action names to values` };
   }
@@ -178,7 +208,8 @@ export function validateActionFrame(
     if (same && !(sameActionValue(prevActions![name], a) && keyAt(prevActions!, index) === name)) same = false;
     index += 1;
   }
-  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: prevActions! } };
+  const withCommands = commands !== undefined ? { commands } : {};
+  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: prevActions!, ...withCommands } };
   const actions: Record<string, ActionValue> = {};
   for (const name in rawActions) {
     if (!hasOwn.call(rawActions, name)) continue;
@@ -189,7 +220,43 @@ export function validateActionFrame(
         ? prev
         : Object.freeze({ v: a['v'] as number, ...(a['x'] !== undefined ? { x: a['x'] as number } : {}), ...(a['y'] !== undefined ? { y: a['y'] as number } : {}), p: a['p'] as JumpPhase });
   }
-  return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: Object.freeze(actions) } };
+  return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: Object.freeze(actions), ...withCommands } };
+}
+
+/**
+ * Phase 23.8: validate a frame's `commands` (at most 8 calls, each
+ * `{ name, args }` with at most 8 arguments: finite numbers, text up to 256
+ * characters, or booleans). Returns frozen copies.
+ */
+export function validateDebugCommands(raw: unknown): { ok: true; commands: readonly DebugCommandCall[] } | { ok: false; field: string; message: string } {
+  if (!Array.isArray(raw) || raw.length > MAX_FRAME_COMMANDS) return { ok: false, field: 'commands', message: `commands must be an array of at most ${MAX_FRAME_COMMANDS} debug command calls` };
+  const out: DebugCommandCall[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = validateDebugCommandCall(raw[i]);
+    if (!c.ok) return { ok: false, field: `commands/${i}${c.field === '' ? '' : `/${c.field}`}`, message: c.message };
+    out.push(c.call);
+  }
+  return { ok: true, commands: Object.freeze(out) };
+}
+
+/** Phase 23.8: validate one debug command call (see `validateDebugCommands`). */
+export function validateDebugCommandCall(raw: unknown): { ok: true; call: DebugCommandCall } | { ok: false; field: string; message: string } {
+  if (!isPlainObject(raw)) return { ok: false, field: '', message: 'a debug command call is { name, args }' };
+  for (const k in raw) if (hasOwn.call(raw, k) && k !== 'name' && k !== 'args') return { ok: false, field: k, message: `unknown debug command field "${k}"` };
+  const name = raw['name'];
+  if (typeof name !== 'string' || !DEBUG_COMMAND_NAME_RE.test(name)) return { ok: false, field: 'name', message: 'a debug command name is a letter or _, then up to 31 letters, digits, _ . : -' };
+  const rawArgs = raw['args'] ?? {};
+  if (!isPlainObject(rawArgs) || ownKeyCount(rawArgs) > MAX_COMMAND_ARGS) return { ok: false, field: 'args', message: `args maps at most ${MAX_COMMAND_ARGS} argument names to values` };
+  const args: Record<string, DebugCommandArg> = {};
+  for (const k of Object.keys(rawArgs).sort()) {
+    const v = rawArgs[k];
+    if (!DEBUG_COMMAND_NAME_RE.test(k)) return { ok: false, field: `args/${k}`, message: 'an argument name is a letter or _, then up to 31 letters, digits, _ . : -' };
+    if (!((typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= MAX_COMMAND_TEXT) || typeof v === 'boolean')) {
+      return { ok: false, field: `args/${k}`, message: `an argument is a finite number, text of at most ${MAX_COMMAND_TEXT} characters, or true/false` };
+    }
+    args[k] = Object.is(v, -0) ? 0 : (v as DebugCommandArg);
+  }
+  return { ok: true, call: Object.freeze({ name, args: Object.freeze(args) }) };
 }
 
 const hasOwn = Object.prototype.hasOwnProperty;

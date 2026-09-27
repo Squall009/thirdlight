@@ -1401,9 +1401,15 @@ a coin, an enemy and a trigger. Any object can get these in the Inspector
   sound (an audio asset) if wanted.
 - **Enemy** — walks between two x offsets or until a ledge/wall, hurts on
   contact, can be defeated by jumping on it (the player bounces; the enemy
-  squashes, then vanishes). With "chases the player within" it walks toward
-  a player that near (still inside its range / not off a ledge); its
-  Animator gets `speed`, `attacking` (chasing), `hurt` and `defeated`.
+  squashes, then vanishes). With "chases the player within" it goes after a
+  player that near; **chase speed** is how fast it runs (0: its walking
+  speed), **needs sight** only notices a player nothing solid stands between
+  it and, **in front only** only one in the direction it is walking, **chase
+  memory** keeps it coming for that long after it last noticed the player,
+  and **leaves its post** lets it leave its patrol range (it walks back when
+  it gives up). It never walks through a wall or off a ledge, chasing or not.
+  Its Animator gets `speed` (its current speed), `attacking` (chasing), `hurt`
+  and `defeated`.
 - A collider's **one-way** flag: jump up through it, land on it from above,
   Down + Jump drops through. A spawn or checkpoint inside one is not
   blocked (the player drops to what is below). A hazard zone's **damage** takes health instead
@@ -1691,6 +1697,62 @@ Each save is versioned, checksummed and at most 64 KB; a damaged one is
 named on the title screen and ignored. Play keeps its saves apart from
 exported games (and each project apart from the others); **Game flow →
 Clear Play save** forgets Play's (MCP: `tl_game_control` `clearSave`).
+
+## Test and debug entry points (phase 23.8)
+
+**Play from…** (the toolbar button next to *play*) starts Play somewhere
+other than the game's start:
+
+- **Scene** — a game with levels (a game flow) starts a new game at the
+  first level that loads the scene, skipping the title; a game without levels
+  loads the scene together with its start scenes (they hold the camera and
+  the player) and the player starts at the scene's first player spawn (else
+  the game's own). A scene-only project (no game block) loads it as well.
+- **Variables** — a JSON object the scripts read with `ctx.save.get(key)`
+  from the very first step (the save's rules: at most 64 keys of 4 KB JSON
+  each). With a save they are added on top of the save's values.
+- **Save slot** — continue a game with levels from Play's autosave or slot
+  1–3 (the title's Continue / Load game path).
+
+MCP's `tl_play_start` takes the same options — `sceneId`, `variables`,
+`save` (a save document as the game writes them, at most 64 KB) or `saveSlot`
+(`auto`, `1`–`3`), and `mode` (a game-mode id: checked once the project
+defines game modes, and until then ignored and named in the result's
+`start.notes`). The backend checks them against the project (an unknown
+scene, a scene no level loads, or a save in a game without levels is
+refused) and the result echoes the resolved start; `tl_game_observe`
+reports what the game did with it as `start {ok, applied | reason}`. It
+works with the headless editor too (no browser open).
+
+**Debug commands** are declared by the project's scripts:
+
+```ts
+ctx.debug?.command('giveItem', {
+  description: 'Give the party an item',
+  args: [{ name: 'item', type: 'string' }, { name: 'count', type: 'number', optional: true }],
+}, (args) => { /* runs once per call, in this step */ });
+```
+
+The call also returns this step's calls (a list of argument objects) for a
+script that prefers to loop over them. Every script instance that declares
+the command receives each call, in the `intent` phase. The first declaration
+fixes the arguments (a second one with other arguments stops the game with
+the script error); at most 32 commands per game. A command runs **inside the
+simulation step as part of that step's input** (the input frame carries it),
+so it is deterministic and a recording that carries it replays it exactly;
+`tl_game_observe` lists `debugCommands {registered, applied [{stepIndex,
+name, args}] (the last 16)}` — the steps a playtest needs to reproduce a run.
+Run one from:
+
+- MCP: `tl_game_control` with `command: "debugCommand"`, `name` and `args`
+  (refused with `game_command_invalid` when no script declared it or the
+  arguments do not match);
+- the **in-game console**: press **`** (backquote) in Play — it lists the
+  commands (`help`), takes `giveItem lantern 2` (the declared order) or
+  `giveItem count=2 item="iron key"`, and prints each call the game ran with
+  its step. Play always has it. An exported game has it only when **Project
+  settings → Engine → Debug console in export** (`debug_console`) is on —
+  off by default, so a release build never ships a console by accident.
 
 ## Score
 
@@ -2147,7 +2209,7 @@ In a 3D project:
 - in Play and the export the player capsule falls under the project's
   gravity (`gravity_y`, capped at the max fall speed) and rests on what it
   lands on. Walking, jumping and the 3D character settings are phase 23.2;
-  cameras 23.4. A 3D project plays its scenes without a game block for now
+  cameras: see *Cameras* below. A 3D project plays its scenes without a game block for now
   (the platformer game set is 2D-plane only until 3D game modes, 23.10);
 - `tl_game_observe` reports such a scene play with `state: "scene"`, its
   step and `player: { x, y, z }`; an exported page has the same observation
@@ -2159,6 +2221,82 @@ it: Play loads `/physics-3d.js` from the preview origin, a 3D export ships
 no fetch, no URL) and lists the `@dimforge/rapier3d-compat` license. It loads
 in the simulation worker or, single-threaded, in the page.
 
+## Cameras (virtual cameras)
+
+Since phase 23.4 a scene can hold **virtual cameras**: shots the game cuts or
+blends to. Add one to any object with **+ Add component → Virtual camera**
+(Camera group; presets: follow/orbit, orbit a point, top-down, fixed). The
+scene camera (the object with the Camera component) still draws the game;
+with an enabled virtual camera it shows that camera's view instead. A
+project without virtual cameras draws exactly what it drew before — its
+`cameraFollow` and framing are untouched.
+
+**Which camera is live.** The enabled virtual camera with the highest
+**Priority** (on a tie the one activated last, then the first in the scene).
+**Enabled at start** off keeps a camera waiting for a script. Without an
+enabled virtual camera the view is the scene camera's own (its follow, or
+where it is placed).
+
+**Rigs** (the **Rig** field; the Inspector shows the fields each uses):
+
+- **Follow / orbit** — circles its **Target** at **Distance**, **Yaw** and
+  **Pitch** (limits **Pitch min/max**), plus a **Target offset** (e.g. head
+  height). The player turns it with the **Turn action** (an axis; a 2D axis
+  turns with x and tilts with y), tilts it with the **Tilt action** and zooms
+  with the **Zoom action** (between **Min/Max distance**). In a 3D project it
+  is pulled in front of colliders between it and the target (**Collision**,
+  **Collision radius**; never closer than Min distance). **Damping** lets it
+  lag behind a moving target.
+- **Orbit a point** — circles the **Point** (a world point with a Scene
+  handle; absent: the target, else where it is placed). Each press of the
+  **Turn left/right action** turns one **Turn step** (90° by default), eased
+  over **Turn time**; tilt and zoom as above.
+- **Top-down** — straight down onto its target from **Distance**, turned by
+  **Yaw**.
+- **Fixed / look-at** — where it is placed; with a target it looks at it.
+- **Rail (path)** — rides a **Camera path** (another component: points as
+  offsets from its object, drawn and dragged with the path handle; **Closed**,
+  **Smooth**). **Progress** (0–1) is where it starts, **Rail speed** (m/s)
+  how fast it rides, **At the end** stop, loop or back and forth. It looks at
+  its target, or along the path.
+
+**Blends.** When the live camera changes, the view moves from what is on
+screen to the new camera: **Blend in** cut, linear or eased over **Blend
+time** (back to the scene camera: the camera being left sets it). A change
+during a blend continues from the blended view.
+
+**Lens and effects.** **Field of view**, **Near** and **Far** (absent: the
+scene camera's — a camera with a far plane of kilometres draws distant
+scenery), **Letterbox** (black bars over the top and bottom, each that share
+of the view height, blended with the camera) and a constant **Shake**
+(amplitude, frequency, rotation).
+
+**Depth precision.** Project settings → Rendering → **Depth precision**
+(`depth_buffer`): Standard (the default), Logarithmic or Reversed Z. The last
+two keep close objects sharp while scenery kilometres away still sorts
+correctly; reversed Z needs WebGPU or a WebGL 2 browser with
+`EXT_clip_control` and falls back to standard otherwise. The game canvas
+reports the mode in `data-tl-depth`.
+
+**Scripts** (`ctx.camera`, and the Camera nodes of visual scripts):
+`activate(id, {blend?, time?})`, `deactivate(id, …)`, `setPriority`,
+`setTarget`, `set(id, {distance, yaw, pitch, progress, railSpeed, fovY,
+letterbox, point, targetOffset})`, `turn(id, steps)`, `shake(amplitude,
+seconds, frequency?, rotation?, seed?)`, `live()`, `blending()`, `get(id)`,
+`worldToScreen(position)` and `screenToRay(x, y)` (screen coordinates 0–1
+from the top left, with the aspect of the view the game is drawn in).
+Changes take effect at the end of the step; the camera is resolved in the
+simulation step, so replays, the simulation worker and the export give the
+same camera (and the same screen rays) bit for bit.
+
+**Editor.** A selected virtual camera shows its frustum where its rig puts
+it (the same maths as Play) and a line to what it looks at; the orbit point
+and camera path points are Scene handles (one undo step per drag).
+
+**Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
+export) reports `camera: { live, blend: {from, progress, style} | null,
+position, rotation, fovY, near, far, letterbox, shake }` while the game has
+virtual cameras.
 ## Block layers (phase 23.5)
 
 A **block layer** builds a level from blocks on a grid (terrain, buildings, a

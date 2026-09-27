@@ -14,6 +14,7 @@
  */
 import { isContentId, isNonce, isPlaySessionId, isRelayId, isRequestId } from './ids';
 import { validateInputRelayResult } from './delivery';
+import { debugCommandCallProblem } from './m3';
 
 /** The exhaustive allowlists (sessions.md §13.5, v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -64,7 +65,7 @@ export const BRIDGE_DEBUG_RESULT_MAX_BYTES = 32_768;
 /** Phase 19.2: what a debug request may ask of the running play besides reading. */
 export const BRIDGE_DEBUG_COMMANDS = ['pause', 'resume', 'step'] as const;
 /** Phase 19.2: game-control commands (§20.1 plus the debugger's pause / resume / step). */
-const GAME_CONTROL = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep'];
+const GAME_CONTROL = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'];
 const ENTITY_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** A debugger node id: a graph item id, optionally scoped (`fn:<functionId>/` or `lib:<graphId>/`). */
 const DEBUG_NODE_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;
@@ -138,7 +139,8 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       const s = m['snapshot'];
       if (!isPlainObject(s)) return { ok: false, reason: 'snapshot must be the runtime.md §2 document', path: '/snapshot' };
       for (const k of Object.keys(s)) {
-        if (!['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags'].includes(k)) {
+        // Phase 23.8: `start` — a test/debug start the backend resolved (the preview hands it to the host).
+        if (!['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'start'].includes(k)) {
           return { ok: false, reason: `unknown snapshot field "${k}"`, path: `/snapshot/${k}` };
         }
       }
@@ -149,6 +151,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (s['game'] !== undefined && s['game'] !== null && !isPlainObject(s['game'])) {
         return { ok: false, reason: 'snapshot.game must be the game block or null', path: '/snapshot/game' };
       }
+      if (s['start'] !== undefined && !isPlainObject(s['start'])) return { ok: false, reason: 'snapshot.start must be the resolved start options', path: '/snapshot/start' };
       return { ok: true };
     }
     case 'tl.playContent.expect': {
@@ -216,7 +219,9 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       // Phase 12 (c): loadScene / unloadScene carry the scene id.
       const sceneCommand = m['command'] === 'loadScene' || m['command'] === 'unloadScene';
       // Phase 15.4: an observation may name an entity (its script property values).
-      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
+      // Phase 23.8: a debug command carries its name and arguments.
+      const debugCommand = m['command'] === 'debugCommand';
+      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
       const bad = rejectUnknown(m, fields);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
@@ -229,6 +234,10 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       }
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
         return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
+      }
+      if (type === 'tl.game.control' && debugCommand) {
+        const p = debugCommandCallProblem(m['name'], m['args']);
+        if (p !== null) return { ok: false, reason: p.problem, path: p.path };
       }
       return { ok: true };
     }
