@@ -179,6 +179,7 @@ export const BEHAVIOR_API_NODES: readonly BehaviorApiNodeSpec[] = [
 export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] = [
   {"path":"action.commands","reason":"a script receives its debug commands with ctx.debug.command"},
   {"path":"action.input","reason":"scripts read it with ctx.input.device, bindings and glyph"},
+  {"path":"action.ui","reason":"a script reads its UI events with ctx.ui.events / ctx.ui.event"},
   {"path":"physics.stageCharacterMove","reason":"scripts never run in the controller phase"},
   {"path":"input.device","reason":"use Using gamepad (the id and family are for glyph choices a script makes)"},
   {"path":"input.bindings","reason":"a list of records; a graph reads Action glyph label / icon"},
