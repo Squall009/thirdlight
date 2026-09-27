@@ -88,6 +88,8 @@ import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
+import { EnvironmentDirector, type EnvironmentSaveState } from './environment-director';
+import type { EnvironmentBlendView } from './environment-blend';
 import { SocketSystem } from './sockets';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks } from './blocks';
@@ -1294,6 +1296,7 @@ export function instantiateRuntime(
     ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
     ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
     ...(projectSettings !== undefined ? { projectSettings } : {}),
+    environmentPresets: snap.environmentPresets ?? [],
     uiDocuments: snap.uiDocuments,
   });
   return { ok: true, runtime: rt };
@@ -1384,6 +1387,8 @@ interface RuntimeArgs {
   projectSettings?: Readonly<Record<string, unknown>>;
   /** Phase 23.9a: the project's UI documents (id, layer, modal). */
   uiDocuments: readonly RuntimeUiDocumentRow[];
+  /** Phase 23.18: the environment preset ids (ctx.environment). */
+  environmentPresets: readonly string[];
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1621,6 +1626,8 @@ class RuntimeInstance implements Runtime {
   private readonly materials: RuntimeMaterials;
   /** Phase 23.19: project saves (`ctx.saves`). */
   private readonly saves: RuntimeSaves;
+  /** Phase 23.18: the environment preset blend (`ctx.environment`; inert until a script uses it). */
+  private readonly environment: EnvironmentDirector;
   private stepBounce: number | null = null;
   private raycastsThisStep = 0;
   /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
@@ -1883,6 +1890,8 @@ class RuntimeInstance implements Runtime {
     // Phase 23.12: the start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materials.addEntities(args.initialEntities);
+    // Phase 23.18: the environment preset blend (before the saves, whose sections read it).
+    this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message));
     // Phase 23.19: project saves (the document, slots, settings; inert without a save schema).
     this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message));
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
@@ -2217,6 +2226,21 @@ class RuntimeInstance implements Runtime {
     return this.materials.digestText();
   }
 
+  /**
+   * Phase 23.18: the environment preset weights interpolated like the
+   * transforms (the renderer blends the look from them), or null until a
+   * script changed the environment. Reading changes nothing the simulation computes.
+   */
+  readEnvironmentBlend(): EnvironmentBlendView | null {
+    if (this.stateName === 'disposed') return null;
+    return this.environment.view(this.stateName === 'failed' ? 1 : this.lastAlpha);
+  }
+
+  /** Phase 23.18: the committed environment blend as digest text (null until a script changed it). */
+  environmentState(): string | null {
+    return this.environment.digestText();
+  }
+
   /** Phase 23.19: the save/load/delete/settings requests since the last call; the host (the storage owner) carries them out. */
   takeSaveRequests(): SaveRequest[] {
     return this.saves.takeRequests();
@@ -2264,6 +2288,8 @@ class RuntimeInstance implements Runtime {
             return Object.fromEntries([...rt.saveStore.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
           case 'spawned':
             return rt.spawnedCopies();
+          case 'environment':
+            return rt.environment.saveState();
         }
       },
       check(section, value) {
@@ -2279,6 +2305,8 @@ class RuntimeInstance implements Runtime {
           }
           case 'spawned':
             return rt.spawnedCopiesProblem(value);
+          case 'environment':
+            return rt.environment.checkState(value);
         }
       },
       apply(section, value) {
@@ -2294,6 +2322,9 @@ class RuntimeInstance implements Runtime {
             return null;
           case 'spawned':
             rt.restoreSpawnedCopies((value ?? []) as SavedSpawnCopy[]);
+            return null;
+          case 'environment':
+            rt.environment.restoreState(value as EnvironmentSaveState | undefined);
             return null;
         }
       },
@@ -3174,6 +3205,8 @@ class RuntimeInstance implements Runtime {
     }
     // Phase 23.4: the camera brain resolves the view on the step's transforms.
     this.stepCameras(null);
+    // Phase 23.18: the environment blend advances with the step.
+    this.environment.step();
     // Phase 23.13: fades and clips advance; finished sounds are seen next step.
     this.audio.endStep();
     this.prev = backup; // prev := curr at the end of step n−1
@@ -3296,6 +3329,8 @@ class RuntimeInstance implements Runtime {
     // Phase 23.4: the camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
     this.stepCameras(action);
+    // Phase 23.18: the environment blend advances with the step.
+    this.environment.step();
     // Phase 23.19: saves asked for this step are assembled, loaded ones restored (a step boundary).
     this.saves.endStep();
     // Phase 23.13: fades and clips advance; finished sounds are seen next step.
@@ -3573,6 +3608,8 @@ class RuntimeInstance implements Runtime {
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 23.4: and with its cameras as authored.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
+    // Phase 23.18: and with the base environment look.
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.environment.reset();
     // Phase 23.13: and without the last run's script sounds (the music back to the flow).
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.audio.reset();
     // Phase 23.3: and with the cursor its input map gives (a script's request ends with the run).
@@ -4686,6 +4723,8 @@ class RuntimeInstance implements Runtime {
       fields['saves'] = { value: this.saves.api, enumerable: true };
       // Phase 23.9a: the project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
+      // Phase 23.18: the environment presets (ctx.environment).
+      fields['environment'] = { value: this.environment.api, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };

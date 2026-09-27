@@ -230,6 +230,7 @@ export {
   environmentHasLook,
   layerEnvironment,
   QUALITY_PROFILE,
+  type EnvironmentBlendLike,
   type EnvironmentLayerLike,
   type EnvironmentLike,
   type EnvironmentRenderer,

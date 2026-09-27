@@ -282,6 +282,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
     // Phase 23.19: the project save schema (ctx.saves).
     ...(manifest.saveSchema !== undefined ? { saveSchema: manifest.saveSchema } : {}),
+    // Phase 23.18: the environment preset ids scripts switch and blend to (ctx.environment).
+    ...((manifest.environment?.presets?.length ?? 0) > 0 ? { environmentPresets: manifest.environment!.presets!.map((p) => p.presetId) } : {}),
     // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
     ...(uiDocumentsForRuntime(manifest.uiDocuments) !== undefined ? { uiDocuments: uiDocumentsForRuntime(manifest.uiDocuments) } : {}),
   } as unknown as RuntimeSnapshot);
@@ -442,7 +444,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
           : {}),
         // Phase 9.5: sky, fog, fog volumes, post-processing.
-        ...(environmentHasLook(manifest.environment) || levelLooks
+        // Phase 23.18: environment presets need the environment renderer too (scripts blend the look).
+        ...(environmentHasLook(manifest.environment) || levelLooks || (manifest.environment?.presets?.length ?? 0) > 0
           ? {
               environment: {
                 value: manifest.environment ?? {},

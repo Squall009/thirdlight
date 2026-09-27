@@ -533,6 +533,26 @@ const ENV_BASES: J[] = [
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
   { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'] }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
+  // Phase 23.18: environment presets.
+  {
+    presets: [
+      {
+        presetId: 'night',
+        name: 'Night',
+        sky: { mode: 'color', color: '#000010' },
+        fog: { mode: 'linear', color: '#101820', near: 5, far: 40 },
+        post: POST_FULL,
+        lights: [
+          { entity: 'light-0001', color: '#8090ff', intensity: 0.2, direction: [0, -1, 0], groundColor: '#101010' },
+          { tag: 'Lamps', intensity: 30 },
+          { type: 'ambient', color: '#101020' },
+        ],
+        lightmap: { intensity: 0.25, tint: '#8090ff' },
+      },
+    ],
+  },
+  { presets: [{ presetId: 'lamps', name: 'Lamps', lights: [{ tag: 'Lamps', intensity: 30 }] }] },
+  { presets: [{ presetId: 'dim', name: 'Dim', lights: [{ type: 'ambient', color: '#101020' }] }] },
 ];
 
 const FLOW_BASE = {

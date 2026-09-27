@@ -51,7 +51,8 @@ import {
 } from '@thirdlight/three-adapter';
 import type { BlockChunk, BlockLayerComponent, BlockType } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { CameraBrain, type CameraPose } from '@thirdlight/runtime';
+import { blendEnvironment, blendLight, type CameraPose, CameraBrain, type EnvironmentBlendView, type EnvironmentLightValues } from '@thirdlight/runtime';
+import type { EnvironmentPreset } from '@thirdlight/project-model';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -700,7 +701,9 @@ export class Viewport {
   private applyLighting(): void {
     this.unapplyLightmaps();
     this.applyLightmaps();
+    this.environment?.setBlend(null);
     this.environment?.set(this.lighting === 'game' ? this.environmentValue : null);
+    this.applyEnvironmentPreview();
     this.environment?.setQuality(this.editorQuality());
     for (const l of this.editorLights) l.visible = this.lighting === 'editor';
     for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
@@ -741,6 +744,9 @@ export class Viewport {
       have.light.dispose();
       this.sceneLights.delete(id);
     }
+    // Phase 23.18: a preset preview applies to the lights as they are now.
+    this.lightTags = new Map(entities.filter((e) => e.light !== undefined).map((e) => [e.id, e.tags]));
+    if (this.envPreview !== null) this.applyEnvironmentPreview();
     // The sun of a procedural sky sits opposite the scene's directional light.
     const key = entities.find((e) => e.light?.type === 'directional' && e.light.direction !== undefined);
     this.keyLightDirection = key?.light?.direction ?? null;
@@ -1171,7 +1177,57 @@ export class Viewport {
     env.set(this.lighting === 'game' ? this.environmentValue : null);
     env.setQuality(this.editorQuality());
     this.environment = env;
+    // Phase 23.18: a preset preview carries over to a new renderer.
+    if (this.envPreview !== null) this.applyEnvironmentPreview();
     return env;
+  }
+
+  // ---- Phase 23.18: environment preset preview --------------------------------------------
+  /** The preset blend the Scene view previews (null: the authored look). */
+  private envPreview: EnvironmentBlendView | null = null;
+  private envPreviewTags = new Map<string, number>();
+  private lightTags = new Map<string, number>();
+  private envLightsTouched = false;
+  /**
+   * Show an environment preset blend (weights by preset id; '' = the base
+   * look) in the Scene view with game lighting: the look, and the scene
+   * lights the presets set — the runtime's own blend maths (what Play draws).
+   * Null: back to the authored look. `tagBits`: the project's tag registry
+   * (name → bit) for presets that name lights by tag.
+   */
+  previewEnvironmentBlend(view: { weights: readonly (readonly [string, number])[]; overrides?: EnvironmentBlendView['overrides'] } | null, tagBits?: ReadonlyMap<string, number>): void {
+    this.envPreview = view === null ? null : { weights: view.weights, overrides: view.overrides ?? {}, target: null, progress: 1 };
+    if (tagBits !== undefined) this.envPreviewTags = new Map([...tagBits].map(([k, v]) => [k.toLowerCase(), v]));
+    this.applyEnvironmentPreview();
+    this.requestRender();
+  }
+  /** The previewed blend (tests, the panel). */
+  environmentPreview(): EnvironmentBlendView | null {
+    return this.envPreview;
+  }
+  private applyEnvironmentPreview(): void {
+    const view = this.envPreview;
+    const presets = new Map(((this.environmentValue?.presets ?? []) as unknown as readonly EnvironmentPreset[]).map((p) => [p.presetId, p]));
+    const base = (this.environmentValue ?? {}) as Parameters<typeof blendEnvironment>[0];
+    if (view === null || this.lighting !== 'game') this.environment?.setBlend(null);
+    else this.environment?.setBlend(blendEnvironment(base, presets, view) as never);
+    // The lights: blended values, or back to what the scene authored.
+    if (view === null && !this.envLightsTouched) return;
+    this.envLightsTouched = view !== null;
+    for (const [id, have] of this.sceneLights) {
+      const l = JSON.parse(have.key) as { type: string; color: string; intensity: number; direction?: number[]; groundColor?: string };
+      const d = l.direction ?? (l.type === 'spot' || l.type === 'directional' ? [0, -1, 0] : undefined);
+      const authored: EnvironmentLightValues = { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0]!, d[1]!, d[2]!] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) };
+      const v = view === null ? authored : blendLight(authored, { id, tags: this.lightTags.get(id) ?? 0, type: l.type }, this.envPreviewTags, base, presets, view);
+      have.light.color.set(v.color);
+      have.light.intensity = v.intensity;
+      if (v.groundColor !== undefined && have.light instanceof THREE.HemisphereLight) have.light.groundColor.set(v.groundColor);
+      if (v.direction !== undefined) {
+        const [x, y, z] = v.direction;
+        if (have.light instanceof THREE.SpotLight) have.light.target.position.set(x, y, z);
+        else if (have.light instanceof THREE.DirectionalLight) have.light.position.set(-x * 20, -y * 20, -z * 20);
+      }
+    }
   }
 
   private readTarget(): GizmoTransform {
@@ -2207,6 +2263,8 @@ export class Viewport {
     const env = this.ensureEnvironment();
     env?.set(this.lighting === 'game' ? value : null);
     env?.setQuality(this.editorQuality());
+    // Phase 23.18: a previewed blend follows edited presets.
+    if (this.envPreview !== null) this.applyEnvironmentPreview();
     this.requestRender();
   }
   /**

@@ -20,6 +20,7 @@ const SECTIONS: readonly { id: SaveSection; label: string; hint: string }[] = [
   { id: 'materials', label: 'Material values', hint: 'material parameters scripts set (ctx.materials)' },
   { id: 'spawned', label: 'Spawned objects', hint: 'prefab copies scripts spawned (placement; their scripts start fresh)' },
   { id: 'storage', label: 'Script storage', hint: 'the values scripts keep with ctx.save' },
+  { id: 'environment', label: 'Environment', hint: 'the environment preset blend scripts set (ctx.environment)' },
 ];
 const ENGINE = ['', 'music', 'sfx', 'ui', 'quality'] as const;
 const DEFAULT_SCHEMA: SaveSchema = { version: 1, slots: 3 };

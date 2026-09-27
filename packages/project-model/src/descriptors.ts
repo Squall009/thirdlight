@@ -1460,12 +1460,36 @@ const POST = obj('post', 'Post-processing', 'Tone mapping, exposure and screen e
   ]),
 ]);
 
+// Phase 23.18: environment presets — named looks scripts switch or blend to (a part a preset leaves out is the base look's).
+const PRESET_LIGHT = obj('*', 'Light', 'The values this preset gives the lights it names (one of entity, tag or type; none: every light).', [
+  entity('entity', 'Entity', 'One light by its entity.', { component: 'light' }),
+  str('tag', 'Tag', 'Every light with this tag.', { format: 'identifier', minLength: 1, maxLength: 32 }),
+  enm('type', 'Type', 'Every light of this type.', ['directional', 'ambient', 'point', 'spot', 'hemisphere']),
+  color('color', 'Colour', 'The light colour.'),
+  num('intensity', 'Intensity', 'The light intensity (candela for point and spot lights).', { min: 0, max: 1000, step: 0.05 }),
+  vec3('direction', 'Direction', 'Where a directional or spot light shines (not all 0).', { min: -1, max: 1, step: 0.05, nonZero: true }),
+  color('groundColor', 'Ground colour', 'A hemisphere light\'s ground colour.'),
+], { rules: ['A light entry names at most one of entity, tag or type (none: every light).'] });
+const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, light values and a lightmap multiplier.', [
+  str('presetId', 'Id', 'A stable id scripts use: a-z, 0-9, _ or -.', { required: true, format: 'identifier', minLength: 1, maxLength: 64 }),
+  str('name', 'Name', 'Shown in the editor.', { required: true, minLength: 1, maxLength: 128 }),
+  SKY,
+  FOG,
+  POST,
+  list('lights', 'Lights', 'Light values (later entries win per field).', PRESET_LIGHT, { maxItems: 32 }),
+  obj('lightmap', 'Lightmap', 'Multiplies baked lighting (a bake keeps the light of the moment it was baked).', [
+    num('intensity', 'Intensity', 'Multiplies the baked light (1: as baked).', { min: 0, max: 8, step: 0.05, default: 1 }),
+    color('tint', 'Tint', 'Tints the baked light (white: as baked).', { default: '#ffffff' }),
+  ]),
+], { rules: ['Preset ids are unique.'] });
+
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'Sky, fog, post-processing, wind and the default quality.', [
   SKY,
   FOG,
   POST,
   WIND,
   enm('quality', 'Quality', 'The default graphics quality (players change it in Settings).', ['low', 'medium', 'high'], { default: 'high' }),
+  list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment).', PRESET, { maxItems: 64 }),
 ]);
 
 const FLOW: FieldDescriptor = obj('flow', 'Game flow', 'Levels, lives, the title screen, HUD, menu look and texts, volumes, menu sounds and score rules.', [

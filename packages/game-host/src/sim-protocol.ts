@@ -176,6 +176,8 @@ export interface FrameState {
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
   /** Phase 23.12: material parameters scripts changed (one change per object, material and parameter). */
   readonly mat?: readonly import('@thirdlight/runtime').MaterialRenderChange[];
+  /** Phase 23.18: the environment preset blend, interpolated with the frame's alpha (when it changed; absent until a script used it). */
+  readonly env?: import('@thirdlight/runtime').EnvironmentBlendView | null;
   /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
   readonly ui?: UiOutput;
   /** Phase 23.3: the cursor a script asked for (when it changed; null: the input map decides). */

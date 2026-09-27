@@ -455,7 +455,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsU = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
   // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
   const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
-  const withBounds = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
+  const withBoundsA = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
+  // Phase 23.18: the environment preset ids scripts switch and blend to (ctx.environment; from the verified manifest).
+  const presetIds = (manifest.environment?.presets ?? []).map((p) => p.presetId);
+  const withBounds = presetIds.length > 0 ? ({ ...withBoundsA, environmentPresets: presetIds } as RuntimeSnapshot) : withBoundsA;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
@@ -958,6 +961,8 @@ export function bootstrapPreviewM3(): void {
         ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
         ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
         ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
+        // Phase 23.18: the environment preset blend (once a script changed it).
+        ...(o.environment !== undefined ? { environment: structuredClone(o.environment) } : {}),
         // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
         ...(o.audio !== undefined ? { audio: structuredClone(o.audio) } : {}),
         // Phase 23.11: the objects riding on sockets and their world positions.
@@ -1019,6 +1024,8 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
       // Phase 23.4: the resolved camera (virtual cameras: the live one, a blend, the pose and lens).
       ...(obs.observation.camera !== undefined ? { camera: structuredClone(obs.observation.camera) } : {}),
+      // Phase 23.18: the environment preset blend (once a script changed it).
+      ...(obs.observation.environment !== undefined ? { environment: structuredClone(obs.observation.environment) } : {}),
       // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
       ...(obs.observation.audio !== undefined ? { audio: structuredClone(obs.observation.audio) } : {}),
       // Phase 23.11: the objects riding on sockets and their world positions.
@@ -1270,7 +1277,8 @@ function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, Array
   };
   const env = manifest.environment;
   return {
-    ...(environmentHasLook(env) || levelLooks ? { environment: { value: env ?? {}, loadTexture } } : {}),
+    // Phase 23.18: environment presets need the environment renderer too (scripts blend the look).
+    ...(environmentHasLook(env) || levelLooks || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture } } : {}),
     ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture } } : {}),
     materials: {
       defs: manifest.materials ?? [],

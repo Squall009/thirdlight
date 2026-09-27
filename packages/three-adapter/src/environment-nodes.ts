@@ -20,7 +20,9 @@ import * as THREE from 'three';
 import {
   abs,
   clamp,
+  cubeTexture,
   dot,
+  equirectUV,
   exp,
   float,
   Fn,
@@ -112,6 +114,38 @@ export function gradientSkyMaterial(top: THREE.Color, horizon: THREE.Color, bott
   m.side = THREE.BackSide;
   m.depthWrite = false;
   m.fog = false;
+  // Phase 23.18: the colours are uniforms — a blend changes them without a new program.
+  m.userData['skyUniforms'] = { top: uTop, horizon: uHorizon, bottom: uBottom };
+  return m;
+}
+
+/** Phase 23.18: the gradient dome's colour uniforms (null: not a gradient dome material). */
+export function gradientSkyUniforms(m: THREE.Material): { top: { value: THREE.Color }; horizon: { value: THREE.Color }; bottom: { value: THREE.Color } } | null {
+  return (m.userData['skyUniforms'] as { top: { value: THREE.Color }; horizon: { value: THREE.Color }; bottom: { value: THREE.Color } } | undefined) ?? null;
+}
+
+/**
+ * Phase 23.18: a sky dome drawing a colour, an equirect image or a cube map
+ * (a cross-fade layer; `opacity` is the layer's share — a material uniform, no
+ * new program per frame). Drawn as a display colour (not tone mapped), like
+ * the background these skies are when shown alone; on the far plane like the
+ * gradient dome.
+ */
+export function imageSkyMaterial(source: { color: THREE.Color } | { equirect: THREE.Texture } | { cube: THREE.CubeTexture }): THREE.Material {
+  const m = new MeshBasicNodeMaterial();
+  if ('equirect' in source) m.colorNode = texture(source.equirect, equirectUV(normalize(positionLocal)));
+  else if ('cube' in source) m.colorNode = cubeTexture(source.cube, normalize(positionLocal));
+  else m.color.copy(source.color);
+  m.vertexNode = Fn(() => {
+    const p: N = modelViewProjection;
+    p.z.assign(p.w);
+    return p;
+  })();
+  m.side = THREE.BackSide;
+  m.depthWrite = false;
+  m.fog = false;
+  m.toneMapped = false;
+  m.transparent = true;
   return m;
 }
 
@@ -166,6 +200,8 @@ export interface PostPipeline {
   setLut(lut: THREE.Texture | null): void;
   /** The canvas size in CSS pixels (the depth of field's blur is in pixels). */
   setSize(width: number, height: number, pixelRatio: number): void;
+  /** Phase 23.18: new grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
+  setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
   dispose(): void;
 }
@@ -289,10 +325,11 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     passes.push('dof');
   }
 
+  let bloomNode: N = null;
   if (plan.bloom !== null) {
     // UnrealBloomPass scales its composite by 3 ("backwards compatibility with previous
     // alpha-based intensity"); BloomNode does not: the project's strength keeps its meaning.
-    const bloomNode: N = bloom(color, plan.bloom.strength * 3, plan.bloom.radius, plan.bloom.threshold);
+    bloomNode = bloom(color, plan.bloom.strength * 3, plan.bloom.radius, plan.bloom.threshold);
     disposables.push(bloomNode);
     // UnrealBloom adds its glow onto the picture (alpha unchanged).
     color = vec4(color.rgb.add(bloomNode.rgb), color.a);
@@ -315,6 +352,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   // ---- grading, LUT, vignette (the archived (WebGL) TlGradingShader, line by line) --------------
   const lutNode: N = texture(blankLut());
   const lutSize = uniform(0);
+  let gradingUniforms: Record<string, N> | null = null;
   if (plan.grading !== null) {
     const g = plan.grading;
     const uBrightness = uniform(g.brightness);
@@ -326,6 +364,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     const uGain = uniform(g.gain);
     const uVignette = uniform(g.vignette);
     const uVignetteOffset = uniform(g.vignetteOffset);
+    gradingUniforms = { brightness: uBrightness, contrast: uContrast, saturation: uSaturation, tint: uTint, lift: uLift, gamma: uGamma, gain: uGain, vignette: uVignette, vignetteOffset: uVignetteOffset };
     const input = color;
     const lutLookup = Fn(([cIn]: [N]) => {
       // A horizontal strip: lutSize tiles of lutSize × lutSize (blue picks the tile).
@@ -396,6 +435,26 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       lutNode.value = lut ?? blankLut();
       old.dispose();
       lutSize.value = lut === null ? 0 : ((lut.image as { height?: number } | null)?.height ?? 0);
+    },
+    setParams(params) {
+      const g = params.grading;
+      if (g !== null && gradingUniforms !== null) {
+        gradingUniforms['brightness'].value = g.brightness;
+        gradingUniforms['contrast'].value = g.contrast;
+        gradingUniforms['saturation'].value = g.saturation;
+        (gradingUniforms['tint'].value as THREE.Color).set(g.tint);
+        gradingUniforms['lift'].value = g.lift;
+        gradingUniforms['gamma'].value = g.gamma;
+        gradingUniforms['gain'].value = g.gain;
+        gradingUniforms['vignette'].value = g.vignette;
+        gradingUniforms['vignetteOffset'].value = g.vignetteOffset;
+      }
+      const b = params.bloom;
+      if (b !== null && bloomNode !== null) {
+        bloomNode.strength.value = b.strength * 3;
+        bloomNode.radius.value = b.radius;
+        bloomNode.threshold.value = b.threshold;
+      }
     },
     setSize(width, height, pixelRatio) {
       void height;

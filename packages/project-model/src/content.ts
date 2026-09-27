@@ -2616,6 +2616,19 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     }
     const post = env['post'];
     if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
+    // Phase 23.18: the presets' sky images and LUTs.
+    if (Array.isArray(env['presets'])) {
+      (env['presets'] as unknown[]).forEach((pr, i) => {
+        if (!isPlainObject(pr)) return;
+        const psky = pr['sky'];
+        if (isPlainObject(psky)) {
+          if (psky['texture'] !== undefined) refs.push([`/environment/presets/${i}/sky/texture`, psky['texture']]);
+          if (Array.isArray(psky['cube'])) psky['cube'].forEach((id, j) => refs.push([`/environment/presets/${i}/sky/cube/${j}`, id]));
+        }
+        const ppost = pr['post'];
+        if (isPlainObject(ppost) && isPlainObject(ppost['grading']) && ppost['grading']['lut'] !== undefined) refs.push([`/environment/presets/${i}/post/grading/lut`, ppost['grading']['lut']]);
+      });
+    }
     for (const [p, id] of refs) {
       if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
     }

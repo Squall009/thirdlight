@@ -91,6 +91,9 @@ export function stepDigest(rt: Runtime): string {
   // Phase 23.12: the material parameters scripts set (only while any is set, so every other digest is unchanged).
   const mat = rt.materialState?.() ?? null;
   if (mat !== null) h.text(mat);
+  // Phase 23.18: the environment preset blend (only once a script changed the environment, so every other digest is unchanged).
+  const env = rt.environmentState?.() ?? null;
+  if (env !== null) h.text(env);
   // Phase 23.19: the project saves state (document, play time, settings, slot list, outcomes; only with a save schema and once used).
   const saves = rt.savesState?.() ?? null;
   if (saves !== null) h.text(saves);

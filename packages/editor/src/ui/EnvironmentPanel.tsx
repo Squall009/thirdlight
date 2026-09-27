@@ -9,10 +9,17 @@
  * the level replaces the project's while the level plays (post merges per
  * effect); every change is one `setFlow`.
  *
+ * Phase 23.18: environment presets (project mode) — "capture current as
+ * preset" stores the environment's sky, fog and post-processing and every
+ * scene light's colour / intensity / direction as a named preset (one
+ * `setEnvironment`, one undo); a preset can be previewed in the Scene view,
+ * or a blend of two with the preview slider (the runtime's blend maths, as
+ * Play draws it; nothing is stored).
+ *
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { EnvironmentConfig, FogConfig, LevelEnvironment, PostConfig, SkyConfig, WindConfig } from '@thirdlight/project-model';
+import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, LevelEnvironment, PostConfig, SkyConfig, WindConfig } from '@thirdlight/project-model';
 import { DEFAULT_WIND } from '../session/material-schema';
 
 interface Props {
@@ -22,6 +29,155 @@ interface Props {
   error: string | null;
   /** Phase 14.4: edit this level's look (over the project environment) instead of the project environment. */
   level?: { id: string; name: string; environment: LevelEnvironment | null; onSave: (environment: LevelEnvironment | null) => void; onBack: () => void };
+  /** Phase 23.18: the scene lights a captured preset records, and the Scene view's preset preview. */
+  presets?: {
+    lights: readonly PresetLightSource[];
+    /** Preview a blend in the Scene view (weights by preset id, '' = the base look); null: the authored look. */
+    onPreview: (weights: [string, number][] | null) => void;
+  };
+}
+
+/** Phase 23.18: a scene light as a captured preset records it. */
+export interface PresetLightSource {
+  id: string;
+  type: string;
+  color: string;
+  intensity: number;
+  direction?: readonly number[];
+  groundColor?: string;
+}
+
+/** Phase 23.18: an id for a new preset from its name (a-z, 0-9, _ -), unique among `taken`. */
+export function presetIdFor(name: string, taken: ReadonlySet<string>): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|-+$/g, '').slice(0, 56) || 'preset';
+  if (!taken.has(slug)) return slug;
+  for (let i = 2; ; i += 1) if (!taken.has(`${slug}-${i}`)) return `${slug}-${i}`;
+}
+
+/** Phase 23.18: the environment and the scene lights as they are now, as a preset. */
+export function capturePreset(env: EnvironmentConfig, lights: readonly PresetLightSource[], name: string): EnvironmentPreset {
+  const taken = new Set((env.presets ?? []).map((q) => q.presetId));
+  const copy = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const entries: EnvironmentPresetLight[] = lights.slice(0, 32).map((l) => ({
+    entity: l.id,
+    color: l.color,
+    intensity: l.intensity,
+    ...((l.type === 'directional' || l.type === 'spot') && l.direction !== undefined ? { direction: [l.direction[0] ?? 0, l.direction[1] ?? -1, l.direction[2] ?? 0] as [number, number, number] } : {}),
+    ...(l.type === 'hemisphere' && l.groundColor !== undefined ? { groundColor: l.groundColor } : {}),
+  }));
+  return {
+    presetId: presetIdFor(name, taken),
+    name: name.trim().slice(0, 128) || 'Preset',
+    ...(env.sky !== undefined ? { sky: copy(env.sky) } : {}),
+    ...(env.fog !== undefined ? { fog: copy(env.fog) } : {}),
+    ...(env.post !== undefined ? { post: copy(env.post) } : {}),
+    ...(entries.length > 0 ? { lights: entries } : {}),
+  };
+}
+
+/** Phase 23.18: the preset list, capture, preview and the blend preview slider. */
+function PresetsSection(props: { env: EnvironmentConfig; lights: readonly PresetLightSource[]; save: (patch: Partial<EnvironmentConfig>) => void; onPreview: (weights: [string, number][] | null) => void }): JSX.Element {
+  const list = props.env.presets ?? [];
+  const [name, setName] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [t, setT] = useState(0);
+  const [previewing, setPreviewing] = useState<string | null>(null);
+  const ids = list.map((q) => q.presetId);
+  const choices = [['', 'base look'] as const, ...list.map((q) => [q.presetId, q.name] as const)];
+  const blendTo = (a: string, b: string, x: number): void => {
+    setPreviewing('blend');
+    props.onPreview(a === b ? [[a, 1]] : [[a, 1 - x], [b, x]]);
+  };
+  return (
+    <section className="tl-inspector__section" aria-label="environment presets">
+      <div className="tl-subhead">Presets (scripts switch or blend to them: ctx.environment)</div>
+      <div className="tl-animator__row">
+        <input className="tl-input" aria-label="new preset name" placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button
+          type="button"
+          className="tl-button"
+          disabled={list.length >= 64}
+          onClick={() => {
+            props.save({ presets: [...list, capturePreset(props.env, props.lights, name || `Preset ${list.length + 1}`)] });
+            setName('');
+          }}
+        >
+          capture current as preset
+        </button>
+      </div>
+      {list.length === 0 && <p className="tl-hint">No presets yet: set up a look (and the scene lights), then capture it.</p>}
+      <ul className="tl-list" aria-label="preset list">
+        {list.map((q) => (
+          <li key={q.presetId} data-preset-id={q.presetId} className="tl-animator__row">
+            <span>
+              {q.name} <span className="tl-hint">({q.presetId}{q.lights !== undefined ? `, ${q.lights.length} light${q.lights.length === 1 ? '' : 's'}` : ''})</span>
+            </span>
+            <button
+              type="button"
+              className="tl-button"
+              aria-label={`preview preset ${q.presetId}`}
+              aria-pressed={previewing === q.presetId}
+              onClick={() => {
+                setPreviewing(q.presetId);
+                props.onPreview([[q.presetId, 1]]);
+              }}
+            >
+              preview
+            </button>
+            <button
+              type="button"
+              className="tl-button"
+              aria-label={`delete preset ${q.presetId}`}
+              onClick={() => {
+                const rest = list.filter((x) => x.presetId !== q.presetId);
+                props.save({ presets: rest.length > 0 ? rest : (undefined as unknown as EnvironmentPreset[]) });
+              }}
+            >
+              delete
+            </button>
+          </li>
+        ))}
+      </ul>
+      {list.length > 0 && (
+        <>
+          <Choice label="blend from" name="blend preview from" value={ids.includes(from) ? from : ''} options={choices} onCommit={(v) => { setFrom(v); blendTo(v, to, t); }} />
+          <Choice label="blend to" name="blend preview to" value={ids.includes(to) ? to : ''} options={choices} onCommit={(v) => { setTo(v); blendTo(from, v, t); }} />
+          <label className="tl-field">
+            <span className="tl-field__label">blend preview</span>
+            <span className="tl-param__number">
+              <input
+                type="range"
+                aria-label="blend preview"
+                min={0}
+                max={1}
+                step={0.01}
+                value={t}
+                onChange={(e) => {
+                  const x = Number(e.target.value);
+                  setT(x);
+                  blendTo(from, to, x);
+                }}
+              />
+              <span className="tl-param__value">{t.toFixed(2)}</span>
+            </span>
+          </label>
+        </>
+      )}
+      {previewing !== null && (
+        <button
+          type="button"
+          className="tl-button"
+          onClick={() => {
+            setPreviewing(null);
+            props.onPreview(null);
+          }}
+        >
+          stop preview
+        </button>
+      )}
+    </section>
+  );
 }
 
 type LevelPart = 'sky' | 'fog' | 'post' | 'wind';
@@ -278,6 +434,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           )}
         </section>
       </div>
+      {lv === undefined && p.presets !== undefined && <PresetsSection env={env} lights={p.presets.lights} save={save} onPreview={p.presets.onPreview} />}
       {p.error !== null && <div className="tl-assets__error" role="alert">{p.error}</div>}
     </div>
   );

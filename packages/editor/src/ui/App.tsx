@@ -4399,6 +4399,10 @@ function EditorApp(): JSX.Element {
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               onSave={(env) => void saveEnvironment(env, environment)}
               error={materialError}
+              presets={{
+                lights: entities.filter((e) => e.light !== undefined).map((e) => ({ id: e.id, type: e.light!.type, color: e.light!.color, intensity: e.light!.intensity, ...(e.light!.direction !== undefined ? { direction: e.light!.direction } : {}), ...(e.light!.groundColor !== undefined ? { groundColor: e.light!.groundColor } : {}) })),
+                onPreview: (weights) => viewportRef.current?.previewEnvironmentBlend(weights === null ? null : { weights }, new Map((clientRef.current?.getTags() ?? []).map((t) => [t.name, t.bit]))),
+              }}
               {...(() => {
                 const l = envLevelId !== null ? flow?.levels.find((x) => x.id === envLevelId) : undefined;
                 return l !== undefined
