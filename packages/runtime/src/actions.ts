@@ -13,6 +13,8 @@
  * identically in the Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
+import { validateSaveEvents, type SaveEvent } from './project-saves';
+import { validateInputStatus, type InputStatusEntry } from './input-status';
 import { validateUiEvents, type UiEventRecord } from './ui';
 
 /** The four jump phases (input.md §2). */
@@ -53,6 +55,22 @@ export interface ActionFrame {
    * @graphNode skip a script receives its debug commands with ctx.debug.command
    */
   commands?: readonly DebugCommandCall[];
+  /**
+   * Phase 23.19, optional: storage's answers this step (the slot list, save and
+   * delete outcomes, a loaded save document) — part of the input so a
+   * recording replays them and the worker applies them at the same step.
+   * Absent: none (every older frame and recording is unchanged).
+   * @graphNode skip a script reads them through ctx.saves
+   */
+  saves?: readonly SaveEvent[];
+  /**
+   * Phase 23.14, optional: the host's input status for scripts — the device
+   * used last, the player's bindings with their glyphs (each only when it
+   * changed) and the outcome of binding requests. Part of the input so a
+   * replay shows scripts what they saw live. Absent: nothing changed.
+   * @graphNode skip scripts read it with ctx.input.device, bindings and glyph
+   */
+  input?: InputStatusEntry;
   /**
    * Phase 23.9a, optional: the UI events of this step (a click, a submit, a
    * focus change, a custom event, a document shown or hidden by a button) —
@@ -124,7 +142,7 @@ export const POINTER_BUTTON_BITS = Object.freeze({ left: 1, right: 2, middle: 4 
 const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked']);
 
 /** Most named actions in a frame (project-model MAX_INPUT_ACTIONS). */
-export const MAX_FRAME_ACTIONS = 32;
+export const MAX_FRAME_ACTIONS = 64;
 const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 /** Movement quantization (input.md §3.3). */
@@ -200,7 +218,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'moveY' || key === 'ui') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'moveY' || key === 'ui' || key === 'input') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -261,6 +279,20 @@ export function validateActionFrame(
     if (!c.ok) return c;
     commands = c.commands;
   }
+  // Phase 23.19: storage's answers (validated and frozen; absent keeps the frame as it was).
+  let saves: readonly SaveEvent[] | undefined;
+  if (value['saves'] !== undefined) {
+    const sv = validateSaveEvents(value['saves']);
+    if (!sv.ok) return sv;
+    saves = sv.events;
+  }
+  // Phase 23.14: the host's input status (validated and frozen).
+  let input: InputStatusEntry | undefined;
+  if (value['input'] !== undefined) {
+    const c = validateInputStatus(value['input']);
+    if (!c.ok) return c;
+    input = c.input;
+  }
   // Phase 23.9a: the frame's UI events (validated and frozen; absent keeps the frame as it was).
   let uiEvents: readonly UiEventRecord[] | undefined;
   if (value['ui'] !== undefined) {
@@ -268,7 +300,7 @@ export function validateActionFrame(
     if (!u.ok) return u;
     uiEvents = u.events;
   }
-  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}) });
+  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];
   // Phase 23.2 / 23.8 / 23.3 / 23.9a: moveY, commands, the pointer and UI events only when present (a frame without them stays as it was).
   const withMoveY = moveY !== undefined ? { moveY } : {};

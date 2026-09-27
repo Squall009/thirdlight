@@ -86,6 +86,12 @@ export interface RuntimeSnapshot {
    */
   modelBounds?: Readonly<Record<string, ModelBounds>>;
   /**
+   * Phase 23.13, v4 only, optional: audio/music assetId -> its recorded
+   * duration in ms (the asset's import metrics). A script sound's `finished`
+   * event is computed from it in the simulation.
+   */
+  audioDurations?: Readonly<Record<string, number>>;
+  /**
    * Phase 23.11, v4 only, optional: model assetId -> its rig (nodes and node
    * animation channels, read from the GLB by the play/export closure) — the
    * data sockets are resolved on (the runtime never loads a model).
@@ -101,6 +107,8 @@ export interface RuntimeSnapshot {
    * values against them; built from the manifest by `materialCatalogOf`).
    */
   materialCatalog?: import('./material-params').RuntimeMaterialCatalog;
+  /** Phase 23.19, optional: the project save schema (`content.saveSchema`; `ctx.saves`). */
+  saveSchema?: import('@thirdlight/project-model').SaveSchema;
   /**
    * Phase 23.9a, v4 only, optional: the project's UI documents as the
    * simulation knows them (id, layer, modal) — `ctx.ui.show/hide` and a
@@ -302,6 +310,8 @@ export interface InstantiateConfig {
    * them is `config_invalid`.
    */
   variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.19: the stored project settings document (values that do not fit the save schema's fields fall back to the defaults). */
+  projectSettings?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -727,12 +737,16 @@ export interface StepContext {
   readonly sockets?: BehaviorSockets;
   /** Phase 23.3: the cursor a script asks for (`ctx.input.setCursor`; simulation state the host applies after the step). */
   readonly cursor?: { readonly request: (mode: 'free' | 'locked' | 'auto') => void };
+  /** Phase 23.14: the host's input status (device, bindings, rebind events) and the binding-request queue (`ctx.input`). */
+  readonly inputStatus?: import('./input-status').InputStatusView;
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
   /** Phase 23.5: the block layers of the loaded scenes (`ctx.grid`). */
   readonly grid?: import('./grid').BehaviorGrid;
   /** Phase 23.12: graph-material parameters per object (`ctx.materials`). */
   readonly materials?: import('./material-params').BehaviorMaterials;
+  /** Phase 23.19: project saves (`ctx.saves`). */
+  readonly saves?: import('./project-saves').BehaviorSaves;
   /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
   readonly ui?: BehaviorUi;
 }
@@ -956,16 +970,182 @@ export interface BehaviorDebug {
   command(name: string, options?: DebugCommandOptions, handler?: (args: DebugCommandArgs) => void): readonly DebugCommandArgs[];
 }
 
-/** Phase 9.10: `ctx.audio`. */
+/** A script sound's end (`ctx.audio.events()`), seen in the step after it happened. */
+export interface AudioFinishedEvent {
+  readonly kind: 'finished';
+  readonly handle: number;
+  readonly assetId: string;
+  /** `ended`: it played to its end; `stopped`: a script stopped it (after its fade). */
+  readonly reason: 'ended' | 'stopped';
+}
+
+/** Options of `ctx.audio.play`. */
+export interface AudioPlayOptions {
+  /** 0–1 (1). */
+  volume?: number;
+  /** Loop until stopped (false). */
+  loop?: boolean;
+  /** Playback rate, 0.25–4 (1: as recorded; 2: an octave up and twice as fast). */
+  pitch?: number;
+  /** The bus (sfx). */
+  bus?: 'sfx' | 'music' | 'voice' | 'ui';
+  /** Seconds to fade in from silence (0). */
+  fadeIn?: number;
+  /** Positional: follow this entity (`position` is then an offset from it). */
+  entityId?: string;
+  /** Positional: world position in metres (or the offset from `entityId`). */
+  position?: readonly number[];
+  /** Positional: linear, inverse or exponential (linear). */
+  distanceModel?: 'linear' | 'inverse' | 'exponential';
+  /** Positional: full volume within this distance, m (2). */
+  refDistance?: number;
+  /** Positional: silent (linear) or no more fading (others) beyond this distance, m (30). */
+  maxDistance?: number;
+  /** Positional: how fast it fades (1). */
+  rolloff?: number;
+}
+
+/** Options of `ctx.audio.stinger`. */
+export interface AudioStingerOptions {
+  /** 0–1 (1). */
+  volume?: number;
+  /** The music's level under it, 0–1 (0.3). */
+  duck?: number;
+  /** Seconds to duck and to come back (0.25). */
+  fade?: number;
+}
+
+/** A script's view of the music (`ctx.audio.musicState()`). */
+export interface AudioMusicState {
+  /** Who picks the track: the scripts (after `music`) or the game flow. */
+  readonly owner: 'script' | 'flow';
+  /** The scripts' track (null: silence, or the flow owns it). */
+  readonly track: string | null;
+  /** The music duck now (1 = not ducked). */
+  readonly duck: number;
+}
+
+/**
+ * Phase 9.10: `ctx.audio`. Phase 23.13: playback handles, music control and
+ * positional sound — what scripts ask for is simulation state (handles,
+ * volumes, fades, finished events replay identically); the page's audio
+ * engine plays it.
+ */
 export interface BehaviorAudio {
   /**
-   * Play an audio asset once (volume 0–1).
+   * Play an audio asset (volume 0–1). Returns its handle (0 when refused: a bad id, more than 32 plays in one step or 64 sounds alive). Options: `loop`, `pitch` (playback rate 0.25–4), `bus` (sfx, music, voice, ui), `fadeIn` seconds; positional with `entityId` (it follows the entity) and/or `position` (world metres, or the offset from the entity), fading by `distanceModel` (linear, inverse, exponential), `refDistance` (2 m), `maxDistance` (30 m) and `rolloff` (1).
    * @graphNode Play sound
    * @graphLabel assetId sound
    * @graphAsset assetId audio
    * @graphDefault volume 1
    */
-  play(assetId: string, options?: { volume?: number }): void;
+  play(assetId: string, options?: AudioPlayOptions): number;
+  /**
+   * Stop a sound, fading out over `fadeSeconds` (0: now). Its finished event (reason "stopped") arrives in the step after the fade ends.
+   * @graphNode Stop sound
+   * @graphDefault fadeSeconds 0
+   */
+  stop(handle: number, fadeSeconds?: number): void;
+  /**
+   * Fade a sound's volume to `to` (0–1) over `seconds` (linear, whole steps).
+   * @graphNode Fade sound
+   * @graphDefault to 0
+   * @graphDefault seconds 1
+   */
+  fade(handle: number, to: number, seconds: number): void;
+  /**
+   * Set a sound's volume (0–1) now.
+   * @graphNode Set sound volume
+   * @graphDefault volume 1
+   */
+  setVolume(handle: number, volume: number): void;
+  /**
+   * Set a sound's pitch — its playback rate, 0.25–4 (1: as recorded; it plays faster or slower too).
+   * @graphNode Set sound pitch
+   * @graphDefault pitch 1
+   */
+  setPitch(handle: number, pitch: number): void;
+  /**
+   * Loop a sound or let it end at the end of its clip.
+   * @graphNode Set sound loop
+   */
+  setLoop(handle: number, loop: boolean): void;
+  /**
+   * Whether a sound is still playing (its finished event has not happened).
+   * @graphNode Sound playing
+   * @graphPure
+   */
+  playing(handle: number): boolean;
+  /**
+   * A sound's volume now (its fade included; 0 when it is not playing).
+   * @graphNode Sound volume
+   * @graphPure
+   */
+  volumeOf(handle: number): number;
+  /**
+   * True in the step after a sound finished (it ended or was stopped).
+   * @graphNode Sound finished
+   * @graphPure
+   */
+  finished(handle: number): boolean;
+  /**
+   * The sounds that finished in the previous step (handle, asset, reason "ended" or "stopped").
+   * @graphNode skip a list of records; the Sound finished node checks one handle
+   */
+  events(): readonly AudioFinishedEvent[];
+  /**
+   * Play a music track (looped), crossfading over `fadeSeconds` (1); null fades to silence. The scripts then own the music — the game flow's level and title music waits — until `releaseMusic`.
+   * @graphNode Set music
+   * @graphLabel assetId track
+   * @graphAsset assetId music
+   * @graphDefault fadeSeconds 1
+   */
+  music(assetId: string | null, fadeSeconds?: number): void;
+  /**
+   * Give the music back to the game flow (its level or title track), crossfading over `fadeSeconds` (1).
+   * @graphNode Release music
+   * @graphDefault fadeSeconds 1
+   */
+  releaseMusic(fadeSeconds?: number): void;
+  /**
+   * Play a stinger (a short musical phrase) once over the music: the track ducks to `duck` (0.3) while it plays and comes back after it, both over `fade` seconds (0.25). Returns its handle.
+   * @graphNode Play stinger
+   * @graphLabel assetId sound
+   * @graphAsset assetId audio
+   */
+  stinger(assetId: string, options?: AudioStingerOptions): number;
+  /**
+   * Duck the music to `level` (0–1; 0.3) over `seconds` (0.25) until `unduck`. The deepest duck alive wins (a stinger's, dialogue voice's).
+   * @graphNode Duck music
+   * @graphDefault level 0.3
+   * @graphDefault seconds 0.25
+   */
+  duck(level: number, seconds?: number): void;
+  /**
+   * End the script's music duck over `seconds` (0.25).
+   * @graphNode Unduck music
+   * @graphDefault seconds 0.25
+   */
+  unduck(seconds?: number): void;
+  /**
+   * Who picks the music (the scripts or the game flow), the scripts' track and the duck now.
+   * @graphNode Music state
+   * @graphPure
+   */
+  musicState(): AudioMusicState;
+  /**
+   * Mix a bus (sfx, music, voice, ui) to `volume` (0–1) over `seconds` (0), on top of the player's volume setting.
+   * @graphNode Set bus volume
+   * @graphDefault volume 1
+   * @graphDefault seconds 0
+   */
+  setBusVolume(bus: 'sfx' | 'music' | 'voice' | 'ui', volume: number, seconds?: number): void;
+  /**
+   * The scripts' mix of a bus now (1 unless set).
+   * @graphNode Bus volume
+   * @graphPure
+   */
+  busVolume(bus: 'sfx' | 'music' | 'voice' | 'ui'): number;
 }
 
 /**
@@ -1486,8 +1666,10 @@ export interface Runtime {
   hiddenEntities?(): ReadonlySet<string>;
   /** Phase 15.3: entities fading out (id -> opacity 0-1; a defeated enemy with `defeat: "fade"`). */
   entityOpacity?(): ReadonlyMap<string, number>;
-  /** Phase 9.10: the sounds scripts played since the last call. */
-  takeAudioRequests?(): { assetId: string; volume: number; stepIndex: number }[];
+  /** Phase 9.10: the sounds scripts played since the last call. Phase 23.13: the audio intent log's commands. */
+  takeAudioRequests?(): import('./audio-mixer').AudioCommand[];
+  /** Phase 23.13: the audio intent log's deterministic state (digests; null while scripts never used audio). */
+  audioState?(): Record<string, unknown> | null;
   /** Phase 20.2: the effect requests (scripts, effect-component signals, gameplay hooks) since the last call; the adapter plays them. */
   takeEffectRequests?(): EffectRequest[];
   /** Phase 23.5: the block-layer chunks to re-mesh since the last call (their cells now); the adapter applies them. */
@@ -1535,6 +1717,12 @@ export interface Runtime {
   cursorRequest?(): 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */
   readPointer?(): import('./actions').PointerSample | null;
+  /**
+   * Phase 23.14: the binding requests scripts made since the last call
+   * (`ctx.input.rebind`, …) and how many were dropped over the per-step
+   * limit; the host carries them out after the frame.
+   */
+  takeBindingRequests?(): { readonly requests: readonly import('./input-status').InputBindingRequest[]; readonly dropped: number };
   getCamera():{ ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
@@ -1592,6 +1780,16 @@ export interface Runtime {
    * declaration, or 16 calls are already waiting.
    */
   queueDebugCommand?(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError };
+
+  // ---- Phase 23.19 project saves --------------------------------------------
+  /** The save/load/delete/settings requests scripts made since the last call (the host owns storage). */
+  takeSaveRequests?(): import('./project-saves').SaveRequest[];
+  /** Queue one storage answer for the next executed step (it rides on that step's input frame). */
+  queueSaveEvent?(event: import('./project-saves').SaveEvent): { ok: true } | { ok: false; error: RuntimeError };
+  /** The project saves state as digest text (null without a save schema or before any save activity). */
+  savesState?(): string | null;
+  /** The project settings document now. */
+  projectSettings?(): Readonly<Record<string, boolean | number | string>>;
 }
 
 /** One interpolated transform (runtime.md §6). */

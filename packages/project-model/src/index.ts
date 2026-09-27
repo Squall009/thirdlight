@@ -101,6 +101,7 @@ export {
   M2_SETTINGS_KEYS,
   AUDIO_VOICE_CAP,
   PHYSICS_DIMENSIONS,
+  audioSpatialOf,
   depthBufferOf,
   physicsDimensionOf,
   type PhysicsDimension,
@@ -608,6 +609,13 @@ export {
   type CursorMode,
   type PointerAxisName,
   type PointerButtonName,
+  // Phase 23.14: the hold modifier and the project's glyph images.
+  GAMEPAD_FAMILIES,
+  GLYPH_KEY_RE,
+  HOLD_BINDING_KINDS,
+  INPUT_HOLD_MAX,
+  INPUT_HOLD_MIN,
+  MAX_INPUT_GLYPHS,
 } from './input';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
@@ -842,3 +850,22 @@ export {
   type CollisionMeshPiece,
 } from './block-mesh';
 export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng } from './png-decode';
+// Phase 23.19: the project save schema (save document, slots, sections, settings document).
+export {
+  SAVE_LIMITS,
+  SAVE_SECTIONS,
+  SAVE_THUMBNAIL_DEFAULT,
+  SETTINGS_ENGINE_BINDINGS,
+  canonicalSaveSchema,
+  effectiveField,
+  settingsDocumentOf,
+  settingsValueFits,
+  validateSaveSchema,
+  type SaveMigration,
+  type SaveSchema,
+  type SaveSection,
+  type SaveThumbnail,
+  type SettingsEngineBinding,
+  type SettingsField,
+  type SettingsFieldValue,
+} from './save-schema';

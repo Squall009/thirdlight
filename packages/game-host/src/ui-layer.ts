@@ -57,6 +57,13 @@ export interface UiLayerDeps {
   readonly flowValues?: () => Readonly<Record<string, unknown>> | null;
   /** Make only these input action maps active (null: every map). */
   readonly setActiveMaps?: (maps: readonly string[] | null) => void;
+  /**
+   * Phase 23.14: an input action's glyph for the device used last (a label
+   * and an image URL — the project's texture or the engine's generic SVG);
+   * `glyphKey` changes whenever a glyph may have (device, bindings).
+   */
+  readonly glyph?: (action: string) => { readonly label: string; readonly icon: string; readonly url: string } | null;
+  readonly glyphKey?: () => string;
   /** The view size in CSS px (default: the window's). */
   readonly viewport?: () => { width: number; height: number };
   /**
@@ -439,7 +446,8 @@ class DocView {
 
   private renderText(rec: Rec): void {
     const tokens = rec.tokens!;
-    const values = tokens.map((t) => (t.t === 'value' ? uiValueText(this.layer.resolvePath(t.path, rec.scope)) : t.t === 'icon' ? (this.layer.iconUrl(this, t.name) ?? '') : ''));
+    const glyphs = tokens.map((t) => (t.t === 'glyph' ? (this.layer.deps.glyph?.(t.action) ?? null) : null));
+    const values = tokens.map((t, i) => (t.t === 'value' ? uiValueText(this.layer.resolvePath(t.path, rec.scope)) : t.t === 'icon' ? (this.layer.iconUrl(this, t.name) ?? '') : t.t === 'glyph' ? `${glyphs[i]?.label ?? ''}|${glyphs[i]?.url ?? ''}` : ''));
     const key = values.join('\u0000');
     if (rec.textKey === key) return;
     rec.textKey = key;
@@ -451,7 +459,24 @@ class DocView {
       const span = dom.createElement('span') as UiNode;
       if (t.t === 'text') span.textContent = t.text;
       else if (t.t === 'value') span.textContent = values[i]!;
-      else {
+      else if (t.t === 'glyph') {
+        // Phase 23.14: the glyph image, its label for readers (and as text when there is no binding image).
+        const g = glyphs[i];
+        classes(span, ['tl-ui-glyph']);
+        span.setAttribute?.('data-action', t.action);
+        span.setAttribute?.('data-glyph', g?.label ?? '');
+        span.setAttribute?.('data-glyph-icon', g?.icon ?? '');
+        span.setAttribute?.('role', 'img');
+        span.setAttribute?.('aria-label', g?.label ?? t.action);
+        if (g === null || g === undefined) span.textContent = '?';
+        else {
+          setProp(span, 'display', 'inline-block');
+          setProp(span, 'height', '1.3em');
+          setProp(span, 'min-width', '1.3em');
+          setProp(span, 'vertical-align', 'middle');
+          setProp(span, 'background', `center / contain no-repeat url("${g.url.replace(/"/g, '%22')}")`);
+        }
+      } else {
         classes(span, ['tl-ui-icon']);
         span.setAttribute?.('data-icon', t.name);
         this.layer.styleIcon(this, span, t.name);
@@ -654,6 +679,8 @@ class LayerImpl implements UiLayer {
   private idSerial = 0;
   private dirty = true;
   private flowKey = '';
+  /** Phase 23.14: the glyph key last seen (a change redraws texts with glyphs). */
+  private glyphKeyNow = '';
   private flow: Readonly<Record<string, unknown>> | null = null;
   private activeMap: string | null | undefined = undefined;
   private readonly images = new Map<string, { url: string | null; w: number; h: number; pending: boolean }>();
@@ -663,7 +690,7 @@ class LayerImpl implements UiLayer {
   private readonly out: number[] = [0, 0, 0];
   readonly annotate: boolean;
 
-  constructor(private readonly deps: UiLayerDeps) {
+  constructor(readonly deps: UiLayerDeps) {
     this.dom = deps.dom;
     this.annotate = deps.annotate === true;
     this.docs = new Map(deps.documents.map((d) => [d.uiDocumentId, d] as const));
@@ -912,6 +939,12 @@ class LayerImpl implements UiLayer {
   frame(): void {
     if (this.disposed) return;
     const flow = this.deps.flowValues?.() ?? null;
+    // Phase 23.14: glyphs follow the device used last and the bindings.
+    const gk = this.deps.glyphKey?.() ?? '';
+    if (gk !== this.glyphKeyNow) {
+      this.glyphKeyNow = gk;
+      this.dirty = true;
+    }
     const key = flow === null ? '' : JSON.stringify(flow);
     if (key !== this.flowKey) {
       this.flowKey = key;

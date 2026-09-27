@@ -19,9 +19,10 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
+import { validateSaveSchema, type SaveSchema } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'saveSchema', 'audioDurations']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -69,10 +70,12 @@ export function validateRuntimeSnapshot(
       animators: readonly AnimatorController[];
       prefabs: readonly PrefabDefinition[];
       modelBounds: Readonly<Record<string, ModelBounds>>;
+      audioDurations: Readonly<Record<string, number>>;
       rigs?: Readonly<Record<string, ModelRig>>;
       blockTypes: readonly BlockType[];
       cellFields: readonly CellField[];
       materialCatalog?: RuntimeMaterialCatalog;
+      saveSchema?: SaveSchema;
       uiDocuments: readonly RuntimeUiDocumentRow[];
     }
   | { error: RuntimeError } {
@@ -285,6 +288,18 @@ export function validateRuntimeSnapshot(
     }
     modelBounds = mb as Record<string, ModelBounds>;
   }
+  // Phase 23.13: the optional v4 audio durations (assetId -> the audio/music asset's recorded length, ms).
+  let audioDurations: Readonly<Record<string, number>> = {};
+  if (snap.audioDurations !== undefined) {
+    const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/audioDurations', message } });
+    if (sceneVersion !== 4) return bad('snapshot field "audioDurations" is v4-only');
+    const ad = snap.audioDurations as unknown;
+    if (typeof ad !== 'object' || ad === null || Array.isArray(ad) || Object.keys(ad).length > MAX_MODEL_BOUNDS) return bad(`audioDurations must be an object of at most ${MAX_MODEL_BOUNDS} rows`);
+    for (const [k, v] of Object.entries(ad as Record<string, unknown>)) {
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 3_600_000) return bad(`audioDurations["${k}"] must be an integer 1..3600000 (ms)`);
+    }
+    audioDurations = ad as Record<string, number>;
+  }
   // Phase 23.11: the optional v4 model rigs (assetId -> nodes and node animation channels; sockets are resolved on them).
   let rigs: Readonly<Record<string, ModelRig>> | undefined;
   if (snap.rigs !== undefined) {
@@ -318,6 +333,14 @@ export function validateRuntimeSnapshot(
     const problem = materialCatalogProblem((snap as { materialCatalog?: unknown }).materialCatalog);
     if (problem !== null) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/materialCatalog', message: problem } };
     materialCatalog = (snap as { materialCatalog: RuntimeMaterialCatalog }).materialCatalog;
+  }
+  // Phase 23.19: the optional project save schema (ctx.saves).
+  let saveSchema: SaveSchema | undefined;
+  if ((snap as { saveSchema?: unknown }).saveSchema !== undefined) {
+    const errs: ModelErrorV2[] = [];
+    validateSaveSchema((snap as { saveSchema?: unknown }).saveSchema, '/saveSchema', errs);
+    if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
+    saveSchema = (snap as { saveSchema: SaveSchema }).saveSchema;
   }
   // Phase 23.9a: the optional v4 UI document rows (id, layer, modal) scripts show and hide.
   let uiDocuments: readonly RuntimeUiDocumentRow[] = [];
@@ -370,7 +393,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

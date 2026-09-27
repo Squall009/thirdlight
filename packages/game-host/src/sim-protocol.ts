@@ -11,6 +11,7 @@
  */
 import type {
   ActionFrame,
+  AudioCommand,
   AnimatorPose,
   CameraViewInfo,
   DebugCommandCall,
@@ -74,6 +75,8 @@ export interface SimInitMessage {
   readonly memoryCapBytes?: number;
   /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
   readonly variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.19: the stored project settings document. */
+  readonly projectSettings?: Readonly<Record<string, unknown>>;
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */
@@ -96,6 +99,8 @@ export type SimCommand =
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
   // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
+  // Phase 23.19: a storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
+  | { readonly op: 'saveEvent'; readonly event: import('@thirdlight/runtime').SaveEvent }
   /** Phase 23.9a: a UI event, queued in the worker's runtime for its next sampled frame. */
   | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
   | { readonly op: 'stop' };
@@ -158,7 +163,8 @@ export interface FrameState {
   readonly counters?: { counters: Record<string, number>; health: { current: number; max: number } | null };
   readonly runSave?: RunSaveState;
   readonly sceneSet?: SceneSetWire;
-  readonly audio?: readonly { assetId: string; volume: number; stepIndex: number }[];
+  /** Phase 23.13: the audio intent log's commands (phase 9.10: script sound requests). */
+  readonly audio?: readonly AudioCommand[];
   readonly effects?: readonly EffectRequest[];
   /**
    * Phase 23.4: the resolved camera (virtual cameras), every frame while the game has one:
@@ -176,6 +182,8 @@ export interface FrameState {
   readonly cursor?: 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (when it changed; observers). */
   readonly pointer?: PointerSample | null;
+  /** Phase 23.14: the binding requests scripts made in this frame (and how many were dropped over the limit). */
+  readonly rb?: { readonly requests: readonly import('@thirdlight/runtime').InputBindingRequest[]; readonly dropped: number };
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };
@@ -184,6 +192,8 @@ export interface FrameState {
   readonly debugCommands?: DebugCommandState;
   /** Phase 23.11: the objects riding on sockets (entity, target, node) when that changed. */
   readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
+  /** Phase 23.19: the save/load/delete/settings requests scripts made (the page owns storage). */
+  readonly saveReq?: readonly import('@thirdlight/runtime').SaveRequest[];
 }
 
 export type WorkerToMain =

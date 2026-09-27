@@ -61,8 +61,8 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
+import { audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
@@ -79,6 +79,8 @@ import {
   type HostDomNode,
   type FlowConfigLike,
   browserSaveStorage,
+  browserProjectSaveBackend,
+  readProjectSettings,
   browserWorkerAvailable,
   createBrowserSimWorker,
   createLocalSimAccess,
@@ -151,6 +153,7 @@ export interface PreviewManifestV2 {
   input?: InputConfigLike;
   /** Phase 23.3: the named collision layers. */
   collisionLayers?: readonly string[];
+  saveSchema?: SaveSchema;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -392,7 +395,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -445,12 +448,19 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials; from the verified manifest).
   const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
   const withBoundsM = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
+  // Phase 23.19: the project save schema (ctx.saves; from the verified manifest).
+  const withBoundsS = manifest.saveSchema !== undefined ? ({ ...withBoundsM, saveSchema: manifest.saveSchema } as RuntimeSnapshot) : withBoundsM;
   // Phase 23.9a: the UI documents scripts show and hide (id, layer, modal; the host draws them from the manifest).
   const uiRows = uiDocumentsForRuntime(manifest.uiDocuments);
-  const withBounds = uiRows !== undefined ? ({ ...withBoundsM, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsM;
+  const withBoundsU = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
+  // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
+  const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
+  const withBounds = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
+  // Phase 9.11 / 23.19: this project's saves in Play (an export uses its own namespace).
+  const playSaveNamespace = `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
   // Physics runs only for a game (a player controller); a plain scene plays
   // without it.
   // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
@@ -505,6 +515,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
               shared: resolveTransport(globalThis as never) === 'shared',
               // Phase 23.8: injected script variables (ctx.save from step 0).
               ...(startVariables !== undefined ? { variables: startVariables } : {}),
+              // Phase 23.19: the stored project settings document (the runtime starts with it).
+              ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, playSaveNamespace) } : {}),
             },
             input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
             ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
@@ -578,6 +590,11 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 23.3: the cursor (free/locked, hidden while a gamepad drives).
       applyCursor: (mode: 'free' | 'locked') => browserInput.applyCursor(mode),
       cursorState: () => browserInput.cursorState(),
+      // Phase 23.14: listen-for-input rebinding, the device used last and the frame's input entry.
+      captureInput: (o: Parameters<typeof browserInput.captureInput>[0], cb: Parameters<typeof browserInput.captureInput>[1]) => browserInput.captureInput(o, cb),
+      activeDevice: () => browserInput.activeDevice(),
+      activeDeviceInfo: () => browserInput.activeDeviceInfo(),
+      setFrameInput: (f: Parameters<typeof browserInput.setFrameInput>[0]) => browserInput.setFrameInput(f),
     };
     // Phase 15.3: the project's sound voice count (absent: 8).
     const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
@@ -641,8 +658,12 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 14.5: the title screen's background scene and camera pan.
       setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
       // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
-      ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
+      ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: playSaveNamespace } : {}),
+      // Phase 23.19: project save slots in this browser's IndexedDB (Play and exported games keep separate ones).
+      ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
       assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
+      // Phase 23.13: how audio sources are heard (the audio_spatial setting; 3D: panned).
+      audioSpatial: audioSpatialOf(settings),
       // Phase 23.8: Play always has the debug console (the backquote key); a start from "Play from…" / tl_play_start.
       debugConsole: true,
       focusGame: () => cfg.canvas.focus(),
@@ -668,6 +689,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     if (!mount.ok) {
       throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
     }
+    // Phase 23.19: a project save slot's picture (a data URL) for the page — a game's load screen, tests.
+    (globalThis as { __thirdlightSaveThumbnail?: (slot: number) => Promise<string | null> }).__thirdlightSaveThumbnail = (slot: number) => host.projectSaves?.thumbnail(slot) ?? Promise.resolve(null);
 
     // 5. The models settle (delivery.md §2.8 step 10): the preview reports
     //    ready ONLY after the prepares settle. A hard failure (L3–L5) is a
@@ -935,16 +958,21 @@ export function bootstrapPreviewM3(): void {
         ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
         ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
         ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
+        // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
+        ...(o.audio !== undefined ? { audio: structuredClone(o.audio) } : {}),
         // Phase 23.11: the objects riding on sockets and their world positions.
         ...(o.sockets !== undefined ? { sockets: structuredClone(o.sockets) } : {}),
         // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
         ...(o.pointer !== undefined ? { pointer: { ...o.pointer } } : {}),
         ...(o.cursor !== undefined ? { cursor: { ...o.cursor } } : {}),
         ...(o.hidden !== undefined ? { hidden: [...o.hidden] } : {}),
+        // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
+        ...(o.inputBindings !== undefined ? { inputBindings: structuredClone(o.inputBindings) } : {}),
         ...rendererObservation(h),
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
         ...debugCommandsObservation(h),
+        ...savesObservationOf(h.host),
         ...uiObservation(h, o.ui),
       };
     }
@@ -991,12 +1019,16 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
       // Phase 23.4: the resolved camera (virtual cameras: the live one, a blend, the pose and lens).
       ...(obs.observation.camera !== undefined ? { camera: structuredClone(obs.observation.camera) } : {}),
+      // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
+      ...(obs.observation.audio !== undefined ? { audio: structuredClone(obs.observation.audio) } : {}),
       // Phase 23.11: the objects riding on sockets and their world positions.
       ...(obs.observation.sockets !== undefined ? { sockets: structuredClone(obs.observation.sockets) } : {}),
       // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
       ...(obs.observation.pointer !== undefined ? { pointer: { ...obs.observation.pointer } } : {}),
       ...(obs.observation.cursor !== undefined ? { cursor: { ...obs.observation.cursor } } : {}),
       ...(obs.observation.hidden !== undefined ? { hidden: [...obs.observation.hidden] } : {}),
+      // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
+      ...(obs.observation.inputBindings !== undefined ? { inputBindings: structuredClone(obs.observation.inputBindings) } : {}),
       // Phase 17.1: the renderer backend that draws this play, and why.
       ...rendererObservation(h),
       ...effectsObservation(h),
@@ -1006,6 +1038,7 @@ export function bootstrapPreviewM3(): void {
       ...(debug !== null && debug !== undefined ? { debug } : {}),
       // Phase 23.8: the project's debug commands and the calls run; the start options' outcome.
       ...debugCommandsObservation(h),
+      ...savesObservationOf(h.host),
       // Phase 23.9a: the project UI (shown documents, the flow screen's document, the focus, the view model).
       ...uiObservation(h, obs.observation.ui),
     };
@@ -1105,6 +1138,8 @@ interface PlayStartBlock {
   variables?: Record<string, unknown>;
   save?: Record<string, unknown>;
   saveSlot?: 'auto' | '1' | '2' | '3';
+  projectSave?: Record<string, unknown>;
+  projectSaveSlot?: number;
   mode?: string;
 }
 
@@ -1117,6 +1152,9 @@ function hostStartOf(b: PlayStartBlock): GameStartOptions | undefined {
   if (b.save !== undefined) o.save = b.save as unknown as NonNullable<GameStartOptions['save']>;
   if (b.saveSlot !== undefined) o.saveSlot = b.saveSlot;
   if (b.mode !== undefined) o.mode = b.mode;
+  // Phase 23.19: a project save document or slot.
+  if (b.projectSave !== undefined) o.projectSave = b.projectSave as unknown as NonNullable<GameStartOptions['projectSave']>;
+  if (b.projectSaveSlot !== undefined) o.projectSaveSlot = b.projectSaveSlot;
   return Object.keys(o).length > 0 ? o : undefined;
 }
 
@@ -1241,4 +1279,16 @@ function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, Array
       loadTexture,
     },
   };
+}
+
+/**
+ * Phase 23.19: `saves` {slotCount, storage, slots (the first 32 used: title,
+ * chapter, location, play time, when, version, bytes, picture facts), settings}
+ * for tl_game_observe (a project with a save schema).
+ */
+function savesObservationOf(host: { observe(): unknown; observeScene?(): unknown }): { saves?: unknown } {
+  const o = host.observe() as { ok: boolean; observation?: { saves?: unknown } };
+  const sc = o.ok ? o : (host.observeScene?.() as { ok: boolean; observation?: { saves?: unknown } } | undefined);
+  const saves = sc?.ok === true ? sc.observation?.saves : undefined;
+  return saves !== undefined ? { saves: structuredClone(saves) } : {};
 }

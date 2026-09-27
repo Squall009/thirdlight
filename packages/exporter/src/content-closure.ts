@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import type { BlockType, CellField } from '@thirdlight/project-model';
+import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
@@ -387,6 +387,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
   const assetArtifacts: ClosureArtifact[] = [];
   const assets: ManifestAssetInputV2[] = [];
+  // Phase 23.13: each audio/music version's recorded duration (the simulation computes script sounds' ends from it).
+  const durationOf = (assetId: string, version: number): number | undefined => {
+    const rec = ((input.content as { assets?: { assetId: string; versions?: { version: number; metrics?: { durationMs?: unknown } }[] }[] } | null)?.assets ?? []).find((r) => r.assetId === assetId);
+    const ms = rec?.versions?.find((v) => v.version === version)?.metrics?.durationMs;
+    return typeof ms === 'number' && Number.isInteger(ms) && ms >= 1 ? ms : undefined;
+  };
   /** Phase 23.11: the model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
   const modelBytes = new Map<string, Uint8Array>();
   for (const a of view.assets) {
@@ -431,6 +437,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a.bounds !== undefined ? { bounds: a.bounds } : {}),
+      ...((a.kind === 'audio' || a.kind === 'music') && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),
     });
   }
 
@@ -507,6 +514,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
     // Phase 23.3: the named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
     ...(((input.content as { collisionLayers?: string[] } | null)?.collisionLayers ?? []).length > 0 ? { collisionLayers: (input.content as { collisionLayers: string[] }).collisionLayers } : {}),
+    // Phase 23.19: the project save schema (the runtime builds and restores save documents with it; the host keeps the slots).
+    ...((input.content as { saveSchema?: SaveSchema } | null)?.saveSchema !== undefined ? { saveSchema: (input.content as { saveSchema: SaveSchema }).saveSchema } : {}),
     // Phase 9.7: the animator controllers (the game's runtime steps them); phase 16.2: without the editor-only graph layout.
     ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: animatorsForRuntime((input.content as { animators: AnimatorController[] }).animators) } : {}),
     // Phase 23.11: the rigs sockets are resolved on (the runtime never loads a model).

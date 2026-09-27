@@ -238,6 +238,15 @@ function fnvBytes(b: Uint8Array): string {
   return h.toString(16).padStart(8, '0');
 }
 
+/** Phase 23.19: one object's script-set values of one material, as a save document keeps them. */
+export interface MaterialSaveEntry {
+  readonly entityId: string;
+  readonly materialId: string;
+  readonly values?: Readonly<Record<string, MaterialParamValue>>;
+  /** Data parameters: the whole grid (RGBA bytes, row-major from cell [0, 0]). */
+  readonly data?: Readonly<Record<string, readonly number[]>>;
+}
+
 /** Per object and material: the values scripts set and the data grids they wrote. */
 interface MaterialState {
   readonly values: Map<string, MaterialParamValue>;
@@ -343,6 +352,66 @@ export class RuntimeMaterials {
       }
     }
     return rows.sort().join('\n');
+  }
+
+  /**
+   * Phase 23.19: the values scripts set, as plain data for a save document
+   * (`materials` section): one entry per object and material, sorted.
+   */
+  saveState(): MaterialSaveEntry[] {
+    const out: MaterialSaveEntry[] = [];
+    for (const entityId of [...this.state.keys()].sort()) {
+      const byMaterial = this.state.get(entityId)!;
+      for (const materialId of [...byMaterial.keys()].sort()) {
+        const s = byMaterial.get(materialId)!;
+        const values: Record<string, MaterialParamValue> = {};
+        for (const k of [...s.values.keys()].sort()) {
+          const v = s.values.get(k)!;
+          values[k] = Array.isArray(v) ? [...v] : v;
+        }
+        const data: Record<string, number[]> = {};
+        for (const k of [...s.data.keys()].sort()) data[k] = [...s.data.get(k)!];
+        out.push({ entityId, materialId, ...(Object.keys(values).length > 0 ? { values } : {}), ...(Object.keys(data).length > 0 ? { data } : {}) });
+      }
+    }
+    return out;
+  }
+
+  /** Phase 23.19: why a saved `materials` section cannot be restored now (null: it can). */
+  checkState(v: unknown): string | null {
+    if (!Array.isArray(v)) return 'the materials section is a list';
+    for (const e of v as unknown[]) {
+      const r = e as MaterialSaveEntry;
+      if (typeof r !== 'object' || r === null || typeof r.entityId !== 'string' || typeof r.materialId !== 'string') return 'a materials entry is { entityId, materialId, values?, data? }';
+      const w = this.worn.get(r.entityId);
+      if (w === undefined || !w.materials.includes(r.materialId)) return `object "${r.entityId.slice(0, 64)}" does not wear material "${r.materialId.slice(0, 64)}" in this game`;
+      const params = this.params.get(r.materialId)!;
+      for (const [k, val] of Object.entries(r.values ?? {})) {
+        const p = params.get(k);
+        if (p === undefined || p.visibility === 'private' || p.type === 'data' || checkedValue(p, val, this.textures) === undefined) return `material "${r.materialId}" parameter "${k.slice(0, 64)}": the saved value does not fit`;
+      }
+      for (const [k, bytes] of Object.entries(r.data ?? {})) {
+        const p = params.get(k);
+        if (p === undefined || p.visibility === 'private' || p.type !== 'data' || !Array.isArray(bytes) || bytes.length !== p.size![0] * p.size![1] * 4 || !bytes.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)) return `material "${r.materialId}" data parameter "${k.slice(0, 64)}": the saved cells do not fit`;
+      }
+    }
+    return null;
+  }
+
+  /** Phase 23.19: every object back to its authored values, then the saved ones (checked with `checkState`; the renderer is told). */
+  restoreState(v: readonly MaterialSaveEntry[] | undefined): void {
+    this.reset();
+    for (const r of v ?? []) {
+      const params = this.params.get(r.materialId)!;
+      for (const [k, val] of Object.entries(r.values ?? {})) {
+        this.stateOf(r.entityId, r.materialId).values.set(k, checkedValue(params.get(k)!, val, this.textures)!);
+        this.mark('set', r.entityId, r.materialId, k);
+      }
+      for (const [k, bytes] of Object.entries(r.data ?? {})) {
+        this.stateOf(r.entityId, r.materialId).data.set(k, Uint8Array.from(bytes));
+        this.mark('data', r.entityId, r.materialId, k);
+      }
+    }
   }
 
   // ---- internals -------------------------------------------------------------------

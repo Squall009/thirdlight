@@ -101,6 +101,8 @@ export interface InputBindingOptions {
    * `actions`. Absent: the M2 keys only.
    */
   inputConfig?: InputConfigLike;
+  /** Phase 23.14: the clock (milliseconds) hold bindings measure with; defaults to `performance.now`. */
+  now?: () => number;
   onDiagnostic?: (event: {
     code:
       | 'input_unavailable'

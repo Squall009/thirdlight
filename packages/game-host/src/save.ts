@@ -74,6 +74,12 @@ export interface SaveStore {
   /** Phase 14.3: the best scores per level (empty when none or unreadable). */
   readRecords(): SaveRecords;
   writeRecords(r: SaveRecords): void;
+  /**
+   * Phase 23.14: a player profile's changed bindings (action → its bindings;
+   * null when the profile saved none or the entry is unreadable).
+   */
+  readBindings(profile: string): Record<string, unknown[]> | null;
+  writeBindings(profile: string, actions: Record<string, unknown[]>): void;
   /** Every slot and the settings of this game's namespace. */
   clear(): void;
 }
@@ -160,8 +166,26 @@ export function createSaveStore(storage: SaveStorage, namespace: string): SaveSt
         // storage full or refused: the records still hold for this session
       }
     },
+    readBindings(profile) {
+      const raw = safeGet(`bindings:${profile}`);
+      if (raw === null || raw.length > SAVE_MAX_BYTES) return null;
+      try {
+        const d = JSON.parse(raw) as { version?: unknown; actions?: unknown };
+        if (d.version !== 1 || typeof d.actions !== 'object' || d.actions === null || Array.isArray(d.actions)) return null;
+        return Object.fromEntries(Object.entries(d.actions).filter(([k, v]) => /^[A-Za-z_]\w{0,31}$/.test(k) && Array.isArray(v))) as Record<string, unknown[]>;
+      } catch {
+        return null;
+      }
+    },
+    writeBindings(profile, actions) {
+      try {
+        storage.set(key(`bindings:${profile}`), JSON.stringify({ version: 1, actions }));
+      } catch {
+        // storage full or refused: the bindings still apply for this session
+      }
+    },
     clear() {
-      for (const k of [...SAVE_SLOTS, 'settings', 'records']) {
+      for (const k of [...SAVE_SLOTS, 'settings', 'records', 'bindings:default']) {
         try {
           storage.remove(key(k));
         } catch {

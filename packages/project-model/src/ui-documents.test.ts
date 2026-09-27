@@ -126,3 +126,13 @@ describe('UI documents: project references', () => {
     expect(uiDocumentsForRuntime([])).toBeUndefined();
   });
 });
+
+describe('phase 23.14: rebinding engine actions', () => {
+  const docWith = (onClick: unknown): unknown => ({ uiDocumentId: 'keys', name: 'Keys', root: { type: 'button', text: 'x', onClick } });
+  it('rebind names its input action (device, index, part, policy optional); cancelRebind and resetBindings', () => {
+    expect(errs(docWith({ do: 'engine', action: 'rebind', input: 'jump', device: 'gamepad', index: 1, part: 'up', policy: 'refuse' }))).toEqual([]);
+    expect(errs(docWith([{ do: 'engine', action: 'cancelRebind' }, { do: 'engine', action: 'resetBindings' }, { do: 'engine', action: 'resetBindings', input: 'jump' }]))).toEqual([]);
+    expect(errs(docWith({ do: 'engine', action: 'rebind' })).map((e) => e.path)).toEqual(['/root/onClick/input']);
+    expect(errs(docWith({ do: 'engine', action: 'rebind', input: 'jump', device: 'mouse', index: 9, part: 'in', policy: 'maybe' })).map((e) => e.path).sort()).toEqual(['/root/onClick/device', '/root/onClick/index', '/root/onClick/part', '/root/onClick/policy']);
+  });
+});

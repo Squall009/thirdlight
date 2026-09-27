@@ -26,6 +26,7 @@
 import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
 import { withCollisionLayers } from './layer-ops';
+import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { uiOf, withUi } from './ui-ops';
@@ -525,6 +526,11 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withFlow(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setSaveSchema') {
+    const before = (content as { saveSchema?: import('@thirdlight/project-model').SaveSchema }).saveSchema ?? null;
+    const change: ChangeData = { type: 'setSaveSchema', previous: before === null ? null : structuredClone(before), next: inv.restore === null ? null : structuredClone(inv.restore) };
+    return finish(state, bumped(scene), withSaveSchema(content, inv.restore), change, entry.requestId);
+  }
   if (inv.kind === 'setCollisionLayers') {
     const before = (content as { collisionLayers?: string[] }).collisionLayers ?? [];
     const change: ChangeData = { type: 'setCollisionLayers', previous: [...before], next: [...inv.restore] };
@@ -974,6 +980,11 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withFlow(content, f.next), change, entry.requestId);
   }
 
+  if (f.type === 'setSaveSchema') {
+    const before = (content as { saveSchema?: import('@thirdlight/project-model').SaveSchema }).saveSchema ?? null;
+    const change: ChangeData = { type: 'setSaveSchema', previous: before === null ? null : structuredClone(before), next: f.next === null ? null : structuredClone(f.next) };
+    return finish(state, bumped(scene), withSaveSchema(content, f.next), change, entry.requestId);
+  }
   if (f.type === 'setCollisionLayers') {
     const before = (content as { collisionLayers?: string[] }).collisionLayers ?? [];
     const change: ChangeData = { type: 'setCollisionLayers', previous: [...before], next: [...f.next] };

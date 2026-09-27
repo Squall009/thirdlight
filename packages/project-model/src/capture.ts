@@ -139,6 +139,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     const refs = flowAssetRefs(flow);
     for (const id of [...refs.music, ...refs.textures, ...refs.menuSounds, ...refs.ambience]) setRef(id);
   }
+  // Phase 23.14: the project's glyph images (input.glyphs).
+  for (const id of Object.values((content as { input?: { glyphs?: Record<string, string> } }).input?.glyphs ?? {})) setRef(id);
   // Phase 23.9a: the textures (images, 9-slices, icons) and fonts the UI documents and themes use.
   const ui = uiAssetRefs((content as { uiDocuments?: UiDocument[] }).uiDocuments, (content as { uiThemes?: UiTheme[] }).uiThemes);
   for (const id of [...ui.textures, ...ui.fonts]) setRef(id);

@@ -39,7 +39,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -56,6 +56,8 @@ import {
   type ManifestSceneRow,
   type FlowConfigLike,
   browserSaveStorage,
+  browserProjectSaveBackend,
+  readProjectSettings,
   browserWorkerAvailable,
   createBrowserSimWorker,
   loadPhysics3D,
@@ -68,7 +70,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
@@ -116,6 +118,8 @@ interface ExportManifestV2 {
   input?: InputConfigLike;
   /** Phase 23.3: the named collision layers. */
   collisionLayers?: readonly string[];
+  /** Phase 23.19: the project save schema. */
+  saveSchema?: SaveSchema;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -150,7 +154,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -251,6 +255,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
+  const audioDurations = audioDurationsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
   const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
@@ -266,6 +271,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.prefabs !== undefined ? { prefabs: manifest.prefabs } : {}),
     // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
     ...(modelBounds !== undefined ? { modelBounds } : {}),
+    // Phase 23.13: the audio assets' recorded durations (script sounds' finished events).
+    ...(audioDurations !== undefined ? { audioDurations } : {}),
     // Phase 23.11: the model rigs sockets are resolved on (bound by the buildId).
     ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
     // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
@@ -273,9 +280,13 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
     // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials).
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
+    // Phase 23.19: the project save schema (ctx.saves).
+    ...(manifest.saveSchema !== undefined ? { saveSchema: manifest.saveSchema } : {}),
     // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
     ...(uiDocumentsForRuntime(manifest.uiDocuments) !== undefined ? { uiDocuments: uiDocumentsForRuntime(manifest.uiDocuments) } : {}),
   } as unknown as RuntimeSnapshot);
+  // Phase 9.11 / 23.19: this game's saves in the player's browser (Play uses its own namespace).
+  const saveNamespace = `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
   // the scene references no model asset): `assets` = the manifest's
@@ -349,6 +360,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
             modules: moduleIds,
             behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(r.path, document.baseURI).href])) },
             shared: resolveTransport(globalThis as never) === 'shared',
+            // Phase 23.19: the stored project settings document (the runtime starts with it).
+            ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, saveNamespace) } : {}),
           },
           input: { sample: (stepIndex) => input.sample(stepIndex), reset: (reason) => input.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
@@ -500,8 +513,12 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     // Phase 14.5: the title screen's background scene and camera pan.
     setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
     // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
-    ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
+    ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace } : {}),
+    // Phase 23.19: project save slots in the player's IndexedDB (no backend: the export runs standalone).
+    ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
+    // Phase 23.13: how audio sources are heard (the audio_spatial setting; 3D: panned).
+    audioSpatial: audioSpatialOf(settings),
     // Phase 23.8: the debug console only when the project turns debug_console on (absent/0: a release game has none).
     ...((settings as unknown as Record<string, unknown>)['debug_console'] === 1 ? { debugConsole: true, focusGame: () => canvas.focus() } : {}),
     // Phase 23.9a: the project UI documents and themes (the host draws them).
@@ -549,6 +566,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // relay here) — the host's own observation (a game's run state, or a scene's
   // step), with the player's position; read by tooling and the e2e suite.
   const playerId = snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)?.id;
+  // Phase 23.19: a project save slot's picture (a data URL) for the page — a game's load screen, tests.
+  (window as unknown as { __thirdlightSaveThumbnail?: (slot: number) => Promise<string | null> }).__thirdlightSaveThumbnail = (slot: number) => host.projectSaves?.thumbnail(slot) ?? Promise.resolve(null);
   (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve = () => {
     const game = host.observe();
     if (game.ok) {

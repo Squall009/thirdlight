@@ -911,13 +911,37 @@ only input such as Screen UV used in a Vertex offset, which reads a fixed
 stand-in there) show on the node. Selected objects and the active
 checkpoint still glow (the object's own emissive is added to the graph's).
 
+**Custom-lit surfaces** (phase 23.15): a **Custom-lit output** takes a
+colour the graph computes itself (plus emissive, a tangent-space normal,
+opacity and alpha clip) — cel bands, painterly, hatching — and still gets
+fog, tone mapping and the post stack. Under it the *Lighting* inputs read
+the scene's lights: **Main light** (the brightest shadow-casting
+directional light, else the first: direction to it in world space, colour ×
+intensity, N·L from −1 to 1 — step or posterize it for bands), **Shadow**
+(the main light's shadow on the pixel, 0 shadowed … 1 lit), **Diffuse
+light** (total — every directional, point and spot light with its N·L,
+shadow and falloff, plus ambient, environment and lightmap —, its
+luminance, and the direct part alone) and **Ambient light** (ambient,
+hemisphere and light probes; the environment's image-based light; a baked
+lightmap's light). Every light value is on the diffuse scale: a colour ×
+a light value is what a matte surface of that colour shows (the PBR
+output's diffuse), so a point light near a custom-lit object brightens it
+exactly as it would a standard one. A lightmapped custom-lit object adds its
+lightmap to the total. Used under a PBR or Unlit output (which light
+themselves) the Lighting inputs read no light and show a compile error on
+the node; in a vertex offset a warning; a Custom-lit normal cannot read
+them. The Material tab's preview, the Scene view, Play and exports draw
+custom-lit graphs with their lights.
+
 **The catalogue** (generic, any genre): *Inputs* — Float, Vector 2/3/4,
 Colour, Parameter, Time, UV (set 0/1), Vertex colour (a mesh without
 COLOR_0 reads white, or zero with alpha 1 when its field says so — for
 vertex colours used as data), Position and Normal (object/world/view), View
 direction, Object position (the object's or instance's origin in the
 world), Camera distance, Screen UV, Instance index, Global wind (direction,
-strength with gusts travelling across the world, turbulence); *Maths* — add, subtract, multiply, divide, min, max,
+strength with gusts travelling across the world, turbulence); *Lighting*
+— Main light, Shadow, Diffuse light, Ambient light (Custom-lit only, see
+above); *Maths* — add, subtract, multiply, divide, min, max,
 power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
 step, abs, floor, fraction, sin, cos, one minus, remap; *Vectors* — split,
 combine, swizzle (mask `xyzw`/`rgba`); *Textures* — Sample texture (wrap,
@@ -926,7 +950,8 @@ gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp, Sample data (
 *Utility* — Fresnel, Rim, Posterize, Dither, World-aligned UV, Parallax,
 Vertex displacement, Alpha clip; *Functions* — Function call; *Output* —
 PBR output (base colour, metalness, roughness, normal, emissive, AO,
-opacity, alpha clip) or Unlit output (one of them per material), Vertex
+opacity, alpha clip), Unlit output or Custom-lit output (colour, emissive,
+normal, opacity, alpha clip) — one of them per material —, Vertex
 offset; the render flags (double-sided, transparent, casts shadows) are
 fields of the surface output. Port types are float, vec2, vec3, vec4,
 texture and data (a data parameter, which feeds only Sample data); every value width converts to every other (a float fills every
@@ -1716,6 +1741,33 @@ distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
 `tl_game_control` *start* begins a new game and *replay* restarts the
 level. Settings last until the page is reloaded (saving them is phase 9.11).
 
+**Script audio and 3D audio (phase 23.13).** `ctx.audio.play(assetId,
+{volume, loop, pitch, bus, fadeIn, entityId, position, distanceModel,
+refDistance, maxDistance, rolloff})` returns a handle: `stop(h, fade)`,
+`fade(h, to, seconds)`, `setVolume`, `setPitch` (the playback rate, 0.25–4),
+`setLoop`, `playing(h)`, `volumeOf(h)`, and `finished(h)` / `events()` in the
+step after a sound ended or its stop fade finished (computed in the
+simulation from the asset's recorded length, so replays and the worker agree).
+Buses: sfx, music, voice, ui (`setBusVolume(bus, v, seconds)` mixes on top of
+the player's volume). Music: `music(id | null, fade)` crossfades and holds
+the music over the game flow's level/title track until `releaseMusic(fade)`;
+`stinger(id, {duck, fade})` plays once over the music, ducked to 0.3 under it;
+`duck(level, seconds)` / `unduck` — the deepest duck alive wins. A sound with
+`entityId` or `position` is panned (equal-power) around the listener, the
+active camera, and fades by its distance model (defaults linear, 2–30 m).
+The project setting **Audio sources** (`audio_spatial`: 0 automatic, 1 by X
+distance to the player, 2 panned) decides how audio sources are heard;
+automatic keeps 2D projects exactly as before and pans in 3D, where an
+audio source's range is its max distance and **Distance model**, **Full
+volume within** and **Rolloff** are Inspector fields. Scenes without a game
+block (3D projects) now play script sounds and audio sources too. A script
+names its sounds through asset properties (the export carries only the
+assets objects and script properties reference). `tl_game_observe` and the
+export's `window.__thirdlightObserve()` report `audio`: live voices with
+gain, playback rate, pan and distance gain (the Web Audio graph's state, not
+heard sound), music owner and duck, bus gains and the listener. How it
+sounds is owner look pending.
+
 ## Saves
 
 A game with a game flow saves in the player's browser (localStorage): an
@@ -1731,6 +1783,54 @@ Each save is versioned, checksummed and at most 64 KB; a damaged one is
 named on the title screen and ignored. Play keeps its saves apart from
 exported games (and each project apart from the others); **Game flow →
 Clear Play save** forgets Play's (MCP: `tl_game_control` `clearSave`).
+
+### Project save documents (phase 23.19)
+
+Any game (with or without a game flow) can declare its own save format in
+the **Saves** tab (MCP: `setSaveSchema {schema | null}`):
+
+- **Version** of the save document, and **migrations**: for each older
+  version the name of a script function that upgrades a document by one
+  version. A script registers it with
+  `ctx.saves.migration('v1to2', (doc, fromVersion) => newDoc)`; a save of
+  version 1 loaded by a version-3 game runs `v1to2` then `v2to3`. A save
+  newer than the game, or one whose migration no script registered, is not
+  loaded (nothing changes; the outcome says why).
+- **Slots**: 1–99 (engine limit 99).
+- **Included state** (opt-in): *block cells* (the cells scripts changed,
+  `ctx.grid`), *material values* (`ctx.materials`), *spawned objects*
+  (prefab copies with their placement and ids; their scripts start fresh),
+  *script storage* (`ctx.save`). A section the schema includes but a save
+  lacks is reset to the run's start on load.
+- **Slot picture**: size and format (default 256 × 144 JPEG; at most
+  512 px a side and 64 KiB).
+- **Settings document**: fields (bool, number, string, choice) with
+  defaults, which the game's own settings screen writes with
+  `ctx.saves.setSetting(key, value)` and reads with `ctx.saves.setting(key)`.
+  A field may drive an engine setting — music, sound or menu volume (a 0–1
+  number) or quality (a choice of low/medium/high) — which applies at once.
+  It is kept in the player's browser (localStorage, per project) and the
+  game starts with it.
+
+Scripts build the document themselves: `ctx.saves.write(doc)` / `read()`
+(any JSON, at most **1 MiB per slot** with its sections), `save(slot, {title,
+chapter, location, thumbnail})`, `load(slot)`, `delete(slot)`, `slots()` (title,
+chapter, location, play time, when, version, size, picture), `ready()`,
+`results()` (the outcomes, one step after storage answers), `playSeconds()`.
+A save is taken at the end of the step it was asked for; a loaded save is
+restored at the end of the step storage's answer arrives, so every host (the
+page, the simulation worker, a replay) restores it at the same step —
+storage's answers are part of the recorded input.
+
+Slots live in the browser's IndexedDB (localStorage's ~5 MB per site could
+not hold 99 slots of 1 MiB); Play and exported games, and each project, keep
+separate ones, and an export needs no backend. `tl_game_observe` (and an
+export's `__thirdlightObserve()`) report `saves {slotCount, storage, slots
+(the first 32 used, with their picture's type and size), settings}`; the page
+exposes a slot's picture as `__thirdlightSaveThumbnail(slot)` (a data URL).
+`tl_play_start` also takes a project save document (`{format:
+"thirdlight.save", version, playSeconds?, doc, sections?}`, loaded at the
+first step and migrated) or `saveSlot` 1–99 (a project slot of the Play page).
 
 ## Test and debug entry points (phase 23.8)
 
@@ -2599,6 +2699,39 @@ MCP: `setCollisionLayers {layers}`; collider `{ layers: [...] }`.
 and `hidden` (the objects scripts hid). Headless browsers may refuse pointer
 lock; the `data-tl-pointer-lock` attribute on the game canvas shows whether
 the browser granted it.
+
+## Input rebinding and glyphs (phase 23.14)
+
+- **Players rebind in the built-in settings screen**: every action is listed
+  for keys/mouse and for the pad (composites one row per direction); choose
+  a row, press the new key or button (Esc cancels, 10 s timeout). An input
+  already used by another action of the same map is swapped. "Reset controls
+  to defaults" restores the project's bindings. Changes are saved in the
+  browser per player profile (`bindings:<profile>` in the game's storage
+  namespace) and load at start.
+- **Scripts** read `ctx.input.device()` / `usingGamepad()`, `bindings()`,
+  `glyph(action)` (label, icon id, the project's image) and ask for
+  `ctx.input.rebind(action, { index, part, device, policy: 'swap' | 'refuse' |
+  'allow', cancelKey, timeout })`, `cancelRebind()`, `resetBindings(action?)`,
+  `useBindingProfile(name)`; outcomes arrive in `rebindEvents()`. A game's own
+  rebinding screen is built on these. Replays stay valid: the simulation only
+  sees action values and the binding information travels in the recorded input.
+- **Hold instead of tap**: a key, pad button or mouse button binding takes a
+  `hold` time (seconds) in the Input window.
+- **Glyphs**: the engine has a neutral SVG icon set (key caps, face buttons by
+  position, bumpers/triggers, D-pad, sticks, mouse buttons); pad labels follow
+  the pad family (Xbox, PlayStation, Switch, generic) detected from the pad.
+  Projects replace icons with their own textures in the Input window's Glyphs
+  list (e.g. `xbox:pad-south`, `pad-south`, `key:Space`).
+- Observation: Play observe and the export's `window.__thirdlightObserve()`
+  report `inputBindings` (device used last, profile, listening, changed
+  actions, each action's glyph).
+- **Project UI** (UI documents): a button's engine action `rebind` (with
+  `input`: the action, optional `device`, `index`, `part`, `policy`),
+  `cancelRebind` or `resetBindings`; `{action:jump}` in a text shows the
+  action's glyph for the device in use; `$flow.input.actions` lists every
+  action's key and pad labels for a settings document.
+- Limits: 64 actions per project; 8 binding requests per step from scripts.
 
 ## Performance
 

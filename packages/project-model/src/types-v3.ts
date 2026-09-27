@@ -518,6 +518,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
    * "default"); script queries filter by layer. 3D physics only.
    */
   collisionLayers?: string[];
+  /** Phase 23.19: the project save document and settings document schema (absent = no project saves). */
+  saveSchema?: import('./save-schema').SaveSchema;
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

@@ -87,7 +87,7 @@ function magentaPixels(img: Image): number {
   return n;
 }
 
-type Observation = { ok?: boolean; state?: string; player?: { x: number; y: number }; loops?: Record<string, number>; titleView?: { scene: string | null; cameraOffset: number[] }; flow?: { screen: string; menuSounds: { played: number; last: string | null }; ambience: string[]; pad: Record<string, number> } };
+type Observation = { ok?: boolean; state?: string; player?: { x: number; y: number }; loops?: Record<string, number>; titleView?: { scene: string | null; cameraOffset: number[] }; flow?: { screen: string; menuSounds: { played: number; last: string | null }; ambience: string[]; rebound: string[] } };
 
 test('pad rebinding, menu sounds, ambience and the title background in Play', async ({ page }) => {
   test.setTimeout(240_000);
@@ -191,15 +191,16 @@ test('pad rebinding, menu sounds, ambience and the title background in Play', as
   await page.keyboard.press('Enter');
   await expect(flow).toHaveAttribute('data-screen', 'settings');
   await expect.poll(async () => (await observe()).flow!.menuSounds).toEqual({ played: before + 1, last: 'confirm' });
-  await expect(items.filter({ hasText: 'Jump (pad): button 0' })).toHaveCount(1);
+  await expect(items.filter({ hasText: 'Jump (pad): A' })).toHaveCount(1);
   await expect(items.filter({ hasText: 'Menu sounds volume: 100%' })).toHaveCount(1);
   await selectItem('Jump (pad)');
   await page.keyboard.press('Enter');
   await expect(flow).toContainText('Press a pad button for Jump');
   await setButton(frame, 3, true);
-  await expect(items.filter({ hasText: 'Jump (pad): button 3' })).toHaveCount(1);
+  await expect(items.filter({ hasText: 'Jump (pad): Y' })).toHaveCount(1);
   await setButton(frame, 3, false);
-  expect((await observe()).flow!.pad).toEqual({ jump: 3 });
+  // Phase 23.14: button 3 was interact's — swapped (interact takes A).
+  expect((await observe()).flow!.rebound).toEqual(['jump', 'interact']);
   await page.keyboard.press('Escape');
   await expect(flow).toHaveAttribute('data-screen', 'title');
   await expect.poll(async () => (await observe()).flow!.menuSounds.last).toBe('back');

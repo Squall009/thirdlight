@@ -479,7 +479,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
-  audioSource: ['assetId', 'volume', 'range'],
+  audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'],
   switch: ['mode', 'signal', 'size', 'once'],

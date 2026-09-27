@@ -2,9 +2,14 @@
  * Phase 9.8: the Input window. Jump is rebound from Space to W by listening
  * for the key; in Play the player jumps with W and no longer with Space.
  */
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { expect, test } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { makePng } from './png-make';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -68,4 +73,40 @@ test('jump rebound to W in the Input window: W jumps in Play, Space does not', a
   };
   expect(await peak('Space')).toBeLessThan(ground + 0.1);
   expect(await peak('w')).toBeGreaterThan(ground + 0.6);
+});
+
+test('phase 23.14: a hold time on a binding and a project glyph image, edited in the Input window', async ({ page }) => {
+  test.setTimeout(120_000);
+  // A glyph image: a small texture imported through the Assets window.
+  const dir = mkdtempSync(join(tmpdir(), 'tl-glyph-'));
+  const file = join(dir, 'glyph.png');
+  writeFileSync(file, makePng(32, 32, () => [40, 110, 250, 255]));
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await page.getByRole('tab', { name: 'Assets' }).click();
+  await page.locator('.tl-assets__file').first().setInputFiles(file);
+  const publish = page.getByRole('button', { name: 'publish' });
+  await expect(publish).toBeEnabled({ timeout: 15_000 });
+  await publish.click();
+  await expect(page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'glyph' })).toHaveCount(1, { timeout: 10_000 });
+  rmSync(dir, { recursive: true, force: true });
+  const assets = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; kind: string }[];
+  const texture = assets.find((a) => a.kind === 'texture');
+  expect(texture, 'the imported texture').toBeDefined();
+  await page.getByRole('tab', { name: 'Input' }).click();
+  const hold = page.getByLabel('hold seconds for Space of jump', { exact: true });
+  await hold.fill('0.5');
+  await hold.blur();
+  const stored = async (): Promise<{ actions: { name: string; bindings: unknown[] }[]; glyphs?: Record<string, string> }> => (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['input'] as never;
+  await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[0]).toEqual({ kind: 'key', code: 'Space', hold: 0.5 });
+  await page.getByLabel('new glyph key', { exact: true }).fill('xbox:pad-south');
+  await page.getByLabel('new glyph texture', { exact: true }).selectOption(texture!.assetId);
+  await page.getByRole('button', { name: 'Add glyph' }).click();
+  await expect.poll(async () => (await stored())?.glyphs).toEqual({ 'xbox:pad-south': texture!.assetId });
+  await expect(page.getByLabel('glyph xbox:pad-south', { exact: true })).toBeVisible();
+  // The hold stays on the binding through the glyph edit; clearing it makes the binding a tap again.
+  await expect(page.getByLabel('hold seconds for Space of jump', { exact: true })).toHaveValue('0.5');
+  await page.getByLabel('hold seconds for Space of jump', { exact: true }).fill('');
+  await page.getByLabel('hold seconds for Space of jump', { exact: true }).blur();
+  await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[0]).toEqual({ kind: 'key', code: 'Space' });
 });
