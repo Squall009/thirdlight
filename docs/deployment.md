@@ -1682,6 +1682,33 @@ distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
 `tl_game_control` *start* begins a new game and *replay* restarts the
 level. Settings last until the page is reloaded (saving them is phase 9.11).
 
+**Script audio and 3D audio (phase 23.13).** `ctx.audio.play(assetId,
+{volume, loop, pitch, bus, fadeIn, entityId, position, distanceModel,
+refDistance, maxDistance, rolloff})` returns a handle: `stop(h, fade)`,
+`fade(h, to, seconds)`, `setVolume`, `setPitch` (the playback rate, 0.25–4),
+`setLoop`, `playing(h)`, `volumeOf(h)`, and `finished(h)` / `events()` in the
+step after a sound ended or its stop fade finished (computed in the
+simulation from the asset's recorded length, so replays and the worker agree).
+Buses: sfx, music, voice, ui (`setBusVolume(bus, v, seconds)` mixes on top of
+the player's volume). Music: `music(id | null, fade)` crossfades and holds
+the music over the game flow's level/title track until `releaseMusic(fade)`;
+`stinger(id, {duck, fade})` plays once over the music, ducked to 0.3 under it;
+`duck(level, seconds)` / `unduck` — the deepest duck alive wins. A sound with
+`entityId` or `position` is panned (equal-power) around the listener, the
+active camera, and fades by its distance model (defaults linear, 2–30 m).
+The project setting **Audio sources** (`audio_spatial`: 0 automatic, 1 by X
+distance to the player, 2 panned) decides how audio sources are heard;
+automatic keeps 2D projects exactly as before and pans in 3D, where an
+audio source's range is its max distance and **Distance model**, **Full
+volume within** and **Rolloff** are Inspector fields. Scenes without a game
+block (3D projects) now play script sounds and audio sources too. A script
+names its sounds through asset properties (the export carries only the
+assets objects and script properties reference). `tl_game_observe` and the
+export's `window.__thirdlightObserve()` report `audio`: live voices with
+gain, playback rate, pan and distance gain (the Web Audio graph's state, not
+heard sound), music owner and duck, bus gains and the listener. How it
+sounds is owner look pending.
+
 ## Saves
 
 A game with a game flow saves in the player's browser (localStorage): an

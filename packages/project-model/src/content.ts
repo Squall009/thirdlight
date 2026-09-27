@@ -1548,6 +1548,12 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // reversed-Z needs WebGPU or WebGL 2's EXT_clip_control and falls back to
   // standard without it).
   { key: 'depth_buffer', type: 'number', default: 1, values: [1, 2, 3], valueLabels: ['Standard', 'Logarithmic (far vistas)', 'Reversed Z (far vistas)'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Depth precision', tooltip: 'How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard).' },
+  // Phase 23.13: how audio sources are heard. 0, automatic: a 2D-plane project
+  // keeps the phase 9.10 model (louder as the player comes near along X, no
+  // panning) so every existing project sounds exactly as before; a 3D project
+  // gets a panner per source with the listener on the active camera. 1 and 2
+  // force one or the other (a 2D game may want stereo panning).
+  { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
 ];
 
 /** Phase 23.0: the simulation's dimension (the `physics_dimension` setting's values). */
@@ -1563,6 +1569,19 @@ export const PHYSICS_DIMENSIONS: readonly PhysicsDimension[] = [2, 3];
 export function depthBufferOf(settings: unknown): 'standard' | 'logarithmic' | 'reversed' {
   const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['depth_buffer'] : undefined;
   return v === 2 ? 'logarithmic' : v === 3 ? 'reversed' : 'standard';
+}
+
+/**
+ * Phase 23.13: how audio sources are heard (the `audio_spatial` setting):
+ * 'legacy' (the X distance to the player) or 'panner' (a panner per source,
+ * the listener on the active camera). Absent or 0: panner in 3D, legacy on
+ * the 2D plane.
+ */
+export function audioSpatialOf(settings: unknown): 'legacy' | 'panner' {
+  const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['audio_spatial'] : undefined;
+  if (v === 1) return 'legacy';
+  if (v === 2) return 'panner';
+  return physicsDimensionOf(settings) === 3 ? 'panner' : 'legacy';
 }
 
 export function physicsDimensionOf(settings: unknown): PhysicsDimension {

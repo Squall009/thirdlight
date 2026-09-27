@@ -392,7 +392,12 @@ export const canonicalEnemy = (c: EnemyComponent): EnemyComponent => ({
 });
 
 /** Every block component, with its validator and canonical form (v4 scenes). */
-/** Phase 9.10: a sound that loops where the entity is, louder as the player comes near (along X). */
+/**
+ * Phase 9.10: a sound that loops where the entity is, louder as the player
+ * comes near (along X). Phase 23.13: in the panner model (the project's
+ * `audio_spatial`) it plays through a panner, the listener on the active
+ * camera, fading by its distance model; `range` is then the max distance.
+ */
 export interface AudioSourceComponent {
   /** An audio (cue) or music asset. */
   assetId: string;
@@ -400,17 +405,35 @@ export interface AudioSourceComponent {
   volume: number;
   /** Heard within this many meters (full volume within a quarter of it). */
   range: number;
+  /** Phase 23.13 (panner model): linear (absent), inverse or exponential. */
+  distanceModel?: 'linear' | 'inverse' | 'exponential';
+  /** Phase 23.13 (panner model): full volume within this distance (absent: a quarter of the range). */
+  refDistance?: number;
+  /** Phase 23.13 (panner model): how fast it fades (absent: 1). */
+  rolloff?: number;
 }
+
+export const AUDIO_SOURCE_FIELDS = ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'] as const;
 
 export function validateAudioSourceComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'audioSource is an object', value);
-  fields(value, ['assetId', 'volume', 'range'], ['assetId', 'volume', 'range'], path, errors);
+  fields(value, [...AUDIO_SOURCE_FIELDS], ['assetId', 'volume', 'range'], path, errors);
   if (value['assetId'] !== undefined && (typeof value['assetId'] !== 'string' || value['assetId'].length === 0 || value['assetId'].length > 128)) err(errors, 'field_value', `${path}/assetId`, 'assetId names an audio or music asset', value['assetId']);
   if (value['volume'] !== undefined && !num(value['volume'], 0, 1)) err(errors, 'field_value', `${path}/volume`, 'volume is 0–1', value['volume']);
   if (value['range'] !== undefined && !num(value['range'], 0.5, 500)) err(errors, 'field_value', `${path}/range`, 'range is 0.5–500 m', value['range']);
+  if (value['distanceModel'] !== undefined && value['distanceModel'] !== 'linear' && value['distanceModel'] !== 'inverse' && value['distanceModel'] !== 'exponential') err(errors, 'field_value', `${path}/distanceModel`, 'distanceModel is linear, inverse or exponential', value['distanceModel']);
+  if (value['refDistance'] !== undefined && !num(value['refDistance'], 0.01, 500)) err(errors, 'field_value', `${path}/refDistance`, 'refDistance is 0.01–500 m', value['refDistance']);
+  if (value['rolloff'] !== undefined && !num(value['rolloff'], 0, 10)) err(errors, 'field_value', `${path}/rolloff`, 'rolloff is 0–10', value['rolloff']);
 }
 
-export const canonicalAudioSource = (c: AudioSourceComponent): AudioSourceComponent => ({ assetId: c.assetId, volume: c.volume, range: c.range });
+export const canonicalAudioSource = (c: AudioSourceComponent): AudioSourceComponent => ({
+  assetId: c.assetId,
+  volume: c.volume,
+  range: c.range,
+  ...(c.distanceModel !== undefined ? { distanceModel: c.distanceModel } : {}),
+  ...(c.refDistance !== undefined ? { refDistance: c.refDistance } : {}),
+  ...(c.rolloff !== undefined ? { rolloff: c.rolloff } : {}),
+});
 
 /**
  * Phase 9.13: a model that turns to face where its parent is going (the
@@ -439,7 +462,7 @@ export const BLOCK_COMPONENTS = {
   health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: HEALTH_FIELDS },
   pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: PICKUP_FIELDS },
   enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ENEMY_FIELDS },
-  audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: ['assetId', 'volume', 'range'] },
+  audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: AUDIO_SOURCE_FIELDS },
   faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: ['yawRight', 'yawLeft', 'turnSeconds'] },
 } as const;
 export type BlockComponentName = keyof typeof BLOCK_COMPONENTS;

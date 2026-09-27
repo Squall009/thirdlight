@@ -69,6 +69,7 @@ import { lerpVec3, lerpVec3Into, quatEqual, slerpQuat, slerpQuatInto, vec3Equal 
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
@@ -1197,6 +1198,7 @@ export function instantiateRuntime(
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
     modelBounds: snap.modelBounds,
+    audioDurations: snap.audioDurations,
     ...(variables !== undefined ? { variables } : {}),
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
@@ -1272,6 +1274,8 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
   modelBounds: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.13: audio/music assetId -> its recorded duration (ms). */
+  audioDurations: Readonly<Record<string, number>>;
   /** Phase 23.8: injected script variables (validated; ctx.save from step 0). */
   variables?: Readonly<Record<string, unknown>>;
   /** Phase 23.5: the block types and cell fields of the project's block layers. */
@@ -1529,8 +1533,8 @@ class RuntimeInstance implements Runtime {
       if (typeof entityId === 'string' && this.curr.has(entityId)) this.blocks?.setVisible(entityId, visible === true);
     },
   });
-  /** Phase 9.10: sounds scripts asked for since the host last took them (bounded). */
-  private audioQueue: { assetId: string; volume: number; stepIndex: number }[] = [];
+  /** Phase 23.13: the audio intent log (handles, fades, music, duck; the host plays its commands). */
+  private readonly audio: AudioMixer;
   private readonly saveControl = Object.freeze({
     get: (key: string): unknown => (this.saveStore.has(String(key)) ? structuredClone(this.saveStore.get(String(key))) : undefined),
     set: (key: string, value: unknown): boolean => {
@@ -1576,13 +1580,7 @@ class RuntimeInstance implements Runtime {
       return this.stepDebugCalls?.get(name) ?? NO_DEBUG_CALLS;
     },
   });
-  private readonly audioControl = Object.freeze({
-    play: (assetId: string, options?: { volume?: number }): void => {
-      if (typeof assetId !== 'string' || assetId.length === 0 || assetId.length > 128 || this.audioQueue.length >= 16) return;
-      const v = Number(options?.volume ?? 1);
-      this.audioQueue.push({ assetId, volume: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1, stepIndex: this.stepIndex });
-    },
-  });
+  private readonly audioControl: import('./types').BehaviorAudio;
   // ---- Phase 20.2: visual effect requests (presentation only) ----
   /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
   private effectQueue: EffectRequest[] = [];
@@ -1750,6 +1748,9 @@ class RuntimeInstance implements Runtime {
     this.grid.flushCollision(args.physics3d);
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
+    // Phase 23.13: the audio intent log (clip lengths from the snapshot's recorded durations).
+    this.audio = new AudioMixer(this.hz, args.audioDurations, () => this.stepIndex);
+    this.audioControl = this.buildAudioControl();
     // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
     this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
     this.cameras.add(args.initialEntities);
@@ -1792,7 +1793,7 @@ class RuntimeInstance implements Runtime {
         kill: () => {
           if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
         },
-        playCue: (assetId: string) => rt.audioControl.play(assetId),
+        playCue: (assetId: string) => void rt.audio.play(assetId),
         effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
         animator: (id: string) => {
           const own = rt.animatorMachines.get(id)?.machine;
@@ -1994,11 +1995,19 @@ class RuntimeInstance implements Runtime {
     return this.grid.api.diff();
   }
 
-  /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
-  takeAudioRequests(): { assetId: string; volume: number; stepIndex: number }[] {
-    const out = this.audioQueue;
-    this.audioQueue = [];
-    return out;
+  /**
+   * Phase 9.10: the sounds scripts played since the last call; the host plays
+   * them. Phase 23.13: the audio intent log's commands (plays with handles,
+   * stops, fades, music, duck, bus mix, reset), in the order they were made.
+   * Taking them changes nothing the simulation computes.
+   */
+  takeAudioRequests(): AudioCommand[] {
+    return this.audio.take();
+  }
+
+  /** Phase 23.13: the audio intent log's deterministic state (null while scripts never used audio). */
+  audioState(): Record<string, unknown> | null {
+    return this.audio.state();
   }
 
   /** Phase 9.10: pause or resume the simulation (frames still render and reach onFrame). */
@@ -2316,6 +2325,31 @@ class RuntimeInstance implements Runtime {
     rotation[2] = qz / len;
     rotation[3] = qw / len;
     return true;
+  }
+
+  /** Phase 23.13: `ctx.audio` (arguments checked by the mixer; every change is a command in step order). */
+  private buildAudioControl(): import('./types').BehaviorAudio {
+    const a = this.audio;
+    return Object.freeze({
+      play: (assetId: string, options?: import('./types').AudioPlayOptions): number => a.play(assetId, options),
+      stop: (handle: number, fadeSeconds?: number): void => a.stop(handle, fadeSeconds),
+      fade: (handle: number, to: number, seconds: number): void => a.fade(handle, to, seconds),
+      setVolume: (handle: number, volume: number): void => a.setVolume(handle, volume),
+      setPitch: (handle: number, pitch: number): void => a.setPitch(handle, pitch),
+      setLoop: (handle: number, loop: boolean): void => a.setLoop(handle, loop),
+      playing: (handle: number): boolean => a.playing(handle),
+      volumeOf: (handle: number): number => a.volumeOf(handle),
+      finished: (handle: number): boolean => a.finished(handle),
+      events: () => a.events(),
+      music: (assetId: string | null, fadeSeconds?: number): void => a.music(assetId, fadeSeconds),
+      releaseMusic: (fadeSeconds?: number): void => a.releaseMusic(fadeSeconds),
+      stinger: (assetId: string, options?: import('./types').AudioStingerOptions): number => a.stinger(assetId, options),
+      duck: (level: number, seconds?: number): void => a.duck(level, seconds),
+      unduck: (seconds?: number): void => a.unduck(seconds),
+      musicState: () => a.musicState(),
+      setBusVolume: (bus: 'sfx' | 'music' | 'voice' | 'ui', volume: number, seconds?: number): void => a.setBusVolume(bus, volume, seconds),
+      busVolume: (bus: 'sfx' | 'music' | 'voice' | 'ui'): number => a.busVolume(bus),
+    });
   }
 
   /** Phase 23.4: `ctx.camera` (arguments checked here; the brain applies them in order). */
@@ -2758,6 +2792,8 @@ class RuntimeInstance implements Runtime {
     }
     // Phase 23.4: the camera brain resolves the view on the step's transforms.
     this.stepCameras(null);
+    // Phase 23.13: fades and clips advance; finished sounds are seen next step.
+    this.audio.endStep();
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
@@ -2873,6 +2909,8 @@ class RuntimeInstance implements Runtime {
     // Phase 23.4: the camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
     this.stepCameras(action);
+    // Phase 23.13: fades and clips advance; finished sounds are seen next step.
+    this.audio.endStep();
     // The accepted step-end promotion (runtime.md §12.1.1) runs unchanged
     // for M3 sets too (gameplay.md §3.5 invariance; segment-source.json pins
     // `state.prev` during step n at the end of step n−2): `prev := backup`
@@ -3016,6 +3054,8 @@ class RuntimeInstance implements Runtime {
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 23.4: and with its cameras as authored.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
+    // Phase 23.13: and without the last run's script sounds (the music back to the flow).
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.audio.reset();
     // Phase 12 (c): a replay starts from the start scenes again.
     if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
     if (outcome.reset !== null) {

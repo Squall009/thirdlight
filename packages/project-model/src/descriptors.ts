@@ -1257,12 +1257,16 @@ const enemy: ComponentDescriptor = {
 const audioSource: ComponentDescriptor = {
   name: 'audioSource',
   label: 'Audio source',
-  tooltip: 'A looping sound here, louder as the player comes near (along X).',
+  tooltip: 'A looping sound here, louder as the player comes near (along X), or panned around the camera (the project\'s Audio sources setting; 3D projects).',
   category: 'Audio',
   value: obj('audioSource', 'Audio source', 'A positional loop.', [
     asset('assetId', 'Sound', 'An audio or music asset.', ['audio', 'music'], { required: true }),
     num('volume', 'Volume', 'Volume at full strength.', { required: true, min: 0, max: 1, step: 0.05, default: 0.8 }),
-    num('range', 'Range', 'Heard within this distance (full volume within a quarter of it).', { required: true, min: 0.5, max: 500, step: 0.5, unit: 'm', default: 12, handle: 'radius' }),
+    num('range', 'Range', 'Heard within this distance (full volume within a quarter of it). Panned: its max distance.', { required: true, min: 0.5, max: 500, step: 0.5, unit: 'm', default: 12, handle: 'radius' }),
+    // Phase 23.13: the panner model's distance fade (the project's Audio sources setting; 3D projects by default).
+    enm('distanceModel', 'Distance model', 'Panned: how the volume falls with distance — linear (silent at the range), inverse or exponential (natural falloff, quieter but never silent within the range).', ['linear', 'inverse', 'exponential'], { default: 'linear', group: 'Panned' }),
+    num('refDistance', 'Full volume within', 'Panned: full volume within this distance (absent: a quarter of the range).', { min: 0.01, max: 500, step: 0.25, unit: 'm', default: 3, group: 'Panned' }),
+    num('rolloff', 'Rolloff', 'Panned: how fast the volume falls (1: the model\'s natural rate).', { min: 0, max: 10, step: 0.1, default: 1, group: 'Panned' }),
   ]),
   // Phase 15.5: 0.8 volume (headroom under the effects) heard within 12 m (about a screen width at the default camera).
   add: { kind: 'pick', value: { volume: 0.8, range: 12 }, pick: ['assetId'] },

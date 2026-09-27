@@ -58,7 +58,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   animator: ['controller', 'parameters'],
   // Phase 9.9: gameplay building blocks.
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
-  audioSource: ['assetId', 'volume', 'range'],
+  audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'],
   switch: ['mode', 'signal', 'size', 'once'],

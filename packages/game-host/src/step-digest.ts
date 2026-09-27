@@ -85,5 +85,8 @@ export function stepDigest(rt: Runtime): string {
     h.num(cam.letterbox);
     h.num(cam.shake);
   }
+  // Phase 23.13: the audio intent log (only once scripts used audio, so every other digest is unchanged).
+  const audio = rt.audioState?.() ?? null;
+  if (audio !== null) h.text(JSON.stringify(audio));
   return h.hex();
 }

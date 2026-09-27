@@ -293,6 +293,23 @@ export function modelBoundsFromAssetRows(rows: readonly { assetId: string; kind?
   return any ? out : undefined;
 }
 
+/**
+ * Phase 23.13: the recorded durations a manifest's audio and music rows
+ * carry (`durationMs`), for `RuntimeSnapshot.audioDurations` — `undefined`
+ * when none has one (the snapshot stays as it was).
+ */
+export function audioDurationsFromAssetRows(rows: readonly { assetId: string; kind?: string; durationMs?: unknown }[] | undefined): Record<string, number> | undefined {
+  const out: Record<string, number> = {};
+  let any = false;
+  for (const r of rows ?? []) {
+    const ms = r.durationMs;
+    if ((r.kind !== 'audio' && r.kind !== 'music') || typeof ms !== 'number' || !Number.isInteger(ms) || ms < 1 || ms > 3_600_000) continue;
+    out[r.assetId] = ms;
+    any = true;
+  }
+  return any ? out : undefined;
+}
+
 /** Phase 14.0: the capsule's half extent along Y (end caps included), nanometre-rounded (0.9 for the default). */
 export function capsuleHalfTotal(capsule: PlayerCapsule): number {
   return nano(capsule.halfHeight + capsule.radius);

@@ -348,7 +348,7 @@ export interface PrefabComponentsV4Extra {
   switch?: EntityComponentsV3['switch'];
   pickup?: EntityComponentsV3['pickup'];
   enemy?: EntityComponentsV3['enemy'];
-  audioSource?: { assetId: string; volume: number; range: number };
+  audioSource?: { assetId: string; volume: number; range: number; distanceModel?: 'linear' | 'inverse' | 'exponential'; refDistance?: number; rolloff?: number };
   faceMovement?: { yawRight: number; yawLeft: number; turnSeconds?: number };
 }
 
