@@ -112,9 +112,12 @@ export function actionKeys(action: InputActionLike): string[] {
 }
 
 export function createActionEvaluator(config: InputConfigLike): {
-  sample(raw: RawDeviceState): Record<string, ActionValue>;
+  /** Phase 23.9a: `active` (absent: all) — an inactive action reads as released (its map is switched off). */
+  sample(raw: RawDeviceState, active?: (action: InputActionLike) => boolean): Record<string, ActionValue>;
   /** Forget every previous state (a suspension). */
   reset(): void;
+  /** Phase 23.9a: every action down at the next sample reads neutral until it is released once (a map switched back on). */
+  holdUntilReleased(): void;
 } {
   const prevDown = new Map<string, boolean>();
   /** Phase 23.14: when each hold binding (action#index) went down (absent: up). */
@@ -144,6 +147,8 @@ export function createActionEvaluator(config: InputConfigLike): {
     }
     return false;
   };
+  let holdNext = false;
+  const held = new Set<string>();
   const key = (raw: RawDeviceState, code: string | number | undefined): number => (typeof code === 'string' && (raw.keys.has(code) || raw.pressedKeys.has(code)) ? 1 : 0);
   const pad = (raw: RawDeviceState, button: number | string | undefined): number => (typeof button === 'number' && raw.gamepad?.buttons[button] === true ? 1 : 0);
   const axisOf = (raw: RawDeviceState, axis: number | undefined): number => {
@@ -240,21 +245,33 @@ export function createActionEvaluator(config: InputConfigLike): {
   };
 
   return {
-    sample(raw) {
+    sample(raw, active) {
       const out: Record<string, ActionValue> = {};
       for (const a of config.actions) {
-        const e = evaluate(a, raw);
-        const down = a.type === 'button' ? e.v !== 0 : Math.abs(e.v) > 0.5;
+        let e = active === undefined || active(a) ? evaluate(a, raw) : a.type === 'axis2d' ? { v: 0, x: 0, y: 0 } : { v: 0 };
+        let down = a.type === 'button' ? e.v !== 0 : Math.abs(e.v) > 0.5;
+        if (holdNext && down) held.add(a.name);
+        if (held.has(a.name)) {
+          if (down) {
+            e = a.type === 'axis2d' ? { v: 0, x: 0, y: 0 } : { v: 0 };
+            down = false;
+          } else held.delete(a.name);
+        }
         const was = prevDown.get(a.name) ?? false;
         const p: JumpPhase = down ? (was ? 'held' : 'pressed') : was ? 'released' : 'none';
         prevDown.set(a.name, down);
         out[a.name] = Object.freeze({ v: e.v, ...(e.x !== undefined ? { x: e.x, y: e.y! } : {}), p, ...(e.i === 1 ? { i: 1 as const } : {}) });
       }
+      holdNext = false;
       return out;
     },
     reset() {
       prevDown.clear();
       holdSince.clear();
+      held.clear();
+    },
+    holdUntilReleased() {
+      holdNext = true;
     },
   };
 }

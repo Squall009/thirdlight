@@ -100,6 +100,8 @@ export interface InputBindingsController {
   tick(): void;
   /** What the next sampled frame carries (drained). */
   takeFrameEntry(): InputStatusEntry | undefined;
+  /** Counts every change of what glyphs show (bindings, device, pad family). */
+  revision(): number;
   /** The observation block. */
   observe(): { device: InputDeviceStatus; profile: string; listening: InputRebindTarget | null; changed: readonly string[]; glyphs: Readonly<Record<string, { label: string; icon: string }>> };
   dispose(): void;
@@ -120,6 +122,7 @@ export function createInputBindings(deps: BindingsControllerDeps): InputBindings
   // The first frame carries everything scripts may read.
   let pending: { device?: InputDeviceStatus; actions?: boolean; events: InputRebindEvent[]; profile?: string } = { device, actions: true, events: [], profile };
   let disposed = false;
+  let rev = 0;
 
   const notify = (): void => {
     for (const f of [...subscribers]) {
@@ -142,6 +145,7 @@ export function createInputBindings(deps: BindingsControllerDeps): InputBindings
   };
   const apply = (next: ConfigData, save: boolean): void => {
     config = next;
+    rev += 1;
     deps.input.configure?.(next as never);
     deps.onChange?.(next);
     if (save) deps.store?.writeBindings(profile, overridesOf(next, defaults));
@@ -158,10 +162,12 @@ export function createInputBindings(deps: BindingsControllerDeps): InputBindings
     const next: InputDeviceStatus = kind === 'gamepad' ? { kind, ...(info.gamepadId !== null ? { id: info.gamepadId.slice(0, 64) } : {}), family: fam } : { kind };
     if (fam !== family) {
       family = fam;
+      rev += 1;
       pending.actions = true;
     }
     if (next.kind !== device.kind || next.id !== device.id || next.family !== device.family) {
       device = next;
+      rev += 1;
       pending.device = next;
       notify();
     }
@@ -343,6 +349,7 @@ export function createInputBindings(deps: BindingsControllerDeps): InputBindings
         ...(p.profile !== undefined ? { profile: p.profile } : {}),
       };
     },
+    revision: () => rev,
     observe() {
       const list = status();
       const glyphs: Record<string, { label: string; icon: string }> = {};

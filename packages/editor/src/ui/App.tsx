@@ -662,7 +662,7 @@ function EditorApp(): JSX.Element {
   // M3 (packet 57): the media import context the panel shows between the
   // inspect and the publish — the kind the drop decided, the inspected clip
   // names (a model proposal) and the §8.5.1 animated-reimport obligation.
-  const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture' | 'music'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
+  const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
   const [reimportRoles, setReimportRoles] = useState<Record<AnimationRoleKey, string>>({ idle: '', run: '', airborne: '' });
   const [reimportEntity, setReimportEntity] = useState('');
   const importStateRef = useRef<AssetImportState>(initialImportState);
@@ -2326,7 +2326,7 @@ function EditorApp(): JSX.Element {
 
   /** After an inspect: remember the proposal and the §8.5.1 role-mapping obligation.
    * Returns whether the publish needs no role mapping. */
-  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture' | 'music'): boolean => {
+  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture' | 'music' | 'font'): boolean => {
     const c = clientRef.current;
     if (!c) return false;
     pendingProposalRef.current = { proposal, target };

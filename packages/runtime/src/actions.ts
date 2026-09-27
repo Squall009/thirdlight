@@ -14,6 +14,7 @@
  */
 import { clipMessage } from './errors';
 import { validateInputStatus, type InputStatusEntry } from './input-status';
+import { validateUiEvents, type UiEventRecord } from './ui';
 
 /** The four jump phases (input.md §2). */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -61,6 +62,14 @@ export interface ActionFrame {
    * @graphNode skip scripts read it with ctx.input.device, bindings and glyph
    */
   input?: InputStatusEntry;
+  /**
+   * Phase 23.9a, optional: the UI events of this step (a click, a submit, a
+   * focus change, a custom event, a document shown or hidden by a button) —
+   * part of the input so a recording replays them exactly. Absent: none
+   * (every older frame and recording is unchanged).
+   * @graphNode skip a script reads its UI events with ctx.ui.events / ctx.ui.event
+   */
+  ui?: readonly UiEventRecord[];
 }
 
 /** Phase 23.8: one debug command call carried by an input frame. */
@@ -200,7 +209,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'moveY' || key === 'input') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'moveY' || key === 'ui' || key === 'input') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -268,9 +277,16 @@ export function validateActionFrame(
     if (!c.ok) return c;
     input = c.input;
   }
-  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(input !== undefined ? { input } : {}) });
+  // Phase 23.9a: the frame's UI events (validated and frozen; absent keeps the frame as it was).
+  let uiEvents: readonly UiEventRecord[] | undefined;
+  if (value['ui'] !== undefined) {
+    const u = validateUiEvents(value['ui']);
+    if (!u.ok) return u;
+    uiEvents = u.events;
+  }
+  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];
-  // Phase 23.2 / 23.8 / 23.3: moveY, commands and the pointer only when present (a frame without them stays as it was).
+  // Phase 23.2 / 23.8 / 23.3 / 23.9a: moveY, commands, the pointer and UI events only when present (a frame without them stays as it was).
   const withMoveY = moveY !== undefined ? { moveY } : {};
   if (rawActions === undefined) return { ok: true, frame: withExtras({ stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase }) };
   if (!isPlainObject(rawActions) || ownKeyCount(rawActions) > MAX_FRAME_ACTIONS) {

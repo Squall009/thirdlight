@@ -85,7 +85,17 @@ export interface GameFlow {
   sounds?: MenuSounds;
   /** Phase 14.3: score rules (absent: no score is shown or kept). */
   score?: FlowScore;
+  /**
+   * Phase 23.9a: project UI documents shown instead of the built-in screens
+   * (each optional; absent: the built-in screen). The document's buttons use
+   * the engine UI actions (resume, quit to title, save, load, set a setting).
+   */
+  screens?: Partial<Record<FlowScreenKey, string>>;
 }
+
+/** Phase 23.9a: the flow screens a project may replace (project-model `UI_FLOW_SCREENS`). */
+export const FLOW_SCREEN_KEYS = ['title', 'paused', 'settings', 'levelComplete', 'gameOver', 'finished', 'load', 'save'] as const;
+export type FlowScreenKey = (typeof FLOW_SCREEN_KEYS)[number];
 
 /**
  * Phase 14.3: how a level's score is made. `points` gives points per unit of
@@ -127,7 +137,16 @@ const unit = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v
 /** The shape of a flow block (references are checked by the project validator). */
 export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) return err(errors, 'field_type', path, 'flow is an object', value);
-  only(value, ['levels', 'lives', 'title', 'hud', 'ui', 'texts', 'volumes', 'score', 'sounds'], path, errors);
+  only(value, ['levels', 'lives', 'title', 'hud', 'ui', 'texts', 'volumes', 'score', 'sounds', 'screens'], path, errors);
+  // Phase 23.9a: replaced screens (each names a UI document; the project validator checks it exists).
+  const screens = value['screens'];
+  if (screens !== undefined) {
+    if (!isObj(screens)) err(errors, 'field_type', `${path}/screens`, 'screens maps flow screens to UI documents', screens);
+    else {
+      only(screens, FLOW_SCREEN_KEYS, `${path}/screens`, errors);
+      for (const [k, id] of Object.entries(screens)) if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id)) err(errors, 'field_value', `${path}/screens/${k}`, 'a replaced screen names a UI document', id);
+    }
+  }
   const levels = value['levels'];
   if (!Array.isArray(levels) || levels.length < 1 || levels.length > MAX_FLOW_LEVELS) {
     err(errors, 'field_value', `${path}/levels`, `levels is a list of 1–${MAX_FLOW_LEVELS} levels`, Array.isArray(levels) ? levels.length : levels);
@@ -314,6 +333,7 @@ export function canonicalFlow(f: GameFlow): GameFlow {
     ...(f.volumes !== undefined ? { volumes: { music: f.volumes.music, sfx: f.volumes.sfx, ...(f.volumes.ui !== undefined ? { ui: f.volumes.ui } : {}) } } : {}),
     ...(f.score !== undefined ? { score: canonicalScore(f.score) } : {}),
     ...(f.sounds !== undefined ? { sounds: Object.fromEntries(MENU_SOUND_KINDS.filter((k) => f.sounds![k] !== undefined).map((k) => [k, f.sounds![k]!])) as MenuSounds } : {}),
+    ...(f.screens !== undefined ? { screens: Object.fromEntries(FLOW_SCREEN_KEYS.filter((k) => f.screens![k] !== undefined).map((k) => [k, f.screens![k]!])) } : {}),
   };
 }
 

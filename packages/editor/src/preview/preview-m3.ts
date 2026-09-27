@@ -61,7 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -132,6 +132,9 @@ export interface PreviewManifestV2 {
   materialFunctions?: MaterialFunctionLike[];
   /** Phase 20.2: the visual effects (particle system graphs). */
   effects?: EffectDefLike[];
+  /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
+  uiDocuments?: import('@thirdlight/runtime').UiDocument[];
+  uiThemes?: import('@thirdlight/runtime').UiTheme[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
@@ -389,7 +392,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -441,7 +444,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsR = manifest.rigs !== undefined ? ({ ...withBounds0, rigs: manifest.rigs } as RuntimeSnapshot) : withBounds0;
   // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials; from the verified manifest).
   const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
-  const withBounds = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
+  const withBoundsM = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
+  // Phase 23.9a: the UI documents scripts show and hide (id, layer, modal; the host draws them from the manifest).
+  const uiRows = uiDocumentsForRuntime(manifest.uiDocuments);
+  const withBounds = uiRows !== undefined ? ({ ...withBoundsM, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsM;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
@@ -567,6 +573,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 14.5: pad rebinding in the settings.
       capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
       configure: (c: InputConfigLike) => browserInput.configure(c),
+      // Phase 23.9a: a focused UI document's action map.
+      setActiveMaps: (maps: readonly string[] | null) => browserInput.setActiveMaps(maps),
       // Phase 23.3: the cursor (free/locked, hidden while a gamepad drives).
       applyCursor: (mode: 'free' | 'locked') => browserInput.applyCursor(mode),
       cursorState: () => browserInput.cursorState(),
@@ -645,6 +653,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       focusGame: () => cfg.canvas.focus(),
       ...(startVariables !== undefined ? { variables: startVariables } : {}),
       ...(startOptions !== undefined ? { start: startOptions } : {}),
+      // Phase 23.9a: the project UI documents and themes (the host draws them).
+      ...(manifest.uiDocuments !== undefined && manifest.uiDocuments.length > 0 ? { ui: { documents: manifest.uiDocuments, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
     };
     const host = createGameHost(config);
     // Play has no page gesture wiring of its own: the first key or click in the
@@ -942,6 +952,7 @@ export function bootstrapPreviewM3(): void {
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
         ...debugCommandsObservation(h),
+        ...uiObservation(h, o.ui),
       };
     }
     const v = gv.view;
@@ -1004,6 +1015,8 @@ export function bootstrapPreviewM3(): void {
       ...(debug !== null && debug !== undefined ? { debug } : {}),
       // Phase 23.8: the project's debug commands and the calls run; the start options' outcome.
       ...debugCommandsObservation(h),
+      // Phase 23.9a: the project UI (shown documents, the flow screen's document, the focus, the view model).
+      ...uiObservation(h, obs.observation.ui),
     };
   };
 
@@ -1123,6 +1136,18 @@ interface ControlBody {
   sceneId?: string;
   name?: string;
   args?: Record<string, number | string | boolean>;
+}
+
+/**
+ * Phase 23.9a: `ui` {shown, screen, focus, actionMap, values} — values is the
+ * scripts' view model when its JSON fits 4 KiB (else `valueKeys`, its top
+ * level keys), so an observation stays inside its bound.
+ */
+function uiObservation(h: M3PreviewHandle, ui: unknown): { ui?: Record<string, unknown> } {
+  if (ui === undefined || ui === null) return {};
+  const model = h.host.runtime.uiView?.().model ?? {};
+  const text = JSON.stringify(model);
+  return { ui: { ...(structuredClone(ui) as Record<string, unknown>), ...(text.length <= 4096 ? { values: JSON.parse(text) as unknown } : { valueKeys: Object.keys(model).slice(0, 64) }) } };
 }
 
 /**

@@ -735,6 +735,9 @@ function runAllProbes(): void {
   probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
+  // Phase 23.9a: UI documents and themes (json items).
+  probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
+  probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
   // Phase 23.3: the named collision layers.
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };

@@ -48,6 +48,8 @@ import {
   type ActionFrame,
   type ActionSource,
   type CameraViewInfo,
+  type UiDocument,
+  type UiTheme,
   type SimulationModuleSpec,
   type GameEvent,
   type GameView,
@@ -74,6 +76,7 @@ import type { Captured } from './input-bindings';
 import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
 import { createDebugConsole, type DebugConsole } from './debug-console';
+import { createUiLayer, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
 
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
@@ -113,6 +116,8 @@ export interface HostInputOwner {
   configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
   /** Phase 15.5: the device the player used last (the classic HUD names its bindings; absent: keyboard). */
   activeDevice?(): 'keyboard' | 'gamepad';
+  /** Phase 23.9a: only these input action maps feed the frame (null: every map) — a focused UI document's map. */
+  setActiveMaps?(maps: readonly string[] | null): void;
   /** Phase 23.3: the cursor the game wants (free / locked); the owner locks, releases and hides it. */
   applyCursor?(mode: 'free' | 'locked'): void;
   /** Phase 23.3: the cursor as it is (observers). */
@@ -149,6 +154,8 @@ export interface GameHostInputObservation {
 export interface HostRenderAdapter {
   renderFrame(): { ok: true } | { ok: false; error: unknown };
   dispose(): unknown;
+  /** Phase 23.9a: project an entity or world point through the rendered camera (world-anchored UI widgets). */
+  projectToScreen?: UiProjector;
 }
 
 /** delivery.md §3.1 `GameHostObservation.sound`. */
@@ -191,6 +198,8 @@ export interface GameHostObservation {
   readonly camera?: CameraViewInfo;
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
+  /** Phase 23.9a, additive: the project UI — the documents shown, the flow screen's document, the focus. */
+  readonly ui?: UiLayerObservation;
   /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
@@ -215,6 +224,8 @@ export interface GameHostSceneObservation {
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.9a, additive: the project UI. */
+  readonly ui?: UiLayerObservation;
   /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
@@ -357,6 +368,12 @@ export interface GameHostConfig {
   readonly debugConsole?: boolean;
   /** Phase 23.8: give the keyboard back to the game (the console closed). */
   readonly focusGame?: () => void;
+  /**
+   * Phase 23.9a: the project UI (the manifest's documents and themes). The
+   * host draws the documents the simulation shows and the flow screens they
+   * replace; absent or empty: no project UI.
+   */
+  readonly ui?: { readonly documents: readonly UiDocument[]; readonly themes?: readonly UiTheme[] };
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -707,6 +724,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
   /** Phase 23.8: the debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
   let startOutcome: GameStartOutcome | null = null;
+  /** Phase 23.9a: the project UI layer (null without UI documents). */
+  let uiLayer: UiLayer | null = null;
   /** The last committed `playerMotion.grounded` (the jump-cue transition).
    * Reset to `true` at every reset boundary (the committed view publishes
    * `{ speed: 0, grounded: true }` there, so the derived cue can never fire
@@ -816,6 +835,32 @@ export function createGameHost(config: GameHostConfig): GameHost {
       ...(hidden !== undefined && hidden.size > 0 ? { hidden: [...hidden].sort().slice(0, 64) } : {}),
       ...(bindings !== null ? { inputBindings: bindings.observe() } : {}),
     };
+  };
+
+  /** Phase 23.14: the bindings as UI documents read them (`$flow.input`), rebuilt when they change. */
+  let inputUi: { key: string; value: Record<string, unknown> } | null = null;
+  const inputUiValues = (): Record<string, unknown> => {
+    const b = bindings!;
+    const l = b.listening();
+    const key = `${b.revision()}|${l === null ? '' : `${l.action}:${l.index}:${l.part ?? ''}`}`;
+    if (inputUi !== null && inputUi.key === key) return inputUi.value;
+    const d = b.device();
+    const value = {
+      device: d.kind,
+      family: d.family ?? null,
+      profile: b.profile(),
+      listening: l === null ? null : { ...l },
+      actions: b.actions().map((a) => ({
+        name: a.name,
+        map: a.map,
+        changed: a.changed === true,
+        keys: b.glyph(a.name, 'keyboardMouse')?.label ?? '',
+        pad: b.glyph(a.name, 'gamepad')?.label ?? '',
+        glyph: b.glyph(a.name)?.label ?? '',
+      })),
+    };
+    inputUi = { key, value };
+    return value;
   };
 
   /** Phase 23.14: the rebind timeout, the device used last and the scripts' binding requests (after each frame). */
@@ -979,19 +1024,42 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return res.ok ? res.view : null;
   };
 
+  /** Phase 23.9a: the simulation's UI diff, then the layer's frame (bindings, $flow, the view size). */
+  const serviceUi = (rt: Runtime): void => {
+    if (uiLayer === null) return;
+    const out = rt.takeUiOutput?.() ?? null;
+    if (out !== null) uiLayer.applyOutput(out);
+    uiLayer.frame();
+  };
+  /** Phase 23.9a: world-anchored widgets follow the frame just rendered. */
+  const serviceAnchors = (): void => {
+    const project = adapter?.projectToScreen;
+    if (uiLayer !== null && project !== undefined) uiLayer.updateAnchors(project);
+  };
+
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
     debugConsole?.frame();
     serviceBindings(runtime);
+    serviceUi(runtime);
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
     // tick (delivery.md §4.5). The run commands queue in the runtime and
     // apply at the next step boundary; at awaitingStart/won that boundary
     // performs no motion steps (C4/C5: `movementSteps: 0`).
     const menu: MenuSample = config.input.sampleMenu();
+    // Phase 23.9a: a focused project UI document takes the ui edges it uses (navigation, submit, its cancel) first.
+    // (A built-in flow menu keeps its own navigation over a document a script left focused.)
+    const uiFocus = uiLayer !== null && uiLayer.hasFocus() && (flowCtl === null || flowCtl.screen === 'playing' || uiLayer.observe().screen !== null);
+    if (flowCtl === null && uiFocus) {
+      const edges = config.input.sampleUi?.();
+      if (edges !== undefined) uiLayer!.handleEdges(edges);
+      else if (menu.confirm) uiLayer!.handleEdges({ up: false, down: false, left: false, right: false, submit: true, cancel: false, pause: false });
+    }
     if (flowCtl !== null) {
       // Phase 9.10: the flow's menus take the confirm and the ui edges.
-      const ui = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      const ui = uiFocus ? uiLayer!.handleEdges(raw) : raw;
       const flowView = gameViewOf(runtime);
       if (flowView !== null) {
         // The ui queue carries submit (Enter, pad A) in order with the
@@ -1047,6 +1115,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const view = gameViewOf(runtime);
     if (view === null) {
       adapter?.renderFrame();
+      serviceAnchors();
       return;
     }
     // `won` too: the goal event commits on the step the run is won (cue ids
@@ -1073,6 +1142,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       hud.update(flowCtl !== null ? { ...state, flowLine: flowCtl.hudLine() } : state);
     }
     adapter?.renderFrame();
+    serviceAnchors();
   };
 
   const control = (action: GameControlAction): GameControlResult => {
@@ -1245,6 +1315,54 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
 
+    // Phase 23.9a: the project UI layer (scene-mode games too).
+    if (config.ui !== undefined && config.ui.documents.length > 0 && hostDom !== null) {
+      const rt = res.runtime;
+      uiLayer = createUiLayer({
+        dom: hostDom,
+        container: config.container,
+        documents: config.ui.documents,
+        ...(config.ui.themes !== undefined ? { themes: config.ui.themes } : {}),
+        ...(config.assetPaths !== undefined ? { assetPaths: config.assetPaths } : {}),
+        readArtifact: config.readArtifact,
+        queueEvent: (event) => {
+          const r = rt.queueUiEvent?.(event);
+          if (r !== undefined && r.ok === false) console.warn('[game-host] UI event refused:', r.error.message);
+        },
+        engineAction: (a) => {
+          // Phase 23.14: rebinding from project UI (the same bindings API as scripts and the settings screen).
+          if (a.action === 'rebind' || a.action === 'cancelRebind' || a.action === 'resetBindings') {
+            if (bindings === null) return;
+            const ex = a as { input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative'; policy?: 'swap' };
+            if (a.action === 'cancelRebind') bindings.cancel();
+            else if (a.action === 'resetBindings') bindings.reset(ex.input);
+            else if (ex.input !== undefined) bindings.listen(ex.input, { ...(ex.device !== undefined ? { device: ex.device } : {}), ...(ex.index !== undefined ? { index: ex.index } : {}), ...(ex.part !== undefined ? { part: ex.part } : {}), ...(ex.policy !== undefined ? { policy: ex.policy } : {}) });
+            return;
+          }
+          if (a.action === 'mute' || a.action === 'unmute') {
+            void control(a.action);
+            return;
+          }
+          flowCtl?.engine(a);
+        },
+        // Phase 23.14: `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
+        flowValues: () => {
+          const f = flowCtl?.uiValues() ?? null;
+          return bindings === null ? f : { ...(f ?? {}), input: inputUiValues() };
+        },
+        // Phase 23.14: {action:name} glyphs in UI texts.
+        ...(bindings !== null
+          ? {
+              glyph: (action: string) => {
+                const g = bindings?.glyph(action) ?? null;
+                return g === null || bindings === null ? null : { label: g.label, icon: g.icon, url: bindings.glyphImage(g) };
+              },
+              glyphKey: () => String(bindings?.revision() ?? 0),
+            }
+          : {}),
+        ...(config.input.setActiveMaps !== undefined ? { setActiveMaps: (maps: readonly string[] | null) => config.input.setActiveMaps!(maps) } : {}),
+      });
+    }
     if (sceneMode) {
       mounted = true;
       if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start, null);
@@ -1295,6 +1413,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
         // Phase 15.3: the project's music crossfade.
         ...(config.settings.music_fade_s !== undefined ? { musicFade: config.settings.music_fade_s } : {}),
+        // Phase 23.9a: project UI documents instead of built-in screens.
+        ...(flow.screens !== undefined && uiLayer !== null ? { screens: flow.screens, onScreen: (docId: string | null) => uiLayer?.showScreen(docId) } : {}),
       });
       // The menu logo: the texture's own bytes as an object URL (no fetch).
       const logo = flow.ui?.logo;
@@ -1404,6 +1524,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
         ...socketsObservation(runtime),
+        ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...inputObservation(runtime),
       },
     };
@@ -1471,6 +1592,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...scenesObservation(runtime),
         ...cameraObservation(runtime),
         ...socketsObservation(runtime),
+        ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...inputObservation(runtime),
       },
     };
@@ -1545,6 +1667,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
       flowCtl = null;
       hud.dispose(); // the host-owned HUD DOM + listeners
       hud = null;
+    }
+    if (uiLayer !== null) {
+      uiLayer.dispose();
+      uiLayer = null;
     }
     if (letterbox !== null) {
       letterbox.top.remove();

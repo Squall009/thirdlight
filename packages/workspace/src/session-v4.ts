@@ -604,6 +604,9 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         blockStamps: JSON.parse(JSON.stringify((state.content as { blockStamps?: unknown[] }).blockStamps ?? [])) as unknown,
         // Phase 23.7: shared script libraries (their files).
         scriptLibraries: JSON.parse(JSON.stringify((state.content as { scriptLibraries?: unknown[] }).scriptLibraries ?? [])) as unknown,
+        // Phase 23.9a: project UI documents and themes.
+        uiDocuments: JSON.parse(JSON.stringify((state.content as { uiDocuments?: unknown[] }).uiDocuments ?? [])) as unknown,
+        uiThemes: JSON.parse(JSON.stringify((state.content as { uiThemes?: unknown[] }).uiThemes ?? [])) as unknown,
         // Phase 23.3: the named collision layers.
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
         // Phase 17.1: the settings map (the editor's Scene view reads render_backend at load).

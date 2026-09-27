@@ -68,7 +68,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
@@ -97,6 +97,9 @@ interface ExportManifestV2 {
   materialFunctions?: MaterialFunctionLike[];
   /** Phase 20.2: the visual effects (particle system graphs). */
   effects?: EffectDefLike[];
+  /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
+  uiDocuments?: import('@thirdlight/runtime').UiDocument[];
+  uiThemes?: import('@thirdlight/runtime').UiTheme[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
@@ -147,7 +150,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -270,6 +273,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
     // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials).
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
+    // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
+    ...(uiDocumentsForRuntime(manifest.uiDocuments) !== undefined ? { uiDocuments: uiDocumentsForRuntime(manifest.uiDocuments) } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
@@ -499,6 +504,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
     // Phase 23.8: the debug console only when the project turns debug_console on (absent/0: a release game has none).
     ...((settings as unknown as Record<string, unknown>)['debug_console'] === 1 ? { debugConsole: true, focusGame: () => canvas.focus() } : {}),
+    // Phase 23.9a: the project UI documents and themes (the host draws them).
+    ...(manifest.uiDocuments !== undefined && manifest.uiDocuments.length > 0 ? { ui: { documents: manifest.uiDocuments, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
   };
   const host = createGameHost(config);
   const mount = host.mount();

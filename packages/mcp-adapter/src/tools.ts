@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -253,6 +253,19 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{kind:"heightmap", png: base64 greyscale PNG, origin: [x,z], y, scale (cells for white), cell, keepAbove?, colors?: {png, map: [{color, cell}]}} (import a heightmap; the colour map picks each column\'s cell). ' +
       'The change names the chunks [cx,cz] (16×16 columns) and regions touched; read cells back with tl_content_query target="blocks". Keep each request under 64 KiB (use boxes and runs). ' +
       'setBlockStamp {stamp} or {stampId, name, entityId, box} (save a selection) / deleteBlockStamp {stampId}. ' +
+      'Project UI (drawn by the game host over the view, in Play and exports): setUiDocument {document: {uiDocumentId, name, layer? (-100..100), modal?, focus? (takes keyboard/gamepad focus; default modal), ' +
+      'actionMap? (gameplay|ui: the only input map active while it has focus), theme? (uiThemeId), scale? {reference: [w, h], mode: fit|width|height}, styles? {name: style}, icons? {name: {asset: texture, rect?: [x, y, w, h]}}, ' +
+      'tweens? {name: {kind: fade|slide|scale|stamp, duration 0.01-10 s, delay?, easing?: linear|easeIn|easeOut|easeInOut|back, from?, to?, direction?: left|right|up|down, distance?}}, showTween?, hideTween?, initialFocus? (widget id), onCancel? (action), root: widget}} ' +
+      'creates or replaces one (whole JSON, ≤ 48 KiB, ≤ 512 widgets, depth ≤ 16); deleteUiDocument {uiDocumentId}; setUiTheme {theme: {uiThemeId, name, styles, icons?}}; deleteUiTheme {uiThemeId}. ' +
+      'A widget: {type: panel|stack|grid|text|image|bar|button|list|input, id?, anchor? [0-1, 0-1], pivot?, offset? [px, px], size? [w|null, h|null], stretch?: x|y|both, margin? [l, t, r, b], grow?, style?: name|[names], css?: style, ' +
+      'visible?/enabled?: bool|{bind}, focusable?, nav? {up, down, left, right, next, prev: widget ids}, worldAnchor? {entity: id|{bind} | point: [x, y, z], offset?, clamp?, margin?, indicator?: child id}, onFocus?, children? (panel anchors them; stack direction row|column, gap, align, justify, wrap; grid columns, cellSize), ' +
+      'text (rich: [b] [i] [color=#hex] [size=N] [icon=name], {path} values, {action:name} an input action's glyph), image {image: texture|{bind}, slice? [t, r, b, l], fit?, tint?}, bar {value, min?, max? (numbers or {bind}), direction?: right|left|up|down, shape?: linear|radial, fillColor?, fillStyle?}, ' +
+      'button {text?, children?, onClick}, list {items: {bind}, template: widget ($item.x, $index in its bindings), direction?: row|column|grid}, input {value?, placeholder?, maxLength?, onSubmit}}. ' +
+      'A style (never raw CSS): color, background, backgroundImage (texture) + slice, opacity, font (a font asset or sans|serif|mono|rounded), fontSize, bold, italic, align, lineHeight, letterSpacing, padding, radius, borderWidth, borderColor, textShadow, shadow, and hover|focus|pressed|disabled variants. ' +
+      'An action: {do: "event", name, value?} (a UI event for scripts on the next input frame), {do: "engine", action: resume|pause|restartLevel|newGame|continue|nextLevel|quitToTitle|settings|load|save|back|setSetting|mute|unmute|rebind|cancelRebind|resetBindings, slot?, setting?, value?, step?, input? (rebind/resetBindings: the input action), device?, index?, part?, policy? swap|refuse|allow}, ' +
+      '{do: "show"|"hide"|"toggle", doc}, {do: "play", tween, widget?}. Bindings read the scripts\' view model (ctx.ui.set(path, value)); $flow.* reads the game flow (screen, level, lives, volumes, result, slots). ' +
+      'setFlow flow.screens {title|paused|settings|levelComplete|gameOver|finished|load|save: uiDocumentId} replaces built-in screens. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus, events()/event(name). ' +
+      'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
@@ -318,7 +331,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'For a project in a game folder, projectPath instead inspects a file already in that folder in place (nothing ' +
       'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
       'the file. Give exactly one of dataBase64 or projectPath. An FBX (either way) is converted to GLB by Blender on ' +
-      'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include.',
+      'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include. ' +
+      'kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most 16 fonts per project) for the project UI; publish it with kind "font".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -328,7 +342,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           description: 'a .glb/.fbx/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
         },
         displayName: { type: 'string' },
-        kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music'] },
+        kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music', 'font'] },
         animation: {
           type: 'object',
           description: 'request the role-aware animated GLB profile (presentation.md §41.3.3)',
@@ -939,7 +953,7 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
   // inspector or the role-aware animated GLB profile (presentation.md §41.3.3).
   const inspectBody: Record<string, unknown> = {};
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music') return toolError('kind must be "model", "audio", "texture" or "music"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture", "music" or "font"');
     inspectBody.kind = a.kind;
   }
   if (a.animation !== undefined) {
@@ -963,7 +977,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.displayName = a.displayName;
   }
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music') return toolError('kind must be "model", "audio", "texture" or "music"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture", "music" or "font"');
     body.kind = a.kind;
   }
   if (a.animation !== undefined) {

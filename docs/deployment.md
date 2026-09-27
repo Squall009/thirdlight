@@ -1700,6 +1700,14 @@ buttons), `loops` (each audio source's current gain; a level's ambience as
 `ambience:<n>`) and, while the title shows, `titleView` (its scene and the
 camera's offset).
 
+**Font** assets are TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF files up
+to 4 MiB, at most 16 per project (8 versions each). Choose or drop the file in
+the Asset browser like other assets, or upload it with `tl_content_upload`
+kind `font` and publish it with kind `font`. The import checks the file's
+container only (the family name of a TTF/OTF is shown when it has one); the
+game's UI loads the font in the browser. A font ships with Play and the export
+when the project's UI uses it.
+
 Inspector → "+ Add component" → **Audio source** loops an audio or music asset where
 the object is: full volume within a quarter of its range, fading to silent
 at the range (measured along X from the player); the Scene view draws both
@@ -2618,6 +2626,11 @@ the browser granted it.
 - Observation: Play observe and the export's `window.__thirdlightObserve()`
   report `inputBindings` (device used last, profile, listening, changed
   actions, each action's glyph).
+- **Project UI** (UI documents): a button's engine action `rebind` (with
+  `input`: the action, optional `device`, `index`, `part`, `policy`),
+  `cancelRebind` or `resetBindings`; `{action:jump}` in a text shows the
+  action's glyph for the device in use; `$flow.input.actions` lists every
+  action's key and pad labels for a settings document.
 - Limits: 64 actions per project; 8 binding requests per step from scripts.
 
 ## Performance
@@ -2912,3 +2925,35 @@ WebGPU.
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in
 `tests/e2e/browser-env.mjs`.
+
+## Project UI (UI documents)
+
+Projects draw their own HUDs, menus and screens as UI documents: JSON widget
+trees stored in the project (`setUiDocument`, `setUiTheme` through MCP; the
+visual editor tab comes with 23.9b). The game host draws them over the view in
+Play and in exported games.
+
+- Widgets: panel (anchors, pivot, offset, size or stretch), stack, grid, list
+  (repeats a template for a bound array), text (rich text `[b] [i]
+  [color=#…] [size=N] [icon=name]`, `{path}` values), image (texture,
+  9-slice), bar (linear or radial), button, text input. Styles and themes are
+  data (colours, project fonts, padding, borders, 9-slice backgrounds, hover /
+  focus / pressed / disabled variants); tweens fade, slide, scale or "stamp".
+- Scripts: `ctx.ui.set('hud.hp', 3)` publishes values the documents bind to
+  (`{ "bind": "hud.hp" }`); `ctx.ui.show/hide` shows documents (layers,
+  modal); `ctx.ui.events()` / `ctx.ui.event('buy')` read clicks, submits and
+  focus changes — they arrive on the next input frame, so replays hold.
+- Keyboard and gamepad move the focus (spatial or explicit `nav`), Enter / pad
+  A presses, Backspace / pad B runs the document's cancel action; the mouse
+  hovers and clicks. A focused document can switch the input to its action
+  map (`actionMap: "ui"`: the character does not move while a menu is open).
+- World-anchored widgets follow an entity or a point, clamped to the screen
+  edge with an indicator when off screen.
+- `setFlow` `flow.screens` replaces the built-in title, pause, settings,
+  level-complete, game-over, finished, load and save screens with documents;
+  their buttons use engine actions (resume, quit to title, save, load, a
+  setting…). Without it the built-in screens stay.
+- Fonts (TTF, OTF, WOFF2, WOFF) import as `font` assets and are used by name
+  in a style's `font`.
+- Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
+  view model.

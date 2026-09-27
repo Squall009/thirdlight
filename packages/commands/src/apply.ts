@@ -56,6 +56,7 @@ import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-o
 import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-library-ops';
 import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
+import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -372,6 +373,22 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setUiDocument':
+    case 'deleteUiDocument':
+    case 'setUiTheme':
+    case 'deleteUiTheme': {
+      // Phase 23.9a: project UI documents and themes.
+      const a = va.validated.args as Record<string, unknown>;
+      const op = va.validated.op;
+      const r =
+        op === 'setUiDocument'
+          ? applySetUiDocument(input, a as { document: import('@thirdlight/project-model').UiDocument })
+          : op === 'setUiTheme'
+            ? applySetUiTheme(input, a as { theme: import('@thirdlight/project-model').UiTheme })
+            : applyDeleteUi(input, op === 'deleteUiDocument' ? 'document' : 'theme', String(op === 'deleteUiDocument' ? a['uiDocumentId'] : a['uiThemeId']));
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setScriptLibrary':
     case 'deleteScriptLibrary': {
       // Phase 23.7: shared script libraries (a change republishes the dependents from prepared facts).
@@ -568,7 +585,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
         }),
       };
     }

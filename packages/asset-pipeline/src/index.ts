@@ -40,6 +40,18 @@ export {
   type MusicMetrics,
   type MusicRecipe,
 } from './inspect-music';
+export {
+  FONT_FAMILY_NAME_MAX,
+  FONT_SOURCE_BYTES_MAX,
+  FONT_TABLES_MAX,
+  FONT_TOOLCHAIN,
+  inspectFont,
+  type FontFormat,
+  type FontImportOptions,
+  type FontImportProposal,
+  type FontMetrics,
+  type FontRecipe,
+} from './inspect-font';
 
 export {
   ANIMATION_PROFILE_MAX_CLIPS,

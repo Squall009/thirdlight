@@ -18,7 +18,7 @@
 
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -101,7 +101,7 @@ export interface ClientUiState {
 /** One folder of the game folder, as the import-from-project-folder picker shows it. */
 export interface ProjectFileListing {
   dir: string;
-  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio' | 'texture' | 'music'; byteLength?: number }>;
+  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio' | 'texture' | 'music' | 'font'; byteLength?: number }>;
   truncated: boolean;
 }
 
@@ -312,6 +312,9 @@ export class SessionClient {
   private blockLayers = new Map<string, BlockLayerView>();
   /** Bumped whenever a layer's cells or the layer list change (the Scene view re-meshes). */
   private blockRevision = 0;
+  /** Phase 23.9a: the project UI documents and themes (from queryGameConfig, then setUi changes). */
+  private uiDocuments: UiDocument[] = [];
+  private uiThemes: UiTheme[] = [];
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   /** Phase 23.3: the project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
@@ -559,6 +562,10 @@ export class SessionClient {
         this.cellFields = Array.isArray(cellFields) ? structuredClone(cellFields) : [];
         const blockStamps = (g as { blockStamps?: BlockStamp[] }).blockStamps;
         this.blockStamps = Array.isArray(blockStamps) ? structuredClone(blockStamps) : [];
+        const uiDocs = (g as { uiDocuments?: UiDocument[] }).uiDocuments;
+        this.uiDocuments = Array.isArray(uiDocs) ? structuredClone(uiDocs) : [];
+        const uiThemes = (g as { uiThemes?: UiTheme[] }).uiThemes;
+        this.uiThemes = Array.isArray(uiThemes) ? structuredClone(uiThemes) : [];
         const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;
         if (kinds !== undefined) this.graphKinds = structuredClone(kinds);
       }
@@ -776,6 +783,15 @@ export class SessionClient {
         // Phase 23.7: one library before/after (null = none); its dependents' records travel in the same change.
         const rest = this.scriptLibraries.filter((l) => l.libraryId !== change.libraryId);
         this.scriptLibraries = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1));
+      } else if (change.type === 'setUi') {
+        // Phase 23.9a: one UI document or theme before/after (null = none).
+        if (change.uiKind === 'document') {
+          const rest = this.uiDocuments.filter((d) => d.uiDocumentId !== change.id);
+          this.uiDocuments = change.next === null ? rest : [...rest, structuredClone(change.next as UiDocument)].sort((a, b) => (a.uiDocumentId < b.uiDocumentId ? -1 : 1));
+        } else {
+          const rest = this.uiThemes.filter((t) => t.uiThemeId !== change.id);
+          this.uiThemes = change.next === null ? rest : [...rest, structuredClone(change.next as UiTheme)].sort((a, b) => (a.uiThemeId < b.uiThemeId ? -1 : 1));
+        }
       } else if (change.type === 'setEffect') {
         // Phase 20.0: one effect before/after (null = none).
         const rest = this.effects.filter((e) => e.effectId !== change.effectId);
@@ -1272,6 +1288,16 @@ export class SessionClient {
   /** Phase 20.0: the visual effects (the editor treats them as read-only values). */
   getEffects(): readonly EffectDef[] {
     return this.effects;
+  }
+
+  /** Phase 23.9a: the project UI documents (the editor treats them as read-only values). */
+  getUiDocuments(): readonly UiDocument[] {
+    return this.uiDocuments;
+  }
+
+  /** Phase 23.9a: the project UI themes. */
+  getUiThemes(): readonly UiTheme[] {
+    return this.uiThemes;
   }
 
   /** Phase 23.7: the shared script libraries (the editor treats them as read-only values). */
@@ -1936,7 +1962,7 @@ export class SessionClient {
     options: {
       target?: ImportTarget;
       displayName?: string | null;
-      kind?: 'model' | 'audio' | 'texture' | 'music';
+      kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
       animation?: { entityId: string; roles: unknown };
       onState?: (s: AssetImportState) => void;
     } = {},
@@ -2018,7 +2044,7 @@ export class SessionClient {
    */
   async importProjectFile(
     sourcePath: string,
-    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music'; displayName?: string; onState?: (s: AssetImportState) => void },
+    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; displayName?: string; onState?: (s: AssetImportState) => void },
   ): Promise<{ ok: true; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
     let state = beginProjectFileImport(initialImportState, options.target, sourcePath);
     const emit = (): void => options.onState?.(state);

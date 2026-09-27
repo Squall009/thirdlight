@@ -19,7 +19,11 @@
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
 import { debugCallProblem, validateDebugCommandCall } from '@thirdlight/runtime';
+import { validateUiEvent } from '@thirdlight/runtime';
 import type {
+  UiEventRecord,
+  UiOutput,
+  UiStateView,
   ActionFrame,
   AnimatorPose,
   CameraInfo,
@@ -345,6 +349,20 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
     // Phase 23.11: the objects riding on sockets (the worker's list).
     socketAttachments: () => mirror.sockets,
+    // Phase 23.9a: the project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
+    queueUiEvent: (event: UiEventRecord) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateUiEvent(event);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `UI event: ${checked.message}`, { reason: 'ui_event' }) };
+      command({ op: 'uiEvent', event: checked.event });
+      return { ok: true };
+    },
+    takeUiOutput: (): UiOutput | null => {
+      const out = mirror.ui;
+      mirror.ui = null;
+      return out;
+    },
+    uiView: (): UiStateView => ({ model: mirror.uiModel, shown: mirror.uiShown }),
     // Phase 23.3: the worker's cursor request and pointer (the host applies the cursor; observers read the pointer).
     cursorRequest: () => (gone() ? null : mirror.cursor),
     // Phase 23.14: the scripts' binding requests the worker sent (taken by the page's host).
