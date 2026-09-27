@@ -223,7 +223,8 @@ export function staticColliderOf3D(entityId: string, components: Readonly<Record
  * layers; without a controller entity the world has no character
  * (`noCharacter`: its colliders answer queries and carry movers — a scene
  * picked with the pointer need not have a player); it was null before, so a
- * 3D scene without a player had no physics at all.
+ * 3D scene without a player had no physics at all. Null with neither a
+ * controller nor a collider.
  */
 export function physics3DConfigOf(
   entities: readonly { id: string; components?: unknown }[],
@@ -252,6 +253,8 @@ export function physics3DConfigOf(
     if (spec !== null) statics.push(spec);
   }
   const noCharacter = character === null;
+  // Nothing to simulate or query: no physics (the module resolution then needs no 3D backend either).
+  if (character === null && statics.length === 0) return null;
   if (character === null) {
     // A placeholder the port ignores (the default capsule at the origin).
     const capsule = playerCapsuleOf(undefined);

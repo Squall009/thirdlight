@@ -65,6 +65,10 @@ describe('resolveRequiredModules', () => {
     expect(resolveRequiredModules({ scene, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
     expect(resolveRequiredModules({ scene, game: null, physicsDimension: 2 })).toEqual(resolveRequiredModules({ scene, game: null }));
     expect(resolveRequiredModules({ scene, game: null, behaviors: [{ behaviorId: 'b', requiredModules: ['@thirdlight/physics-rapier'] }], physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
+    // Phase 23.3: a collider alone needs it in 3D (rays and picks without a player); not on the 2D plane.
+    const colliders = { entities: [entity({ collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } })] };
+    expect(resolveRequiredModules({ scene: colliders, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
+    expect(resolveRequiredModules({ scene: colliders, game: null })).toEqual({ ok: true, moduleIds: [] });
     const game = resolveRequiredModules({ scene, game: { configVersion: 2 }, physicsDimension: 3 });
     expect(game).toMatchObject({ ok: false, unresolved: [{ id: 'thirdlight.platformer-game:session', requiredBy: 'game' }] });
   });

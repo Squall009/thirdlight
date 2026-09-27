@@ -115,6 +115,8 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
     if (c['controller'] !== undefined) want(threeD ? 'thirdlight.physics-rapier:3d' : 'thirdlight.platformer:controller', 'scene');
+    // Phase 23.3: in 3D a collider alone needs the backend too (a scene without a player still answers rays and picks).
+    else if (threeD && c['collider'] !== undefined) want('thirdlight.physics-rapier:3d', 'scene');
     if (c['model'] !== undefined) want('thirdlight.three-adapter:gltf-loader', 'scene');
   }
   for (const b of input.behaviors ?? []) {
