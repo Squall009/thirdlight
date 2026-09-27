@@ -171,6 +171,9 @@ const OPS: readonly MutationOp[] = [
   'setSpeaker',
   'deleteSpeaker',
   'setDialogueSettings',
+  // phase 23.10: game modes and behavior groups
+  'setModes',
+  'setBehaviorGroups',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -212,11 +215,13 @@ const CREATE_COMPONENTS: readonly string[] = [
   'blockLayer',
   // Phase 23.6: v4 scenes only.
   'blockFootprint',
+  // Phase 23.10: v4 scenes only.
+  'behaviorGroup',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setModes, setBehaviorGroups, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1229,7 +1234,9 @@ export type ValidatedOpArgs =
   | { op: 'deleteDialogue'; args: { dialogueId: string } }
   | { op: 'setSpeaker'; args: { speaker: import('@thirdlight/project-model').DialogueSpeaker } }
   | { op: 'deleteSpeaker'; args: { speakerId: string } }
-  | { op: 'setDialogueSettings'; args: { settings: import('@thirdlight/project-model').DialogueSettings | null } };
+  | { op: 'setDialogueSettings'; args: { settings: import('@thirdlight/project-model').DialogueSettings | null } }
+  | { op: 'setModes'; args: { modes: import('@thirdlight/project-model').GameMode[] } }
+  | { op: 'setBehaviorGroups'; args: { groups: string[] } };
 
 /** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1363,6 +1370,15 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== 'input') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'input') };
       if (args['input'] === undefined) return { ok: false, error: fieldMissing('/args/input', 'input') };
       if (args['input'] !== null && !isPlainObject(args['input'])) return { ok: false, error: fieldType('/args/input', args['input'], 'object ({ actions }) or null (the defaults)') };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setModes':
+    case 'setBehaviorGroups': {
+      // Phase 23.10: setModes {modes: [...]}; setBehaviorGroups {groups: [...]} (whole lists; [] = none).
+      const key = op === 'setModes' ? 'modes' : 'groups';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (!Array.isArray(args[key])) return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setModes' ? 'array of game modes ([] = none)' : 'array of group names ([] = none)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setCollisionLayers': {

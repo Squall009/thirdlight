@@ -43,7 +43,7 @@ import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOV
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
-import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_HOLD_MIN, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_GLYPHS, POINTER_AXES, POINTER_BUTTONS } from './input';
+import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_HOLD_MIN, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS, MAX_INPUT_GLYPHS, POINTER_AXES, POINTER_BUTTONS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { UI_LIMITS } from './ui-documents';
@@ -54,6 +54,7 @@ import { BLOCK_LIMITS } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
+import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
 import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
 import { GAME_ZONE_ROLES_V4, MAX_INSTANCES, MAX_TAGS } from './types-v3';
@@ -97,7 +98,7 @@ export const ASSET_KINDS = ['model', 'audio', 'texture', 'music', 'font'] as con
 export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 
 /** What an `ref` field names (besides assets, entities and scenes). */
-export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget';
+export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget' | 'behaviorGroup' | 'inputMap' | 'mode';
 
 /** String formats (validation hints and widget choices). */
 export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode';
@@ -1108,6 +1109,44 @@ const blockLayer: ComponentDescriptor = {
   rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.'],
 };
 
+// Phase 23.10: the behavior group an object's behavior belongs to (game modes tick groups).
+const behaviorGroupC: ComponentDescriptor = {
+  name: 'behaviorGroup',
+  label: 'Behavior group',
+  tooltip: 'The group this object\'s behavior belongs to. A game mode lists the groups that tick while it is active; the others pause (their scripts do not run).',
+  category: 'Scripting',
+  value: obj('behaviorGroup', 'Behavior group', 'The group of this object\'s behavior.', [
+    ref('group', 'Group', 'One of the project\'s behavior groups (Game modes panel).', 'behaviorGroup', { required: true }),
+  ]),
+  // The group is picked when the component is added (the project's first group as a start).
+  add: { kind: 'pick', value: {}, pick: ['group'] },
+  handles: [],
+  excludes: [],
+  prefab: true,
+};
+
+// Phase 23.10: one game mode (the Game modes panel edits it; setModes stores the whole list).
+const MODE_TRANSITION_FIELDS: readonly FieldDescriptor[] = [
+  enm('blend', 'Camera blend', 'How the view moves to the mode\'s camera (absent: the camera\'s own blend).', MODE_BLENDS),
+  num('blendTime', 'Blend time', 'Seconds of the camera blend (absent: the camera\'s own).', { min: 0, max: MODE_LIMITS.blendTimeMax, step: 0.05, unit: 's' }),
+  ref('fade', 'Fade document', 'A UI document shown from the switch for the fade time — its show and hide tweens are the fade.', 'uiDocument'),
+  num('fadeTime', 'Fade time', 'Seconds the fade document stays.', { min: MODE_LIMITS.fadeTimeMin, max: MODE_LIMITS.fadeTimeMax, step: 0.05, unit: 's', default: MODE_DEFAULTS.fadeTime }),
+];
+const MODE_ITEM: FieldDescriptor = obj('*', 'Game mode', 'One game mode.', [
+  str('modeId', 'Id', 'Scripts (ctx.modes.switch) and UI mode actions name it.', { required: true, format: 'id', minLength: 1, maxLength: 64 }),
+  str('name', 'Name', 'Shown in the editor and the Play toolbar.', { required: true, minLength: 1, maxLength: MODE_LIMITS.nameLength }),
+  list('inputMaps', 'Input maps', 'The input maps active in the mode (absent: every map). Actions of other maps read as released.', ref('*', 'Map', 'gameplay, ui or one of the project\'s maps.', 'inputMap'), { maxItems: MODE_LIMITS.inputMaps, unique: true }),
+  entity('camera', 'Camera', 'A virtual camera that is live while the mode is, over the priorities (absent: the priority rule).', { component: 'virtualCamera', anyScene: true }),
+  list('ui', 'UI documents', 'Shown while the mode is active, hidden when it ends.', ref('*', 'Document', 'A UI document.', 'uiDocument'), { maxItems: MODE_LIMITS.ui, unique: true }),
+  list('groups', 'Ticking groups', 'The behavior groups whose scripts run (absent: every group). The other groups pause.', ref('*', 'Group', 'A behavior group.', 'behaviorGroup'), { maxItems: MODE_LIMITS.groups, unique: true }),
+  enm('ungrouped', 'Ungrouped behaviors', 'Behaviors of objects without a behavior group.', MODE_UNGROUPED, { default: MODE_DEFAULTS.ungrouped }),
+  bool('pause', 'Pause allowed', 'The engine pause (the pause key, a pause button) may be used in this mode.', { default: MODE_DEFAULTS.pause }),
+  ref('pauseScreen', 'Pause screen', 'A UI document drawn while the game is paused in this mode (absent: the engine\'s pause panel).', 'uiDocument'),
+  num('timeScale', 'Time scale', 'Simulation speed: fewer or more fixed steps per second (each step unchanged).', { min: MODE_LIMITS.timeScaleMin, max: MODE_LIMITS.timeScaleMax, step: 0.05, default: MODE_DEFAULTS.timeScale }),
+  enm('physics', 'Physics', 'Physics, the character, movers and triggers step (run) or stand still (hold).', MODE_PHYSICS, { default: MODE_DEFAULTS.physics }),
+  obj('enter', 'Transition in', 'How entering this mode looks (a script\'s switch may pass its own).', MODE_TRANSITION_FIELDS),
+]);
+
 // Phase 23.6 (E8): a prop's occupancy footprint (the editor writes it into the block cells beneath the prop).
 const blockFootprint: ComponentDescriptor = {
   name: 'blockFootprint',
@@ -1543,7 +1582,8 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
   list('actions', 'Actions', `Up to ${MAX_INPUT_ACTIONS} named actions.`, obj('*', 'Action', 'A named action and its bindings.', [
     str('name', 'Name', 'The action name scripts and blocks read (a letter or _, then letters, digits or _).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
     enm('type', 'Type', 'A button, a 1D axis (left/right) or a 2D axis.', INPUT_ACTION_TYPES, { required: true, default: 'button', labels: { axis1d: 'Axis (1D)', axis2d: 'Axis (2D)' } }),
-    enm('map', 'Map', 'Read by the game (gameplay) or the menus (ui).', INPUT_MAPS, { required: true, default: 'gameplay', labels: { ui: 'UI' } }),
+    // Phase 23.10: gameplay, ui or one of the project's own maps (game modes activate maps).
+    ref('map', 'Map', 'Read by the game (gameplay), the menus (ui) or one of the project\'s maps.', 'inputMap', { required: true, default: 'gameplay' }),
     list('bindings', 'Bindings', `Up to ${MAX_INPUT_BINDINGS} keys, buttons, axes or composites.`, obj('*', 'Binding', 'One binding (it must fit the action type).', [
       enm('kind', 'Kind', 'What is bound.', BINDING_KINDS, { required: true, default: 'key', labels: { gamepadButton: 'Gamepad button', gamepadAxis: 'Gamepad axis', keys1d: 'Two keys (1D)', keys2d: 'Four keys (2D)', gamepadButtons1d: 'Two gamepad buttons (1D)', gamepadStick: 'Gamepad stick', pointerButton: 'Pointer button', pointerPosition: 'Pointer position (2D)', pointerDelta: 'Pointer movement (2D)', pointerAxis: 'Pointer axis (1D)' } }),
       str('code', 'Key', 'A keyboard key (KeyboardEvent.code).', { ...KEY_CODE, required: true, when: when('kind', 'key') }),
@@ -1568,6 +1608,8 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
     bool('invert', 'Invert', 'Flip the axis.', { default: false }),
     num('scale', 'Scale', 'Multiply the value.', { min: 0, minExclusive: true, max: 10, step: 0.1, unit: '×', default: 1 }),
   ]), { required: true, maxItems: MAX_INPUT_ACTIONS }),
+  // Phase 23.10: the project's own input maps (a game mode activates maps; gameplay and ui always exist).
+  list('maps', 'Project maps', `Up to ${MAX_INPUT_MAPS} input maps besides gameplay and ui (game modes activate maps).`, str('*', 'Map', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_INPUT_MAPS, unique: true }),
   // Phase 23.3: free by default for both maps — a pointer-driven game needs a visible cursor; mouse-look opts in to locked.
   obj('cursor', 'Cursor', 'The cursor while each map is active (absent: free). It is hidden while a gamepad drives the game.', [
     enm('gameplay', 'Gameplay', 'The cursor during play: free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre).', CURSOR_MODES, { default: 'free' }),
@@ -1831,6 +1873,9 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   },
   // Phase 23.9a: project UI documents and themes (JSON widget trees; the visual editor is 23.9b).
   { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', `Up to ${UI_LIMITS.documents} documents.`, json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true }), { maxItems: UI_LIMITS.documents, default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
+  // Phase 23.10: game modes (the first is the start mode) and the behavior groups modes tick.
+  { key: 'modes', label: 'Game modes', tooltip: 'Named states of the running game: the input maps, camera, UI documents and ticking behavior groups of each, switched in one transition without a scene load (explore and tactical, on foot and driving, build and play…). The first mode is the one a run starts in.', required: false, value: list('modes', 'Game modes', `Up to ${MODE_LIMITS.modes} modes; the first is the start mode.`, MODE_ITEM, { maxItems: MODE_LIMITS.modes, default: [] }), ops: ['setModes'] },
+  { key: 'behaviorGroups', label: 'Behavior groups', tooltip: 'Names an object\'s behavior can belong to (its Behavior group component); a game mode lists the groups that tick while it is active.', required: false, value: list('behaviorGroups', 'Behavior groups', `Up to ${MODE_LIMITS.behaviorGroups} names.`, str('*', 'Group', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MODE_LIMITS.behaviorGroups, unique: true, default: [] }), ops: ['setBehaviorGroups'] },
   { key: 'uiThemes', label: 'UI themes', tooltip: 'Named styles and icons UI documents share.', required: false, value: list('uiThemes', 'UI themes', `Up to ${UI_LIMITS.themes} themes.`, json('*', 'Theme', 'A UI theme: { uiThemeId, name, styles, icons? }.', { readOnly: true }), { maxItems: UI_LIMITS.themes, default: [] }), ops: ['setUiTheme', 'deleteUiTheme'] },
   // Phase 23.16: dialogue — conversations (dialogue graphs, edited in the Dialogue tab with graphEdit), the speaker registry, the settings.
   { key: 'dialogues', label: 'Dialogues', tooltip: 'Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.', required: false, value: list('dialogues', 'Dialogues', `Up to ${DIALOGUE_LIMITS.dialogues} conversations.`, json('*', 'Dialogue', 'A conversation: { dialogueId, name, graph } (graph kind dialogue).', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.dialogues, default: [] }), ops: ['setDialogue', 'deleteDialogue', 'graphEdit'] },
@@ -1960,6 +2005,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   folder,
   blockLayer,
   blockFootprint,
+  behaviorGroupC,
 ];
 
 function deepFreeze<T>(v: T): T {

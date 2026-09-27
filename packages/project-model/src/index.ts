@@ -609,6 +609,10 @@ export {
   type CursorMode,
   type PointerAxisName,
   type PointerButtonName,
+  // Phase 23.10: the project's own input maps.
+  MAX_INPUT_MAPS,
+  projectInputMaps,
+  type InputMapName,
   // Phase 23.14: the hold modifier and the project's glyph images.
   GAMEPAD_FAMILIES,
   GLYPH_KEY_RE,
@@ -617,6 +621,27 @@ export {
   INPUT_HOLD_MIN,
   MAX_INPUT_GLYPHS,
 } from './input';
+// Phase 23.10: game modes (content.modes), behavior groups and the behaviorGroup component.
+export {
+  MODE_BLENDS,
+  MODE_DEFAULTS,
+  MODE_LIMITS,
+  MODE_NAME_RE,
+  MODE_PHYSICS,
+  MODE_UNGROUPED,
+  behaviorGroupErrors,
+  canonicalBehaviorGroup,
+  canonicalMode,
+  canonicalModes,
+  modesForRuntime,
+  validateBehaviorGroupComponent,
+  validateBehaviorGroups,
+  validateMode,
+  validateModeReferences,
+  validateModes,
+  validateModeTransition,
+} from './modes';
+export type { BehaviorGroupComponent, GameMode, ModeBlend, ModePhysics, ModeTransition, ModeUngrouped, RuntimeModes } from './modes';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
 // Phase 9.7: animator controllers.

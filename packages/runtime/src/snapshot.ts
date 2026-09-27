@@ -9,6 +9,7 @@
  * project-model error objects + the total count.
  */
 import { validateModelRig, type ModelRig } from '@thirdlight/project-model';
+import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
 import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type GameConfig, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
@@ -22,7 +23,7 @@ const MAX_REVISION = 2 ** 53 - 1;
 import { runtimeDialogueDataProblem, validateSaveSchema, type RuntimeDialogueData, type SaveSchema } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'saveSchema', 'audioDurations', 'dialogue']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'dialogue']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -78,6 +79,7 @@ export function validateRuntimeSnapshot(
       saveSchema?: SaveSchema;
       uiDocuments: readonly RuntimeUiDocumentRow[];
       dialogue?: RuntimeDialogueData;
+      modes?: RuntimeModes;
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -369,6 +371,21 @@ export function validateRuntimeSnapshot(
     if (problem !== null) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/dialogue', message: problem } };
     dialogue = (snap as { dialogue: RuntimeDialogueData }).dialogue;
   }
+  // Phase 23.10: the optional v4 game modes ({ modes, actionMaps }).
+  let modes: RuntimeModes | undefined;
+  if (snap.modes !== undefined) {
+    const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/modes', message } });
+    if (sceneVersion !== 4) return bad('snapshot field "modes" is v4-only');
+    const m = snap.modes as unknown as Record<string, unknown>;
+    if (typeof m !== 'object' || m === null || Array.isArray(m) || Object.keys(m).some((k) => k !== 'modes' && k !== 'actionMaps')) return bad('modes is { modes, actionMaps }');
+    const errors: ModelErrorV2[] = [];
+    validateModes(m['modes'], '/modes/modes', errors);
+    if (errors.length > 0) return bad(`modes: ${errors[0]!.message}`);
+    if (!Array.isArray(m['modes']) || m['modes'].length === 0) return bad('modes lists at least one game mode');
+    const maps = m['actionMaps'];
+    if (typeof maps !== 'object' || maps === null || Array.isArray(maps) || Object.keys(maps).length > 64 || Object.values(maps).some((v) => typeof v !== 'string')) return bad('actionMaps maps at most 64 action names to their input map');
+    modes = snap.modes as unknown as RuntimeModes;
+  }
   // Phase 12 (c): the optional v4 scene catalog.
   let scenes: readonly RuntimeSceneRow[] | null = null;
   if (snap.scenes !== undefined) {
@@ -402,7 +419,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}) , ...(modes !== undefined ? { modes } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

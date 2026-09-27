@@ -236,6 +236,23 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       seen: rec('dialogue.seen', true),
       history: rec('dialogue.history', () => []),
     },
+    // Phase 23.10: the game modes and the run lifecycle.
+    modes: {
+      current: rec('modes.current', 'explore'),
+      previous: rec('modes.previous', ''),
+      is: rec('modes.is', true),
+      switch: rec('modes.switch', true),
+      events: rec('modes.events', () => [{ kind: 'enter', mode: 'explore', other: '' }]),
+      entered: rec('modes.entered', true),
+      exited: rec('modes.exited', false),
+      time: rec('modes.time', 1.5),
+    },
+    lifecycle: {
+      respawn: rec('lifecycle.respawn', true),
+      setSpawn: rec('lifecycle.setSpawn', true),
+      spawnPoint: rec('lifecycle.spawnPoint', 'spawn-0001'),
+      restart: rec('lifecycle.restart', true),
+    },
   };
 }
 

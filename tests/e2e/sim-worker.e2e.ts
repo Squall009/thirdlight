@@ -102,7 +102,8 @@ async function playChecks(page: Page, psid: string, expectMode: { mode: string; 
   }
   await expect.poll(async () => (await observe()).sound?.played?.sfx ?? 0, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
   await page.getByTitle('Stop the play preview').click();
-  await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0);
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
   return { frames };
 }
 

@@ -322,3 +322,8 @@ export { DIALOGUE_INPUT_KINDS, DialogueRunner, validateDialogueInput, validateDi
 export type { BehaviorDialogue, BehaviorDialogueEvent, BehaviorDialogueHistoryEntry, BehaviorDialogueState, DialogueVariableValue } from './types';
 export { DIALOGUE_DOCUMENT_ID, DIALOGUE_LIMITS, dialogueForRuntime, dialogueUiDocument, withDialogueUiDocument, parseRichText, richTextVisibleLength, uiValueText, codePointLength, UI_DIALOGUE_INPUTS } from '@thirdlight/project-model';
 export type { DialogueDocument, DialogueSettings, DialogueSpeaker, RuntimeDialogueData, RichStyle, RichToken, UiDialogueInput } from '@thirdlight/project-model';
+// Phase 23.10: game modes (ctx.modes), the run lifecycle (ctx.lifecycle) and the mode view the host reads.
+export type { BehaviorLifecycle, BehaviorModeEvent, BehaviorModes, BehaviorModeTransition } from './types';
+export { ModeState, type ModeEffects, type ModeEventRecord, type ModeTransitionSpec, type ModeView } from './modes';
+export { modesForRuntime } from '@thirdlight/project-model';
+export type { GameMode, RuntimeModes } from '@thirdlight/project-model';

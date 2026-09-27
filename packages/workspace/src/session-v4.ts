@@ -609,6 +609,9 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         uiThemes: JSON.parse(JSON.stringify((state.content as { uiThemes?: unknown[] }).uiThemes ?? [])) as unknown,
         // Phase 23.3: the named collision layers.
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
+        // Phase 23.10: the game modes and behavior groups.
+        modes: JSON.parse(JSON.stringify((state.content as { modes?: unknown[] }).modes ?? [])) as unknown,
+        behaviorGroups: [...((state.content as { behaviorGroups?: string[] }).behaviorGroups ?? [])],
         // Phase 23.19: the project save schema (null: no project saves).
         saveSchema: (state.content as { saveSchema?: unknown }).saveSchema !== undefined ? (JSON.parse(JSON.stringify((state.content as { saveSchema?: unknown }).saveSchema)) as unknown) : null,
         // Phase 23.16: conversations, the speaker registry and the dialogue settings (null: the defaults).

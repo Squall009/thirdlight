@@ -61,6 +61,7 @@ import {
   type Runtime,
   type RuntimeSnapshot,
   type LoadedSceneBatch,
+  type ModeView,
   type ProjectSaveFile,
 } from '@thirdlight/runtime';
 import { platformerSpec } from '@thirdlight/platformer';
@@ -79,6 +80,7 @@ import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type Sav
 import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
 import { createUiLayer, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
+import { createPausePanel, type PausePanel } from './pause-panel';
 
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
@@ -237,6 +239,8 @@ export interface GameHostObservation {
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
   readonly hidden?: readonly string[];
+  /** Phase 23.10, additive: the game modes (only a project with modes). */
+  readonly mode?: ModeView;
   /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
   readonly saves?: ProjectSavesObservation;
   /** Phase 23.14, additive: the player's bindings (device, profile, listening, changed actions, glyphs). */
@@ -273,6 +277,11 @@ export interface GameHostSceneObservation {
   readonly inputBindings?: GameHostInputObservation['inputBindings'];
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
+  /** Phase 23.10, additive: the game modes (only a project with modes) and the engine pause. */
+  readonly mode?: ModeView;
+  readonly paused?: boolean;
+  /** Phase 23.10, additive: the engine's pause panel (a paused game with modes and no pause screen of its own). */
+  readonly pausePanel?: { readonly focus: 'resume' | 'restart' };
   /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
   readonly saves?: ProjectSavesObservation;
 }
@@ -309,7 +318,7 @@ export interface GameStartOptions {
   readonly save?: SaveDocument;
   /** ...or from the save in one of this game's slots. */
   readonly saveSlot?: SaveSlot;
-  /** A game mode id (validated by the backend; applied once the project has game modes). */
+  /** Phase 23.10: the game mode the run starts in (validated by the backend against the project's modes). */
   readonly mode?: string;
   /** Phase 23.19: a project save document loaded at the first step (slot 0), or a project save slot of this page. */
   readonly projectSave?: ProjectSaveFile;
@@ -669,6 +678,8 @@ export interface GameRuntimeArgs {
   readonly driver?: { readonly kind: 'raf' | 'manual' };
   /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
   readonly variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.10: the game mode runs start in (a start option). */
+  readonly startMode?: string;
   /** Phase 23.19: the stored project settings document. */
   readonly projectSettings?: Readonly<Record<string, unknown>>;
 }
@@ -726,6 +737,7 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     ...(args.onFrame !== undefined ? { onFrame: args.onFrame } : {}),
     ...(args.driver !== undefined ? { driver: { kind: args.driver.kind } } : {}),
     ...(args.variables !== undefined ? { variables: args.variables } : {}),
+    ...(args.startMode !== undefined ? { startMode: args.startMode } : {}),
     ...(args.projectSettings !== undefined ? { projectSettings: args.projectSettings } : {}),
   });
   if (res.ok === false) {
@@ -796,6 +808,77 @@ export function createGameHost(config: GameHostConfig): GameHost {
       : { saves: { slotCount: saveSchema.slots, storage: projectSaves.storage, slots: projectSaves.slots().slice(0, 32), settings: { ...(runtime?.projectSettings?.() ?? projectSaves.settings()) } } };
   /** Phase 23.9a: the project UI layer (null without UI documents). */
   let uiLayer: UiLayer | null = null;
+  /**
+   * Phase 23.10: the engine pause of a game with game modes and no flow (the
+   * mode allows it), the engine's pause panel (a mode without a pause screen
+   * of its own), and the input maps in effect: a focused UI document's action
+   * map, else the current mode's maps, else every map.
+   */
+  let scenePaused = false;
+  let pausePanel: PausePanel | null = null;
+  let modeMaps: readonly string[] | null = null;
+  let uiMaps: readonly string[] | null = null;
+  let appliedMaps = '*';
+  const applyMaps = (): void => {
+    const effective = uiMaps ?? modeMaps;
+    const key = effective === null ? '*' : effective.join(',');
+    if (key === appliedMaps) return;
+    appliedMaps = key;
+    config.input.setActiveMaps?.(effective);
+  };
+  /** The current mode (null: the game has none); its input maps become the input's active maps. */
+  const serviceModes = (rt: Runtime): ModeView | null => {
+    const mv = rt.modeView?.() ?? null;
+    const maps = mv === null ? null : mv.inputMaps;
+    if ((maps === null ? '*' : maps.join(',')) !== (modeMaps === null ? '*' : modeMaps.join(','))) {
+      modeMaps = maps;
+      applyMaps();
+    }
+    return mv;
+  };
+  /** A restart of a game without the platformer session: an input-frame entry (so recordings replay it). */
+  const sceneRestart = (): void => {
+    const r = runtime?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: '' });
+    if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
+    setScenePause(false);
+  };
+  const setScenePause = (on: boolean): void => {
+    const rt = runtime;
+    if (rt === null || on === scenePaused) return;
+    const mv = rt.modeView?.() ?? null;
+    if (on && (mv === null || !mv.pause)) return;
+    scenePaused = on;
+    rt.setPaused?.(on);
+    if (on) {
+      if (mv!.pauseScreen !== undefined && uiLayer !== null) uiLayer.showScreen(mv!.pauseScreen);
+      else if (hostDom !== null) {
+        pausePanel ??= createPausePanel(hostDom, config.container, { resume: () => setScenePause(false), restart: sceneRestart });
+        pausePanel.show();
+      }
+    } else {
+      uiLayer?.showScreen(null);
+      pausePanel?.hide();
+    }
+  };
+  /** A project UI document's engine action in a game without a flow (with modes: pause, resume, restart). */
+  const sceneEngineAction = (a: { readonly action: string }): void => {
+    switch (a.action) {
+      case 'resume':
+      case 'back':
+        setScenePause(false);
+        break;
+      case 'pause':
+        setScenePause(true);
+        break;
+      case 'restartLevel':
+      case 'newGame':
+      case 'quitToTitle':
+        sceneRestart();
+        break;
+      default:
+        break; // settings, saves and levels belong to the platformer flow
+    }
+  };
   /** The last committed `playerMotion.grounded` (the jump-cue transition).
    * Reset to `true` at every reset boundary (the committed view publishes
    * `{ speed: 0, grounded: true }` there, so the derived cue can never fire
@@ -1165,14 +1248,23 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // Phase 23.9a: a focused project UI document takes the ui edges it uses (navigation, submit, its cancel) first.
     // (A built-in flow menu keeps its own navigation over a document a script left focused.)
     const uiFocus = uiLayer !== null && uiLayer.hasFocus() && (flowCtl === null || flowCtl.screen === 'playing' || uiLayer.observe().screen !== null);
-    if (flowCtl === null && uiFocus) {
+    // Phase 23.10: the game modes (their input maps); a game with modes and no flow has the engine pause.
+    const modeView = serviceModes(runtime);
+    if (flowCtl === null && modeView !== null) {
+      const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: menu.confirm, cancel: false, pause: false };
+      const rest = uiFocus ? uiLayer!.handleEdges(raw) : raw;
+      if (rest.pause) setScenePause(!scenePaused);
+      else if (pausePanel?.shown === true) pausePanel.handleEdges(rest);
+    } else if (flowCtl === null && uiFocus) {
       const edges = config.input.sampleUi?.();
       if (edges !== undefined) uiLayer!.handleEdges(edges);
       else if (menu.confirm) uiLayer!.handleEdges({ up: false, down: false, left: false, right: false, submit: true, cancel: false, pause: false });
     }
     if (flowCtl !== null) {
       // Phase 9.10: the flow's menus take the confirm and the ui edges.
-      const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      const raw0 = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      // Phase 23.10: a game mode that does not allow the pause keeps the flow from pausing (its menus still close with pause).
+      const raw = modeView !== null && !modeView.pause && flowCtl.screen === 'playing' && raw0.pause ? { ...raw0, pause: false } : raw0;
       const ui = uiFocus ? uiLayer!.handleEdges(raw) : raw;
       const flowView = gameViewOf(runtime);
       if (flowView !== null) {
@@ -1365,8 +1457,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
         applied.push(`project save slot ${start.projectSaveSlot!}`);
       }
     }
-    // 23.10 applies a mode; until then the backend logs it as ignored.
-    if (start.mode !== undefined) applied.push(`mode ${start.mode} (noted)`);
+    // Phase 23.10: the run started in this mode (the runtime was composed with it).
+    if (start.mode !== undefined) {
+      const mv = rt.modeView?.() ?? null;
+      if (mv === null) applied.push(`mode ${start.mode} (ignored: the game has no modes)`);
+      else if (!mv.modes.includes(start.mode)) return { ok: false, reason: `the game has no mode "${start.mode}"` };
+      else applied.push(`mode ${start.mode}`);
+    }
     return { ok: true, applied };
   };
 
@@ -1440,6 +1537,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         onFrame: hostFrame,
         ...(config.variables !== undefined ? { variables: config.variables } : {}),
         ...(saveSchema !== undefined ? { projectSettings: readProjectSettings(saveSchema, config.saveStorage, saveNamespace) } : {}),
+        ...(config.start?.mode !== undefined ? { startMode: config.start.mode } : {}),
       });
     }
     if (!composed.ok) return composed;
@@ -1538,7 +1636,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
             void control(a.action);
             return;
           }
-          flowCtl?.engine(a);
+          // Phase 23.10: a game without a flow has the engine pause (with modes) and the restart.
+          if (flowCtl !== null) flowCtl.engine(a);
+          else sceneEngineAction(a);
         },
         // Phase 23.14: `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
         flowValues: () => {
@@ -1555,7 +1655,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
               glyphKey: () => String(bindings?.revision() ?? 0),
             }
           : {}),
-        ...(config.input.setActiveMaps !== undefined ? { setActiveMaps: (maps: readonly string[] | null) => config.input.setActiveMaps!(maps) } : {}),
+        // Phase 23.10: a focused document's map wins over the game mode's maps (applyMaps).
+        ...(config.input.setActiveMaps !== undefined
+          ? {
+              setActiveMaps: (maps: readonly string[] | null) => {
+                uiMaps = maps;
+                applyMaps();
+              },
+            }
+          : {}),
       });
     }
     if (sceneMode) {
@@ -1698,8 +1806,16 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...dialogueObservation(runtime),
         ...inputObservation(runtime),
+        ...modeObservation(runtime),
       },
     };
+  };
+
+  /** Phase 23.10: the game modes, the engine pause and its panel (a project with modes). */
+  const modeObservation = (rt: Runtime): { mode?: ModeView; paused?: boolean; pausePanel?: { focus: 'resume' | 'restart' } } => {
+    const mv = rt.modeView?.() ?? null;
+    if (mv === null) return {};
+    return { mode: mv, ...(flowCtl === null ? { paused: scenePaused } : {}), ...(pausePanel?.shown === true ? { pausePanel: { focus: pausePanel.focus } } : {}) };
   };
 
   /** Phase 23.11: the objects riding on sockets and where they are (world position, composed up their parents). */
@@ -1800,6 +1916,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
         ...dialogueObservation(runtime),
         ...inputObservation(runtime),
+        ...modeObservation(runtime),
       },
     };
   };
@@ -1889,6 +2006,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (uiLayer !== null) {
       uiLayer.dispose();
       uiLayer = null;
+    }
+    pausePanel?.dispose();
+    pausePanel = null;
+    // Phase 23.10: the input's maps back to every map (the owner outlives this host).
+    if (appliedMaps !== '*') {
+      appliedMaps = '*';
+      config.input.setActiveMaps?.(null);
     }
     if (letterbox !== null) {
       letterbox.top.remove();

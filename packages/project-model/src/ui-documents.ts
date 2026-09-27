@@ -22,6 +22,7 @@
  * `setUiTheme` / `deleteUiTheme`), one undo step each. Pure data rules.
  */
 import type { ModelErrorV2 } from './errors';
+import { projectInputMaps } from './input';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,6 +125,8 @@ export type UiAction =
   | { do: 'show' | 'hide' | 'toggle'; doc: string }
   /** Play a tween of this document (presentation only). */
   | { do: 'play'; tween: string; widget?: string }
+  /** Phase 23.10: switch to a game mode (through the input frame, so replays hold). */
+  | { do: 'mode'; mode: string }
   /**
    * Phase 23.16: a dialogue input (on the next input frame, so replays hold):
    * advance (or reveal the rest of the line), choose (the list item's index,
@@ -444,7 +447,7 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
   if (Array.isArray(v) && (v.length < 1 || v.length > 4)) err(errors, 'field_value', path, 'a list of 1-4 actions', v.length, '1..4');
   list.forEach((a, i) => {
     const p = Array.isArray(v) ? `${path}/${i}` : path;
-    if (!isPlainObject(a)) return err(errors, 'field_type', p, 'an action is { do: event | engine | show | hide | toggle | play, … }', a, 'object');
+    if (!isPlainObject(a)) return err(errors, 'field_type', p, 'an action is { do: event | engine | show | hide | toggle | play | mode, … }', a, 'object');
     switch (a['do']) {
       case 'event':
         only(a, ['do', 'name', 'value'], p, errors, 'event action');
@@ -494,8 +497,14 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         if (a['input'] === undefined) err(errors, 'field_missing', `${p}/input`, 'a dialogue action names its input', undefined, UI_DIALOGUE_INPUTS.join(' | '));
         if (a['value'] !== undefined && !(Number.isInteger(a['value']) && isNum(a['value'], 0, 255))) err(errors, 'field_value', `${p}/value`, 'a dialogue action value is an option index 0–255', a['value'], '0..255');
         break;
+      case 'mode':
+        // Phase 23.10: switch to a game mode (the project's modes: validateUiReferences).
+        only(a, ['do', 'mode'], p, errors, 'mode action');
+        if (typeof a['mode'] !== 'string' || !ID_RE.test(a['mode'])) err(errors, 'field_value', `${p}/mode`, 'names a game mode', a['mode'], 'a modeId');
+        else refs.modes.push({ id: a['mode'], path: `${p}/mode` });
+        break;
       default:
-        err(errors, 'field_value', `${p}/do`, 'do is event, engine, show, hide, toggle, play or dialogue', a['do'], 'event | engine | show | hide | toggle | play | dialogue');
+        err(errors, 'field_value', `${p}/do`, 'do is event, engine, show, hide, toggle, play, mode or dialogue', a['do'], 'event | engine | show | hide | toggle | play | mode | dialogue');
     }
   });
 }
@@ -510,6 +519,7 @@ interface DocRefs {
   tweens: { name: string; path: string }[];
   styles: { name: string; path: string }[];
   docs: { id: string; path: string }[];
+  modes: { id: string; path: string }[];
   images: { id: string; path: string }[];
   fonts: { id: string; path: string }[];
   icons: { name: string; path: string }[];
@@ -716,6 +726,8 @@ const DOC_KEYS = ['uiDocumentId', 'name', 'layer', 'modal', 'focus', 'actionMap'
 /** What a document references outside itself (checked against the project by `validateUiReferences`). */
 export interface UiDocumentRefs {
   readonly docs: readonly { id: string; path: string }[];
+  /** Phase 23.10: the game modes the document's mode actions name. */
+  readonly modes?: readonly { id: string; path: string }[];
   readonly styles: readonly { name: string; path: string }[];
   readonly images: readonly { id: string; path: string }[];
   readonly fonts: readonly { id: string; path: string }[];
@@ -723,7 +735,7 @@ export interface UiDocumentRefs {
 }
 
 function newRefs(): DocRefs {
-  return { ids: new Map(), widgets: [], tweens: [], styles: [], docs: [], images: [], fonts: [], icons: [], count: 0 };
+  return { ids: new Map(), widgets: [], tweens: [], styles: [], docs: [], modes: [], images: [], fonts: [], icons: [], count: 0 };
 }
 
 function validateName(errors: ModelErrorV2[], v: unknown, path: string, what: string): void {
@@ -794,7 +806,7 @@ export function validateUiDocument(value: unknown, path: string, errors: ModelEr
   const tweens = isPlainObject(value['tweens']) ? value['tweens'] : {};
   for (const t of refs.tweens) if (!Object.prototype.hasOwnProperty.call(tweens, t.name)) err(errors, 'reference_missing', t.path, `no tween "${t.name}" in this document`, t.name, 'a tween name of this document');
   sizeCheck(errors, value, path, 'UI document');
-  return { docs: refs.docs, styles: refs.styles, images: refs.images, fonts: refs.fonts, icons: refs.icons };
+  return { docs: refs.docs, modes: refs.modes, styles: refs.styles, images: refs.images, fonts: refs.fonts, icons: refs.icons };
 }
 
 export function validateUiDocuments(value: unknown, path: string, errors: ModelErrorV2[], inputMaps?: readonly string[]): void {
@@ -859,6 +871,9 @@ export function validateUiReferences(content: Record<string, unknown>, errors: M
   const docs = Array.isArray(content['uiDocuments']) ? (content['uiDocuments'] as unknown[]) : [];
   const themes = Array.isArray(content['uiThemes']) ? (content['uiThemes'] as unknown[]) : [];
   const docIds = new Set(docs.filter(isPlainObject).map((d) => d['uiDocumentId']));
+  // Phase 23.10: the project's input maps (a document may activate one of input.maps) and its game modes.
+  const maps = projectInputMaps(content['input']);
+  const modeIds = new Set((Array.isArray(content['modes']) ? (content['modes'] as unknown[]) : []).filter(isPlainObject).map((m) => m['modeId']));
   const themeById = new Map(themes.filter(isPlainObject).map((t) => [t['uiThemeId'], t] as const));
   const assetRefs = (r: UiDocumentRefs, at: string): void => {
     for (const img of r.images) if (kindOf(img.id) !== 'texture') err(errors, 'asset_reference_missing', `${at}${img.path}`, 'this image must name a texture asset of this project', img.id, 'a texture assetId');
@@ -872,9 +887,10 @@ export function validateUiReferences(content: Record<string, unknown>, errors: M
   docs.forEach((d, i) => {
     if (!isPlainObject(d)) return;
     const scratch: ModelErrorV2[] = [];
-    const r = validateUiDocument(d, '', scratch);
+    const r = validateUiDocument(d, '', scratch, maps);
     if (r === null || scratch.length > 0) return;
     const at = `/uiDocuments/${i}`;
+    for (const ref of r.modes ?? []) if (!modeIds.has(ref.id)) err(errors, 'reference_missing', `${at}${ref.path}`, `no game mode "${ref.id}" in this project`, ref.id, 'a modeId');
     let theme: Record<string, unknown> | undefined;
     if (typeof d['theme'] === 'string') {
       theme = themeById.get(d['theme']) as Record<string, unknown> | undefined;

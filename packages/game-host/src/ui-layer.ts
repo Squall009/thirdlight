@@ -1080,6 +1080,10 @@ class LayerImpl implements UiLayer {
           this.deps.dialogueInput?.({ kind: a.input, ...(idx !== undefined ? { index: idx } : {}) });
           break;
         }
+        case 'mode':
+          // Phase 23.10: a game mode switch rides on the next input frame (applied before that step's scripts).
+          this.deps.queueEvent({ kind: 'mode', doc, widget, name: '', value: a.mode });
+          break;
       }
     }
   }

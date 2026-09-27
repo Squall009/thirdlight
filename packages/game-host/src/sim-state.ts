@@ -16,7 +16,7 @@
  * (the MCP observation, bots and the determinism tests compare them).
  */
 import { materialChangeKey } from '@thirdlight/runtime';
-import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument } from '@thirdlight/runtime';
+import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -48,6 +48,8 @@ export class FrameEncoder {
   private camSent = false;
   /** Phase 23.3: the cursor request and the pointer last sent. */
   private cursorSent: 'free' | 'locked' | null = null;
+  /** Phase 23.10: the mode view last sent (the runtime hands out the same object until it changes). */
+  private modeSent: ModeView | null | undefined = undefined;
   private pointerSent: unknown = null;
   private runSaveKey = '';
   private runSaveStep = -1;
@@ -297,6 +299,12 @@ export class FrameEncoder {
     // Phase 23.9a: the project UI's diff of the steps since the last frame.
     const ui = rt.takeUiOutput?.() ?? null;
     if (ui !== null) out.ui = ui;
+    // Phase 23.10: the game modes (when they changed).
+    const mode = rt.modeView?.() ?? null;
+    if (mode !== this.modeSent) {
+      out.mode = mode;
+      this.modeSent = mode;
+    }
     // Phase 23.3: the cursor a script asked for, and the pointer state (each when it changed).
     const cursor = rt.cursorRequest?.() ?? null;
     if (cursor !== this.cursorSent) {
@@ -410,6 +418,8 @@ export class FrameMirror {
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   debugCommands: DebugCommandState | null = null;
+  /** Phase 23.10: the game modes as of the last frame (null: none). */
+  mode: ModeView | null = null;
   /** Phase 23.11: the objects riding on sockets. */
   sockets: readonly { readonly entityId: string; readonly target: string; readonly node: string }[] = Object.freeze([]);
   private sharedSab: SharedArrayBuffer | null = null;
@@ -504,6 +514,7 @@ export class FrameMirror {
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
     if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;
+    if (s.mode !== undefined) this.mode = s.mode;
     if (s.sockets !== undefined) this.sockets = deepFreeze(s.sockets);
   }
 }

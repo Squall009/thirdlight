@@ -83,7 +83,8 @@ async function playShows(page: Page, digest: string, shot: string): Promise<void
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   page.off('response', onResponse);
   await page.getByTitle('Stop the play preview').click();
-  await expect(frame).toHaveCount(0);
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
 }
 
 /** Export through the admin route; the export must carry exactly these asset digests. */
