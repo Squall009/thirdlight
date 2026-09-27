@@ -36,6 +36,7 @@ import type { ContentCatalogV3, ContentCatalogV4, GameConfig, SceneEntityV3, Sce
 import { isFolderEntity } from './types-v3';
 import type { GameFlow } from './flow';
 import { materialOverrideErrors } from './materials';
+import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors, effectHookRefs } from './effects';
 
 /** Phase 12 (c): `project.json` schemaVersion 2 — scenes are the files in `scenes/`. */
@@ -350,6 +351,8 @@ export function composeV4(
     d.entities.forEach((e, ei) => {
       const local: ModelErrorV3[] = [];
       physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, dimension, local, `/prefabs/${di}/entities/${ei}/components`, content.collisionLayers ?? []);
+      // Phase 23.10: a copy's behavior group is one of the project's.
+      behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, content.behaviorGroups ?? [], local as never);
       for (const x of local) errors.push({ ...x, document: 'content' } as ModelErrorV3);
     });
   });
@@ -453,6 +456,8 @@ export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: Mo
   s.entities.forEach((e, i) => {
     const local3: ModelErrorV3[] = [];
     physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, dimension, local3, `/entities/${i}`, content.collisionLayers ?? []);
+    // Phase 23.10: an entity's behavior group is one of the project's.
+    behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, content.behaviorGroups ?? [], local3 as never);
     for (const x of local3) errors.push(sceneError(s.sceneId, x));
   });
   // Phase 23.5: the cells against the block types and the metadata schema.

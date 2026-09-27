@@ -286,3 +286,8 @@ export {
 // The document types the game host draws (project-model's; the host reads them through the runtime).
 export { UI_LIMITS, uiDocumentsForRuntime, uiTextPlaceholders } from '@thirdlight/project-model';
 export type { RuntimeUiDocumentRow, UiAction, UiBinding, UiDocument, UiEngineAction, UiIcon, UiStyle, UiStyleValues, UiTheme, UiTween, UiWidget, UiWorldAnchor } from '@thirdlight/project-model';
+// Phase 23.10: game modes (ctx.modes), the run lifecycle (ctx.lifecycle) and the mode view the host reads.
+export type { BehaviorLifecycle, BehaviorModeEvent, BehaviorModes, BehaviorModeTransition } from './types';
+export { ModeState, type ModeEffects, type ModeEventRecord, type ModeTransitionSpec, type ModeView } from './modes';
+export { modesForRuntime } from '@thirdlight/project-model';
+export type { GameMode, RuntimeModes } from '@thirdlight/project-model';

@@ -2924,3 +2924,40 @@ Play and in exported games.
   in a style's `font`.
 - Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
   view model.
+
+## Game modes (phase 23.10)
+
+A project defines game modes — named states of the running game such as
+explore and tactical, on foot and driving, build and play, a photo mode or a
+title screen. Edit them in the **Game modes** tab (the list, the selected
+mode's form, the behavior groups) or with `setModes` / `setBehaviorGroups`
+through MCP. The first mode is the one a run starts in.
+
+- Each mode sets, together: the **input maps** that are active (gameplay, ui
+  or maps the project adds in the Input tab — the actions of other maps read
+  as released), the **camera** (a virtual camera that is live over the
+  priorities while the mode is), the **UI documents** shown, the **behavior
+  groups** whose scripts run (an object joins a group with its Behavior group
+  component; the other groups pause; ungrouped scripts tick unless the mode
+  says otherwise), whether the **engine pause** is allowed and the **pause
+  screen** document, the **time scale** (0.1–4) and whether **physics**
+  steps or holds. A transition may blend the camera (cut, linear, eased) and
+  show a fade document for a moment.
+- Switching: a script calls `ctx.modes.switch('tactical')` (it applies at the
+  next step; `ctx.modes.events()` / `entered()` / `exited()` report the switch
+  in that step), or a UI button runs `{ "do": "mode", "mode": "explore" }`.
+  Nothing is loaded: the switch happens in one step and replays exactly.
+- Pause: a game with modes and no platformer flow pauses with the pause key
+  when its mode allows it — the mode's pause screen document (buttons with
+  the engine actions resume and restartLevel) or the engine's small pause
+  panel. A game with the platformer flow keeps its own pause menu; a mode
+  that does not allow the pause keeps it closed.
+- A game without the platformer game block (a 3D game) has the run lifecycle
+  as script calls: `ctx.lifecycle.respawn(spawnId?)` puts the character at a
+  Player spawn object (from rest), `setSpawn` picks the spawn respawns use,
+  `restart()` starts the run over (objects at their authored place, scripts
+  fresh, the start mode). Lives, scores and goals are the game's own scripts.
+- Play from a mode: "Play from…" / MCP `tl_play_start` `mode`; the Play
+  toolbar shows the mode the running game is in; `tl_game_observe` reports
+  `mode` and `paused`.
+- Engine limits: 16 modes, 32 behavior groups, 8 project input maps.

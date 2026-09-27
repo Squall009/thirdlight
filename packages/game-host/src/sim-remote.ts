@@ -363,6 +363,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return out;
     },
     uiView: (): UiStateView => ({ model: mirror.uiModel, shown: mirror.uiShown }),
+    // Phase 23.10: the game modes as the worker's last frame had them.
+    modeView: () => (gone() ? null : mirror.mode),
     // Phase 23.3: the worker's cursor request and pointer (the host applies the cursor; observers read the pointer).
     cursorRequest: () => (gone() ? null : mirror.cursor),
     readPointer: () => (gone() ? null : mirror.pointer),

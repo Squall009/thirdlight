@@ -28,6 +28,7 @@ import { draggedRoots, effectiveFlagsOf, subtreeOrder } from '../session/hierarc
 import { scatterProblem, scatterTransforms } from '../session/instances';
 import { TagsPanel } from './TagsPanel';
 import { CollisionLayersPanel } from './CollisionLayersPanel';
+import { ModesPanel } from './ModesPanel';
 import type { AssetView } from '../session/content-projection';
 import {
   importFailed,
@@ -88,7 +89,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, GameMode } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -407,7 +408,7 @@ function EditorApp(): JSX.Element {
   /** The open modal (File → Export…, Help → Shortcuts / About). */
   const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | 'playFrom' | 'snapping' | null>(null);
   /** Phase 23.8: the "Play from…" form (a scene, script variables as JSON, a save slot). */
-  const [playFromForm, setPlayFromForm] = useState({ sceneId: '', variables: '', saveSlot: '', busy: false, error: null as string | null });
+  const [playFromForm, setPlayFromForm] = useState({ sceneId: '', variables: '', saveSlot: '', mode: '', busy: false, error: null as string | null });
   /** Phase 12 (c): the exit-zone dialog (a new exit, or the zone being edited). */
   const [exitForm, setExitForm] = useState<{ entityId: string | null; load: string[]; unload: string[]; spawnId: string; error: string | null }>({ entityId: null, load: [], unload: [], spawnId: '', error: null });
   /**
@@ -535,7 +536,6 @@ function EditorApp(): JSX.Element {
       window.clearInterval(timer);
     };
   }, [playing, playInfo, playDiagnostics]);
-
   // ---- packet 56: M3 gameplay authoring (game config / zones / camera / settings) ---
   const [gameplayTool, setGameplayTool] = useState<ZoneTool | null>(null);
   const [gameplayError, setGameplayError] = useState<GameplayBackendError | null>(null);
@@ -551,6 +551,32 @@ function EditorApp(): JSX.Element {
   /** Phase 23.3: the named collision layers and the last setCollisionLayers error. */
   const [collisionLayers, setCollisionLayers] = useState<string[]>([]);
   const [layersError, setLayersError] = useState<string | null>(null);
+  /** Phase 23.10: the game modes, the behavior groups and the last setModes / setBehaviorGroups error. */
+  const [modes, setModes] = useState<GameMode[]>([]);
+  const [behaviorGroups, setBehaviorGroups] = useState<string[]>([]);
+  const [modesError, setModesError] = useState<string | null>(null);
+  /** Phase 23.10: the running Play's current game mode (the toolbar shows it; null: none or not playing). */
+  const [playMode, setPlayMode] = useState<{ current: string; name: string } | null>(null);
+  // Phase 23.10: the running Play's game mode for the toolbar (from its diagnostics; a project with modes).
+  useEffect(() => {
+    if (!playing || playInfo === null || modes.length === 0) {
+      setPlayMode(null);
+      return;
+    }
+    let alive = true;
+    const tick = async (): Promise<void> => {
+      const d = await playDiagnostics();
+      const m = d?.['mode'] as { current?: unknown; name?: unknown } | undefined;
+      if (alive && m !== undefined && typeof m.current === 'string') setPlayMode((p) => (p !== null && p.current === m.current ? p : { current: m.current as string, name: typeof m.name === 'string' ? m.name : '' }));
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), 400);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [playing, playInfo, playDiagnostics, modes.length]);
+
   const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
 
   // ---- packet 27: content browser + local snapping -------------------------
@@ -828,6 +854,8 @@ function EditorApp(): JSX.Element {
     setSettings(stable('settings', c.getSettings()));
     setTags(stable('tags', c.getTags()));
     setCollisionLayers(stable('collisionLayers', c.getCollisionLayers()));
+    setModes(stable('modes', c.getModes()));
+    setBehaviorGroups(stable('behaviorGroups', c.getBehaviorGroups()));
     const mats = stable('materials', c.getMaterials());
     const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
@@ -1923,6 +1951,21 @@ function EditorApp(): JSX.Element {
     if (res.ok) setLayersError(null);
     else setLayersError((res.response as { message?: string }).message ?? 'the collision layers could not be saved');
   }, []);
+  /** Phase 23.10: replace the game modes (one setModes command) or the behavior groups (one setBehaviorGroups). */
+  const saveModes = useCallback(async (next: GameMode[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setModes', { modes: next }, c.projection.revision);
+    if (res.ok) setModesError(null);
+    else setModesError((res.response as { message?: string }).message ?? 'the game modes could not be saved');
+  }, []);
+  const saveBehaviorGroups = useCallback(async (next: string[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setBehaviorGroups', { groups: next }, c.projection.revision);
+    if (res.ok) setModesError(null);
+    else setModesError((res.response as { message?: string }).message ?? 'the behavior groups could not be saved');
+  }, []);
   /** Phase 12 (b): set an entity's own tags, by name. */
   const setEntityTags = useCallback(async (entityId: string, names: string[]) => {
     const c = clientRef.current;
@@ -2074,6 +2117,8 @@ function EditorApp(): JSX.Element {
       ...(f.sceneId !== '' ? { sceneId: f.sceneId } : {}),
       ...(variables !== undefined ? { variables } : {}),
       ...(f.saveSlot !== '' ? { saveSlot: f.saveSlot as 'auto' | '1' | '2' | '3' } : {}),
+      // Phase 23.10: the game mode the run starts in.
+      ...(f.mode !== '' ? { mode: f.mode } : {}),
     };
     setPlayFromForm((x) => ({ ...x, busy: true, error: null }));
     try {
@@ -3778,6 +3823,11 @@ function EditorApp(): JSX.Element {
         behavior: behaviorViews.map((b) => ({ id: b.behaviorId, name: b.displayName })),
         prefab: prefabSummaries.map((p) => ({ id: p.prefabId, name: p.displayName })),
         effect: effects.map((e) => ({ id: e.effectId, name: e.name })),
+        // Phase 23.10: what a game mode names (UI documents, behavior groups, input maps, modes).
+        uiDocument: (clientRef.current?.getUiDocuments() ?? []).map((d) => ({ id: d.uiDocumentId, name: d.name })),
+        behaviorGroup: behaviorGroups.map((g) => ({ id: g, name: g })),
+        inputMap: ['gameplay', 'ui', ...(clientRef.current?.getInput()?.maps ?? [])].map((m) => ({ id: m, name: m })),
+        mode: modes.map((m) => ({ id: m.modeId, name: m.name })),
       },
       // Phase 20.0: an object's effect overrides are edited from its effect's public parameters.
       effectParameters: Object.fromEntries(effects.map((e) => [e.effectId, (e.parameters ?? []).filter((x) => x.visibility !== 'private')])),
@@ -3793,8 +3843,17 @@ function EditorApp(): JSX.Element {
         return typeof assetId === 'string' ? modelNodesOf(assetId) : undefined;
       },
     }),
-    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf],
+    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, behaviorGroups, modes],
   );
+  /** Phase 23.10: how many objects carry each behavior group. */
+  const groupUsageMemo = useMemo(() => {
+    const usage = new Map<string, number>();
+    for (const e of allEntitiesMemo) {
+      const g = (e.components as { behaviorGroup?: { group?: unknown } }).behaviorGroup?.group;
+      if (typeof g === 'string') usage.set(g, (usage.get(g) ?? 0) + 1);
+    }
+    return usage;
+  }, [allEntitiesMemo]);
   const selectedSceneId = selectedEntity?.sceneId;
   const fieldContextMemo: FieldContext = useMemo(
     () => ({ ...fieldContextBase, ...(selectedSceneId !== undefined ? { sceneId: selectedSceneId } : {}) }),
@@ -4026,6 +4085,7 @@ function EditorApp(): JSX.Element {
           setDialog('playFrom');
         }}
         onStop={() => void stop()}
+        {...(playMode !== null ? { playMode } : {})}
       />
       <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`}>
         <div className="tl-app__main">
@@ -4447,6 +4507,18 @@ function EditorApp(): JSX.Element {
               />
             )
           )}
+          {bottomTab === 'modes' && (
+            <ModesPanel
+              registry={registry}
+              modes={modes}
+              groups={behaviorGroups}
+              groupUsage={groupUsageMemo}
+              fieldContext={fieldContextMemo}
+              error={modesError}
+              onSetModes={(next) => void saveModes(next)}
+              onSetGroups={(next) => void saveBehaviorGroups(next)}
+            />
+          )}
           {bottomTab === 'tags' && (
             <TagsPanel
               tags={tags}
@@ -4836,6 +4908,19 @@ function EditorApp(): JSX.Element {
                 <option value="3">Slot 3</option>
               </select>
             </label>
+            {modes.length > 0 && (
+              <label className="tl-field">
+                <span className="tl-field__label">Game mode</span>
+                <select className="tl-input" aria-label="play from game mode" value={playFromForm.mode} onChange={(e) => setPlayFromForm((f) => ({ ...f, mode: e.target.value, error: null }))}>
+                  <option value="">— the start mode —</option>
+                  {modes.map((m) => (
+                    <option key={m.modeId} value={m.modeId}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           {playFromForm.error !== null && <p className="tl-dialog__error" role="alert">{playFromForm.error}</p>}
           <button className="tl-btn" disabled={playFromForm.busy || playing} onClick={() => void playFrom()}>
@@ -4999,7 +5084,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'libraries' | 'modes' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5019,6 +5104,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'effects', label: 'Effects' },
   // Phase 23.7: shared script libraries.
   { id: 'libraries', label: 'Libraries' },
+  // Phase 23.10: game modes and behavior groups.
+  { id: 'modes', label: 'Game modes' },
   // Phase 23.6: block-layer editing.
   { id: 'blocks', label: 'Blocks' },
   { id: 'problems', label: 'Problems' },

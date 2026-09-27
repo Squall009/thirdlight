@@ -182,6 +182,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         actions: relay,
         driver: { kind: 'manual' },
         ...(m.variables !== undefined ? { variables: m.variables } : {}),
+        ...(m.startMode !== undefined ? { startMode: m.startMode } : {}),
       });
       if (!composed.ok) {
         port?.dispose?.();

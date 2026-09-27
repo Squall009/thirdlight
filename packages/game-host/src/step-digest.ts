@@ -94,5 +94,8 @@ export function stepDigest(rt: Runtime): string {
     h.text(JSON.stringify(ui.model));
     h.text(JSON.stringify(ui.shown));
   }
+  // Phase 23.10: the game mode (only a project with modes has one, so every other digest is unchanged).
+  const mode = rt.modeView?.() ?? null;
+  if (mode !== null) h.text(`${mode.current}|${mode.previous}|${mode.since}|${mode.pending}`);
   return h.hex();
 }

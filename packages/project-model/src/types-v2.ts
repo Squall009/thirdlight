@@ -346,6 +346,8 @@ export interface PrefabComponentsV4Extra {
   effect?: EntityComponentsV3['effect'];
   /** Phase 23.6: a copy writes its footprint into the block cells beneath it. */
   blockFootprint?: EntityComponentsV3['blockFootprint'];
+  /** Phase 23.10: a copy's behavior group. */
+  behaviorGroup?: EntityComponentsV3['behaviorGroup'];
   animator?: EntityComponentsV3['animator'];
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];

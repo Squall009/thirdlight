@@ -111,6 +111,8 @@ export interface HarnessConfig {
   readonly host?: Record<string, unknown>;
   /** Phase 23.8: script variables injected at the start (ctx.save from step 0), in both modes. */
   readonly variables?: Record<string, unknown>;
+  /** Phase 23.10: the game mode the run starts in (the host's start option; the worker's init). */
+  readonly startMode?: string;
   /** Phase 23.5, single mode only: wrap the physics port (a test observes its calls). */
   readonly wrapPhysics?: (port: Any) => Any;
 }
@@ -159,6 +161,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),
     ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
     ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
+    ...(cfg.startMode !== undefined ? { start: { mode: cfg.startMode } } : {}),
     ...(cfg.host ?? {}),
   };
   if (mode === 'single') {
@@ -205,6 +208,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       ...(cfg.digestSteps === true ? { digestSteps: true } : {}),
       ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
       ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
+      ...(cfg.startMode !== undefined ? { startMode: cfg.startMode } : {}),
     },
     input: recorded !== null ? null : liveInput,
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),

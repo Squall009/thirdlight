@@ -497,6 +497,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
   // Phase 23.6: a prop's block footprint.
   blockFootprint: ['layer', 'size', 'set'],
+  // Phase 23.10: the behavior group (game modes tick groups).
+  behaviorGroup: ['group'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -530,6 +532,7 @@ const OWNED: readonly OwnedComponent[] = [
   'socketAttach',
   'blockLayer',
   'blockFootprint',
+  'behaviorGroup',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -564,6 +567,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'socketAttach',
   'blockLayer',
   'blockFootprint',
+  'behaviorGroup',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -743,6 +747,7 @@ export function validateSetComponentArgs(
     component === 'socketAttach' ||
     component === 'blockLayer' ||
     component === 'blockFootprint' ||
+    component === 'behaviorGroup' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||

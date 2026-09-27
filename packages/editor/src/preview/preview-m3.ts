@@ -61,7 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { modesForRuntime, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -135,6 +135,8 @@ export interface PreviewManifestV2 {
   /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
   uiDocuments?: import('@thirdlight/runtime').UiDocument[];
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
+  /** Phase 23.10: the game modes (the runtime switches them; the first is the start mode). */
+  modes?: import('@thirdlight/runtime').GameMode[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
@@ -392,7 +394,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'flow', 'uiThemes', 'uiDocuments', 'modes', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -447,7 +449,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsM = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
   // Phase 23.9a: the UI documents scripts show and hide (id, layer, modal; the host draws them from the manifest).
   const uiRows = uiDocumentsForRuntime(manifest.uiDocuments);
-  const withBounds = uiRows !== undefined ? ({ ...withBoundsM, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsM;
+  const withBoundsU = uiRows !== undefined ? ({ ...withBoundsM, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsM;
+  // Phase 23.10: the game modes and each action's input map (the masking of inactive maps; from the verified manifest).
+  const modeRows = modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(manifest.settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG));
+  const withBounds = modeRows !== undefined ? ({ ...withBoundsU, modes: modeRows } as RuntimeSnapshot) : withBoundsU;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
@@ -505,6 +510,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
               shared: resolveTransport(globalThis as never) === 'shared',
               // Phase 23.8: injected script variables (ctx.save from step 0).
               ...(startVariables !== undefined ? { variables: startVariables } : {}),
+              // Phase 23.10: the game mode the run starts in (a start option).
+              ...(startOptions?.mode !== undefined && modeRows !== undefined ? { startMode: startOptions.mode } : {}),
             },
             input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
             ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
@@ -892,6 +899,8 @@ export function bootstrapPreviewM3(): void {
           frameDrops: bridge.drops,
           // Phase 22.0: where the simulation runs.
           simulation: { ...h.threading },
+          // Phase 23.10: the current game mode (the Play toolbar shows it).
+          ...modeDiagnostics(h),
         },
       });
     });
@@ -946,6 +955,9 @@ export function bootstrapPreviewM3(): void {
         ...(debug !== null && debug !== undefined ? { debug } : {}),
         ...debugCommandsObservation(h),
         ...uiObservation(h, o.ui),
+        // Phase 23.10: the game modes, the engine pause and its panel.
+        ...(o.mode !== undefined ? { mode: structuredClone(o.mode), paused: o.paused === true } : {}),
+        ...(o.pausePanel !== undefined ? { pausePanel: { ...o.pausePanel } } : {}),
       };
     }
     const v = gv.view;
@@ -1008,6 +1020,8 @@ export function bootstrapPreviewM3(): void {
       ...debugCommandsObservation(h),
       // Phase 23.9a: the project UI (shown documents, the flow screen's document, the focus, the view model).
       ...uiObservation(h, obs.observation.ui),
+      // Phase 23.10: the game modes.
+      ...(obs.observation.mode !== undefined ? { mode: structuredClone(obs.observation.mode) } : {}),
     };
   };
 
@@ -1118,6 +1132,12 @@ function hostStartOf(b: PlayStartBlock): GameStartOptions | undefined {
   if (b.saveSlot !== undefined) o.saveSlot = b.saveSlot;
   if (b.mode !== undefined) o.mode = b.mode;
   return Object.keys(o).length > 0 ? o : undefined;
+}
+
+/** Phase 23.10: `mode` {current, name} for the Play toolbar (a project with modes). */
+function modeDiagnostics(h: M3PreviewHandle): { mode?: { current: string; name: string } } {
+  const mv = h.host.runtime.modeView?.() ?? null;
+  return mv === null ? {} : { mode: { current: mv.current, name: mv.name } };
 }
 
 /** A relayed §20 control request (phase 23.8: `debugCommand` with its name and arguments). */

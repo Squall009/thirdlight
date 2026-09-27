@@ -19,6 +19,7 @@
 
 import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
 import { validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
+import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
@@ -79,6 +80,8 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
   // Phase 23.6: a prop's block footprint (`set` is replaced whole).
   blockFootprint: ['layer', 'size', 'set'],
+  // Phase 23.10: the behavior group an entity's behavior belongs to (game modes tick groups).
+  behaviorGroup: ['group'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -143,6 +146,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'blockLayer',
   // Phase 23.6: v4 scenes only.
   'blockFootprint',
+  // Phase 23.10: v4 scenes only.
+  'behaviorGroup',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -245,6 +250,9 @@ export function validateV3ComponentValue(
       break;
     case 'blockFootprint':
       validateBlockFootprintComponent(value, path, errors as unknown as Parameters<typeof validateBlockFootprintComponent>[2]);
+      break;
+    case 'behaviorGroup':
+      validateBehaviorGroupComponent(value, path, errors as unknown as Parameters<typeof validateBehaviorGroupComponent>[2]);
       break;
     case 'animator':
       validateAnimatorComponent(value, path, errors as unknown as Parameters<typeof validateAnimatorComponent>[2]);

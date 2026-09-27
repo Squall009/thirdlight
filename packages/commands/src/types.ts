@@ -58,6 +58,7 @@ import type {
   GraphOp,
   UiDocument,
   UiTheme,
+  GameMode,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -139,7 +140,10 @@ export type V3MutationOp =
   | 'setUiDocument'
   | 'deleteUiDocument'
   | 'setUiTheme'
-  | 'deleteUiTheme';
+  | 'deleteUiTheme'
+  // phase 23.10: game modes and behavior groups
+  | 'setModes'
+  | 'setBehaviorGroups';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -312,7 +316,9 @@ export type V3OwnedComponent =
   | 'virtualCamera'
   | 'cameraPath'
   /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
-  | 'socketAttach';
+  | 'socketAttach'
+  /** Phase 23.10, v4 scenes only: the behavior group the entity's behavior belongs to. */
+  | 'behaviorGroup';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -538,6 +544,29 @@ export interface SetUiChange {
   id: string;
   previous: UiDocument | UiTheme | null;
   next: UiDocument | UiTheme | null;
+}
+
+/** Phase 23.10: `setModes` change data (the whole list; empty = no modes). */
+export interface SetModesChange {
+  type: 'setModes';
+  previous: GameMode[];
+  next: GameMode[];
+}
+/** Phase 23.10: undo of `setModes`: restore the previous list. */
+export interface SetModesInverse {
+  kind: 'setModes';
+  restore: GameMode[];
+}
+/** Phase 23.10: `setBehaviorGroups` change data (the whole list). */
+export interface SetBehaviorGroupsChange {
+  type: 'setBehaviorGroups';
+  previous: string[];
+  next: string[];
+}
+/** Phase 23.10: undo of `setBehaviorGroups`: restore the previous list. */
+export interface SetBehaviorGroupsInverse {
+  kind: 'setBehaviorGroups';
+  restore: string[];
 }
 
 /** Phase 23.9a: undo of a UI op: restore the previous document or theme (null = remove it). */
@@ -865,7 +894,9 @@ export type ChangeData =
   | SetBlockTypeChange
   | SetCellFieldsChange
   | SetBlockStampChange
-  | SetUiChange;
+  | SetUiChange
+  | SetModesChange
+  | SetBehaviorGroupsChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -903,7 +934,9 @@ export type ForwardChange =
   | SetBlockTypeChange
   | SetCellFieldsChange
   | SetBlockStampChange
-  | SetUiChange;
+  | SetUiChange
+  | SetModesChange
+  | SetBehaviorGroupsChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -1086,6 +1119,8 @@ export type InverseSpec =
   | SetEffectInverse
   | SetScriptLibraryInverse
   | SetUiInverse
+  | SetModesInverse
+  | SetBehaviorGroupsInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
@@ -1538,6 +1573,14 @@ export interface SetUiThemeArgs {
 export interface DeleteUiThemeArgs {
   uiThemeId: string;
 }
+/** Phase 23.10: `setModes` replaces the game modes (the first is the start mode). */
+export interface SetModesArgs {
+  modes: GameMode[];
+}
+/** Phase 23.10: `setBehaviorGroups` replaces the behavior group names. */
+export interface SetBehaviorGroupsArgs {
+  groups: string[];
+}
 
 /** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
@@ -1594,6 +1637,8 @@ export type MutationArgs =
   | DeleteUiDocumentArgs
   | SetUiThemeArgs
   | DeleteUiThemeArgs
+  | SetModesArgs
+  | SetBehaviorGroupsArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
   | SetEffectArgs
