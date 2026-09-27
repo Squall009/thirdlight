@@ -76,7 +76,7 @@ export function standardNodeMaterialFrom(source: THREE.Material | null): MeshSta
 }
 
 const NO_AMBIENT_KEY = 'tl-lightmap-no-ambient';
-const OWN_HOOKS = ['setupLighting', 'customProgramCacheKey'] as const;
+const OWN_HOOKS = ['setupLighting', 'customProgramCacheKey', 'setupLightMap'] as const;
 
 interface LightsNodeLike {
   getLights(): THREE.Light[];

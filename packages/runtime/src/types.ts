@@ -109,6 +109,8 @@ export interface RuntimeSnapshot {
   materialCatalog?: import('./material-params').RuntimeMaterialCatalog;
   /** Phase 23.19, optional: the project save schema (`content.saveSchema`; `ctx.saves`). */
   saveSchema?: import('@thirdlight/project-model').SaveSchema;
+  /** Phase 23.18, optional: the ids of the environment presets (`environment.presets`; `ctx.environment`). */
+  environmentPresets?: readonly string[];
   /**
    * Phase 23.9a, v4 only, optional: the project's UI documents as the
    * simulation knows them (id, layer, modal) — `ctx.ui.show/hide` and a
@@ -775,6 +777,8 @@ export interface StepContext {
   readonly behaviorTicks?: (entityId: string) => boolean;
   /** Phase 23.17: timelines (`ctx.timeline`). */
   readonly timeline?: BehaviorTimeline;
+  /** Phase 23.18: environment presets (`ctx.environment`). */
+  readonly environment?: BehaviorEnvironment;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1265,6 +1269,58 @@ export interface BehaviorUiEvent {
  * game host draws the documents; the view model and the shown documents are
  * simulation state.
  */
+/** Phase 23.18: how a change to an environment preset happens (`ctx.environment.set`). */
+export interface EnvironmentChangeOptions {
+  /** Seconds the blend takes (0–600; 0 or absent: at once). */
+  blend?: number;
+  /** How the blend progresses. */
+  easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+  /** Per-field changes over the preset: { sky?, fog?, post?, lights?, lightmap? }, each merged over the preset's (a light list adds entries). */
+  override?: { readonly [part: string]: unknown };
+}
+
+/**
+ * Phase 23.18 (E17): `ctx.environment` — switch or blend the look (sky, fog,
+ * light colours and intensities, exposure and grading) between the project's
+ * environment presets at run time. `''` names the base look (the project
+ * environment with the level's look). The blend is simulation state: it
+ * replays, runs alike in the simulation worker and can be saved.
+ */
+export interface BehaviorEnvironment {
+  /**
+   * Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
+   * @graphNode Set environment
+   * @graphLabel presetId preset
+   * @graphLabel blend blend (seconds)
+   */
+  set(presetId: string, options?: EnvironmentChangeOptions): boolean;
+  /**
+   * Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
+   * @graphNode Blend environments
+   * @graphDefault t 0.5
+   */
+  blend(a: string, b: string, t: number): boolean;
+  /**
+   * The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
+   * @graphPure
+   * @graphNode Environment state
+   */
+  state(): { target: string; progress: number; blending: boolean };
+  /**
+   * How much of a preset is in the look now (0–1; '' = the base look).
+   * @graphPure
+   * @graphNode Environment weight
+   * @graphLabel presetId preset
+   */
+  weight(presetId: string): number;
+  /**
+   * The project's environment preset ids.
+   * @graphPure
+   * @graphNode Environment presets
+   */
+  presets(): readonly string[];
+}
+
 export interface BehaviorUi {
   /**
    * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
@@ -1917,6 +1973,13 @@ export interface Runtime {
   takeMaterialChanges?(): import('./material-params').MaterialRenderChange[];
   /** Phase 23.12: the material parameters scripts set, as digest text (null while none is set). */
   materialState?(): string | null;
+  /**
+   * Phase 23.18: the environment blend (preset weights) interpolated like the transforms,
+   * or null until a script changed the environment (the renderer then draws the static look).
+   */
+  readEnvironmentBlend?(): import('./environment-blend').EnvironmentBlendView | null;
+  /** Phase 23.18: the committed environment blend as digest text (null until a script changed it). */
+  environmentState?(): string | null;
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */

@@ -13,7 +13,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 
 import type { FogVolumeBox, PostPlan } from './environment-nodes';
 
-const built: { plan: PostPlan; updates: FogVolumeBox[][]; renders: number; disposed: boolean; luts: (THREE.Texture | null)[] }[] = [];
+const built: { plan: PostPlan; updates: FogVolumeBox[][]; renders: number; disposed: boolean; luts: (THREE.Texture | null)[]; params: Pick<PostPlan, 'grading' | 'bloom'>[] }[] = [];
 
 vi.mock('three/webgpu', async (importOriginal) => {
   const real = await importOriginal<typeof import('three/webgpu')>();
@@ -36,7 +36,7 @@ vi.mock('./environment-nodes', async (importOriginal) => {
   return {
     ...real,
     buildPostPipeline: (_renderer: unknown, _scene: unknown, _camera: unknown, plan: PostPlan) => {
-      const rec = { plan, updates: [] as FogVolumeBox[][], renders: 0, disposed: false, luts: [] as (THREE.Texture | null)[] };
+      const rec = { plan, updates: [] as FogVolumeBox[][], renders: 0, disposed: false, luts: [] as (THREE.Texture | null)[], params: [] as Pick<PostPlan, 'grading' | 'bloom'>[] };
       built.push(rec);
       const passes = ['render', ...(plan.ssao ? ['ssao'] : []), ...(plan.fogVolumes ? ['fogVolumes'] : []), ...(plan.dof ? ['dof'] : []), ...(plan.bloom ? ['bloom'] : []), 'output', ...(plan.grading ? ['grading'] : []), ...(plan.aa !== 'none' ? [plan.aa] : [])];
       return {
@@ -44,6 +44,7 @@ vi.mock('./environment-nodes', async (importOriginal) => {
         update: (_c: unknown, v: FogVolumeBox[]) => rec.updates.push(v),
         setLut: (t: THREE.Texture | null) => rec.luts.push(t),
         setSize: () => undefined,
+        setParams: (p: Pick<PostPlan, 'grading' | 'bloom'>) => rec.params.push(p),
         render: () => (rec.renders += 1),
         dispose: () => (rec.disposed = true),
       };
@@ -125,6 +126,45 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     expect(env.diagnostics().passes).toEqual(['render', 'output', 'grading']);
     env.dispose();
     expect(built[1]!.disposed).toBe(true);
+  });
+
+  it('phase 23.18: a blend changes sky, fog, exposure and grading in place; different skies cross-fade as layers', () => {
+    const renderer = nodeRenderer();
+    const scene = new THREE.Scene();
+    const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
+    const camera = new THREE.PerspectiveCamera();
+    const base = { sky: { mode: 'gradient' as const, topColor: '#4080ff' }, fog: { mode: 'linear' as const, color: '#ffffff', near: 10, far: 80 }, post: { grading: { contrast: 0.1 } } };
+    env.set(base);
+    env.render(camera);
+    const dome = scene.children.find((o) => (o as THREE.Mesh).isMesh === true) as THREE.Mesh;
+    const fog = scene.fog as THREE.Fog;
+    expect(built).toHaveLength(1);
+    // Mid-blend: the same dome and fog object, new numbers; the same post stack with new uniforms.
+    env.setBlend({ sky: { mode: 'gradient', topColor: '#102040' }, fog: { mode: 'linear', color: '#808080', near: 5, far: 40 }, post: { exposure: 0.5, grading: { contrast: 0.3 } } });
+    env.render(camera);
+    expect(scene.children.filter((o) => (o as THREE.Mesh).isMesh === true)).toEqual([dome]);
+    const u = ((dome.material as THREE.Material).userData as { skyUniforms: { top: { value: THREE.Color } } }).skyUniforms;
+    expect(u.top.value.getHexString()).toBe('102040');
+    expect(scene.fog).toBe(fog);
+    expect([fog.color.getHexString(), fog.near, fog.far]).toEqual(['808080', 5, 40]);
+    expect(renderer.toneMappingExposure).toBe(0.5);
+    expect(built).toHaveLength(1);
+    expect(built[0]!.params.at(-1)!.grading).toMatchObject({ contrast: 0.3 });
+    // Two different skies: layers over the background, opacity = share.
+    env.setBlend({ skyLayers: [{ sky: { mode: 'gradient', topColor: '#102040' }, weight: 0.75 }, { sky: { mode: 'color', color: '#ff0000' }, weight: 0.25 }] });
+    const layers = scene.children.filter((o) => (o as THREE.Mesh).isMesh === true) as THREE.Mesh[];
+    expect(layers).toHaveLength(2);
+    expect(layers.map((l) => (l.material as THREE.Material).opacity)).toEqual([1, 0.25]);
+    expect(layers.every((l) => (l.material as THREE.Material).transparent)).toBe(true);
+    // Back to the environment: one dome with the base colours, the base fog and exposure.
+    env.setBlend(null);
+    const back = scene.children.filter((o) => (o as THREE.Mesh).isMesh === true) as THREE.Mesh[];
+    expect(back).toHaveLength(1);
+    expect(((back[0]!.material as THREE.Material).userData as { skyUniforms: { top: { value: THREE.Color } } }).skyUniforms.top.value.getHexString()).toBe('4080ff');
+    expect((scene.fog as THREE.Fog).far).toBe(80);
+    expect(renderer.toneMappingExposure).toBe(1);
+    env.dispose();
+    expect(scene.children).toHaveLength(0);
   });
 
   it('fog volumes go to the pipeline as world boxes every frame (14.4 height falloff included)', () => {

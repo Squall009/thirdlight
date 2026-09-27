@@ -539,6 +539,26 @@ const ENV_BASES: J[] = [
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
   { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'] }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
+  // Phase 23.18: environment presets.
+  {
+    presets: [
+      {
+        presetId: 'night',
+        name: 'Night',
+        sky: { mode: 'color', color: '#000010' },
+        fog: { mode: 'linear', color: '#101820', near: 5, far: 40 },
+        post: POST_FULL,
+        lights: [
+          { entity: 'light-0001', color: '#8090ff', intensity: 0.2, direction: [0, -1, 0], groundColor: '#101010' },
+          { tag: 'Lamps', intensity: 30 },
+          { type: 'ambient', color: '#101020' },
+        ],
+        lightmap: { intensity: 0.25, tint: '#8090ff' },
+      },
+    ],
+  },
+  { presets: [{ presetId: 'lamps', name: 'Lamps', lights: [{ tag: 'Lamps', intensity: 30 }] }] },
+  { presets: [{ presetId: 'dim', name: 'Dim', lights: [{ type: 'ambient', color: '#101020' }] }] },
 ];
 
 const FLOW_BASE = {
@@ -892,8 +912,9 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(new Set(DESCRIPTORS.components.map((c) => c.name)).size).toBe(DESCRIPTORS.components.length);
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
-    // (phase 23.9b: + the UI document vocabulary, about 20 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(220_000);
+    // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
+    // repeat the sky/fog/post descriptors, about 9 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(232_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

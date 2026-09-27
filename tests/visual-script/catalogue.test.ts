@@ -248,6 +248,14 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       ended: rec('timeline.ended', false),
       marker: rec('timeline.marker', true),
     },
+    // Phase 23.18: environment presets.
+    environment: {
+      set: rec('environment.set', true),
+      blend: rec('environment.blend', true),
+      state: rec('environment.state', () => ({ target: 'night', progress: 0.5, blending: true })),
+      weight: rec('environment.weight', 0.5),
+      presets: rec('environment.presets', () => ['day', 'night']),
+    },
   };
 }
 

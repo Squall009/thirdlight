@@ -1800,7 +1800,8 @@ the **Saves** tab (MCP: `setSaveSchema {schema | null}`):
 - **Included state** (opt-in): *block cells* (the cells scripts changed,
   `ctx.grid`), *material values* (`ctx.materials`), *spawned objects*
   (prefab copies with their placement and ids; their scripts start fresh),
-  *script storage* (`ctx.save`). A section the schema includes but a save
+  *script storage* (`ctx.save`), *environment* (the preset blend,
+  `ctx.environment`; phase 23.18). A section the schema includes but a save
   lacks is reset to the run's start on load.
 - **Slot picture**: size and format (default 256 × 144 JPEG; at most
   512 px a side and 64 KiB).
@@ -1936,6 +1937,78 @@ brightens) and **gain** (scales the whites, 0–4); the defaults (0, 1, 1)
 leave the image unchanged. A **fog volume** (Inspector) has *thins with
 height*: its density fades by e^(−k·height) above the box bottom (k per
 metre, 0–10; 0 = even fog, as before).
+
+## Environment presets (runtime environment changes, phase 23.18)
+
+An **environment preset** is a named look a game switches or blends to at
+run time — the same village by day and by night, a storm rolling in. A
+preset is project content (`environment.presets`, at most 64) with any of:
+
+- `sky` and `fog` — a whole sky / fog (the Environment window's shapes);
+- `post` — post-processing merged per effect over the base (exposure, tone
+  mapping, grading incl. lift/gamma/gain/tint, bloom, vignette, …);
+- `lights` (at most 32 entries) — colour, intensity, direction (directional
+  and spot) and ground colour (hemisphere) for the scene lights an entry
+  names: by `entity` id, by `tag` name or by light `type` (e.g. every
+  `ambient` or `hemisphere` light), every light when it names none; later
+  entries win per field;
+- `lightmap: { intensity?, tint? }` — a multiplier on baked lightmaps.
+
+A part a preset does not set is the **base look**'s: the project environment
+with the playing level's look over it, and the lights as authored.
+
+**Editor.** The Environment window's *Presets* section: type a name and
+**capture current as preset** — the environment's sky, fog and post and
+every scene light's colour, intensity and direction are stored (one
+`setEnvironment`, undo/redo like any edit). **preview** shows a preset in the
+Scene view (with game lighting); *blend from* / *blend to* and the **blend
+preview** slider show a mix; **stop preview** goes back. Previewing stores
+nothing. **delete** removes a preset. MCP: `setEnvironment` with
+`environment.presets`.
+
+**Scripts.** `ctx.environment`:
+
+- `set(presetId, { blend?, easing?, override? })` — switch to a preset (`''`
+  = the base look) over `blend` seconds (0–600; absent: at once), easing
+  `linear` (default: a time-of-day fade progresses evenly), `easeIn`,
+  `easeOut` or `easeInOut`; an interrupted blend continues from the look on
+  screen. `override` changes fields of the preset for this change only
+  (`{ fog: { color: '#ff0000' } }`: sky, fog, post and lightmap merge over
+  the preset's, lights add entries). False (and a warning in the play log)
+  for an unknown preset or a bad option.
+- `blend(a, b, t)` — hold a mix of two presets (t 0–1), for a timeline or a
+  script that drives t itself.
+- `state()` → `{ target, progress, blending }`, `weight(presetId)`,
+  `presets()`.
+
+Visual scripts have the same as *Set environment*, *Blend environments*,
+*Environment state*, *Environment weight* and *Environment presets*
+(category Environment). The blend is simulation state: it replays, runs the
+same in the simulation worker and in exports, and is in the step digest once
+a script used it (games that never do are unchanged). A project save
+document includes it when the save schema lists the `environment` section.
+`tl_game_observe` (and an export's `window.__thirdlightObserve()`) reports
+`environment: { target, progress, weights }` once a script changed it.
+
+**How it draws.** Numbers blend linearly, colours in linear light, light
+directions are normalized, the sun's azimuth goes the short way round. The
+renderer changes them in place every frame — sky colours and parameters,
+fog colour and distances, exposure, grading, vignette and bloom are
+uniforms, so a blend compiles no new shaders (a change of tone-mapping mode
+or fog kind does). Two presets with **different skies** (another mode, or
+another sky image) **cross-fade**: each sky is drawn as a dome over the
+background with its share as opacity; the image-based lighting is the
+heavier sky's. A sky that only changes its numbers re-bakes its image-based
+lighting at most every 30th frame. Fog of different kinds converts (linear
+↔ exp2 by density = 2 / far); a look without fog thins it. Tone mapping,
+anti-aliasing, AO, depth of field and the LUT image cannot blend: the
+heavier look's is used.
+
+**Baked lighting.** A lightmap holds the light of the moment it was baked:
+changing a baked light's colour in a preset does not change the baked
+surfaces (a light a bake holds is not realtime at all). Give such presets a
+`lightmap` multiplier — e.g. `{ intensity: 0.2, tint: '#8090ff' }` for night
+— and the baked surfaces darken and tint with the blend.
 
 ## Icons and gizmos
 

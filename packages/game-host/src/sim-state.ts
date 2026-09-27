@@ -46,6 +46,9 @@ export class FrameEncoder {
   private readonly camPos: number[] = [0, 0, 0];
   private readonly camRot: number[] = [0, 0, 0, 1];
   private camSent = false;
+  /** Phase 23.18: the environment blend last sent. */
+  private envRef: unknown = null;
+  private envKey = '';
   /** Phase 23.3: the cursor request and the pointer last sent. */
   private cursorSent: 'free' | 'locked' | null = null;
   /** Phase 23.10: the mode view last sent (the runtime hands out the same object until it changes). */
@@ -295,6 +298,16 @@ export class FrameEncoder {
       out.mat = mat;
       for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
     }
+    // Phase 23.18: the environment blend (when it changed since the last frame).
+    const env = rt.readEnvironmentBlend?.() ?? null;
+    if (env !== this.envRef) {
+      this.envRef = env;
+      const key = env === null ? '' : JSON.stringify(env);
+      if (key !== this.envKey) {
+        this.envKey = key;
+        out.env = env;
+      }
+    }
     // Phase 23.14: the scripts' binding requests (the page's host carries them out).
     const rb = rt.takeBindingRequests?.();
     if (rb !== undefined && (rb.requests.length > 0 || rb.dropped > 0)) out.rb = rb;
@@ -411,6 +424,8 @@ export class FrameMirror {
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   /** Phase 23.12: the latest material change per object, material and parameter, until the adapter takes them. */
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
+  /** Phase 23.18: the environment blend of the last frame that carried one (null: none yet). */
+  env: import('@thirdlight/runtime').EnvironmentBlendView | null = null;
   /** Phase 23.19: project save requests not carried out yet (the host takes them every frame). */
   saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
   /** Phase 23.14: binding requests not taken by the host yet (at most 32 wait). */
@@ -498,6 +513,7 @@ export class FrameMirror {
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.env !== undefined) this.env = s.env;
     if (s.saveReq !== undefined) for (const r of s.saveReq) this.saveReq.push(r);
     if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.mat !== undefined) {

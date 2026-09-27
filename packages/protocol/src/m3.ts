@@ -836,6 +836,13 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
       return fieldError('field_type', '/camera', 'camera is { live: id|null, blend: {from, progress, style}|null, position: [x,y,z], rotation: [x,y,z,w], fovY, near, far, letterbox, shake }');
     }
   }
+  // Phase 23.18: the optional environment preset blend (target, progress, weights by key).
+  if (value.environment !== undefined) {
+    const e = value.environment;
+    if (!isPlainObject(e) || !(e['target'] === null || typeof e['target'] === 'string') || typeof e['progress'] !== 'number' || !isPlainObject(e['weights']) || Object.keys(e['weights']).length > 64 || !Object.values(e['weights']).every((w) => typeof w === 'number' && Number.isFinite(w))) {
+      return fieldError('field_type', '/environment', 'environment is { target: presetId|null, progress, weights: { key: 0-1 } } (at most 64 keys)');
+    }
+  }
   // Phase 23.11: the optional objects riding on sockets (entity, target, node, world position).
   if (value.sockets !== undefined) {
     const ok = Array.isArray(value.sockets) && value.sockets.length <= 64 && value.sockets.every((x: unknown) => isPlainObject(x) && typeof x['entityId'] === 'string' && typeof x['target'] === 'string' && typeof x['node'] === 'string' && Array.isArray(x['position']) && (x['position'] as unknown[]).length === 3 && (x['position'] as unknown[]).every((n) => typeof n === 'number' && Number.isFinite(n)));

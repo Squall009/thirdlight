@@ -62,6 +62,7 @@ import type {
   BehaviorAnimatorHandle,
   BehaviorAudio,
   BehaviorCamera,
+  BehaviorEnvironment,
   BehaviorSockets,
   BehaviorDebug,
   BehaviorUi,
@@ -242,6 +243,8 @@ export interface BehaviorContext {
   readonly lifecycle?: BehaviorLifecycle;
   /** Phase 23.17: timelines — play, pause, skip, seek and stop project timelines; their events and markers. */
   readonly timeline?: BehaviorTimeline;
+  /** Phase 23.18: the environment presets — switch or blend sky, fog, lights, exposure and grading at run time. */
+  readonly environment?: BehaviorEnvironment;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -961,6 +964,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.lifecycle !== undefined) fields['lifecycle'] = { value: src.lifecycle, enumerable: true };
         // Phase 23.17: timelines (an engine system in the step; scripts read its events next step).
         if (src.timeline !== undefined) fields['timeline'] = { value: src.timeline, enumerable: true };
+        // Phase 23.18: the environment presets.
+        if (src.environment !== undefined) fields['environment'] = { value: src.environment, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

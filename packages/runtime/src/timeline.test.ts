@@ -281,6 +281,20 @@ describe('phase 23.17: the system', () => {
     expect(f.log.slice(1)).toEqual(['mode explore cut', 'mode battle cut']);
   });
 
+  it('environment keys switch presets through the port (phase 23.18); skip applies them at once', () => {
+    const f = fakeHost();
+    const applied: string[] = [];
+    const host: TimelineHost = { ...f.host, environment: { apply: (id, blend) => (applied.push(`${id} ${blend}`), true) } };
+    const tl = canonicalTimeline({ timelineId: 'e', name: 'E', duration: 2, tracks: [{ trackId: 'env', type: 'environment', keys: [{ time: 0.5, preset: 'night', blendTime: 2 }, { time: 1.5, preset: 'day', blendTime: 1 }] }] });
+    const sys = new TimelineSystem([tl], HZ, host);
+    const h = sys.play('e');
+    for (let s = 1; s <= 32; s += 1) sys.step(s, frame(s));
+    expect(applied).toEqual(['night 2']);
+    sys.skip(h);
+    sys.step(33, frame(33));
+    expect(applied.slice(1)).toEqual(['day 0']);
+  });
+
   it('same inputs, same state: two systems agree step by step', () => {
     const run = (): string[] => {
       const f = fakeHost();

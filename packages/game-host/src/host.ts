@@ -211,6 +211,8 @@ export interface GameHostObservation {
   readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.18, additive: the environment preset blend once a script changed it (target, progress, weights by key; '' = the base look). */
+  readonly environment?: GameHostEnvironmentObservation;
   /** Phase 23.13, additive: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener) once scripts used audio or a positional loop plays. */
   readonly audio?: AudioObservation;
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
@@ -231,6 +233,13 @@ export interface GameHostObservation {
   readonly inputBindings?: GameHostInputObservation['inputBindings'];
 }
 
+/** Phase 23.18: the environment preset blend as observed (the frame's interpolated weights). */
+export interface GameHostEnvironmentObservation {
+  readonly target: string | null;
+  readonly progress: number;
+  readonly weights: Readonly<Record<string, number>>;
+}
+
 /**
  * Phase 23.0, additive: what a scene-mode game (no game block, so no run
  * state: no deaths, goal or checkpoints) reports — its step and time, the
@@ -247,6 +256,8 @@ export interface GameHostSceneObservation {
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.18, additive: the environment preset blend once a script changed it. */
+  readonly environment?: GameHostEnvironmentObservation;
   /** Phase 23.13, additive: the Web Audio graph (see `GameHostObservation.audio`). */
   readonly audio?: AudioObservation;
   /** Phase 23.9a, additive: the project UI. */
@@ -1816,6 +1827,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
+        ...environmentObservation(runtime),
         ...audioObservation(),
         ...socketsObservation(runtime),
         ...savesObservation(),
@@ -1866,6 +1878,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return out.length > 0 ? { sockets: out } : {};
   };
 
+  /** Phase 23.18: the environment blend, once a script changed it (weights by key: '' the base look, a preset id, a patched preset's key). */
+  const environmentObservation = (rt: Runtime): { environment?: GameHostEnvironmentObservation } => {
+    const v = rt.readEnvironmentBlend?.() ?? null;
+    if (v === null) return {};
+    const weights: Record<string, number> = {};
+    for (const [k, w] of v.weights) weights[k] = w;
+    return { environment: { target: v.target, progress: v.progress, weights } };
+  };
+
   /** Phase 23.4: the resolved camera, while the game has virtual cameras. */
   const cameraObservation = (rt: Runtime): { camera?: CameraViewInfo } => {
     const c = rt.cameraView?.() ?? null;
@@ -1895,6 +1916,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
         ...scenesObservation(runtime),
         ...cameraObservation(runtime),
+        ...environmentObservation(runtime),
         ...audioObservation(),
         ...socketsObservation(runtime),
         ...savesObservation(),

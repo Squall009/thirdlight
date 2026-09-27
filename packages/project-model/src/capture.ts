@@ -20,6 +20,7 @@ import { fail, fieldValue, isPlainObject, withFound } from './validate';
 import { ID_RE_V2 } from './components';
 import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
+import { environmentPresetTextureRefs, type EnvironmentPreset } from './environment-presets';
 import { flowAssetRefs, type GameFlow } from './flow';
 import { animatorAssetIds, type AnimatorController } from './animator';
 import { graphAssetRefs, type GraphDocument } from './graph';
@@ -152,6 +153,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   if (env?.sky?.texture !== undefined) setRef(env.sky.texture);
   for (const id of env?.sky?.cube ?? []) setRef(id);
   if (env?.post?.grading?.lut !== undefined) setRef(env.post.grading.lut);
+  // Phase 23.18: the environment presets' sky images and LUTs.
+  for (const id of environmentPresetTextureRefs((content as { environment?: { presets?: EnvironmentPreset[] } }).environment?.presets)) setRef(id);
   // Phase 9.7: the models an animator controller takes clips from.
   // Phase 14.6: the override layers' clips too.
   for (const c of (content as { animators?: AnimatorController[] }).animators ?? []) for (const id of animatorAssetIds(c)) setRef(id);

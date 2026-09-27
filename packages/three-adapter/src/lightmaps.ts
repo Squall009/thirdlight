@@ -17,6 +17,8 @@
  * Pure three.js (textures come from the caller).
  */
 import * as THREE from 'three';
+import { materialLightMap, uniform } from 'three/tsl';
+import { IrradianceNode } from 'three/webgpu';
 
 import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbientLight } from './node-materials';
 
@@ -78,17 +80,37 @@ export function lightmapTexture(atlas: THREE.Texture, scaleOffset: readonly numb
 type LightmapCapable = THREE.Material & { lightMap?: THREE.Texture | null; lightMapIntensity?: number };
 
 /**
+ * Phase 23.18: a tint on the baked light (a colour uniform shared by a set's
+ * copies: an environment preset changes it per frame without new programs).
+ * The hook replaces the material's lightmap term with lightMap × intensity × tint.
+ */
+function withLightmapTint(material: THREE.Material, tint: { value: THREE.Color }): void {
+  const m = material as THREE.Material & { setupLightMap: (builder: unknown) => unknown };
+  const baseKey = m.customProgramCacheKey;
+  m.setupLightMap = function setupTintedLightMap(builder: unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (builder as { material: LightmapCapable }).material.lightMap ? new IrradianceNode((materialLightMap as any).mul(tint)) : null;
+  };
+  m.customProgramCacheKey = function cacheKeyTintedLightmap() {
+    return `${baseKey.call(this)}|tl-lightmap-tint`;
+  };
+}
+
+/**
  * A node-material copy of `material` with the lightmap (a plain source is
  * converted; a node source is copied with its own hooks). Null when the
  * material has no lightmap support.
  */
-export function lightmappedMaterial(material: THREE.Material, map: THREE.Texture, range: number, ignoreAmbient: boolean): THREE.Material | null {
+export function lightmappedMaterial(material: THREE.Material, map: THREE.Texture, range: number, ignoreAmbient: boolean, tint?: { value: THREE.Color }): THREE.Material | null {
   if (!('lightMap' in material)) return null;
   const converted = toNodeMaterial(material);
   if (converted === null || !isNodeMaterial(converted)) return null;
   const c = converted as LightmapCapable;
   c.lightMap = map;
   c.lightMapIntensity = range;
+  // Phase 23.18: the bake's range, which an environment preset's lightmap intensity multiplies.
+  c.userData['lightmapRange'] = range;
+  if (tint !== undefined) withLightmapTint(c, tint);
   if (ignoreAmbient) withoutAmbientLight(c);
   c.needsUpdate = true;
   return c;
@@ -99,6 +121,7 @@ export function refreshLightmappedMaterial(copy: THREE.Material, source: THREE.M
   const c = copy as LightmapCapable;
   const map = c.lightMap ?? null;
   const intensity = c.lightMapIntensity ?? 1;
+  const bakeRange = c.userData['lightmapRange'] as unknown;
   // NodeMaterial.copy copies INTO an object-valued property it already holds
   // (`this.map.copy(source.map)`): that throws for a texture the source lacks
   // (the lightmap) and would overwrite a texture shared with other materials.
@@ -108,6 +131,7 @@ export function refreshLightmappedMaterial(copy: THREE.Material, source: THREE.M
   copyMaterialKeepingHooks(c, source);
   c.lightMap = map;
   c.lightMapIntensity = intensity;
+  if (bakeRange !== undefined) c.userData['lightmapRange'] = bakeRange;
 }
 
 /**
@@ -135,8 +159,8 @@ export function applyLightmapTracked(
   atlas: THREE.Texture,
   scaleOffset: readonly number[],
   range: number,
-  options: { ignoreAmbient?: boolean } = {},
-): { undo: () => void; refresh: () => void } {
+  options: { ignoreAmbient?: boolean; tint?: { value: THREE.Color }; intensity?: number } = {},
+): { undo: () => void; refresh: () => void; copies: readonly THREE.Material[] } {
   const map = lightmapTexture(atlas, scaleOffset);
   const restores: (() => void)[] = [];
   const pairs: [THREE.Material, THREE.Material][] = [];
@@ -145,7 +169,8 @@ export function applyLightmapTracked(
     if (mesh.isMesh !== true || mesh.geometry.getAttribute('uv1') === undefined) return;
     const original = mesh.material;
     const list = Array.isArray(original) ? original : [original];
-    const copies = list.map((m) => lightmappedMaterial(m, map, range, options.ignoreAmbient === true));
+    const copies = list.map((m) => lightmappedMaterial(m, map, range, options.ignoreAmbient === true, options.tint));
+    if (options.intensity !== undefined) for (const c of copies) if (c !== null) (c as LightmapCapable).lightMapIntensity = range * options.intensity;
     if (copies.every((c) => c === null)) return;
     copies.forEach((c, i) => {
       if (c !== null) pairs.push([c, list[i]!]);
@@ -158,6 +183,7 @@ export function applyLightmapTracked(
     });
   });
   return {
+    copies: pairs.map(([c]) => c),
     undo: () => {
       for (const r of restores) r();
       map.dispose();
@@ -180,6 +206,13 @@ export interface LightmapSet {
   apply(entityId: string, root: THREE.Object3D): void;
   /** Take the entity's lightmap off again. */
   release(entityId: string): void;
+  /**
+   * Phase 23.18: multiply the baked light by `intensity` and tint it (an
+   * environment preset's `lightmap`; 1 and white leave the bake as it is).
+   * A bake holds the light of the moment it was baked: without this, a preset
+   * that darkens the realtime lights leaves baked surfaces as bright as before.
+   */
+  setLook(intensity: number, tint: string): void;
   /**
    * Phase 17.3: bring the lightmapped copies up to date with their source
    * materials (call when a project material changed in place, e.g. its
@@ -211,6 +244,10 @@ export function createLightmapSet(
   const textures = new Map<string, Promise<THREE.Texture | null>>();
   const undo = new Map<string, () => void>();
   const refreshers = new Map<string, () => void>();
+  /** Phase 23.18: the lightmapped copies per entity, the look multiplier and its shared tint uniform. */
+  const copiesOf = new Map<string, readonly THREE.Material[]>();
+  let lookIntensity = 1;
+  const tint = uniform(new THREE.Color(1, 1, 1)) as unknown as { value: THREE.Color };
   const pending = new Map<string, number>();
   let generation = 0;
   let disposed = false;
@@ -227,6 +264,7 @@ export function createLightmapSet(
     undo.get(entityId)?.();
     undo.delete(entityId);
     refreshers.delete(entityId);
+    copiesOf.delete(entityId);
   };
   return {
     isBakedLight: (id) => bakedLights.has(id),
@@ -240,12 +278,19 @@ export function createLightmapSet(
       void texture(entry.atlas).then((tex) => {
         if (disposed || tex === null || pending.get(entityId) !== ticket) return;
         pending.delete(entityId);
-        const applied = applyLightmapTracked(root, tex, entry.scaleOffset, entry.bake.range, { ignoreAmbient: ambientBaked(entry.bake.bakedLights) });
+        const applied = applyLightmapTracked(root, tex, entry.scaleOffset, entry.bake.range, { ignoreAmbient: ambientBaked(entry.bake.bakedLights), tint, intensity: lookIntensity });
         undo.set(entityId, applied.undo);
         refreshers.set(entityId, applied.refresh);
+        copiesOf.set(entityId, applied.copies);
       });
     },
     release,
+    setLook(intensity, tintColor) {
+      tint.value.set(tintColor);
+      if (intensity === lookIntensity) return;
+      lookIntensity = intensity;
+      for (const list of copiesOf.values()) for (const c of list) (c as LightmapCapable).lightMapIntensity = ((c.userData['lightmapRange'] as number | undefined) ?? 1) * intensity;
+    },
     refresh() {
       for (const r of refreshers.values()) r();
     },
