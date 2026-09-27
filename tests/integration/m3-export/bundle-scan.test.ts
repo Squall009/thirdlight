@@ -167,7 +167,10 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     //    compressed-GLB loaders (2026-09-23: DRACOLoader, KTX2Loader and their
     //    helpers, meshopt_decoder) add +1: a documentation URL in a comment
     //    that esbuild keeps (KTX2Loader's gpuweb issue link). No fetch target.
-    expect(c.h).toBe(ref.h + 12 + 1);
+    //    Phase 23.14: game-host's generic glyph set adds +1 — the SVG
+    //    namespace (`xmlns="http://www.w3.org/2000/svg"`, like three's XHTML
+    //    namespace in the table), an identifier in data: URL images, never fetched.
+    expect(c.h).toBe(ref.h + 12 + 1 + 1);
     expect(count(text, 'GLTFLoader')).toBe(37);
 
     // The C64-6 graph rows: the M3 export graph reaches the `./gltf-loader`

@@ -288,6 +288,9 @@ export class FrameEncoder {
       out.mat = mat;
       for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
     }
+    // Phase 23.14: the scripts' binding requests (the page's host carries them out).
+    const rb = rt.takeBindingRequests?.();
+    if (rb !== undefined && (rb.requests.length > 0 || rb.dropped > 0)) out.rb = rb;
     // Phase 23.3: the cursor a script asked for, and the pointer state (each when it changed).
     const cursor = rt.cursorRequest?.() ?? null;
     if (cursor !== this.cursorSent) {
@@ -386,6 +389,9 @@ export class FrameMirror {
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   /** Phase 23.12: the latest material change per object, material and parameter, until the adapter takes them. */
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
+  /** Phase 23.14: binding requests not taken by the host yet (at most 32 wait). */
+  bindingRequests: import('@thirdlight/runtime').InputBindingRequest[] = [];
+  bindingDropped = 0;
   /** Phase 23.3: the worker's cursor request and pointer. */
   cursor: 'free' | 'locked' | null = null;
   pointer: PointerSample | null = null;
@@ -464,6 +470,13 @@ export class FrameMirror {
         this.mat.delete(k);
         this.mat.set(k, c);
       }
+    }
+    if (s.rb !== undefined) {
+      for (const r of s.rb.requests) {
+        if (this.bindingRequests.length < 32) this.bindingRequests.push(r);
+        else this.bindingDropped += 1;
+      }
+      this.bindingDropped += s.rb.dropped;
     }
     if (s.cursor !== undefined) this.cursor = s.cursor;
     if (s.pointer !== undefined) this.pointer = s.pointer;

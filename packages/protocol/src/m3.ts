@@ -842,6 +842,13 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (value.hidden !== undefined && (!Array.isArray(value.hidden) || value.hidden.length > 64 || !value.hidden.every((x) => typeof x === 'string'))) {
     return fieldError('field_type', '/hidden', 'hidden lists at most 64 entity ids');
   }
+  // Phase 23.14: the optional bindings block (device used last, profile, listening, changed actions, glyphs).
+  if (value.inputBindings !== undefined) {
+    const b = value.inputBindings;
+    if (!isPlainObject(b) || !isPlainObject(b['device']) || (b['device']['kind'] !== 'keyboardMouse' && b['device']['kind'] !== 'gamepad') || typeof b['profile'] !== 'string' || !Array.isArray(b['changed']) || !isPlainObject(b['glyphs'])) {
+      return fieldError('field_type', '/inputBindings', 'inputBindings is { device: { kind, id?, family? }, profile, listening, changed: [action], glyphs: { action: { label, icon } } }');
+    }
+  }
   // Phase 9.10: the optional game-flow block.
   if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
     return fieldError('field_type', '/flow', 'flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality, save?, score? }');

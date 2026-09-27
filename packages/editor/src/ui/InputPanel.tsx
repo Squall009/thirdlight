@@ -11,6 +11,11 @@
  * movement, one movement axis or the wheel (what fits the action type); each
  * map chooses its cursor (free or locked).
  *
+ * Phase 23.14: a key, pad button or mouse button binding takes "hold" seconds
+ * (hold instead of tap); the Glyphs list maps a glyph key (an icon id of the
+ * engine's generic set, optionally per pad family or key) to a project
+ * texture shown instead of the generic icon.
+ *
  * Browser-only (React).
  */
 import { useEffect, useRef, useState, type JSX } from 'react';
@@ -21,7 +26,13 @@ interface Props {
   defaults: InputConfig;
   onSave: (input: InputConfig | null) => void;
   error: string | null;
+  /** Phase 23.14: the project's textures (glyph images). */
+  textures?: readonly { assetId: string; displayName: string }[];
 }
+
+/** Phase 23.14: the binding kinds that take the hold modifier. */
+const HOLDABLE = new Set(['key', 'gamepadButton', 'pointerButton']);
+const GLYPH_KEY_RE = /^(?:(?:xbox|playstation|switch|generic):)?[a-z][a-z0-9-]{0,31}(?::[A-Za-z0-9]{1,32})?$/;
 
 export function bindingLabel(b: InputBinding): string {
   switch (b.kind) {
@@ -85,14 +96,26 @@ export function InputPanel(p: Props): JSX.Element {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<InputActionType>('button');
   const [newMap, setNewMap] = useState<'gameplay' | 'ui'>('gameplay');
+  const [glyphKey, setGlyphKey] = useState('');
+  const [glyphTexture, setGlyphTexture] = useState('');
   const listenRef = useRef<Listening>(null);
   listenRef.current = listening;
 
   // Phase 23.3: an edit keeps the cursor settings.
-  const save = (actions: InputAction[]): void => p.onSave({ actions, ...(config.cursor !== undefined ? { cursor: config.cursor } : {}) });
+  // Phase 23.14: … and the glyph images.
+  const save = (actions: InputAction[]): void => p.onSave({ actions, ...(config.cursor !== undefined ? { cursor: config.cursor } : {}), ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
   const setCursor = (map: 'gameplay' | 'ui', mode: CursorMode): void => {
     const cursor = { ...(config.cursor ?? {}), [map]: mode };
-    p.onSave({ actions: config.actions, cursor });
+    p.onSave({ actions: config.actions, cursor, ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
+  };
+  const setGlyphs = (glyphs: Record<string, string>): void => p.onSave({ actions: config.actions, ...(config.cursor !== undefined ? { cursor: config.cursor } : {}), ...(Object.keys(glyphs).length > 0 ? { glyphs } : {}) });
+  const setHold = (a: InputAction, i: number, hold: number | null): void => {
+    const bindings = a.bindings.map((b, j) => {
+      if (j !== i) return b;
+      const { hold: _old, ...rest } = b as InputBinding & { hold?: number };
+      return (hold === null ? rest : { ...rest, hold }) as InputBinding;
+    });
+    put(a.name, { ...a, bindings });
   };
   const put = (name: string, next: InputAction): void => save(config.actions.map((a) => (a.name === name ? next : a)));
   const addBinding = (name: string, b: InputBinding): void => {
@@ -172,6 +195,28 @@ export function InputPanel(p: Props): JSX.Element {
               {a.bindings.map((b, i) => (
                 <span className="tl-chip" key={i} aria-label={`binding ${bindingLabel(b)}`}>
                   {bindingLabel(b)}
+                  {HOLDABLE.has(b.kind) && (
+                    <input
+                      className="tl-input tl-input--tiny"
+                      type="number"
+                      min={0.05}
+                      max={10}
+                      step={0.05}
+                      placeholder="tap"
+                      title="Hold instead of tap: seconds to hold (empty: a tap)"
+                      aria-label={`hold seconds for ${bindingLabel(b)} of ${a.name}`}
+                      defaultValue={(b as { hold?: number }).hold ?? ''}
+                      key={`hold-${String((b as { hold?: number }).hold ?? '')}`}
+                      onBlur={(e) => {
+                        const v = e.target.value.trim();
+                        const n = Number(v);
+                        const now = (b as { hold?: number }).hold;
+                        if (v === '') {
+                          if (now !== undefined) setHold(a, i, null);
+                        } else if (Number.isFinite(n) && n >= 0.05 && n <= 10 && n !== now) setHold(a, i, n);
+                      }}
+                    />
+                  )}
                   <button type="button" aria-label={`remove binding ${bindingLabel(b)} from ${a.name}`} onClick={() => put(a.name, { ...a, bindings: a.bindings.filter((_, j) => j !== i) })}>
                     ×
                   </button>
@@ -242,6 +287,52 @@ export function InputPanel(p: Props): JSX.Element {
       <div className="tl-input__maps">
         {group('gameplay')}
         {group('ui')}
+      </div>
+      <div className="tl-input-map" aria-label="glyph images">
+        <div className="tl-panel__title">
+          Glyphs <span className="tl-hint">(images shown instead of the engine icons: pad-south, xbox:pad-south, mouse-left, key, key:Space, …)</span>
+        </div>
+        {Object.entries(config.glyphs ?? {}).map(([k, id]) => (
+          <div className="tl-input-action" key={k} aria-label={`glyph ${k}`}>
+            <span className="tl-input-action__name">{k}</span>
+            <span>{p.textures?.find((t) => t.assetId === id)?.displayName ?? id}</span>
+            <button
+              type="button"
+              className="tl-button"
+              aria-label={`remove glyph ${k}`}
+              onClick={() => {
+                const next = { ...(config.glyphs ?? {}) };
+                delete next[k];
+                setGlyphs(next);
+              }}
+            >
+              remove
+            </button>
+          </div>
+        ))}
+        <div className="tl-animator__row">
+          <input className="tl-input" aria-label="new glyph key" placeholder="glyph key (e.g. pad-south)" value={glyphKey} onChange={(e) => setGlyphKey(e.target.value.trim())} />
+          <select className="tl-input" aria-label="new glyph texture" value={glyphTexture} onChange={(e) => setGlyphTexture(e.target.value)}>
+            <option value="">texture…</option>
+            {(p.textures ?? []).map((t) => (
+              <option key={t.assetId} value={t.assetId}>
+                {t.displayName}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="tl-button"
+            disabled={!GLYPH_KEY_RE.test(glyphKey) || glyphTexture === ''}
+            onClick={() => {
+              setGlyphs({ ...(config.glyphs ?? {}), [glyphKey]: glyphTexture });
+              setGlyphKey('');
+              setGlyphTexture('');
+            }}
+          >
+            Add glyph
+          </button>
+        </div>
       </div>
       <div className="tl-animator__row">
         <input className="tl-input" aria-label="new action name" placeholder="action name" value={newName} onChange={(e) => setNewName(e.target.value)} />

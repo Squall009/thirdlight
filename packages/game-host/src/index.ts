@@ -123,3 +123,7 @@ export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, 
 export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
 export { RelayActionSource } from './relay-input';
 export { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type HudPromptState } from './bindings';
+// Phase 23.14: the rebinding API (list, listen, conflicts, reset, profiles), device detection and glyphs.
+export { createInputBindings, REBIND_DEFAULT_CANCEL, REBIND_DEFAULT_POLICY, REBIND_DEFAULT_TIMEOUT_S, type BindingsControllerDeps, type BindingsInputOwner, type InputBindingsController, type ListenOptions } from './rebind';
+export { applyOverrides, applyRebind, bindingFrom, findConflicts, overridesOf, resetBindings, resolveTarget, validBinding, type Captured, type ConfigData, type RebindResult, type RebindTarget } from './input-bindings';
+export { bindingGlyph, gamepadFamily, glyphDataUrl, glyphSvg, keyName, padAxisGlyph, padButtonGlyph, GLYPH_ICONS, type GlyphIcon, type GlyphOverrides } from './glyphs';

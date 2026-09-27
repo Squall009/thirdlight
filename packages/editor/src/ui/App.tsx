@@ -4425,7 +4425,7 @@ function EditorApp(): JSX.Element {
               }
             />
           )}
-          {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} />}
+          {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))} />}
           {bottomTab === 'animator' && <AnimatorPanel {...animatorProps} />}
           {bottomTab === 'lighting' && (
             activeScene === null ? (

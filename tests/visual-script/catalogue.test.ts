@@ -93,7 +93,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       },
     },
     scenes: { load: rec('scenes.load'), unload: rec('scenes.unload'), status: rec('scenes.status', 'loaded'), loaded: rec('scenes.loaded', () => ['scene-main']) },
-    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor') },
+    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor'), usingGamepad: rec('input.usingGamepad', true), glyphLabel: rec('input.glyphLabel', 'A'), glyphIcon: rec('input.glyphIcon', 'pad-south'), rebinding: rec('input.rebinding', () => ({ action: 'jump', index: 0 })), cancelRebind: rec('input.cancelRebind'), resetBindings: rec('input.resetBindings'), useBindingProfile: rec('input.useBindingProfile'), bindingProfile: rec('input.bindingProfile', 'default') },
     animator: (id: string) => {
       calls.push('animator');
       // Phase 23.11: per-instance speed and morph weights.
@@ -278,8 +278,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
     // script-only rotation forms of the intents (the nodes keep their inputs).
     // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
+    // Phase 23.14: the bindings list, the device record, the glyph object, rebind (an options object) and its events are read in code.
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
+      'action.input',
       'debug.command',
       // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
       'emit(control_move).y',
@@ -294,6 +296,11 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'grid.applyDiff',
       'grid.changes',
       'grid.diff',
+      'input.bindings',
+      'input.device',
+      'input.glyph',
+      'input.rebind',
+      'input.rebindEvents',
       'log',
       'physics.stageCharacterMove',
       'random.pick',
