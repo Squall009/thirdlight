@@ -17,6 +17,7 @@
  */
 
 import { applyGraphOpsLocal } from '../graph/model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
@@ -303,6 +304,14 @@ export class SessionClient {
   private effects: EffectDef[] = [];
   /** Phase 23.7: the shared script libraries (from queryGameConfig, then setScriptLibrary changes). */
   private scriptLibraries: ScriptLibrary[] = [];
+  /** Phase 23.5: block types, the cell metadata schema and stamps (from queryGameConfig, then changes). */
+  private blockTypes: BlockType[] = [];
+  private cellFields: CellField[] = [];
+  private blockStamps: BlockStamp[] = [];
+  /** Phase 23.5: every block layer's cells (queryBlocks; the chunks a change names are read again). */
+  private blockLayers = new Map<string, BlockLayerView>();
+  /** Bumped whenever a layer's cells or the layer list change (the Scene view re-meshes). */
+  private blockRevision = 0;
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   /** Phase 23.3: the project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
@@ -543,12 +552,25 @@ export class SessionClient {
         this.effects = Array.isArray(effects) ? structuredClone(effects) : [];
         const libraries = (g as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries;
         this.scriptLibraries = Array.isArray(libraries) ? structuredClone(libraries) : [];
+        // Phase 23.5: block types, cell fields and stamps.
+        const blockTypes = (g as { blockTypes?: BlockType[] }).blockTypes;
+        this.blockTypes = Array.isArray(blockTypes) ? structuredClone(blockTypes) : [];
+        const cellFields = (g as { cellFields?: CellField[] }).cellFields;
+        this.cellFields = Array.isArray(cellFields) ? structuredClone(cellFields) : [];
+        const blockStamps = (g as { blockStamps?: BlockStamp[] }).blockStamps;
+        this.blockStamps = Array.isArray(blockStamps) ? structuredClone(blockStamps) : [];
         const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;
         if (kinds !== undefined) this.graphKinds = structuredClone(kinds);
       }
     } catch {
       // A missing game page is resolved by the next full state; it never
       // corrupts the scene projection.
+    }
+    // Phase 23.5: the block layers' cells (a full state re-reads them all).
+    try {
+      await this.refreshBlockLayers();
+    } catch {
+      // resolved by the next full state
     }
     // The additive content projection is rebuilt from the same full state
     // (sessions.md §8): a bounded `queryAssets` page, never a partial merge.
@@ -794,7 +816,21 @@ export class SessionClient {
       } else if (change.type === 'setLighting') {
         if (change.next === null) delete this.lighting[change.sceneId];
         else this.lighting[change.sceneId] = structuredClone(change.next);
+      } else if (change.type === 'setBlockType') {
+        // Phase 23.5: one block type before/after (null = none); the Scene view re-meshes.
+        const rest = this.blockTypes.filter((t) => t.blockId !== change.blockId);
+        this.blockTypes = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.blockId < b.blockId ? -1 : 1));
+        this.blockRevision += 1;
+      } else if (change.type === 'setCellFields') {
+        this.cellFields = structuredClone(change.next);
+      } else if (change.type === 'setBlockStamp') {
+        const rest = this.blockStamps.filter((x) => x.stampId !== change.stampId);
+        this.blockStamps = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.stampId < b.stampId ? -1 : 1));
+      } else if (change.type === 'editBlocks') {
+        // Phase 23.5: read the chunks (and regions) the change names, then redraw.
+        void this.refreshBlockChunks(change.entityId, change.chunks).then(() => this.cb.onSceneChanged());
       }
+      if (blockLayerListTouched(change, this.blockLayers)) void this.refreshBlockLayers().then(() => this.cb.onSceneChanged());
       this.save = 'saved';
       this.cb.onSceneChanged();
       this.emit();
@@ -1279,6 +1315,72 @@ export class SessionClient {
   }
 
   /** Phase 9.6: each scene's bake. */
+  /** Phase 23.5: the block types (content.blockTypes). */
+  getBlockTypes(): readonly BlockType[] {
+    return this.blockTypes;
+  }
+
+  /** Phase 23.5: the cell metadata schema (content.cellFields). */
+  getCellFields(): readonly CellField[] {
+    return this.cellFields;
+  }
+
+  /** Phase 23.5: the saved stamps (content.blockStamps). */
+  getBlockStamps(): readonly BlockStamp[] {
+    return this.blockStamps;
+  }
+
+  /** Phase 23.5: every block layer's component, chunks and regions (entity id → layer). */
+  getBlockLayers(): ReadonlyMap<string, BlockLayerView> {
+    return this.blockLayers;
+  }
+
+  /** Phase 23.5: bumped whenever a layer's cells, the layer list or the block types change. */
+  getBlockRevision(): number {
+    return this.blockRevision;
+  }
+
+  /** Phase 23.5: `queryBlocks` (the layers, one layer's chunks, a box of cells or a region). */
+  async queryBlocks(args: Record<string, unknown>): Promise<Record<string, unknown> & { ok: boolean }> {
+    try {
+      return await this.api<Record<string, unknown> & { ok: boolean }>(`/projects/${this.cfg.projectId}/commands`, { op: 'queryBlocks', projectId: this.cfg.projectId, args });
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** Phase 23.5: re-read every layer (the layer list and all cells). */
+  async refreshBlockLayers(): Promise<void> {
+    const list = await this.queryBlocks({});
+    if (list.ok !== true) return;
+    const next = new Map<string, BlockLayerView>();
+    for (const row of (list['layers'] as { entityId: string; component: BlockLayerComponent; chunks: number[][] }[] | undefined) ?? []) {
+      const one = await this.queryBlocks({ entityId: row.entityId });
+      if (one.ok !== true) continue;
+      const chunks = new Map<string, BlockChunk>();
+      for (const c of (one['chunks'] as { cx: number; cz: number; chunk: BlockChunk | null }[] | undefined) ?? []) if (c.chunk !== null) chunks.set(`${c.cx},${c.cz}`, c.chunk);
+      next.set(row.entityId, { component: one['component'] as BlockLayerComponent, chunks, regions: (one['regions'] as BlockRegion[] | undefined) ?? [] });
+    }
+    this.blockLayers = next;
+    this.blockRevision += 1;
+  }
+
+  /** Phase 23.5: re-read some chunks of one layer (the chunks an editBlocks change named). */
+  private async refreshBlockChunks(entityId: string, chunks: readonly (readonly [number, number])[]): Promise<void> {
+    const one = await this.queryBlocks({ entityId, chunks: chunks.map((c) => [c[0], c[1]]) });
+    if (one.ok !== true) return;
+    const prev = this.blockLayers.get(entityId);
+    const layer: BlockLayerView = { component: one['component'] as BlockLayerComponent, chunks: new Map(prev?.chunks ?? []), regions: (one['regions'] as BlockRegion[] | undefined) ?? [] };
+    for (const c of (one['chunks'] as { cx: number; cz: number; chunk: BlockChunk | null }[] | undefined) ?? []) {
+      if (c.chunk === null) layer.chunks.delete(`${c.cx},${c.cz}`);
+      else layer.chunks.set(`${c.cx},${c.cz}`, c.chunk);
+    }
+    const map = new Map(this.blockLayers);
+    map.set(entityId, layer);
+    this.blockLayers = map;
+    this.blockRevision += 1;
+  }
+
   getLighting(): Record<string, LightingBake> {
     return structuredClone(this.lighting);
   }
@@ -2092,5 +2194,31 @@ function headlessEditor(): boolean {
     return new URLSearchParams(window.location.search).get('headless') === '1';
   } catch {
     return false;
+  }
+}
+
+/** Phase 23.5: one block layer as the editor holds it (queryBlocks). */
+export interface BlockLayerView {
+  component: BlockLayerComponent;
+  chunks: Map<string, BlockChunk>;
+  regions: BlockRegion[];
+}
+
+/** Phase 23.5: whether a change adds, removes or re-shapes a block layer (the layer list is read again). */
+function blockLayerListTouched(change: ChangeData, layers: ReadonlyMap<string, BlockLayerView>): boolean {
+  const has = (e: unknown): boolean => typeof e === 'object' && e !== null && (e as { components?: { blockLayer?: unknown } }).components?.blockLayer !== undefined;
+  switch (change.type) {
+    case 'setComponent':
+      return change.component === 'blockLayer';
+    case 'deleteEntity':
+      return change.deletedIds.some((id) => layers.has(id));
+    case 'restoreSubtree':
+      return change.entities.some(has);
+    case 'createEntity':
+      return has(change.entity) || (change.children ?? []).some(has);
+    case 'pasteEntities':
+      return (change.entities as readonly unknown[]).some(has);
+    default:
+      return false;
   }
 }

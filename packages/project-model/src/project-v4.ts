@@ -23,6 +23,7 @@
  * game's own logic (scripts, hazard zones). Pure: no I/O.
  */
 
+import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeV3 } from './project-v3';
 import { validateContentV4, MAX_SCENES, physicsDimensionOf } from './content';
 import { effectiveEntityFlags } from './hierarchy-v3';
@@ -454,6 +455,12 @@ export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: Mo
     physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, dimension, local3, `/entities/${i}`, content.collisionLayers ?? []);
     for (const x of local3) errors.push(sceneError(s.sceneId, x));
   });
+  // Phase 23.5: the cells against the block types and the metadata schema.
+  if (s.blocks !== undefined) {
+    const local5: ModelErrorV3[] = [];
+    composeBlockLayers(s.blocks, s.entities as unknown as { id: string; components: Record<string, unknown> }[], content as unknown as BlockContentView, local5);
+    for (const x of local5) errors.push(sceneError(s.sceneId, x));
+  }
   s.entities.forEach((e, i) => {
     const inst = e.components.instances;
     if (inst === undefined) return;

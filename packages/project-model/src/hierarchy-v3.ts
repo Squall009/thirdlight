@@ -116,6 +116,8 @@ export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4
   const entities = scene.entities as readonly SceneEntityV3[];
   const flags = effectiveEntityFlags(entities);
   const byId = new Map(entities.map((e) => [e.id, e]));
+  const sceneBlocks = (scene as { blocks?: readonly { entityId: string }[] }).blocks;
+  const blocks = sceneBlocks !== undefined && sceneBlocks.length > 0 ? new Map(sceneBlocks.map((b) => [b.entityId, b])) : undefined;
   const out: EntityV3[] = [];
   for (const e of entities) {
     if (isFolderEntity(e)) continue;
@@ -129,13 +131,15 @@ export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4
         return p !== undefined && isFolderEntity(p);
       },
     );
+    // Phase 23.5: the game reads a layer's cells from its component (`data`).
+    const data = blocks?.get(e.id);
     out.push({
       id: e.id,
       ...(e.name !== undefined ? { name: e.name } : {}),
       ...(parentId !== null ? { parentId } : {}),
       ...(f.static ? { static: true as const } : {}),
       ...(f.tags !== 0 ? { tags: f.tags } : {}),
-      components: e.components,
+      components: data !== undefined && e.components.blockLayer !== undefined ? ({ ...e.components, blockLayer: { ...e.components.blockLayer, data } } as typeof e.components) : e.components,
     });
   }
   // A v4 scene resolves to a v4 runtime scene (instance sets, exit zones).

@@ -54,6 +54,8 @@ import { applySceneIndexOp } from './scene-ops';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
 import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-ops';
 import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-library-ops';
+import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
+import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -381,6 +383,30 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'editBlocks':
+    case 'setBlockType':
+    case 'deleteBlockType':
+    case 'setCellFields':
+    case 'setBlockStamp':
+    case 'deleteBlockStamp': {
+      // Phase 23.5: block layers (cells as one undo step per command; block types, cell fields, stamps).
+      const a = va.validated.args as Record<string, unknown>;
+      const op = va.validated.op;
+      const r =
+        op === 'editBlocks'
+          ? applyEditBlocks(input, a as { entityId: string; edits: BlockEdit[] })
+          : op === 'setBlockType'
+            ? applySetBlockType(input, a as { block: BlockType })
+            : op === 'deleteBlockType'
+              ? applyDeleteBlockType(input, a as { blockId: string })
+              : op === 'setCellFields'
+                ? applySetCellFields(input, a as { fields: CellField[] })
+                : op === 'setBlockStamp'
+                  ? applySetBlockStamp(input, a)
+                  : applyDeleteBlockStamp(input, a as { stampId: string });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setLighting': {
       const r = applySetLighting(input, va.validated.args as { sceneId: string; lighting: LightingBake | null });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -542,7 +568,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp',
         }),
       };
     }

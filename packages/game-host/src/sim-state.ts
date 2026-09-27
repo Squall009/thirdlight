@@ -276,6 +276,9 @@ export class FrameEncoder {
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
+    // Phase 23.5: block-layer chunks the simulation changed.
+    const grid = rt.takeGridChanges?.() ?? [];
+    if (grid.length > 0) out.grid = grid;
     // Phase 23.3: the cursor a script asked for, and the pointer state (each when it changed).
     const cursor = rt.cursorRequest?.() ?? null;
     if (cursor !== this.cursorSent) {
@@ -364,6 +367,8 @@ export class FrameMirror {
   effects: unknown[] = [];
   /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
+  /** Phase 23.5: block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
+  grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   /** Phase 23.3: the worker's cursor request and pointer. */
   cursor: 'free' | 'locked' | null = null;
   pointer: PointerSample | null = null;
@@ -433,6 +438,7 @@ export class FrameMirror {
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.cursor !== undefined) this.cursor = s.cursor;
     if (s.pointer !== undefined) this.pointer = s.pointer;
     if (s.diag !== undefined) this.diag = s.diag;

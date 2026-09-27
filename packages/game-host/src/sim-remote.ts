@@ -317,6 +317,12 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.effects = [];
       return out as ReturnType<NonNullable<Runtime['takeEffectRequests']>>;
     },
+    // Phase 23.5: the block-layer chunks the worker changed, in arrival order per chunk.
+    takeGridChanges: () => {
+      const out = [...mirror.grid.values()];
+      mirror.grid.clear();
+      return out;
+    },
     gameCounters: () => mirror.counters,
     // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).
     readCameraView: (p: number[], r: number[]) => {

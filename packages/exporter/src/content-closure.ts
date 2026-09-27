@@ -22,6 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
+import type { BlockType, CellField } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
@@ -497,6 +498,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: animatorsForRuntime((input.content as { animators: AnimatorController[] }).animators) } : {}),
     // Phase 14.1: a v4 game's prefabs (scripts spawn them at run time).
     ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
+    // Phase 23.5: the block types and the cell metadata schema (the runtime and the renderer read them).
+    ...((input.content as { blockTypes?: BlockType[] } | null)?.blockTypes !== undefined ? { blockTypes: (input.content as { blockTypes: BlockType[] }).blockTypes } : {}),
+    ...((input.content as { cellFields?: CellField[] } | null)?.cellFields !== undefined ? { cellFields: (input.content as { cellFields: CellField[] }).cellFields } : {}),
     ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
     media,
     moduleIds,

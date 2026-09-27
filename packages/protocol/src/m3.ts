@@ -58,7 +58,14 @@ export type V3MutationOp =
   | 'deleteEffect'
   | 'renameEffect'
   | 'setScriptLibrary'
-  | 'deleteScriptLibrary';
+  | 'deleteScriptLibrary'
+  // phase 23.5: block layers
+  | 'editBlocks'
+  | 'setBlockType'
+  | 'deleteBlockType'
+  | 'setCellFields'
+  | 'setBlockStamp'
+  | 'deleteBlockStamp';
 import type { AuthoringEnvelopeV3, ContentCatalogV3, GameConfig, SceneV3 } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { sessionError, type SessionError } from './errors';
@@ -103,9 +110,10 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp'];
 /** The v3 query op (commands.md §4; packet 45). */
-export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
+// Phase 23.5: queryBlocks reads block-layer cells and regions.
+export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks'];
 
 /** The change-record types a v3 `mutation.applied` frame may carry. */
 export const CHANGE_TYPES = [
@@ -139,6 +147,11 @@ export const CHANGE_TYPES = [
   'setGraph',
   'setEffect',
   'setScriptLibrary',
+  // Phase 23.5: block layers.
+  'editBlocks',
+  'setBlockType',
+  'setCellFields',
+  'setBlockStamp',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------

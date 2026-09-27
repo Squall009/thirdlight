@@ -128,6 +128,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const g of materialFunctionsForRuntime(materialDefs, (content as { graphs?: GraphDocument[] }).graphs ?? [])) {
     for (const r of graphAssetRefs(MATERIAL_FUNCTION_GRAPH_KIND, g.graph)) if (r.asset === 'texture') setRef(r.id);
   }
+  // Phase 23.5: the models block types show (prefab looks are captured with the prefabs above).
+  for (const t of (content as { blockTypes?: { variants: { model?: { assetId: string } }[] }[] }).blockTypes ?? []) for (const v of t.variants) if (v.model !== undefined) setRef(v.model.assetId);
   // Phase 20.2: the textures and models the project's effects draw and sample travel with the game.
   for (const fx of (content as { effects?: EffectDef[] }).effects ?? []) for (const r of effectAssetRefs(fx)) setRef(r.id);
   // Phase 9.10: the flow's music and menu logo.
