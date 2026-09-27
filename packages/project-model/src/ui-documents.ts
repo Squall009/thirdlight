@@ -126,7 +126,16 @@ export type UiAction =
   /** Play a tween of this document (presentation only). */
   | { do: 'play'; tween: string; widget?: string }
   /** Phase 23.10: switch to a game mode (through the input frame, so replays hold). */
-  | { do: 'mode'; mode: string };
+  | { do: 'mode'; mode: string }
+  /**
+   * Phase 23.16: a dialogue input (on the next input frame, so replays hold):
+   * advance (or reveal the rest of the line), choose (the list item's index,
+   * or `value`), skip (toggle skipping seen lines), auto (toggle
+   * auto-advance), backlog (toggle the backlog view).
+   */
+  | { do: 'dialogue'; input: UiDialogueInput; value?: number };
+export type UiDialogueInput = 'advance' | 'choose' | 'skip' | 'auto' | 'backlog';
+export const UI_DIALOGUE_INPUTS: readonly UiDialogueInput[] = ['advance', 'choose', 'skip', 'auto', 'backlog'];
 export type UiScalar = number | string | boolean | null;
 
 /** Follow a world point or an entity (projected through the rendered camera each frame). */
@@ -175,6 +184,13 @@ export interface UiWidget {
   cellSize?: [number, number];
   // text / button / input
   text?: string;
+  /**
+   * Phase 23.16, text: the widget's text is the rich text at this view-model
+   * path (markup parsed, braces are plain text) instead of `text`.
+   */
+  content?: UiBinding;
+  /** Phase 23.16, text: only the first N visible characters show (a typewriter; the rest keeps its place, hidden). */
+  reveal?: UiBindable<number>;
   // image
   image?: UiBindable<string>;
   slice?: [number, number, number, number];
@@ -475,6 +491,12 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
           else refs.widgets.push({ id: a['widget'], path: `${p}/widget` });
         }
         break;
+      case 'dialogue':
+        only(a, ['do', 'input', 'value'], p, errors, 'dialogue action');
+        oneOf(errors, a['input'], `${p}/input`, UI_DIALOGUE_INPUTS, 'a dialogue input');
+        if (a['input'] === undefined) err(errors, 'field_missing', `${p}/input`, 'a dialogue action names its input', undefined, UI_DIALOGUE_INPUTS.join(' | '));
+        if (a['value'] !== undefined && !(Number.isInteger(a['value']) && isNum(a['value'], 0, 255))) err(errors, 'field_value', `${p}/value`, 'a dialogue action value is an option index 0–255', a['value'], '0..255');
+        break;
       case 'mode':
         // Phase 23.10: switch to a game mode (the project's modes: validateUiReferences).
         only(a, ['do', 'mode'], p, errors, 'mode action');
@@ -482,7 +504,7 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         else refs.modes.push({ id: a['mode'], path: `${p}/mode` });
         break;
       default:
-        err(errors, 'field_value', `${p}/do`, 'do is event, engine, show, hide, toggle, play or mode', a['do'], 'event | engine | show | hide | toggle | play | mode');
+        err(errors, 'field_value', `${p}/do`, 'do is event, engine, show, hide, toggle, play, mode or dialogue', a['do'], 'event | engine | show | hide | toggle | play | mode | dialogue');
     }
   });
 }
@@ -509,7 +531,7 @@ const TYPE_KEYS: Record<UiWidgetType, readonly string[]> = {
   panel: ['children'],
   stack: ['children', 'direction', 'gap', 'align', 'justify', 'wrap'],
   grid: ['children', 'columns', 'gap', 'cellSize', 'align'],
-  text: ['text', 'wrap'],
+  text: ['text', 'wrap', 'content', 'reveal'],
   image: ['image', 'slice', 'fit', 'tint'],
   bar: ['value', 'min', 'max', 'direction', 'shape', 'fillColor', 'fillStyle', 'startAngle'],
   button: ['text', 'children', 'onClick', 'direction', 'gap', 'align', 'justify'],
@@ -643,7 +665,13 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
       validateActions(errors, v['onClick'], `${path}/onClick`, refs);
       break;
     case 'text':
-      if (text === undefined) err(errors, 'field_missing', `${path}/text`, 'a text widget has a text', undefined, 'text');
+      if (text === undefined && v['content'] === undefined) err(errors, 'field_missing', `${path}/text`, 'a text widget has a text (or a content binding)', undefined, 'text');
+      // Phase 23.16: rich text from the view model, and a typewriter reveal.
+      if (v['content'] !== undefined) {
+        if (!isPlainObject(v['content'])) err(errors, 'field_value', `${path}/content`, 'content is { "bind": "path" }', v['content'], '{ bind }');
+        else binding(errors, v['content'], `${path}/content`);
+      }
+      bindable(errors, v['reveal'], `${path}/reveal`, (x) => Number.isInteger(x) && isNum(x, 0, 1e6), 'reveal is a whole number of characters');
       break;
     case 'image': {
       const img = v['image'];

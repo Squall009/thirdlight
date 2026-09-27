@@ -12,6 +12,7 @@
  */
 
 import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
+import { canonicalDialogues, canonicalDialogueSettings, canonicalSpeakers, validateDialogueReferences, validateDialogues, validateDialogueSettings, validateSpeakers } from './dialogue';
 import { canonicalTimelines, validateTimelineReferences, validateTimelines, type TimelineAsset } from './timelines';
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalLighting, validateLighting } from './lighting';
@@ -2189,8 +2190,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2362,9 +2363,14 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   // Phase 23.10: a document's action map may be one of the project's own maps (input.maps).
   if (version === 4 && doc['uiDocuments'] !== undefined) validateUiDocuments(doc['uiDocuments'], '/uiDocuments', errors, projectInputMaps(doc['input']));
   if (version === 4 && doc['uiThemes'] !== undefined) validateUiThemes(doc['uiThemes'], '/uiThemes', errors);
+  // Phase 23.16: dialogue (v4): conversations, the speaker registry, the settings.
+  if (version === 4 && doc['dialogues'] !== undefined) validateDialogues(doc['dialogues'], '/dialogues', errors);
+  if (version === 4 && doc['speakers'] !== undefined) validateSpeakers(doc['speakers'], '/speakers', errors);
+  if (version === 4 && doc['dialogueSettings'] !== undefined) validateDialogueSettings(doc['dialogueSettings'], '/dialogueSettings', errors);
   if (version === 4 && errors.length === 0) {
     const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind']] as const));
     validateUiReferences(doc, errors, (id) => kinds.get(id));
+    if (doc['dialogues'] !== undefined || doc['speakers'] !== undefined || doc['dialogueSettings'] !== undefined) validateDialogueReferences(doc, errors, (id) => kinds.get(id));
   }
   // Phase 23.10: game modes and behavior groups (v4), and what the modes reference.
   if (version === 4 && doc['behaviorGroups'] !== undefined) validateBehaviorGroups(doc['behaviorGroups'], '/behaviorGroups', errors);
@@ -2532,6 +2538,10 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).collisionLayers !== undefined && (c as ContentCatalogV4).collisionLayers!.length > 0 ? { collisionLayers: [...(c as ContentCatalogV4).collisionLayers!] } : {}),
     // Phase 23.19: present only when the project declares a save schema.
     ...((c as ContentCatalogV4).saveSchema !== undefined ? { saveSchema: canonicalSaveSchema((c as ContentCatalogV4).saveSchema!) } : {}),
+    // Phase 23.16: present only when there are conversations / speakers / dialogue settings.
+    ...((c as ContentCatalogV4).dialogues !== undefined && (c as ContentCatalogV4).dialogues!.length > 0 ? { dialogues: canonicalDialogues((c as ContentCatalogV4).dialogues!) } : {}),
+    ...((c as ContentCatalogV4).speakers !== undefined && (c as ContentCatalogV4).speakers!.length > 0 ? { speakers: canonicalSpeakers((c as ContentCatalogV4).speakers!) } : {}),
+    ...((c as ContentCatalogV4).dialogueSettings !== undefined ? { dialogueSettings: canonicalDialogueSettings((c as ContentCatalogV4).dialogueSettings!) } : {}),
     // Phase 23.17: present only when there are timelines.
     ...((c as ContentCatalogV4).timelines !== undefined && (c as ContentCatalogV4).timelines!.length > 0 ? { timelines: canonicalTimelines((c as ContentCatalogV4).timelines!) } : {}),
     // Phase 9.6: present only when a scene has a bake.

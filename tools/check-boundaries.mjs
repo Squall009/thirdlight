@@ -290,7 +290,10 @@ export const NODE_SIDE_ALLOWED = {
     // Phase 23.9b: + game-host, its `./ui-layer` subpath only — the UI
     // document preview draws with the very layer Play and exports use.
     packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host'],
-    subpaths: { 'game-host': ['ui-layer'] },
+    // Phase 23.16: + its `./dialogue-preview` subpath — the dialogue tab's
+    // previewer plays a conversation with the runtime's runner, the host's UI
+    // layer and audio owner (the same code as Play), outside Play.
+    subpaths: { 'game-host': ['ui-layer', 'dialogue-preview'] },
     external: [
       'three',
       'react',

@@ -240,6 +240,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'uiEvent':
         r = rt.queueUiEvent?.(c.event) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project UI' } };
         break;
+      case 'dialogueInput':
+        r = rt.queueDialogueInput?.(c.input) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no conversations' } };
+        break;
       case 'stop':
         rt.stop();
         break;

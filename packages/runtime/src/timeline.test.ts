@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { canonicalTimeline, validateTimeline, type ModelErrorV2, type TimelineAsset } from '@thirdlight/project-model';
 
 import type { ActionFrame } from './actions';
+import { dialogueForRuntime } from '@thirdlight/project-model';
+import { DialogueRunner } from './dialogue';
 import { evaluateTimelineAt, timelineEase, transformTrackAt, valueTrackAt, TimelineSystem, type TimelineHost, type TimelineTransformPose } from './timeline';
 
 const HZ = 60;
@@ -293,6 +295,36 @@ describe('phase 23.17: the system', () => {
     sys.skip(h);
     sys.step(33, frame(33));
     expect(applied.slice(1)).toEqual(['day 0']);
+  });
+
+  it('dialogue keys run a node through the dialogue runner (phase 23.16) and wait until the conversation ends', () => {
+    const f = fakeHost();
+    const graph = {
+      nodes: [
+        { id: 'start', type: 'start', position: [0, 0] as [number, number] },
+        { id: 'hi', type: 'line', position: [0, 100] as [number, number], data: { text: 'Hi {$who}.' } },
+      ],
+      edges: [{ id: 'w', from: { node: 'start', port: 'next' }, to: { node: 'hi', port: 'in' } }],
+    };
+    const runner = new DialogueRunner(dialogueForRuntime({ dialogues: [{ dialogueId: 'talk', name: 'Talk', graph }] }), null, null, HZ, () => null);
+    const host: TimelineHost = { ...f.host, dialogue: runner.timelinePort() };
+    const tl = canonicalTimeline({ timelineId: 'd', name: 'D', duration: 2, tracks: [{ trackId: 'talk', type: 'dialogue', keys: [{ time: 0.5, dialogue: 'talk', node: 'hi' }] }] });
+    const sys = new TimelineSystem([tl], HZ, host);
+    sys.play('d');
+    const stepBoth = (s: number): void => {
+      sys.step(s, frame(s));
+      runner.endStep();
+    };
+    for (let s = 1; s <= 40; s += 1) stepBoth(s);
+    expect(runner.api.current()).toMatchObject({ dialogueId: 'talk', nodeId: 'hi', text: 'Hi .' });
+    expect(sys.digestState()).toContain('waiting');
+    // The timeline holds while the line is up; an advance ends the conversation and the timeline goes on.
+    for (let s = 41; s <= 200; s += 1) stepBoth(s);
+    expect(runner.api.isRunning()).toBe(true);
+    runner.api.advance();
+    for (let s = 201; s <= 400; s += 1) stepBoth(s);
+    expect(runner.api.isRunning()).toBe(false);
+    expect(sys.digestState() ?? '').not.toContain('waiting');
   });
 
   it('same inputs, same state: two systems agree step by step', () => {

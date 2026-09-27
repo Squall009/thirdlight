@@ -58,6 +58,7 @@ import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-librar
 import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
 import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
+import { applyDeleteDialogueValue, applySetDialogue, applySetDialogueSettings, applySetSpeaker } from './dialogue-ops';
 import { applySetBehaviorGroups, applySetModes } from './mode-ops';
 import { applyDeleteTimeline, applySetTimeline } from './timeline-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
@@ -408,6 +409,25 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setDialogue':
+    case 'deleteDialogue':
+    case 'setSpeaker':
+    case 'deleteSpeaker':
+    case 'setDialogueSettings': {
+      // Phase 23.16: conversations, the speaker registry, the dialogue settings.
+      const a = va.validated.args as Record<string, unknown>;
+      const op = va.validated.op;
+      const r =
+        op === 'setDialogue'
+          ? applySetDialogue(input, a as unknown as import('./types').SetDialogueArgs)
+          : op === 'setSpeaker'
+            ? applySetSpeaker(input, a as { speaker: import('@thirdlight/project-model').DialogueSpeaker })
+            : op === 'setDialogueSettings'
+              ? applySetDialogueSettings(input, a as { settings: import('@thirdlight/project-model').DialogueSettings | null })
+              : applyDeleteDialogueValue(input, op === 'deleteDialogue' ? 'dialogue' : 'speaker', String(op === 'deleteDialogue' ? a['dialogueId'] : a['speakerId']));
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setTimeline':
     case 'deleteTimeline': {
       // Phase 23.17: timelines (one whole timeline per command; one undo each).
@@ -613,7 +633,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
         }),
       };
     }

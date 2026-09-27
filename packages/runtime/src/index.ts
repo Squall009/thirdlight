@@ -341,6 +341,11 @@ export {
 // The document types the game host draws (project-model's; the host reads them through the runtime).
 export { UI_LIMITS, uiDocumentsForRuntime, uiTextPlaceholders } from '@thirdlight/project-model';
 export type { RuntimeUiDocumentRow, UiAction, UiBinding, UiDocument, UiEngineAction, UiIcon, UiStyle, UiStyleValues, UiTheme, UiTween, UiWidget, UiWorldAnchor } from '@thirdlight/project-model';
+// Phase 23.16: dialogue — ctx.dialogue, the runner, the dialogue inputs of an input frame, and the data/UI helpers hosts share.
+export { DIALOGUE_INPUT_KINDS, DialogueRunner, validateDialogueInput, validateDialogueInputs, type DialogueAudioPort, type DialogueInputKind, type DialogueInputRecord, type DialogueSaveState, type DialogueUiPort } from './dialogue';
+export type { BehaviorDialogue, BehaviorDialogueEvent, BehaviorDialogueHistoryEntry, BehaviorDialogueState, DialogueVariableValue } from './types';
+export { DIALOGUE_DOCUMENT_ID, DIALOGUE_LIMITS, dialogueForRuntime, dialogueUiDocument, withDialogueUiDocument, parseRichText, richTextVisibleLength, uiValueText, codePointLength, UI_DIALOGUE_INPUTS } from '@thirdlight/project-model';
+export type { DialogueDocument, DialogueSettings, DialogueSpeaker, RuntimeDialogueData, RichStyle, RichToken, UiDialogueInput } from '@thirdlight/project-model';
 // Phase 23.10: game modes (ctx.modes), the run lifecycle (ctx.lifecycle) and the mode view the host reads.
 export type { BehaviorLifecycle, BehaviorModeEvent, BehaviorModes, BehaviorModeTransition } from './types';
 export { ModeState, type ModeEffects, type ModeEventRecord, type ModeTransitionSpec, type ModeView } from './modes';

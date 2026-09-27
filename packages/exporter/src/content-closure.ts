@@ -23,6 +23,7 @@
  * bytes are linked into the bundle by the caller.
  */
 import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
+import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type DialogueSpeaker } from '@thirdlight/project-model';
 import type { GameMode } from '@thirdlight/project-model';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
@@ -512,6 +513,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     // Phase 23.9a: the project UI (the game host draws the documents; themes hold their shared styles).
     ...((input.content as { uiThemes?: UiTheme[] } | null)?.uiThemes !== undefined ? { uiThemes: (input.content as { uiThemes: UiTheme[] }).uiThemes } : {}),
     ...((input.content as { uiDocuments?: UiDocument[] } | null)?.uiDocuments !== undefined ? { uiDocuments: (input.content as { uiDocuments: UiDocument[] }).uiDocuments } : {}),
+    // Phase 23.16: the compiled conversations, speakers and settings (the runtime's dialogue runner; only with conversations).
+    ...(input.content !== null ? { dialogue: dialogueForRuntime(input.content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[]; dialogueSettings?: DialogueSettings }) } : {}),
     // Phase 23.10: the game modes (the runtime switches them; the host reads their pause screens).
     ...((input.content as { modes?: GameMode[] } | null)?.modes !== undefined ? { modes: (input.content as { modes: GameMode[] }).modes } : {}),
     // Phase 23.17: the timelines (the runtime plays them in the simulation step).

@@ -70,7 +70,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
@@ -104,6 +104,8 @@ interface ExportManifestV2 {
   /** Phase 23.17: the timelines. */
   timelines?: import('@thirdlight/runtime').TimelineAsset[];
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
+  /** Phase 23.16: the dialogue runner's data (conversations, speakers, settings). */
+  dialogue?: import('@thirdlight/runtime').RuntimeDialogueData;
   /** Phase 23.10: the game modes (the runtime switches them; the first is the start mode). */
   modes?: import('@thirdlight/runtime').GameMode[];
   environment?: EnvironmentLike & { wind?: WindLike };
@@ -158,7 +160,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'modes', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -261,6 +263,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
   const audioDurations = audioDurationsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
+  const uiDocs = withDialogueUiDocument(manifest.uiDocuments, manifest.dialogue ?? null);
   const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
     projectId: manifest.projectId,
@@ -289,7 +292,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     // Phase 23.18: the environment preset ids scripts switch and blend to (ctx.environment).
     ...((manifest.environment?.presets?.length ?? 0) > 0 ? { environmentPresets: manifest.environment!.presets!.map((p) => p.presetId) } : {}),
     // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
-    ...(uiDocumentsForRuntime(manifest.uiDocuments) !== undefined ? { uiDocuments: uiDocumentsForRuntime(manifest.uiDocuments) } : {}),
+    // Phase 23.16: plus the engine's dialogue document when the game has conversations.
+    ...(uiDocumentsForRuntime(uiDocs) !== undefined ? { uiDocuments: uiDocumentsForRuntime(uiDocs) } : {}),
+    // Phase 23.16: the dialogue runner's data (conversations, speakers, settings; bound by the buildId).
+    ...(manifest.dialogue !== undefined ? { dialogue: manifest.dialogue } : {}),
     // Phase 23.10: the game modes and each action's input map (bound by the buildId).
     ...(manifest.modes !== undefined && manifest.modes.length > 0 ? { modes: modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) } : {}),
     // Phase 23.17: the timelines (ctx.timeline, play-on-start / play-on-signal).
@@ -533,7 +539,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     // Phase 23.8: the debug console only when the project turns debug_console on (absent/0: a release game has none).
     ...((settings as unknown as Record<string, unknown>)['debug_console'] === 1 ? { debugConsole: true, focusGame: () => canvas.focus() } : {}),
     // Phase 23.9a: the project UI documents and themes (the host draws them).
-    ...(manifest.uiDocuments !== undefined && manifest.uiDocuments.length > 0 ? { ui: { documents: manifest.uiDocuments, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
+    ...(uiDocs !== undefined && uiDocs.length > 0 ? { ui: { documents: uiDocs, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
   };
   const host = createGameHost(config);
   const mount = host.mount();

@@ -216,6 +216,26 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       events: rec('ui.events', () => [{ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 }]),
       event: rec('ui.event', () => ({ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 })),
     },
+    // Phase 23.16: conversations.
+    dialogue: {
+      start: rec('dialogue.start', 1),
+      stop: rec('dialogue.stop', true),
+      isRunning: rec('dialogue.isRunning', true),
+      current: rec('dialogue.current', () => ({ conversation: 1, dialogueId: 'talk', node: 'l1', kind: 'line', speaker: 'guide', text: 'Hi', revealed: 1, total: 2, options: [] })),
+      advance: rec('dialogue.advance', true),
+      choose: rec('dialogue.choose', true),
+      resume: rec('dialogue.resume', true),
+      setSkip: rec('dialogue.setSkip', undefined),
+      setAuto: rec('dialogue.setAuto', undefined),
+      setTextSpeed: rec('dialogue.setTextSpeed', undefined),
+      events: rec('dialogue.events', () => [{ kind: 'lineStart', conversation: 1, dialogueId: 'talk', node: 'l1', speaker: 'guide', text: 'Hi', name: '', value: '', index: -1 }]),
+      event: rec('dialogue.event', () => ({ kind: 'signal', conversation: 1, dialogueId: 'talk', node: 's', speaker: '', text: '', name: 'cue', value: 'x', index: -1 })),
+      get: rec('dialogue.get', 3),
+      set: rec('dialogue.set', true),
+      variables: rec('dialogue.variables', () => ({ a: 1 })),
+      seen: rec('dialogue.seen', true),
+      history: rec('dialogue.history', () => []),
+    },
     // Phase 23.10: the game modes and the run lifecycle.
     modes: {
       current: rec('modes.current', 'explore'),
@@ -372,6 +392,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     // Phase 23.14: the bindings list, the device record, the glyph object, rebind (an options object) and its events are read in code.
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
+      // Phase 23.16: a frame's dialogue inputs (scripts drive conversations with ctx.dialogue); the variable map and the backlog records are read in code.
+      'action.dialogue',
       'action.input',
       // Phase 23.19: storage's answers arrive with the input; a migration is a function.
       'action.saves',
@@ -380,6 +402,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       // Phase 23.13: the finished events as a list (the Sound finished node checks one handle).
       'audio.events',
       'debug.command',
+      'dialogue.history',
+      'dialogue.variables',
       // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
       'emit(control_move).y',
       'emit(pose).facing',

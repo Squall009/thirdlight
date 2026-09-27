@@ -320,7 +320,9 @@ export function StyleMapEditor(p: {
 // ---------------------------------------------------------------------------
 
 const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute'];
-const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play'] as const;
+// Phase 23.16: + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
+const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play', 'dialogue'] as const;
+const DIALOGUE_INPUTS = ['advance', 'choose', 'skip', 'auto', 'backlog'] as const;
 
 function newAction(kind: (typeof DO_KINDS)[number], docs: readonly string[], tweens: readonly string[]): UiAction | null {
   switch (kind) {
@@ -334,6 +336,8 @@ function newAction(kind: (typeof DO_KINDS)[number], docs: readonly string[], twe
       return docs[0] !== undefined ? { do: kind, doc: docs[0] } : null;
     case 'play':
       return tweens[0] !== undefined ? { do: 'play', tween: tweens[0] } : null;
+    case 'dialogue':
+      return { do: 'dialogue', input: 'advance' };
   }
 }
 
@@ -411,6 +415,15 @@ export function ActionsField(p: {
                 </>
               )}
             </>
+          )}
+          {a.do === 'dialogue' && (
+            <select className="tl-input" aria-label={`${p.aria} ${i + 1} dialogue input`} value={a.input} onChange={(e) => setAtI(i, { do: 'dialogue', input: e.target.value as (typeof DIALOGUE_INPUTS)[number] })}>
+              {DIALOGUE_INPUTS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
           )}
           {(a.do === 'show' || a.do === 'hide' || a.do === 'toggle') && (
             <select className="tl-input" aria-label={`${p.aria} ${i + 1} document`} value={a.doc} onChange={(e) => setAtI(i, { ...a, doc: e.target.value })}>

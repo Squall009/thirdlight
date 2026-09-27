@@ -19,7 +19,7 @@
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
 import { debugCallProblem, validateDebugCommandCall, validateSaveEvents, type SaveEvent } from '@thirdlight/runtime';
-import { validateUiEvent } from '@thirdlight/runtime';
+import { validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
   UiOutput,
@@ -372,6 +372,14 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       const checked = validateUiEvent(event);
       if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `UI event: ${checked.message}`, { reason: 'ui_event' }) };
       command({ op: 'uiEvent', event: checked.event });
+      return { ok: true };
+    },
+    // Phase 23.16: dialogue inputs go to the worker's runtime (its next sampled frame).
+    queueDialogueInput: (input: DialogueInputRecord) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateDialogueInput(input);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `dialogue input: ${checked.message}`, { reason: 'dialogue' }) };
+      command({ op: 'dialogueInput', input: checked.input });
       return { ok: true };
     },
     takeUiOutput: (): UiOutput | null => {

@@ -66,6 +66,7 @@ import type {
   BehaviorSockets,
   BehaviorDebug,
   BehaviorUi,
+  BehaviorDialogue,
   BehaviorModes,
   BehaviorLifecycle,
   BehaviorTimeline,
@@ -237,6 +238,11 @@ export interface BehaviorContext {
   readonly saves?: BehaviorSaves;
   /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
+  /**
+   * Phase 23.16: conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
+   * dialogue variables, the backlog and the events of lines, choices and signals.
+   */
+  readonly dialogue?: BehaviorDialogue;
   /** Phase 23.10: the game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. */
   readonly modes?: BehaviorModes;
   /** Phase 23.10: the run lifecycle of a game without the platformer session — respawn the player at a spawn, restart the run. */
@@ -959,6 +965,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
         // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
+        // Phase 23.16: conversations (run by the engine at the end of the step).
+        if (src.dialogue !== undefined) fields['dialogue'] = { value: src.dialogue, enumerable: true };
         // Phase 23.10: the game modes and the run lifecycle.
         if (src.modes !== undefined) fields['modes'] = { value: src.modes, enumerable: true };
         if (src.lifecycle !== undefined) fields['lifecycle'] = { value: src.lifecycle, enumerable: true };

@@ -45,6 +45,7 @@ import { canonicalEffects, validateEffects, type EffectDef } from './effects';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiThemes, type UiDocument, type UiTheme } from './ui-documents';
 import { canonicalModes, validateModes, type GameMode } from './modes';
 import { fail, isPlainObject, withFound } from './validate';
+import { runtimeDialogueDataProblem, type RuntimeDialogueData } from './dialogue';
 import { canonicalTimelines, validateTimelines, type TimelineAsset } from './timelines';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
@@ -85,7 +86,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'modes', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'modes', 'dialogue', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -130,6 +131,8 @@ export const MANIFEST_KEYS_V2 = [
   'modes',
   // Phase 23.17: the timelines (sequencer assets) the game plays.
   'timelines',
+  // Phase 23.16: the compiled conversations, speakers and dialogue settings (only when the project has conversations).
+  'dialogue',
   'scenes',
   'buffers',
   'assets',
@@ -291,6 +294,8 @@ export interface RuntimeContentManifestV2 {
   /** Phase 23.9a: the project UI themes and documents (present only when the project has some). */
   uiThemes?: UiTheme[];
   uiDocuments?: UiDocument[];
+  /** Phase 23.16: the dialogue runner's data (present only when the project has conversations). */
+  dialogue?: RuntimeDialogueData;
   /** Phase 23.10: the game modes (present only when the project has some). */
   modes?: GameMode[];
   /** Phase 23.17: the timelines (present only when the project has some). */
@@ -613,6 +618,8 @@ export interface CaptureManifestV2Input {
   /** Phase 23.9a: the project UI themes and documents (only when the project has some). */
   uiThemes?: readonly UiTheme[];
   uiDocuments?: readonly UiDocument[];
+  /** Phase 23.16: the dialogue runner's data (`dialogueForRuntime`; only when the project has conversations). */
+  dialogue?: RuntimeDialogueData | null;
   /** Phase 23.10: the game modes (only when the project has some). */
   modes?: readonly GameMode[];
   /** Phase 23.17: the timelines (only when the project has some). */
@@ -762,6 +769,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
     ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
+    ...(input.dialogue !== undefined && input.dialogue !== null ? { dialogue: JSON.parse(JSON.stringify(input.dialogue)) as RuntimeDialogueData } : {}),
     ...(input.modes !== undefined && input.modes.length > 0 ? { modes: canonicalModes(input.modes) } : {}),
     ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
@@ -909,6 +917,10 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['blockTypes'] !== undefined) validateBlockTypes(d['blockTypes'], '/blockTypes', blockErrors);
     if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
     if (blockErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value') };
+  }
+  if (d['dialogue'] !== undefined) {
+    const why = runtimeDialogueDataProblem(d['dialogue']);
+    if (why !== null) return { ok: false, error: manifestError('manifest_invalid', `dialogue: ${why}`.slice(0, 256), 'field_value') };
   }
   if (d['saveSchema'] !== undefined) {
     const saveErrors: ModelErrorV2[] = [];

@@ -144,6 +144,12 @@ export type V3MutationOp =
   | 'deleteUiDocument'
   | 'setUiTheme'
   | 'deleteUiTheme'
+  // phase 23.16: dialogue (conversations, speakers, settings)
+  | 'setDialogue'
+  | 'deleteDialogue'
+  | 'setSpeaker'
+  | 'deleteSpeaker'
+  | 'setDialogueSettings'
   // phase 23.10: game modes and behavior groups
   | 'setModes'
   | 'setBehaviorGroups'
@@ -600,6 +606,30 @@ export interface SetUiInverse {
   restore: UiDocument | UiTheme | null;
 }
 
+/** Phase 23.16: what a dialogue op changes: one conversation, one speaker, or the dialogue settings (id ''). */
+export type DialogueKind = 'dialogue' | 'speaker' | 'settings';
+type DialogueValueOf = import('@thirdlight/project-model').DialogueDocument | import('@thirdlight/project-model').DialogueSpeaker | import('@thirdlight/project-model').DialogueSettings;
+
+/**
+ * Phase 23.16: `setDialogue`/`deleteDialogue`/`setSpeaker`/`deleteSpeaker`/
+ * `setDialogueSettings` change data: the value before and after (null = none).
+ */
+export interface SetDialogueChange {
+  type: 'setDialogue';
+  dialogueKind: DialogueKind;
+  id: string;
+  previous: DialogueValueOf | null;
+  next: DialogueValueOf | null;
+}
+
+/** Phase 23.16: undo of a dialogue op: restore the previous value (null = remove it). */
+export interface SetDialogueInverse {
+  kind: 'setDialogue';
+  dialogueKind: DialogueKind;
+  id: string;
+  restore: DialogueValueOf | null;
+}
+
 /** Phase 20.0: undo of an effect op: restore the previous effect (null = remove it). */
 export interface SetEffectInverse {
   kind: 'setEffect';
@@ -926,6 +956,7 @@ export type ChangeData =
   | SetCellFieldsChange
   | SetBlockStampChange
   | SetUiChange
+  | SetDialogueChange
   | SetModesChange
   | SetBehaviorGroupsChange
   | SetUiChange
@@ -969,6 +1000,7 @@ export type ForwardChange =
   | SetCellFieldsChange
   | SetBlockStampChange
   | SetUiChange
+  | SetDialogueChange
   | SetModesChange
   | SetBehaviorGroupsChange
   | SetUiChange
@@ -1161,6 +1193,7 @@ export type InverseSpec =
   | SetEffectInverse
   | SetScriptLibraryInverse
   | SetUiInverse
+  | SetDialogueInverse
   | SetModesInverse
   | SetBehaviorGroupsInverse
   | SetTimelineInverse
@@ -1626,6 +1659,27 @@ export interface SetBehaviorGroupsArgs {
   groups: string[];
 }
 
+/** Phase 23.16: `setDialogue` creates or replaces one conversation (by dialogueId; absent graph = a new one's Start node, or the stored graph when renaming). */
+export interface SetDialogueArgs {
+  dialogue: { dialogueId: string; name: string; graph?: import('@thirdlight/project-model').GraphData };
+}
+/** Phase 23.16: `deleteDialogue` removes one (refused while a Jump names it). */
+export interface DeleteDialogueArgs {
+  dialogueId: string;
+}
+/** Phase 23.16: `setSpeaker` creates or replaces one speaker (by speakerId). */
+export interface SetSpeakerArgs {
+  speaker: import('@thirdlight/project-model').DialogueSpeaker;
+}
+/** Phase 23.16: `deleteSpeaker` removes one (refused while a line names it). */
+export interface DeleteSpeakerArgs {
+  speakerId: string;
+}
+/** Phase 23.16: `setDialogueSettings` replaces the dialogue settings (null = the defaults). */
+export interface SetDialogueSettingsArgs {
+  settings: import('@thirdlight/project-model').DialogueSettings | null;
+}
+
 /** Phase 23.17: `setTimeline` creates or replaces one timeline (by timelineId). */
 export interface SetTimelineArgs {
   timeline: TimelineAsset;
@@ -1692,6 +1746,11 @@ export type MutationArgs =
   | DeleteUiDocumentArgs
   | SetUiThemeArgs
   | DeleteUiThemeArgs
+  | SetDialogueArgs
+  | DeleteDialogueArgs
+  | SetSpeakerArgs
+  | DeleteSpeakerArgs
+  | SetDialogueSettingsArgs
   | SetModesArgs
   | SetBehaviorGroupsArgs
   | SetScriptLibraryArgs

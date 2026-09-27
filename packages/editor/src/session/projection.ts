@@ -674,6 +674,8 @@ export class Projection {
       case 'setBlockStamp':
       // Phase 23.9a: UI documents and themes too.
       case 'setUi':
+      // Phase 23.16: dialogue content too.
+      case 'setDialogue':
       // Phase 23.17: timelines too.
       case 'setTimeline':
         return true;

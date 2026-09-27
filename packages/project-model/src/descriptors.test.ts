@@ -816,6 +816,9 @@ function runAllProbes(): void {
   // Phase 23.9a: UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
+  // Phase 23.16: dialogue (json items; the settings a json block).
+  probe('dialogues', contentErrors, contentDoc({ dialogues: [{ dialogueId: 'talk', name: 'Talk', graph: { nodes: [{ id: 'start', type: 'start', position: [0, 0] }], edges: [] } }] }), '/dialogues', block('dialogues'), 'dialogues:');
+  probe('speakers', contentErrors, contentDoc({ speakers: [{ speakerId: 'guide', name: 'Guide', color: '#80c0ff' }] }), '/speakers', block('speakers'), 'speakers:');
   // Phase 23.10: game modes (every field, the references present) and behavior groups.
   // (The shape validator: the references to documents, maps and groups are the project's check, tested in modes.test.ts.)
   probe('modes', (v) => errorsOf((e) => validateModes(v, '', e)), [{ modeId: 'explore', name: 'Explore', inputMaps: ['gameplay', 'tactical'], camera: 'cam-0001', ui: ['hud'], groups: ['field'], ungrouped: 'pause', pause: false, pauseScreen: 'hud', timeScale: 0.5, physics: 'hold', enter: { blend: 'eased', blendTime: 0.5, fade: 'fade', fadeTime: 0.25 } }], '', block('modes'), 'modes:');

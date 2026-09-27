@@ -139,3 +139,6 @@ export type { ProjectSavesObservation } from './host';
 export { createInputBindings, REBIND_DEFAULT_CANCEL, REBIND_DEFAULT_POLICY, REBIND_DEFAULT_TIMEOUT_S, type BindingsControllerDeps, type BindingsInputOwner, type InputBindingsController, type ListenOptions } from './rebind';
 export { applyOverrides, applyRebind, bindingFrom, findConflicts, overridesOf, resetBindings, resolveTarget, validBinding, type Captured, type ConfigData, type RebindResult, type RebindTarget } from './input-bindings';
 export { bindingGlyph, gamepadFamily, glyphDataUrl, glyphSvg, keyName, padAxisGlyph, padButtonGlyph, GLYPH_ICONS, type GlyphIcon, type GlyphOverrides } from './glyphs';
+// Phase 23.16: the dialogue previewer (the editor's dialogue tab plays a conversation with the host's UI layer and audio, outside Play).
+export { createDialoguePreview, type DialoguePreview, type DialoguePreviewDeps, type DialoguePreviewObservation } from './dialogue-preview';
+export type { DialogueObservation } from './host';

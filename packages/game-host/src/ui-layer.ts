@@ -21,6 +21,7 @@
  * document's action map becomes the input owner's active map. World-anchored
  * widgets follow an entity or a point through the renderer's camera.
  */
+import type { DialogueInputRecord } from '@thirdlight/runtime';
 import { applyUiOutputToModel, readUiPath, uiPathSegments, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiWidget } from '@thirdlight/runtime';
 import type { FlowUiEdges } from './flow';
 import type { HostDom, HostDomNode } from './hud';
@@ -51,6 +52,8 @@ export interface UiLayerDeps {
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
   /** A UI event for the simulation (the runtime's `queueUiEvent`). */
   readonly queueEvent: (event: UiEventRecord) => void;
+  /** Phase 23.16: a dialogue input for the simulation (the runtime's `queueDialogueInput`). */
+  readonly dialogueInput?: (input: DialogueInputRecord) => void;
   /** An engine action (the host's flow: resume, quit to title, save, load, a setting, mute). */
   readonly engineAction: (action: Extract<UiAction, { do: 'engine' }>) => void;
   /** The host values `$flow.*` bindings read (null: no flow). */
@@ -119,6 +122,8 @@ interface Rec {
   enabled: boolean;
   textKey?: string;
   tokens?: RichToken[];
+  /** Phase 23.16: the content binding's text the tokens were parsed from. */
+  contentText?: string;
   textEl?: UiNode;
   textSpans?: UiNode[];
   barFill?: UiNode;
@@ -312,7 +317,7 @@ class DocView {
     // A world-anchored widget is placed in the document's own box (not its parent's), whatever its parent lays out.
     (anchored ? this.content : parent).appendChild(el);
     if (w.type === 'text' || (w.type === 'button' && w.text !== undefined)) {
-      rec.tokens = parseRichText(w.text ?? '');
+      rec.tokens = w.type === 'text' && w.content !== undefined ? [] : parseRichText(w.text ?? '');
       rec.textEl = w.type === 'text' ? el : (dom.createElement('span') as UiNode);
       if (rec.textEl !== el) {
         classes(rec.textEl, ['tl-ui-text']);
@@ -445,21 +450,60 @@ class DocView {
   }
 
   private renderText(rec: Rec): void {
+    // Phase 23.16: a content binding is rich text from the view model (braces are text); a reveal shows the first N visible characters.
+    const w = rec.w;
+    let contentText: string | null = null;
+    if (w.type === 'text' && w.content !== undefined) {
+      contentText = uiValueText(this.resolve(w.content, rec.scope));
+      if (rec.contentText !== contentText) {
+        rec.contentText = contentText;
+        rec.tokens = parseRichText(contentText, { values: false });
+      }
+    }
+    let reveal: number | null = null;
+    if (w.type === 'text' && w.reveal !== undefined) {
+      const r = this.resolve(w.reveal, rec.scope);
+      reveal = typeof r === 'number' && Number.isFinite(r) ? Math.max(0, Math.floor(r)) : null;
+    }
     const tokens = rec.tokens!;
     const glyphs = tokens.map((t) => (t.t === 'glyph' ? (this.layer.deps.glyph?.(t.action) ?? null) : null));
     const values = tokens.map((t, i) => (t.t === 'value' ? uiValueText(this.layer.resolvePath(t.path, rec.scope)) : t.t === 'icon' ? (this.layer.iconUrl(this, t.name) ?? '') : t.t === 'glyph' ? `${glyphs[i]?.label ?? ''}|${glyphs[i]?.url ?? ''}` : ''));
-    const key = values.join('\u0000');
+    const key = `${contentText ?? ''}\u0001${reveal ?? ''}\u0001${values.join('\u0000')}`;
     if (rec.textKey === key) return;
     rec.textKey = key;
     const host = rec.textEl!;
     for (const old of rec.textSpans ?? []) old.remove();
     rec.textSpans = [];
     const dom = this.layer.dom;
+    if (reveal !== null) host.setAttribute?.('data-reveal', String(reveal));
+    // Characters still to show under a reveal (null: all); hidden ones keep their place (the text does not reflow as it types).
+    let left = reveal;
+    const hide = (span: UiNode): void => setProp(span, 'visibility', 'hidden');
     tokens.forEach((t, i) => {
       const span = dom.createElement('span') as UiNode;
-      if (t.t === 'text') span.textContent = t.text;
+      if ((t.t === 'text' || t.t === 'value') && left !== null) {
+        const chars = Array.from(t.t === 'text' ? t.text : values[i]!);
+        if (left >= chars.length) {
+          span.textContent = chars.join('');
+          left -= chars.length;
+        } else {
+          span.textContent = chars.slice(0, left).join('');
+          const rest = dom.createElement('span') as UiNode;
+          rest.textContent = chars.slice(left).join('');
+          hide(rest);
+          span.appendChild(rest);
+          left = 0;
+        }
+      } else if (t.t === 'text') span.textContent = t.text;
       else if (t.t === 'value') span.textContent = values[i]!;
-      else if (t.t === 'glyph') {
+      else if (t.t === 'glyph' || t.t === 'icon') {
+        // An icon or a glyph counts as one character of a reveal.
+        if (left !== null) {
+          if (left <= 0) hide(span);
+          else left -= 1;
+        }
+      }
+      if (t.t === 'glyph') {
         // Phase 23.14: the glyph image, its label for readers (and as text when there is no binding image).
         const g = glyphs[i];
         classes(span, ['tl-ui-glyph']);
@@ -476,7 +520,7 @@ class DocView {
           setProp(span, 'vertical-align', 'middle');
           setProp(span, 'background', `center / contain no-repeat url("${g.url.replace(/"/g, '%22')}")`);
         }
-      } else {
+      } else if (t.t === 'icon') {
         classes(span, ['tl-ui-icon']);
         span.setAttribute?.('data-icon', t.name);
         this.layer.styleIcon(this, span, t.name);
@@ -1029,6 +1073,13 @@ class LayerImpl implements UiLayer {
         case 'play':
           v.play(a.tween, a.widget);
           break;
+        case 'dialogue': {
+          // Phase 23.16: a dialogue input (choose: the action's value, else the list item's index).
+          const idx = a.input === 'choose' ? (a.value ?? index) : undefined;
+          if (a.input === 'choose' && idx === undefined) break;
+          this.deps.dialogueInput?.({ kind: a.input, ...(idx !== undefined ? { index: idx } : {}) });
+          break;
+        }
         case 'mode':
           // Phase 23.10: a game mode switch rides on the next input frame (applied before that step's scripts).
           this.deps.queueEvent({ kind: 'mode', doc, widget, name: '', value: a.mode });

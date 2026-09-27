@@ -15,6 +15,7 @@
 
 import { timelineRefs, type TimelineAsset } from './timelines';
 import { uiAssetRefs, type UiDocument, type UiTheme } from './ui-documents';
+import { dialogueAssetRefs, type DialogueDocument, type DialogueSpeaker } from './dialogue';
 import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { fail, fieldValue, isPlainObject, withFound } from './validate';
 import { ID_RE_V2 } from './components';
@@ -146,6 +147,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   // Phase 23.9a: the textures (images, 9-slices, icons) and fonts the UI documents and themes use.
   const ui = uiAssetRefs((content as { uiDocuments?: UiDocument[] }).uiDocuments, (content as { uiThemes?: UiTheme[] }).uiThemes);
   for (const id of [...ui.textures, ...ui.fonts]) setRef(id);
+  // Phase 23.16: voice clips, speaker portraits and text blips.
+  for (const id of dialogueAssetRefs(content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[] })) setRef(id);
   // Phase 23.17: the sounds the timelines play.
   for (const id of timelineRefs((content as { timelines?: TimelineAsset[] }).timelines).assets) setRef(id);
   // Phase 9.5: the sky images and the grading LUT.

@@ -145,6 +145,9 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   // Text.
   str('text', 'Text', 'Rich text: [b] [i] [color=#…] [size=N] [icon=name], and {path} for view-model values.', { group: 'Text', format: 'multiline', maxLength: UI_LIMITS.textChars, when: when('type', 'text'), required: true, default: 'Text' }),
   str('text', 'Label', 'The button\'s rich text (same markup as a text widget).', { group: 'Text', format: 'multiline', maxLength: UI_LIMITS.textChars, when: when('type', 'button') }),
+  // Phase 23.16: rich text from the view model, and a typewriter reveal.
+  binding('content', 'Content', 'Rich text read from a view-model path instead of Text (markup parsed, braces are text) — e.g. dialogue.line.text.', 'text', { group: 'Text', when: when('type', 'text') }),
+  binding('reveal', 'Reveal', 'Show only the first N visible characters (a typewriter; the rest keeps its place) — a number or a view-model path such as dialogue.line.reveal.', 'number', { group: 'Text', when: when('type', 'text') }),
   // Image.
   binding('image', 'Image', 'A texture asset (or a view-model path naming one that some document also uses).', 'texture', { group: 'Image', when: when('type', 'image'), required: true }),
   four('slice', '9-slice', 'Insets that do not stretch: top, right, bottom, left in image pixels.', 0, 4096, { group: 'Image', when: when('type', 'image') }),
@@ -174,7 +177,7 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   // Focus and events.
   bool('focusable', 'Focusable', 'Keyboard/gamepad focus can land here (buttons and inputs are focusable unless off).', { group: 'Focus' }),
   NAV,
-  actions('onClick', 'On click', 'What a click (or Enter / pad A) does: raise an event, an engine action, show/hide a document, play a tween.', { when: when('type', 'button') }),
+  actions('onClick', 'On click', 'What a click (or Enter / pad A) does: raise an event, an engine action, show/hide a document, play a tween, a dialogue input.', { when: when('type', 'button') }),
   actions('onSubmit', 'On submit', 'What Enter in the input does (an event carries the text).', { when: when('type', 'input') }),
   actions('onFocus', 'On focus', 'What getting the focus does.'),
   WORLD_ANCHOR,

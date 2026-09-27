@@ -252,3 +252,37 @@ describe('phase 23.14: glyphs in UI texts and rebinding engine actions', () => {
     expect(engine).toEqual([{ do: 'engine', action: 'rebind', input: 'jump', device: 'gamepad' }]);
   });
 });
+
+describe('phase 23.16: content text, typewriter reveal and dialogue actions', () => {
+  const DLG: UiDocument = {
+    uiDocumentId: 'talk',
+    name: 'Talk',
+    root: {
+      type: 'panel',
+      children: [
+        { id: 'line', type: 'text', content: { bind: 'd.text' }, reveal: { bind: 'd.reveal' } },
+        { id: 'next', type: 'button', text: 'Next', onClick: { do: 'dialogue', input: 'advance' } },
+        { id: 'opts', type: 'list', items: { bind: 'd.choices' }, template: { id: 'opt', type: 'button', text: '{$item.text}', onClick: { do: 'dialogue', input: 'choose' } } },
+      ],
+    },
+  } as UiDocument;
+  it('draws the bound rich text (braces are text), hides characters past the reveal in place, and sends dialogue inputs', () => {
+    const container = new El('div');
+    const inputs: unknown[] = [];
+    const l = createUiLayer({ dom: fakeDom as never, container: container as never, documents: [DLG], readArtifact: async () => new ArrayBuffer(0), queueEvent: () => undefined, dialogueInput: (i) => inputs.push(i), engineAction: () => undefined, viewport: () => ({ width: 800, height: 450 }) });
+    l.applyOutput({ set: [['d', { text: 'Hi [b]{you}[/b]!', reveal: 4, choices: [{ text: 'A' }, { text: 'B' }] }]], commands: [], shown: [{ doc: 'talk', layer: 0, modal: false }] });
+    l.frame();
+    const line = widget(container, 'line');
+    expect(line.text()).toBe('Hi {you}!');
+    const hidden = find(line, (e) => e.style['visibility'] === 'hidden');
+    expect(hidden.map((e) => e.text()).join('')).toBe('you}!');
+    expect(line.attrs['data-reveal']).toBe('4');
+    // The whole line once the reveal passes its length.
+    l.applyOutput({ set: [['d.reveal', 99]], commands: [] });
+    l.frame();
+    expect(find(widget(container, 'line'), (e) => e.style['visibility'] === 'hidden')).toEqual([]);
+    widget(container, 'next').fire('click');
+    find(container, (e) => e.attrs['data-widget'] === 'opt')[1]!.fire('click');
+    expect(inputs).toEqual([{ kind: 'advance' }, { kind: 'choose', index: 1 }]);
+  });
+});

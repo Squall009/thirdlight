@@ -226,7 +226,7 @@ export type AudioCommandLike =
   | { readonly op: 'fade'; readonly stepIndex: number; readonly handle: number; readonly to: number; readonly seconds: number }
   | { readonly op: 'set'; readonly stepIndex: number; readonly handle: number; readonly volume?: number; readonly pitch?: number; readonly loop?: boolean }
   | { readonly op: 'music'; readonly stepIndex: number; readonly assetId: string | null; readonly fade: number; readonly release?: true }
-  | { readonly op: 'duck'; readonly stepIndex: number; readonly level: number; readonly seconds: number }
+  | { readonly op: 'duck'; readonly stepIndex: number; readonly level: number; readonly seconds: number; readonly bus?: 'sfx' }
   | { readonly op: 'bus'; readonly stepIndex: number; readonly bus: 'sfx' | 'music' | 'voice' | 'ui'; readonly volume: number; readonly seconds: number }
   | { readonly op: 'reset'; readonly stepIndex: number };
 
@@ -258,6 +258,8 @@ export interface AudioObservation {
   /** Every live voice (script sounds and panned audio sources). */
   readonly voiceCount: number;
   readonly music: { readonly owner: 'script' | 'flow'; readonly assetId: string | null; readonly playing: boolean; readonly duck: number };
+  /** Phase 23.16: the SFX duck node's value now (a dialogue voice ducks effects; 1 = not ducked). */
+  readonly sfxDuck: number;
   /** Each bus gain node's value (the player's volume × the scripts' mix). */
   readonly buses: Readonly<Record<'sfx' | 'music' | 'voice' | 'ui', number>>;
   readonly listener: { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
@@ -387,6 +389,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   /** Phase 23.13: the music duck, between the tracks and the music bus. */
   let duckNode: GainNodeLike | null = null;
   let duckLevel = 1;
+  /** Phase 23.16: the SFX duck (a dialogue voice ducks effects) — a factor of the SFX bus gain (no extra node: the graph stays as it was). */
+  let sfxDuckLevel = 1;
   /** Phase 23.13: the scripts' mix per bus (each bus gain = the player's volume × this). */
   const mix: Record<'sfx' | 'music' | 'voice' | 'ui', number> = { sfx: 1, music: 1, voice: 1, ui: 1 };
   const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
@@ -397,7 +401,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   let wantedFade = 1;
   let track: { assetId: string; source: BufferSourceLike; gain: GainNodeLike } | null = null;
 
-  const busGain = (bus: Exclude<AudioBus, 'master'>): number => volumes[bus] * mix[bus];
+  const busGain = (bus: Exclude<AudioBus, 'master'>): number => volumes[bus] * mix[bus] * (bus === 'sfx' ? sfxDuckLevel : 1);
 
   function ensureBuses(ctx: AudioContextLike): Record<AudioBus, GainNodeLike> {
     if (buses !== null) return buses;
@@ -589,7 +593,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     }
   }
 
-  function setDuck(level: number, seconds: number): void {
+  function setDuck(level: number, seconds: number, bus?: 'sfx'): void {
+    if (bus === 'sfx') {
+      sfxDuckLevel = clamp01(level);
+      if (buses !== null && context !== null) ramp(buses.sfx, busGain('sfx'), seconds, context);
+      return;
+    }
     duckLevel = clamp01(level);
     if (duckNode !== null && context !== null) ramp(duckNode, duckLevel, seconds, context);
   }
@@ -681,7 +690,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         refreshWantedMusic(c.fade);
         return;
       case 'duck':
-        setDuck(c.level, c.seconds);
+        setDuck(c.level, c.seconds, c.bus);
         return;
       case 'bus':
         setMix(c.bus, c.volume, c.seconds);
@@ -689,6 +698,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       case 'reset':
         for (const v of [...handleVoices.values()]) releaseHandle(v, true);
         setDuck(1, 0);
+        setDuck(1, 0, 'sfx');
         for (const b of ['sfx', 'music', 'voice', 'ui'] as const) setMix(b, 1, 0);
         if (scriptMusic !== undefined) {
           scriptMusic = undefined;
@@ -1366,6 +1376,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         voices: out.slice(0, AUDIO_OBSERVED_VOICES),
         voiceCount: out.length,
         music: { owner: scriptMusic !== undefined ? 'script' : 'flow', assetId: wantedMusic, playing: track !== null && track.assetId === wantedMusic, duck: r4(duckNode !== null ? duckNode.gain.value : duckLevel) },
+        sfxDuck: r4(sfxDuckLevel),
         buses: {
           sfx: r4(b !== null ? b.sfx.gain.value : busGain('sfx')),
           music: r4(b !== null ? b.music.gain.value : busGain('music')),
