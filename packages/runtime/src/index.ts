@@ -164,6 +164,8 @@ export {
   validatePhaseList,
 } from './registry';
 export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, instantiateRuntime, sessionTimingSteps } from './runtime';
+// Phase 23.3: the per-step budget of 3D script queries; the pointer state the runtime keeps.
+export { QUERY_LIMIT_3D, type HeldPointer } from './runtime';
 export {
   BEHAVIOR_MODULE_PREFIX,
   BEHAVIOR_SELF_OWNER,
