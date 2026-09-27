@@ -24,6 +24,7 @@
  */
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected packet-33 compiler port (structural; no behavior-build edge). */
@@ -383,6 +384,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
   const assetArtifacts: ClosureArtifact[] = [];
   const assets: ManifestAssetInputV2[] = [];
+  /** Phase 23.11: the model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
+  const modelBytes = new Map<string, Uint8Array>();
   for (const a of view.assets) {
     const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
     if (!read.ok) {
@@ -406,6 +409,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
         },
       };
     }
+    if (a.kind === 'model') modelBytes.set(a.assetId, read.bytes);
     assetArtifacts.push({
       path: `content/sha256/${read.digest}`,
       bytes: read.bytes,
@@ -457,6 +461,10 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     }
   }
 
+  // 5c. Phase 23.11: the model rigs, only when the project uses sockets (a socketAttach component in a scene
+  //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
+  const rigs = usesSockets(input.scenes, prefabDefs, behaviorArtifacts) ? modelRigs(view.assets, modelBytes) : undefined;
+
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneDoc = input.scene;
   const sceneBytes = new TextEncoder().encode(`${JSON.stringify(sceneDoc, null, 2)}\n`);
@@ -493,6 +501,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
     // Phase 9.7: the animator controllers (the game's runtime steps them); phase 16.2: without the editor-only graph layout.
     ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: animatorsForRuntime((input.content as { animators: AnimatorController[] }).animators) } : {}),
+    // Phase 23.11: the rigs sockets are resolved on (the runtime never loads a model).
+    ...(rigs !== undefined ? { rigs } : {}),
     // Phase 14.1: a v4 game's prefabs (scripts spawn them at run time).
     ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
     ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
@@ -530,4 +540,55 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       declaredPaths,
     },
   };
+}
+
+/**
+ * Phase 23.11: whether a game uses sockets — an entity of a scene or a prefab
+ * carries `socketAttach`, or a compiled script names `sockets` (the
+ * `ctx.sockets` API; a false positive only ships the rigs).
+ */
+function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly PrefabDefinition[], behaviorArtifacts: readonly ClosureArtifact[]): boolean {
+  const has = (entities: unknown): boolean => Array.isArray(entities) && entities.some((e) => (e as { components?: Record<string, unknown> } | null)?.components?.['socketAttach'] !== undefined);
+  if ((scenes ?? []).some((sc) => has((sc as { entities?: unknown }).entities))) return true;
+  if (prefabs.some((d) => has(d.entities))) return true;
+  const decoder = new TextDecoder();
+  return behaviorArtifacts.some((b) => /\bsockets\b/.test(decoder.decode(b.bytes)));
+}
+
+/**
+ * Phase 23.11: every model's rig (nodes and node animation channels read from
+ * its GLB), with the clips of animation-only files ("clips for" a model)
+ * added to that model's rig. Within the engine's key budgets
+ * (`MODEL_RIG_LIMITS`): clips past them are left out and the rig is marked
+ * truncated. A file that cannot be read gets no rig (a socket on it warns).
+ */
+function modelRigs(assets: readonly { assetId: string; kind: string; clipsFor?: string }[], bytes: ReadonlyMap<string, Uint8Array>): Record<string, ModelRig> | undefined {
+  const out: Record<string, ModelRig> = {};
+  let budget = MODEL_RIG_LIMITS.projectKeyNumbers;
+  const sorted = [...assets].filter((a) => a.kind === 'model').sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
+  const used = new Map<string, number>();
+  for (const a of sorted) {
+    if (a.clipsFor !== undefined) continue;
+    const b = bytes.get(a.assetId);
+    if (b === undefined) continue;
+    const r = readModelRig(b, a.assetId, Math.min(MODEL_RIG_LIMITS.keyNumbers, budget));
+    if (!r.ok) continue;
+    budget -= r.keyNumbers;
+    used.set(a.assetId, r.keyNumbers);
+    out[a.assetId] = r.rig;
+  }
+  for (const a of sorted) {
+    if (a.clipsFor === undefined) continue;
+    const rig = out[a.clipsFor];
+    const b = bytes.get(a.assetId);
+    if (rig === undefined || b === undefined) continue;
+    const room = Math.min(MODEL_RIG_LIMITS.keyNumbers - (used.get(a.clipsFor) ?? 0), budget);
+    const r = readModelRig(b, a.assetId, Math.max(0, room));
+    if (!r.ok) continue;
+    budget -= r.keyNumbers;
+    used.set(a.clipsFor, (used.get(a.clipsFor) ?? 0) + r.keyNumbers);
+    const clips = [...rig.clips, ...r.rig.clips].slice(0, MODEL_RIG_LIMITS.clips * 4);
+    out[a.clipsFor] = { nodes: rig.nodes, clips, ...(rig.truncated === true || r.rig.truncated === true ? { truncated: true as const } : {}) };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }

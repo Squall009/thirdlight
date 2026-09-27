@@ -28,7 +28,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { CAMERA_PATH_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -491,6 +491,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 23.4: the camera framework.
   virtualCamera: VIRTUAL_CAMERA_FIELDS,
   cameraPath: CAMERA_PATH_FIELDS,
+  // Phase 23.11: sockets.
+  socketAttach: SOCKET_ATTACH_FIELDS,
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -521,6 +523,7 @@ const OWNED: readonly OwnedComponent[] = [
   'effect',
   'virtualCamera',
   'cameraPath',
+  'socketAttach',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -552,6 +555,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'effect',
   'virtualCamera',
   'cameraPath',
+  'socketAttach',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -727,6 +731,7 @@ export function validateSetComponentArgs(
     component === 'effect' ||
     component === 'virtualCamera' ||
     component === 'cameraPath' ||
+    component === 'socketAttach' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||

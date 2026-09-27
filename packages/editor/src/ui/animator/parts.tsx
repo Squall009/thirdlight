@@ -39,6 +39,12 @@ export interface AnimatorPreview {
   state(): string;
   /** Phase 14.6: every layer's current state (the base layer first). */
   layerStates?(): string[];
+  /** Phase 23.11: the playback speed (× every clip and crossfade, as ctx.animator(id).setSpeed sets it in the game). */
+  setSpeed?(speed: number): void;
+  /** Phase 23.11: seconds into the base layer's (heaviest) clip now. */
+  clipTime?(): number;
+  /** Phase 23.11: seconds the preview has stepped (before the speed; the clip time runs at speed × this). */
+  elapsed?(): number;
   dispose(): void;
 }
 
@@ -356,8 +362,14 @@ export function LivePreview({ controller, start, onStates }: { controller: Anima
   const [on, setOn] = useState(false);
   const [state, setState] = useState('');
   const [layerStates, setLayerStates] = useState<string[]>([]);
+  const [clipTime, setClipTime] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, number | boolean>>({});
+  // Phase 23.11: the preview's playback speed (kept across restarts, like the parameter values).
+  const [speed, setSpeed] = useState(1);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const live = useRef<AnimatorPreview | null>(null);
   const valuesRef = useRef(values);
@@ -384,6 +396,7 @@ export function LivePreview({ controller, start, onStates }: { controller: Anima
       }
       setError(null);
       for (const [k, v] of Object.entries(valuesRef.current)) r.set(k, v);
+      r.setSpeed?.(speedRef.current);
       live.current = r;
     });
     let last = '';
@@ -392,6 +405,8 @@ export function LivePreview({ controller, start, onStates }: { controller: Anima
       const ls = live.current?.layerStates?.() ?? [];
       setState(s);
       setLayerStates(ls);
+      setClipTime(live.current?.clipTime?.() ?? 0);
+      setElapsed(live.current?.elapsed?.() ?? 0);
       const all = ls.length > 0 ? ls : s !== '' ? [s] : [];
       if (all.join('|') !== last) {
         last = all.join('|');
@@ -424,7 +439,7 @@ export function LivePreview({ controller, start, onStates }: { controller: Anima
       )}
       {on && (
         <>
-          <canvas className="tl-animator__preview" aria-label="animator preview" data-state={state} data-layer-states={layerStates.slice(1).join('|')} ref={canvas} />
+          <canvas className="tl-animator__preview" aria-label="animator preview" data-state={state} data-layer-states={layerStates.slice(1).join('|')} data-clip-time={clipTime.toFixed(4)} data-elapsed={elapsed.toFixed(4)} ref={canvas} />
           <div className="tl-hint">
             state: <b aria-label="preview state">{state}</b>
             {layerStates.slice(1).map((x, i) => (
@@ -433,6 +448,23 @@ export function LivePreview({ controller, start, onStates }: { controller: Anima
                 · {controller.layers?.[i]?.name ?? `layer ${i + 1}`}: <b aria-label={`preview layer ${i + 1} state`}>{x}</b>
               </span>
             ))}
+          </div>
+          <div className="tl-animator__row">
+            <span className="tl-animator__param" title="Playback speed of every clip and crossfade (scripts: ctx.animator(id).setSpeed).">speed</span>
+            <input
+              type="range"
+              aria-label="preview speed"
+              min={0}
+              max={3}
+              step={0.05}
+              value={speed}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setSpeed(v);
+                live.current?.setSpeed?.(v);
+              }}
+            />
+            <small aria-label="preview speed value">×{speed.toFixed(2)}</small>
           </div>
           {controller.parameters.map((x) => (
             <div className="tl-animator__row" key={x.name}>

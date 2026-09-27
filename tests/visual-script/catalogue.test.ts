@@ -89,7 +89,8 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true) },
     animator: (id: string) => {
       calls.push('animator');
-      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle') };
+      // Phase 23.11: per-instance speed and morph weights.
+      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle'), setSpeed: rec('animator.setSpeed', true), speed: rec('animator.speed', 1), setMorph: rec('animator.setMorph', true), morph: rec('animator.morph', 0.5) };
     },
     events: [
       { type: 'enter', trigger: 'trigger-1', stepIndex: stepIndex - 1 },
@@ -121,6 +122,13 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       get: rec('camera.get', () => ({ rig: 'follow', enabled: true, priority: 0, live: true, target: 'box-1', distance: 5, yaw: 0, pitch: 20, progress: 0, railSpeed: 0, fovY: 60, letterbox: 0 })),
       worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
       screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
+    },
+    // Phase 23.11: sockets.
+    sockets: {
+      attach: rec('sockets.attach', true),
+      detach: rec('sockets.detach', true),
+      attachedTo: rec('sockets.attachedTo', () => ({ target: 'box-2', nodeName: 'hand' })),
+      nodePose: rec('sockets.nodePose', () => ({ position: [1, 2, 3], rotation: [0, 0, 0, 1] })),
     },
   };
 }

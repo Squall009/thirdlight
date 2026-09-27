@@ -158,6 +158,8 @@ export interface GameHostObservation {
   readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
+  readonly sockets?: readonly SocketObservation[];
 }
 
 /**
@@ -176,6 +178,16 @@ export interface GameHostSceneObservation {
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
   readonly camera?: CameraViewInfo;
+  /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
+  readonly sockets?: readonly SocketObservation[];
+}
+
+/** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
+export interface SocketObservation {
+  readonly entityId: string;
+  readonly target: string;
+  readonly node: string;
+  readonly position: readonly [number, number, number];
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -1294,8 +1306,41 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
+        ...socketsObservation(runtime),
       },
     };
+  };
+
+  /** Phase 23.11: the objects riding on sockets and where they are (world position, composed up their parents). */
+  const socketsObservation = (rt: Runtime): { sockets?: SocketObservation[] } => {
+    const list = rt.socketAttachments?.() ?? [];
+    if (list.length === 0) return {};
+    const parents = new Map<string, string>();
+    for (const e of config.snapshot.scene.entities as readonly { id: string; parentId?: string }[]) if (e.parentId !== undefined) parents.set(e.id, e.parentId);
+    const p = [0, 0, 0];
+    const r = [0, 0, 0, 1];
+    const s = [1, 1, 1];
+    const worldOf = (id: string): [number, number, number] | null => {
+      if (rt.readInterpolated === undefined || !rt.readInterpolated(id, p, r, s)) return null;
+      let x = p[0]!, y = p[1]!, z = p[2]!;
+      for (let cur = parents.get(id), guard = 0; cur !== undefined && guard < 64; cur = parents.get(cur), guard += 1) {
+        if (!rt.readInterpolated(cur, p, r, s)) break;
+        // x := parentPos + parentRot · (parentScale ⊙ x)
+        const sx = x * s[0]!, sy = y * s[1]!, sz = z * s[2]!;
+        const [ax, ay, az, aw] = r as [number, number, number, number];
+        const tx = 2 * (ay * sz - az * sy), ty = 2 * (az * sx - ax * sz), tz = 2 * (ax * sy - ay * sx);
+        x = p[0]! + sx + aw * tx + (ay * tz - az * ty);
+        y = p[1]! + sy + aw * ty + (az * tx - ax * tz);
+        z = p[2]! + sz + aw * tz + (ax * ty - ay * tx);
+      }
+      return [x, y, z];
+    };
+    const out: SocketObservation[] = [];
+    for (const a of list.slice(0, 64)) {
+      const at = worldOf(a.entityId);
+      if (at !== null) out.push({ entityId: a.entityId, target: a.target, node: a.node, position: at });
+    }
+    return out.length > 0 ? { sockets: out } : {};
   };
 
   /** Phase 23.4: the resolved camera, while the game has virtual cameras. */
@@ -1327,6 +1372,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
         ...scenesObservation(runtime),
         ...cameraObservation(runtime),
+        ...socketsObservation(runtime),
       },
     };
   };

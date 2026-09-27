@@ -20,6 +20,7 @@
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
+import { canonicalSocketAttach, SOCKET_ATTACH_CONFLICTS, validateSocketAttachComponent, type SocketAttachComponent } from './sockets';
 import { canonicalCameraPath, canonicalVirtualCamera, validateCameraPathComponent, validateVirtualCameraComponent, type CameraPathComponent, type VirtualCameraComponent } from './cameras';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
 import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, type FogVolumeComponent, type MaterialParamsComponent } from './materials';
@@ -131,7 +132,7 @@ export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'socketAttach'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 /** Phase 15.3 (v4): the follow distance and the speed cap. */
@@ -917,6 +918,8 @@ function validateEntityComponentsV3(
   // Phase 23.4: a virtual camera shot and a path rail cameras ride (any entity may carry them).
   if (comps['virtualCamera'] !== undefined) validateVirtualCameraComponent(comps['virtualCamera'], `${path}/virtualCamera`, errors);
   if (comps['cameraPath'] !== undefined) validateCameraPathComponent(comps['cameraPath'], `${path}/cameraPath`, errors);
+  // Phase 23.11: the entity rides on a node of another entity's model.
+  if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
   // Phase 9.9: gameplay building blocks.
@@ -990,6 +993,25 @@ function validateEntityComponentsV3(
         'virtualCamera',
       ),
     );
+  }
+  // Phase 23.11: a socket poses the entity every step — a physics body (posed by physics) or the scene camera (posed by its
+  // camera module) cannot ride on one.
+  if (comps['socketAttach'] !== undefined) {
+    const clash = SOCKET_ATTACH_CONFLICTS.filter((c) => comps[c] !== undefined);
+    if (clash.length > 0) {
+      errors.push(
+        withFound(
+          {
+            code: 'component_conflict',
+            path: `${path}/socketAttach`,
+            message: `an object on a socket is posed by the socket: it cannot also carry ${clash.join(', ')}`,
+            reason: 'socket_attach',
+            expected: `no ${SOCKET_ATTACH_CONFLICTS.join(', ')} on a socketAttach entity`,
+          },
+          'socketAttach',
+        ),
+      );
+    }
   }
   if (comps['gameZone'] !== undefined && (comps['collider'] !== undefined || comps['controller'] !== undefined)) {
     errors.push(
@@ -1212,6 +1234,8 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   // Phase 23.4: last, so every existing entity keeps its exact canonical bytes.
   if (comps['virtualCamera'] !== undefined) (components as { virtualCamera?: VirtualCameraComponent }).virtualCamera = canonicalVirtualCamera(comps['virtualCamera'] as VirtualCameraComponent);
   if (comps['cameraPath'] !== undefined) (components as { cameraPath?: CameraPathComponent }).cameraPath = canonicalCameraPath(comps['cameraPath'] as CameraPathComponent);
+  // Phase 23.11: last, so every existing entity keeps its exact canonical bytes.
+  if (comps['socketAttach'] !== undefined) (components as { socketAttach?: SocketAttachComponent }).socketAttach = canonicalSocketAttach(comps['socketAttach'] as SocketAttachComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean };
     components.instances = {

@@ -806,6 +806,11 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
       return fieldError('field_type', '/camera', 'camera is { live: id|null, blend: {from, progress, style}|null, position: [x,y,z], rotation: [x,y,z,w], fovY, near, far, letterbox, shake }');
     }
   }
+  // Phase 23.11: the optional objects riding on sockets (entity, target, node, world position).
+  if (value.sockets !== undefined) {
+    const ok = Array.isArray(value.sockets) && value.sockets.length <= 64 && value.sockets.every((x: unknown) => isPlainObject(x) && typeof x['entityId'] === 'string' && typeof x['target'] === 'string' && typeof x['node'] === 'string' && Array.isArray(x['position']) && (x['position'] as unknown[]).length === 3 && (x['position'] as unknown[]).every((n) => typeof n === 'number' && Number.isFinite(n)));
+    if (!ok) return fieldError('field_type', '/sockets', 'sockets is [{ entityId, target, node, position: [x, y, z] }] (at most 64)');
+  }
   // Phase 9.10: the optional game-flow block.
   if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
     return fieldError('field_type', '/flow', 'flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality, save?, score? }');

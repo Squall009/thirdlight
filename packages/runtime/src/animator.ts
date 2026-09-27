@@ -77,6 +77,8 @@ export interface AnimatorControllerLike extends GraphLike {
   readonly events: readonly { readonly assetId: string; readonly clip: string; readonly time: number; readonly name: string }[];
   /** Phase 14.6: override layers over the base layer. */
   readonly layers?: readonly AnimatorLayerLike[];
+  /** Phase 23.11: morph targets whose weight follows a float parameter (clamped to 0–1). */
+  readonly morphs?: readonly { readonly target: string; readonly parameter: string }[];
 }
 
 export interface AnimatorPoseClip {
@@ -105,7 +107,22 @@ export interface AnimatorPose {
   readonly clips: readonly AnimatorPoseClip[];
   /** Phase 14.6: the override layers (only when the controller has them). */
   readonly layers?: readonly AnimatorPoseLayer[];
+  /**
+   * Phase 23.11: morph target weights (0–1) by target name — the controller's
+   * parameter-bound targets and the ones scripts set (only when there are some).
+   */
+  readonly morphs?: Readonly<Record<string, number>>;
 }
+
+/**
+ * Phase 23.11: the playback speed range of one animator (a multiplier on
+ * every layer's clip time and crossfade). 0 holds the pose (a freeze frame);
+ * 10× is far past any fast-forward a game shows. Negative speeds are not
+ * offered: crossfades and exit times only run forwards.
+ */
+export const ANIMATOR_SPEED_LIMITS = Object.freeze({ min: 0, max: 10 });
+/** Phase 23.11: how many morph targets scripts may set on one animator (a face rig's worth). */
+export const MAX_SCRIPT_MORPHS = 64;
 
 export interface AnimatorEventFired {
   readonly name: string;
@@ -303,6 +320,10 @@ export class AnimatorMachine {
   /** The base layer, then the override layers. */
   private readonly graphs: LayerGraph[];
   private readonly layers: readonly AnimatorLayerLike[];
+  /** Phase 23.11: the per-instance playback speed (1 = as authored). */
+  private speedMul = 1;
+  private readonly morphBindings: readonly { readonly target: string; readonly parameter: string }[];
+  private readonly scriptMorphs = new Map<string, number>();
 
   constructor(controller: AnimatorControllerLike, overrides: Readonly<Record<string, AnimatorValue>> = {}) {
     for (const p of controller.parameters) {
@@ -317,6 +338,47 @@ export class AnimatorMachine {
     };
     this.layers = controller.layers ?? [];
     this.graphs = [controller, ...this.layers].map((g) => new LayerGraph(g, store, controller.events));
+    this.morphBindings = controller.morphs ?? [];
+  }
+
+  /**
+   * Phase 23.11: set the playback speed multiplier (every layer's clip time and
+   * crossfades; transitions still test every step). False for a value outside
+   * {@link ANIMATOR_SPEED_LIMITS} or not a finite number.
+   */
+  setSpeed(value: number): boolean {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < ANIMATOR_SPEED_LIMITS.min || value > ANIMATOR_SPEED_LIMITS.max) return false;
+    this.speedMul = value;
+    return true;
+  }
+
+  /** Phase 23.11: the playback speed multiplier. */
+  speed(): number {
+    return this.speedMul;
+  }
+
+  /**
+   * Phase 23.11: set a morph target's weight by its name (clamped to 0–1). It
+   * overrides a parameter binding of the same target. False for a bad name or
+   * value, or past {@link MAX_SCRIPT_MORPHS} names.
+   */
+  setMorph(name: string, weight: number): boolean {
+    if (typeof name !== 'string' || name.length === 0 || name.length > 128 || typeof weight !== 'number' || !Number.isFinite(weight)) return false;
+    if (!this.scriptMorphs.has(name) && this.scriptMorphs.size >= MAX_SCRIPT_MORPHS) return false;
+    this.scriptMorphs.set(name, Math.min(1, Math.max(0, weight)));
+    return true;
+  }
+
+  /** Phase 23.11: a morph target's weight now (a script's value, else its parameter binding's; 0 when neither). */
+  morph(name: string): number {
+    const own = this.scriptMorphs.get(name);
+    if (own !== undefined) return own;
+    const b = this.morphBindings.find((m) => m.target === name);
+    return b !== undefined ? this.clamp01(this.num(b.parameter)) : 0;
+  }
+
+  private clamp01(v: number): number {
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
   }
 
   has(name: string): boolean {
@@ -380,19 +442,32 @@ export class AnimatorMachine {
       if (t !== null) this.graphs[i]!.fire(t);
     });
     const events: AnimatorEventFired[] = [];
-    this.graphs.forEach((g, i) => g.advance(dt, events, i === 0 || this.layerWeight(this.layers[i - 1]!) > 0));
+    // Phase 23.11: the playback speed scales the time every layer advances by (×1 keeps dt exact).
+    const d = this.speedMul === 1 ? dt : dt * this.speedMul;
+    this.graphs.forEach((g, i) => g.advance(d, events, i === 0 || this.layerWeight(this.layers[i - 1]!) > 0));
     return events;
   }
 
   pose(): AnimatorPose {
     const base = this.graphs[0]!.pose();
-    if (this.layers.length === 0) return base;
+    const morphs = this.morphWeights();
+    if (this.layers.length === 0) return morphs === null ? base : { ...base, morphs };
     return {
       ...base,
       layers: this.layers.map((l, i) => {
         const p = this.graphs[i + 1]!.pose();
         return { name: l.name, mask: l.mask, weight: this.layerWeight(l), state: p.state, clips: p.clips };
       }),
+      ...(morphs !== null ? { morphs } : {}),
     };
+  }
+
+  /** Phase 23.11: the morph weights (bindings, then script values over them), or null when there are none. */
+  private morphWeights(): Record<string, number> | null {
+    if (this.morphBindings.length === 0 && this.scriptMorphs.size === 0) return null;
+    const out: Record<string, number> = {};
+    for (const b of this.morphBindings) out[b.target] = this.clamp01(this.num(b.parameter));
+    for (const [k, v] of this.scriptMorphs) out[k] = v;
+    return out;
   }
 }

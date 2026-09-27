@@ -64,6 +64,7 @@ export {
   type GameStartOutcome,
   type GameHostObservation,
   type GameHostSceneObservation,
+  type SocketObservation,
   type GameHostSound,
   type HostInputOwner,
   type HostRenderAdapter,

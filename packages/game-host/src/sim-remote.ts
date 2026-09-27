@@ -331,6 +331,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return camLens;
     },
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
+    // Phase 23.11: the objects riding on sockets (the worker's list).
+    socketAttachments: () => mirror.sockets,
     setCameraViewport: (width: number, height: number): boolean => {
       if (gone()) return false;
       const valid = typeof width === 'number' && typeof height === 'number' && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384;

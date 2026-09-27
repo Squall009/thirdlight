@@ -18,6 +18,7 @@
  */
 
 import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
+import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
   validateCameraFollowComponent,
@@ -71,6 +72,8 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   // Phase 23.4: the camera framework (project-model cameras.ts field order).
   virtualCamera: VIRTUAL_CAMERA_FIELDS,
   cameraPath: CAMERA_PATH_FIELDS,
+  // Phase 23.11: sockets (project-model sockets.ts field order).
+  socketAttach: SOCKET_ATTACH_FIELDS,
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -129,6 +132,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   // Phase 23.4: v4 scenes only.
   'virtualCamera',
   'cameraPath',
+  // Phase 23.11: v4 scenes only.
+  'socketAttach',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -219,6 +224,9 @@ export function validateV3ComponentValue(
       break;
     case 'cameraPath':
       validateCameraPathComponent(value, path, errors as unknown as Parameters<typeof validateCameraPathComponent>[2]);
+      break;
+    case 'socketAttach':
+      validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);
       break;
     case 'fogVolume':
       validateFogVolumeComponent(value, path, errors as unknown as Parameters<typeof validateFogVolumeComponent>[2]);

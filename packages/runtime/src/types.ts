@@ -85,6 +85,12 @@ export interface RuntimeSnapshot {
    * without a size collects over its model's bounds.
    */
   modelBounds?: Readonly<Record<string, ModelBounds>>;
+  /**
+   * Phase 23.11, v4 only, optional: model assetId -> its rig (nodes and node
+   * animation channels, read from the GLB by the play/export closure) — the
+   * data sockets are resolved on (the runtime never loads a model).
+   */
+  rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -701,6 +707,8 @@ export interface StepContext {
   readonly cameraYaw?: number;
   /** Phase 23.4: the virtual cameras (`ctx.camera`; a scene without one answers false/null). */
   readonly camera?: BehaviorCamera;
+  /** Phase 23.11: sockets (`ctx.sockets`). */
+  readonly sockets?: BehaviorSockets;
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
 }
@@ -1110,6 +1118,45 @@ export interface BehaviorCamera {
   screenToRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] };
 }
 
+/**
+ * Phase 23.11: `ctx.sockets` — objects riding on named nodes (bones or any
+ * node) of other objects' models. The simulation places an attached object
+ * at the end of every step, after the animators, so it follows the target's
+ * animation in Play, the worker and the export alike.
+ */
+export interface BehaviorSockets {
+  /**
+   * Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body or the scene camera.
+   * @graphNode Attach to socket
+   * @graphLabel entityId object
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  attach(entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean;
+  /**
+   * Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached.
+   * @graphNode Detach from socket
+   * @graphLabel entityId object
+   * @graphDefault keepWorld true
+   */
+  detach(entityId: string, keepWorld?: boolean): boolean;
+  /**
+   * The socket an object rides on (the target object and the node's name), or null.
+   * @graphPure
+   * @graphNode Socket of
+   * @graphLabel entityId object
+   */
+  attachedTo(entityId: string): { readonly target: string; readonly nodeName: string } | null;
+  /**
+   * A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.
+   * @graphPure
+   * @graphNode Node pose
+   * @graphLabel targetId target
+   * @graphLabel node node
+   */
+  nodePose(targetId: string, node: string): { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
+}
+
 /** Phase 9.9: `ctx.signals`. */
 export interface BehaviorSignals {
   /**
@@ -1184,6 +1231,31 @@ export interface BehaviorAnimatorHandle {
    * @graphNode Animator state
    */
   state(layer?: number): string;
+  /**
+   * Phase 23.11: set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10.
+   * @graphNode Set animation speed
+   * @graphDefault speed 1
+   */
+  setSpeed(speed: number): boolean;
+  /**
+   * Phase 23.11: this animator's playback speed.
+   * @graphPure
+   * @graphNode Animation speed
+   */
+  speed(): number;
+  /**
+   * Phase 23.11: set a morph target's weight (0–1) by its name in the model (over the controller's parameter binding of that target, if any).
+   * @graphNode Set morph weight
+   * @graphLabel name morph target
+   */
+  setMorph(name: string, weight: number): boolean;
+  /**
+   * Phase 23.11: a morph target's weight now (0 when nothing sets it).
+   * @graphPure
+   * @graphNode Morph weight
+   * @graphLabel name morph target
+   */
+  morph(name: string): number;
 }
 
 export interface BehaviorAnimatorControl {
@@ -1329,6 +1401,8 @@ export interface Runtime {
   cameraView?(): import('./camera-brain').CameraViewInfo | null;
   /** Phase 23.4: the viewport the view is drawn in (screen↔world projection uses its aspect). */
   setCameraViewport?(width: number, height: number): boolean;
+  /** Phase 23.11: the objects riding on sockets now (entity, target, node; a stable array while nothing changes). */
+  socketAttachments?(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };

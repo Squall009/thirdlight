@@ -31,6 +31,7 @@
  */
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
+import { validateModelRig, type ModelRig } from './model-rig';
 import { canonicalInput, validateInput, type InputConfig } from './input';
 import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
@@ -78,7 +79,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'input', 'flow', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -104,6 +105,8 @@ export const MANIFEST_KEYS_V2 = [
   'environment',
   'lighting',
   'animators',
+  // Phase 23.11: model rigs (nodes and node animation channels) sockets are resolved on — only in a project that uses sockets.
+  'rigs',
   'prefabs',
   'input',
   'flow',
@@ -583,6 +586,8 @@ export interface CaptureManifestV2Input {
   lighting?: LightingMap;
   /** Phase 9.7: the animator controllers (only when there are some). */
   animators?: readonly AnimatorController[];
+  /** Phase 23.11: model assetId -> its rig (only when the project uses sockets). */
+  rigs?: Readonly<Record<string, ModelRig>>;
   /** Phase 14.1: the prefab definitions scripts spawn (only when there are some). */
   prefabs?: readonly PrefabDefinition[];
   /** Phase 9.8: the project's input actions (only when it has its own). */
@@ -703,6 +708,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
+    ...(input.rigs !== undefined && Object.keys(input.rigs).length > 0 ? { rigs: Object.fromEntries(Object.keys(input.rigs).sort().map((k) => [k, input.rigs![k]!])) } : {}),
     ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
@@ -799,6 +805,14 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   for (const key of MANIFEST_KEYS_V2) {
     if (OPTIONAL_MANIFEST_KEYS.has(key)) continue; // phase 12: optional
     if (!(key in d)) return { ok: false, error: manifestError('manifest_invalid', `missing manifest key "${key}"`, 'missing_key', undefined, key) };
+  }
+  if (d['rigs'] !== undefined) {
+    const r = d['rigs'];
+    if (typeof r !== 'object' || r === null || Array.isArray(r)) return { ok: false, error: manifestError('manifest_invalid', 'rigs maps model asset ids to rigs', 'field_value') };
+    for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+      const why = validateModelRig(v);
+      if (why !== null) return { ok: false, error: manifestError('manifest_invalid', `rigs["${k}"]: ${why}`.slice(0, 256), 'field_value') };
+    }
   }
   if (d['tags'] !== undefined) {
     const tagErrors: ModelErrorV2[] = [];
