@@ -9,6 +9,8 @@ import {
   validateBridgeEditorToPreview,
   validateBridgePreviewToEditor,
 } from './bridge';
+import { parseInputRelayRequest } from './delivery';
+import { makeInputRelayRequest } from './ws-events';
 
 const hex32 = '0123456789abcdef0123456789abcdef';
 const play = `play-${hex32}`;
@@ -116,6 +118,18 @@ describe('editor → preview validators', () => {
     expect(tooMany.ok).toBe(false);
     const badJump = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0, jump: 'up' }] });
     expect(badJump.ok).toBe(false);
+    // Phase 23.2: the move vector's forward axis and named actions travel with a frame.
+    const vec = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0, moveY: 1, jump: 'none', actions: { run: { v: 1, p: 'held' } } }] });
+    expect(vec.ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0, moveY: 2, jump: 'none' }] }).ok).toBe(false);
+  });
+
+  it('phase 23.2: the relay body parser and the WS event keep moveY (and actions); older frames are unchanged', () => {
+    const parsed = parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, moveX: 0.25, moveY: -0.5, jump: 'none' }, { stepOffset: 1, moveX: 1, jump: 'none' }] });
+    expect(parsed.ok && parsed.request.frames).toEqual([{ stepOffset: 0, moveX: 0.25, moveY: -0.5, jump: 'none' }, { stepOffset: 1, moveX: 1, jump: 'none' }]);
+    expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, moveX: 0, moveY: 'up', jump: 'none' }] }).ok).toBe(false);
+    const ws = JSON.parse(makeInputRelayRequest('req-1', [{ stepOffset: 0, moveX: 0, moveY: 1, jump: 'none', actions: { run: { v: 1, p: 'held' } } }, { stepOffset: 1, moveX: 1, jump: 'none' }])) as { frames: unknown[] };
+    expect(ws.frames).toEqual([{ stepOffset: 0, moveX: 0, moveY: 1, jump: 'none', actions: { run: { v: 1, p: 'held' } } }, { stepOffset: 1, moveX: 1, jump: 'none' }]);
   });
 
   it('tl.play.stop / tl.ping', () => {

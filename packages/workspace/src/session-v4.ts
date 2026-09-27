@@ -7,7 +7,7 @@
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { ContentDocument, HistoryState } from '@thirdlight/commands';
-import { composeV4, DEFAULT_INPUT, DESCRIPTORS, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
@@ -564,7 +564,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         lighting: state.content.lighting !== undefined ? (JSON.parse(JSON.stringify(state.content.lighting)) as unknown) : null,
         animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
-        inputDefaults: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as unknown,
+        // Phase 23.2: a 3D project's defaults (a 2D move and a run button).
+        inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(physicsDimensionOf(state.content.settings) === 3 ? 3 : 2))) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
         // Phase 16.1: standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
         graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown,

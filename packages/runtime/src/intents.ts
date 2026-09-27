@@ -21,7 +21,7 @@ import type { SimulationPhase } from './types';
  * The intent kinds (runtime.md §14.4). Phase 12 (c) adds `respawn`: the
  * player dies and respawns (a game's own fall/kill rules live in scripts).
  */
-export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'pose' | 'respawn';
+export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'pose' | 'respawn' | 'character_move' | 'character_place' | 'character_enable';
 
 /**
  * `−1 ≤ value ≤ 1`, quantized at commit (§14.4).
@@ -31,6 +31,13 @@ export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'pose' 
 export interface ControlMoveIntent {
   kind: 'control_move';
   value: number;
+  /**
+   * Phase 23.2: the move vector's second axis (forward, like a stick pushed up;
+   * −1..1) — a 3D character walks along (value, y) as along the move input,
+   * relative to the camera. Absent: 0.
+   * @graphNode skip the node sets the move along one axis (scripts may pass y)
+   */
+  y?: number;
 }
 
 /**
@@ -120,7 +127,46 @@ export interface RespawnIntent {
   kind: 'respawn';
 }
 
-export type BehaviorIntent = ControlMoveIntent | ControlJumpIntent | TransformIntent | PoseIntent | RespawnIntent;
+/**
+ * Phase 23.2 (3D projects): walk the player character this step along a
+ * world direction on the ground (x, z; a length above 1 counts as 1 — its
+ * length scales the walk speed), replacing the move input; `run` uses the run
+ * speed. Intent phase.
+ * @graphNode Walk character
+ * @graphPhase intent
+ */
+export interface CharacterMoveIntent {
+  kind: 'character_move';
+  x: number;
+  z: number;
+  run?: boolean;
+}
+
+/**
+ * Phase 23.2 (3D projects): teleport the player character (its origin) to a
+ * point, stopping its motion; it falls from there. Intent phase.
+ * @graphNode Place character
+ * @graphPhase intent
+ */
+export interface CharacterPlaceIntent {
+  kind: 'character_place';
+  /** Where its origin goes, [x, y, z] (m). */
+  position: readonly [number, number, number];
+}
+
+/**
+ * Phase 23.2 (3D projects): switch the character controller off (the
+ * character stays where it is: no input, no gravity — a cutscene or a
+ * dialogue) or back on. Lasts until changed. Intent phase.
+ * @graphNode Enable character
+ * @graphPhase intent
+ */
+export interface CharacterEnableIntent {
+  kind: 'character_enable';
+  enabled: boolean;
+}
+
+export type BehaviorIntent = ControlMoveIntent | ControlJumpIntent | TransformIntent | PoseIntent | RespawnIntent | CharacterMoveIntent | CharacterPlaceIntent | CharacterEnableIntent;
 
 /** One committed transform write in commit order (§14.5). */
 export interface IntentTransformWrite {
@@ -143,6 +189,14 @@ export interface IntentSet {
   readonly transformWrites: readonly IntentTransformWrite[];
   /** Phase 9.9: an upward speed the runtime gives the controller this step (a stomp or a hit). */
   readonly bounce?: number;
+  /** Phase 23.2: the committed `control_move`'s second axis (0 when it had none), or null. */
+  readonly moveY?: number | null;
+  /** Phase 23.2: the committed `character_move` (a world direction on the ground), or null. */
+  readonly characterMove?: { readonly x: number; readonly z: number; readonly run: boolean } | null;
+  /** Phase 23.2: the committed `character_place` point, or null. */
+  readonly characterPlace?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /** Phase 23.2: the committed `character_enable` value, or null. */
+  readonly characterEnabled?: boolean | null;
 }
 
 /**
@@ -197,6 +251,9 @@ const INTENT_KEYS: Record<IntentKind, readonly string[]> = {
   transform: ['kind', 'entityId', 'position'],
   pose: ['kind', 'entityId', 'rotation', 'quaternion', 'facing', 'up', 'scale'],
   respawn: ['kind'],
+  character_move: ['kind', 'x', 'z', 'run'],
+  character_place: ['kind', 'position'],
+  character_enable: ['kind', 'enabled'],
 };
 const ROTATION_KEYS = ['yaw', 'pitch', 'roll'] as const;
 /** Phase 23.7: a transform intent's fields with the optional rotation forms, in order. */
@@ -287,10 +344,13 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
     return { ok: false, error: invalid('shape', 'an intent must be an object') };
   }
   const kind = value['kind'];
-  if (kind !== 'control_move' && kind !== 'control_jump' && kind !== 'transform' && kind !== 'pose' && kind !== 'respawn') {
+  if (kind !== 'control_move' && kind !== 'control_jump' && kind !== 'transform' && kind !== 'pose' && kind !== 'respawn' && kind !== 'character_move' && kind !== 'character_place' && kind !== 'character_enable') {
     return { ok: false, error: invalid('shape', `unknown intent kind ${JSON.stringify(String(kind))}`) };
   }
   if (kind === 'pose') return poseShape(value);
+  // Phase 23.2: a control_move with its second axis; the character intents.
+  if (kind === 'control_move' && hasOwn.call(value, 'y')) return controlMoveYShape(value);
+  if (kind === 'character_move' || kind === 'character_place' || kind === 'character_enable') return characterShape(kind, value);
   // Phase 23.7: a transform may carry a rotation form after its position.
   if (kind === 'transform' && !exactOrder(value, INTENT_KEYS.transform)) return rotatedTransformShape(value);
   const allowed = INTENT_KEYS[kind];
@@ -319,6 +379,41 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   const parsed = transformBase(value);
   if (!('entityId' in parsed)) return parsed;
   return accepted(kind, parsed);
+}
+
+/** Phase 23.2: `{kind, value, y}` (both numbers, in that order). */
+function controlMoveYShape(value: Record<string, unknown>): IntentShapeResult {
+  const allowed = ['kind', 'value', 'y'];
+  const unknownKey = firstUnknownKey(value, allowed);
+  if (unknownKey !== null) return { ok: false, error: invalid('shape', `unknown control_move field "${unknownKey}" (strict shape)`) };
+  if (!exactOrder(value, allowed)) return { ok: false, error: invalid('shape', `intent fields must be in canonical order (${allowed.join(', ')})`) };
+  if (typeof value['value'] !== 'number' || typeof value['y'] !== 'number') return { ok: false, error: invalid('shape', 'control_move.value and control_move.y must be numbers') };
+  return accepted('control_move', { kind: 'control_move', value: value['value'], y: value['y'] });
+}
+
+/** Phase 23.2: the character intents' shapes (fields in canonical order; `run` optional). */
+function characterShape(kind: 'character_move' | 'character_place' | 'character_enable', value: Record<string, unknown>): IntentShapeResult {
+  const order = INTENT_KEYS[kind];
+  const unknownKey = firstUnknownKey(value, order);
+  if (unknownKey !== null) return { ok: false, error: invalid('shape', `unknown ${kind} field "${unknownKey}" (strict shape)`) };
+  let keys = 0;
+  for (const key in value) if (hasOwn.call(value, key)) keys += 1;
+  const required = kind === 'character_move' ? ['kind', 'x', 'z'] : order;
+  if (inOrderCount(value, order) !== keys || required.some((k) => !hasOwn.call(value, k))) {
+    return { ok: false, error: invalid('shape', `intent fields must be in canonical order (${order.join(', ')}${kind === 'character_move' ? '; run optional' : ''})`) };
+  }
+  if (kind === 'character_move') {
+    if (typeof value['x'] !== 'number' || typeof value['z'] !== 'number') return { ok: false, error: invalid('shape', 'character_move.x and .z must be numbers') };
+    if (value['run'] !== undefined && typeof value['run'] !== 'boolean') return { ok: false, error: invalid('shape', 'character_move.run must be true or false') };
+    return accepted(kind, { kind, x: value['x'], z: value['z'], ...(value['run'] !== undefined ? { run: value['run'] as boolean } : {}) });
+  }
+  if (kind === 'character_enable') {
+    if (typeof value['enabled'] !== 'boolean') return { ok: false, error: invalid('shape', 'character_enable.enabled must be true or false') };
+    return accepted(kind, { kind, enabled: value['enabled'] });
+  }
+  const p = numberTuple(value['position'], 3);
+  if (p === null) return { ok: false, error: invalid('shape', 'character_place.position must be [x, y, z]') };
+  return accepted(kind, { kind, position: [p[0]!, p[1]!, p[2]!] });
 }
 
 /** The kind/entityId/position part of a transform intent (shape checks), or the failure. */
@@ -470,7 +565,7 @@ export function validateIntentPhase(intent: BehaviorIntent, phase: SimulationPha
     return null;
   }
   if (phase !== 'intent') {
-    return invalid('phase', `a ${intent.kind === 'respawn' ? 'respawn' : 'control'} intent is valid only in the intent phase`);
+    return invalid('phase', `a ${intent.kind === 'respawn' ? 'respawn' : intent.kind.startsWith('character_') ? intent.kind : 'control'} intent is valid only in the intent phase`);
   }
   return null;
 }
@@ -481,8 +576,24 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
     if (!Number.isFinite(intent.value) || intent.value < -1 || intent.value > 1) {
       return invalid('value', 'control_move.value must be finite and within [-1, 1]');
     }
+    if (intent.y !== undefined && (!Number.isFinite(intent.y) || intent.y < -1 || intent.y > 1)) {
+      return invalid('value', 'control_move.y must be finite and within [-1, 1]');
+    }
     return null;
   }
+  if (intent.kind === 'character_move') {
+    if (!Number.isFinite(intent.x) || !Number.isFinite(intent.z) || Math.abs(intent.x) > MAX_POSITION || Math.abs(intent.z) > MAX_POSITION) {
+      return invalid('value', `character_move.x and .z must be finite and |v| <= ${MAX_POSITION}`);
+    }
+    return null;
+  }
+  if (intent.kind === 'character_place') {
+    if (!intent.position.every((v) => Number.isFinite(v) && Math.abs(v) <= MAX_POSITION)) {
+      return invalid('value', `character_place.position must be finite and |v| <= ${MAX_POSITION}`);
+    }
+    return null;
+  }
+  if (intent.kind === 'character_enable') return null;
   if (intent.kind === 'control_jump') {
     if (!JUMP_PHASES.includes(intent.value)) {
       return invalid('value', `control_jump.value must be one of ${JUMP_PHASES.join(' | ')}`);

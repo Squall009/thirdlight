@@ -39,6 +39,7 @@
  */
 import {
   BUILTIN_MODULES,
+  character3DSpec,
   behaviorModuleId,
   createBehaviorModuleSpec,
   createSimulationRegistry,
@@ -498,6 +499,8 @@ const SIMULATION_SPECS: Readonly<Record<string, SimulationModuleSpec>> = {
   [platformerSpec.id]: platformerSpec,
   [platformerGameSessionSpec.id]: platformerGameSessionSpec,
   [platformerGameCameraSpec.id]: platformerGameCameraSpec,
+  // Phase 23.2: the 3D character controller (a runtime built-in).
+  [character3DSpec.id]: character3DSpec,
 };
 /** The port modules the delivery wrapper injects (checked, not registered). */
 const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
@@ -531,7 +534,7 @@ function selectModules(
     return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but this engine does not provide it` } };
   }
   // Register in dependency order (controller before the session, session before the camera).
-  const order = [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
+  const order = [character3DSpec, platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
   specs.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   return { ok: true, specs };
 }

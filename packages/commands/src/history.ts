@@ -84,7 +84,7 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape'],
-  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
+  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage', 'effect'],
   playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],

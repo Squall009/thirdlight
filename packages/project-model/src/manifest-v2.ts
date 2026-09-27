@@ -147,6 +147,8 @@ export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freez
   'thirdlight.platformer:controller': '@thirdlight/platformer',
   // Phase 23.0: the 3D physics backend (physics_dimension 3).
   'thirdlight.physics-rapier:3d': '@thirdlight/physics-rapier',
+  // Phase 23.2: the 3D character controller (a runtime built-in).
+  'thirdlight.character3d:controller': '@thirdlight/runtime',
 });
 
 /** The engine module IDs this model version knows for M3 (ascending). */

@@ -69,6 +69,8 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       raycast: rec('physics.raycast', { entityId: 'wall-1', distance: 2, normal: { x: -1, y: 0 } }),
       overlapBox: rec('physics.overlapBox', () => ['crate-1']),
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
+      // Phase 23.2: the 3D character's state.
+      characterState: rec('physics.characterState', { position: { x: 1, y: 2, z: 3 }, velocity: { x: 0, y: 0, z: 2 }, grounded: true, contacts: { ground: true, wall: false, head: false, steepSlope: false }, supportNormal: { x: 0, y: 1, z: 0 }, groundEntityId: null, enabled: true, climbing: false, facing: 0 }),
       // Phase 23.3: 3D queries.
       raycast3d: rec('physics.raycast3d', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
       overlapSphere: rec('physics.overlapSphere', () => ['crate-1']),
@@ -243,6 +245,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
       'debug.command',
+      // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
+      'emit(control_move).y',
       'emit(pose).facing',
       'emit(pose).quaternion',
       'emit(pose).up',
@@ -263,6 +267,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       ['api.emit.transform', 'transform'],
       ['api.emit.pose', 'transform'],
       ['api.emit.respawn', 'intent'],
+      // Phase 23.2: the 3D character intents.
+      ['api.emit.character_move', 'intent'],
+      ['api.emit.character_place', 'intent'],
+      ['api.emit.character_enable', 'intent'],
     ]);
   });
 

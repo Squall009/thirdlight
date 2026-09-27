@@ -40,7 +40,7 @@
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
 import { depthBufferOf, physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
-import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
+import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   browserContextFactory,
@@ -300,7 +300,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // (no game block and no controller: scene mode — the scene plays as authored)
 
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
-  const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
+  const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
   focusGameSurface(canvas);
   const behaviorRows = (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [];
   const enginePins = (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [];
@@ -476,7 +476,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     assetPaths: assetPathsById,
     // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
     ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
-    inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
+    inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
     setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
     // Phase 14.5: the title screen's background scene and camera pan.

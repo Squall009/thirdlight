@@ -629,7 +629,9 @@ export function ObjectFields(p: {
   skip?: readonly string[];
 }): JSX.Element {
   const level: Level = { desc: p.desc, value: p.value, ...(p.parent !== undefined ? { parent: p.parent } : {}) };
-  const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key));
+  // Phase 23.2: a field of one physics dimension shows only in a project of that dimension (a 3D character's settings, the 2D plane's autostep).
+  const dimension = p.ctx.physicsDimension ?? 2;
+  const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key) && (f.dimension === undefined || f.dimension === dimension));
   return (
     <>
       {groupFields(fields).map((g) => (

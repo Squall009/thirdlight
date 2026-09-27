@@ -2206,14 +2206,60 @@ In a 3D project:
   it into a moving body; the player standing on it rides along);
 - colliders may be rotated about any axis; the player controller stays
   upright; the capsule's **Offset** may have a z component;
-- in Play and the export the player capsule falls under the project's
-  gravity (`gravity_y`, capped at the max fall speed) and rests on what it
-  lands on. Walking, jumping and the 3D character settings are phase 23.2;
-  cameras: see *Cameras* below. A 3D project plays its scenes without a game block for now
-  (the platformer game set is 2D-plane only until 3D game modes, 23.10);
+- in Play and the export the player is a kinematic **3D character**
+  (phase 23.2, below; cameras: see *Cameras* below). A 3D project plays its
+  scenes without a game block for now (the platformer game set is 2D-plane
+  only until 3D game modes, 23.10);
 - `tl_game_observe` reports such a scene play with `state: "scene"`, its
   step and `player: { x, y, z }`; an exported page has the same observation
   in `window.__thirdlightObserve()`.
+
+### The 3D character (phase 23.2)
+
+The object with the **Player controller** walks, runs, jumps and climbs in a
+3D project. Its settings are fields of the controller (Inspector, 3D projects
+only; the 2D plane's Autostep is hidden there), each with a default that fits
+any genre:
+
+- **Movement:** Walk speed (2 m/s), Run speed (absent: the project's run
+  speed setting — used while the `run` input action is held), Acceleration /
+  Deceleration (shared with the 2D controller), Air control (0.5: the share
+  of acceleration in the air), Gravity scale (× the project's gravity), Turn
+  speed (720°/s; 0 turns at once) and Face movement (on: the object turns
+  about its up axis so its +Z faces where it moves — its model turns with it);
+- **Jump:** Can jump (on), Jump speed (absent: the project's jump velocity),
+  with the controller's coyote time, jump buffer and jump release;
+- **Collision:** Slope limit (absent: the project's max slope setting),
+  **Step-up height** (0.3 m, a stair riser — steps up to it are climbed
+  without a jump, taller blocks stop the character; 0 turns it off; the
+  ground snap is at least this height, so it also walks down stairs without
+  falling), **Ledge climb** (off; when on, pushing against a ledge up to
+  **Ledge height** (1.2 m) with a walkable top and room for the capsule pulls
+  the character up onto it over **Climb time** (0.6 s)).
+
+The step-up and ledge heights have Scene-view handles above the capsule's
+feet (drag up or down; 5 cm snapping; one undo).
+
+**Input.** The move is a 2D vector: a project without its own input actions
+gets the 3D defaults (W/A/S/D and the arrow keys or the left stick move,
+Shift or the left-stick press runs, Space jumps); a project's own `move`
+action moves in 2D when it is a 2D axis (a 1D `move` only moves sideways).
+The vector is read relative to the active virtual camera's yaw (see
+*Cameras*: forward walks away from the camera); a scene without virtual
+cameras walks along world axes (+x input along +X, forward along −Z).
+`tl_input_exercise` frames take an optional `moveY` (the forward axis) and
+named `actions` (e.g. `run`).
+
+**Scripts** can drive the character with intents (intent phase): `{ kind:
+'character_move', x, z, run? }` walks it along a world direction this step,
+`{ kind: 'character_place', position: [x, y, z] }` teleports it,
+`{ kind: 'character_enable', enabled }` switches the controller off (it stays
+where it is: no input, no gravity) or on, and `control_move` takes an
+optional `y` (the forward input). `ctx.physics.characterState(id)` reads its
+position, velocity, grounding, contacts, whether it is on and climbing, and
+its facing. These intents are refused in a 2D-plane project. A recorded
+input replays the same positions in the page, the simulation worker and the
+export.
 
 **Files.** The 3D backend is a separate script so 2D games never download
 it: Play loads `/physics-3d.js` from the preview origin, a 3D export ships

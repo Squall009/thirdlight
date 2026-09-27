@@ -30,7 +30,8 @@ export interface SimAccess {
   debugObservation(): Promise<unknown>;
   diagnostics(): Promise<ReturnType<Runtime['getDiagnostics']>>;
   /** Start an exclusive input exercise (per-step frames from the next step); false while one runs. */
-  beginInputTest(frames: readonly { stepOffset: number; moveX: number; jump: string; actions?: ActionFrame['actions']; pointer?: ActionFrame['pointer'] }[], onComplete: (from: number, to: number) => void): boolean;
+  /** Phase 23.2: frames may carry the second move axis (`moveY`), named actions and (phase 23.3) the pointer. */
+  beginInputTest(frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions']; pointer?: ActionFrame['pointer']; }[], onComplete: (from: number, to: number) => void): boolean;
   readonly inputTestActive: boolean;
   /** Rays against the level's colliders (the character excluded), as the physics port answers them. */
   raycast(rays: readonly SimRay[]): Promise<({ distance: number } | null)[]>;

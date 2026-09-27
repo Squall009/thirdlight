@@ -111,6 +111,7 @@ export class ZoneOverlay {
   private handlePreview: THREE.Group | null = null;
   /** Phase 15.2: the descriptors (the handles come from them) and each entity's scene node (its frame). */
   private registry: DescriptorRegistry | null = null;
+  private physicsDimension: 2 | 3 = 2;
   private nodeFor: (entityId: string) => THREE.Object3D | null = () => null;
 
   /** Phase 17.1: the Scene view replaced its canvas (another renderer backend). */
@@ -466,6 +467,13 @@ export class ZoneOverlay {
     this.updateSizeHandles();
   }
 
+  /** Phase 23.2: the project's physics dimension (a handle of the other dimension is not shown). */
+  setPhysicsDimension(dimension: 2 | 3): void {
+    if (dimension === this.physicsDimension) return;
+    this.physicsDimension = dimension;
+    this.updateSizeHandles();
+  }
+
   /** The pointer ray for a client position (false when the canvas has no size). */
   private aim(clientX: number, clientY: number): boolean {
     const rect = this.canvas.getBoundingClientRect();
@@ -521,7 +529,7 @@ export class ZoneOverlay {
     this.handleFrames = [];
     const e = this.selectedId === null ? undefined : this.entities.find((x) => x.id === this.selectedId);
     if (e === undefined || !e.active || e.locked) return;
-    this.handleShapes = handleShapesOf(e, this.registry);
+    this.handleShapes = handleShapesOf(e, this.registry, this.physicsDimension);
     this.handleFrames = this.handleShapes.map((s) => this.frameMatrix(s));
     this.handleShapes.forEach((shape, shapeIndex) => {
       this.handleOutlines.add(this.linesObject(shape, this.handleFrames[shapeIndex]!, SIZE_HANDLE_COLOR, 0.35));

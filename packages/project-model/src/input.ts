@@ -81,6 +81,26 @@ export const DEFAULT_INPUT: Readonly<InputConfig> = Object.freeze({
   ],
 } as InputConfig);
 
+/**
+ * Phase 23.2: the default actions of a 3D project (physics_dimension 3)
+ * without its own input — the 2D defaults with `move` as a 2D axis (W/A/S/D,
+ * the arrow keys and the left stick: forward, back and sideways) and a `run`
+ * button (Shift, the left-stick press — the usual sprint controls), which
+ * the 3D character controller reads.
+ */
+export const DEFAULT_INPUT_3D: Readonly<InputConfig> = Object.freeze({
+  actions: [
+    { name: 'move', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, { kind: 'keys2d', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, { kind: 'gamepadStick', x: 0, y: 1 }] },
+    { name: 'run', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'ShiftLeft' }, { kind: 'key', code: 'ShiftRight' }, { kind: 'gamepadButton', button: 10 }] },
+    ...DEFAULT_INPUT.actions.filter((a) => a.name !== 'move'),
+  ],
+} as InputConfig);
+
+/** Phase 23.2: the default actions of a project of this physics dimension (absent: the 2D plane). */
+export function defaultInputFor(dimension: 2 | 3 | undefined): Readonly<InputConfig> {
+  return dimension === 3 ? DEFAULT_INPUT_3D : DEFAULT_INPUT;
+}
+
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }

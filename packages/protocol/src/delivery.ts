@@ -195,6 +195,8 @@ export type RelayJumpPhase = 'none' | 'pressed' | 'held' | 'released';
 export interface RelayFrame {
   stepOffset: number;
   moveX: number;
+  /** Phase 23.2: the move vector's second axis (forward; −1..1, quantized like moveX). */
+  moveY?: number;
   jump: RelayJumpPhase;
   /** Phase 9.8: named input actions this step (`{ v, x?, y?, p }` each). */
   actions?: Record<string, { v: number; x?: number; y?: number; p: RelayJumpPhase }>;
@@ -250,6 +252,7 @@ export interface InputRelayRequest {
 const RELAY_FRAME_FIELDS = new Map<string, string>([
   ['stepOffset', 'integer 0..2^53-1'],
   ['moveX', 'finite number -1..1 (quantized to 1e-4)'],
+  ['moveY', 'optional: finite number -1..1 (quantized to 1e-4; phase 23.2, the forward axis)'],
   ['jump', 'none | pressed | held | released'],
   ['actions', 'optional: { <action name>: { v, x?, y?, p } } (phase 9.8 named actions)'],
   ['pointer', 'optional: { x, y (0-1 of the view), dx?, dy?, wheel?, buttons?, pressed?, released? (masks: 1 left, 2 right, 4 middle), over?, locked? } (phase 23.3)'],
@@ -335,6 +338,11 @@ export function parseInputRelayRequest(
         : { problem: 'moveX must be a finite number in [-1, 1]', kind: 'value' },
     );
     if (!moveX.ok) return { ok: false, error: moveX.error };
+    // Phase 23.2: the optional second move axis.
+    const rawMoveY = (frameShape.value as Record<string, unknown>)['moveY'];
+    if (rawMoveY !== undefined && (typeof rawMoveY !== 'number' || !Number.isFinite(rawMoveY) || rawMoveY < -1 || rawMoveY > 1)) {
+      return { ok: false, error: { code: 'field_value', cls: 'validation', message: 'moveY must be a finite number in [-1, 1]', path: `/frames/${i}/moveY`, found: String(rawMoveY), expected: 'finite number -1..1' } };
+    }
     const jump = checkField(frameShape.value, 'jump', `/frames/${i}`, 'none | pressed | held | released', (v) =>
       typeof v === 'string' && JUMP_SET.includes(v) ? null : { problem: 'jump must be one of none | pressed | held | released', kind: 'value' },
     );
@@ -368,7 +376,7 @@ export function parseInputRelayRequest(
       }
       pointer = parsed;
     }
-    frames.push({ stepOffset, moveX: quantize(moveX.value as number), jump: jump.value as RelayJumpPhase, ...(actions !== undefined ? { actions } : {}), ...(pointer !== undefined ? { pointer } : {}) });
+    frames.push({ stepOffset, moveX: quantize(moveX.value as number), ...(typeof rawMoveY === 'number' ? { moveY: quantize(rawMoveY) } : {}), jump: jump.value as RelayJumpPhase, ...(actions !== undefined ? { actions } : {}), ...(pointer !== undefined ? { pointer } : {}) });
   }
   const bodyBytes = new TextEncoder().encode(JSON.stringify({ mode: INPUT_RELAY_MODE, frames })).length;
   if (bodyBytes > INPUT_RELAY_MAX_BODY_BYTES) {

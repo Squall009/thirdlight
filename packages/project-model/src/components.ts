@@ -613,8 +613,139 @@ export const CONTROLLER_TUNING_LIMITS: Readonly<Record<TuningNumberKey, { readon
 
 /** Phase 15.3: the controller's tuning fields, in canonical order. */
 export const CONTROLLER_TUNING_FIELDS = ['acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'] as const;
+/**
+ * Phase 23.2: the 3D character's settings when a controller carries none
+ * (read only in a 3D project, physics_dimension 3; a 2D plane ignores them).
+ * Genre-neutral reasons: a 2 m/s walk is a brisk human walk (people walk at
+ * 1.2–1.5 m/s; a game walks a little faster so a map never drags); half the
+ * ground acceleration in the air steers a jump without mid-air U-turns;
+ * gravity is the project's (scale 1); most characters can hop, so jumping is
+ * on (turn it off for a game that only walks); a 0.3 m step-up climbs a stair
+ * riser (0.15–0.2 m) or a kerb without a jump, well below knee height; a
+ * ledge climb is off (not every game climbs) and, when on, pulls up onto
+ * ledges up to 1.2 m (chest height of the default 1.8 m capsule) in 0.6 s;
+ * 720°/s turns a half circle in a quarter second (responsive, never a snap)
+ * and the character faces where it moves. Run speed, jump speed and the
+ * slope limit are absent: the project's `run_speed`, `jump_velocity` and
+ * `max_slope_climb_deg` settings apply.
+ */
+export const DEFAULT_CHARACTER_3D: Readonly<{
+  walkSpeed: number;
+  airControl: number;
+  gravityScale: number;
+  jump: boolean;
+  stepHeight: number;
+  ledgeClimb: boolean;
+  ledgeHeight: number;
+  ledgeClimbTime: number;
+  turnSpeed: number;
+  faceMovement: boolean;
+}> = Object.freeze({
+  walkSpeed: 2,
+  airControl: 0.5,
+  gravityScale: 1,
+  jump: true,
+  stepHeight: 0.3,
+  ledgeClimb: false,
+  ledgeHeight: 1.2,
+  ledgeClimbTime: 0.6,
+  turnSpeed: 720,
+  faceMovement: true,
+});
+
+type Character3DNumberKey = 'walkSpeed' | 'runSpeed' | 'airControl' | 'gravityScale' | 'jumpSpeed' | 'slopeLimit' | 'stepHeight' | 'ledgeHeight' | 'ledgeClimbTime' | 'turnSpeed';
+
+/** Phase 23.2: the 3D settings' ranges (a step-up below 0.01 m is off; a turn speed of 0 turns at once). */
+export const CHARACTER_3D_LIMITS: Readonly<Record<Character3DNumberKey, { readonly min: number; readonly max: number }>> = Object.freeze({
+  walkSpeed: { min: 0, max: 50 },
+  runSpeed: { min: 0, max: 50 },
+  airControl: { min: 0, max: 1 },
+  gravityScale: { min: 0, max: 10 },
+  jumpSpeed: { min: 0, max: 50 },
+  slopeLimit: { min: 1, max: 89 },
+  stepHeight: { min: 0, max: 1 },
+  ledgeHeight: { min: 0.1, max: 5 },
+  ledgeClimbTime: { min: 0.05, max: 5 },
+  turnSpeed: { min: 0, max: 36000 },
+});
+
+/** Phase 23.2: the 3D character fields, in canonical order (after the tuning fields). */
+export const CONTROLLER_3D_FIELDS = ['walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'] as const;
+const CONTROLLER_3D_BOOLEANS: readonly string[] = ['jump', 'ledgeClimb', 'faceMovement'];
+
 /** Every v4 controller field, in canonical order. */
-export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS];
+export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS];
+
+/** Phase 23.2: the resolved 3D character settings (the controller's data, else the defaults and the project settings). */
+export interface Character3DSettings {
+  walkSpeed: number;
+  runSpeed: number;
+  acceleration: number;
+  deceleration: number;
+  airControl: number;
+  /** m/s² along Y (negative: down) — the project's `gravity_y` × `gravityScale`. */
+  gravityY: number;
+  /** m/s (negative), the project's `max_fall_speed`. */
+  maxFallSpeed: number;
+  jump: boolean;
+  jumpSpeed: number;
+  coyoteTime: number;
+  jumpBuffer: number;
+  jumpRelease: number;
+  /** Degrees: the steepest walkable slope. */
+  slopeLimit: number;
+  /** m: the ground snap distance the port uses — at least the step-up height (a character that climbs a riser walks down it too). */
+  groundSnap: number;
+  skin: number;
+  /** m, 0 = off. */
+  stepHeight: number;
+  ledgeClimb: boolean;
+  ledgeHeight: number;
+  ledgeClimbTime: number;
+  /** Degrees per second, 0 = at once. */
+  turnSpeed: number;
+  faceMovement: boolean;
+}
+
+/**
+ * Phase 23.2: the 3D character settings a controller describes, with the
+ * project settings it defers to (`run_speed`, `jump_velocity`, `gravity_y`,
+ * `max_fall_speed`, `max_slope_climb_deg`).
+ */
+export function character3DSettingsOf(controller: unknown, settings: { run_speed: number; jump_velocity: number; gravity_y: number; max_fall_speed: number; max_slope_climb_deg: number }): Character3DSettings {
+  const c = isPlainObject(controller) ? controller : {};
+  const t = controllerTuningOf(controller);
+  const d = DEFAULT_CHARACTER_3D;
+  const num = (k: string, fallback: number): number => {
+    const v = c[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  };
+  const bool = (k: string, fallback: boolean): boolean => (typeof c[k] === 'boolean' ? (c[k] as boolean) : fallback);
+  const stepHeight = num('stepHeight', d.stepHeight);
+  return {
+    walkSpeed: num('walkSpeed', d.walkSpeed),
+    runSpeed: num('runSpeed', settings.run_speed),
+    acceleration: t.acceleration,
+    deceleration: t.deceleration,
+    airControl: num('airControl', d.airControl),
+    gravityY: settings.gravity_y * num('gravityScale', d.gravityScale),
+    maxFallSpeed: settings.max_fall_speed,
+    jump: bool('jump', d.jump),
+    jumpSpeed: num('jumpSpeed', settings.jump_velocity),
+    coyoteTime: t.coyoteTime,
+    jumpBuffer: t.jumpBuffer,
+    jumpRelease: t.jumpRelease,
+    slopeLimit: num('slopeLimit', settings.max_slope_climb_deg),
+    groundSnap: Math.min(1, Math.max(t.groundSnap, stepHeight)),
+    skin: t.skin,
+    stepHeight: stepHeight >= 0.01 ? stepHeight : 0,
+    ledgeClimb: bool('ledgeClimb', d.ledgeClimb),
+    ledgeHeight: num('ledgeHeight', d.ledgeHeight),
+    ledgeClimbTime: num('ledgeClimbTime', d.ledgeClimbTime),
+    turnSpeed: num('turnSpeed', d.turnSpeed),
+    faceMovement: bool('faceMovement', d.faceMovement),
+  };
+}
 
 /** Phase 15.3: the tuning a controller component describes (each absent field at its default). */
 export function controllerTuningOf(controller: unknown): { -readonly [K in keyof typeof DEFAULT_CONTROLLER_TUNING]: (typeof DEFAULT_CONTROLLER_TUNING)[K] } {
@@ -651,6 +782,8 @@ export function canonicalController(controller: unknown): ControllerComponent {
     };
   }
   for (const k of CONTROLLER_TUNING_FIELDS) if (src[k] !== undefined) out[k] = src[k];
+  // Phase 23.2: the 3D character fields (absent keeps the old canonical bytes).
+  for (const k of CONTROLLER_3D_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   return out as ControllerComponent;
 }
 
@@ -673,6 +806,15 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     }
   }
   if (c['autostep'] !== undefined && typeof c['autostep'] !== 'boolean') errors.push(fieldType(`${path}/autostep`, c['autostep'], 'boolean'));
+  // Phase 23.2: the 3D character settings (validated in every project; only a 3D project reads them).
+  for (const [key, lim] of Object.entries(CHARACTER_3D_LIMITS)) {
+    const v = c[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < lim.min || v > lim.max) {
+      errors.push(fieldValue(`${path}/${key}`, v, `a number ${lim.min}-${lim.max}`, `controller ${key} must be ${lim.min}-${lim.max}`));
+    }
+  }
+  for (const key of CONTROLLER_3D_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
   const capsule = c['capsule'];
   if (capsule === undefined) return;
   const cp = `${path}/capsule`;

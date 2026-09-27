@@ -60,11 +60,12 @@ describe('resolveRequiredModules', () => {
     expect(r).toEqual({ ok: true, moduleIds: [...ENGINE_MODULE_IDS] });
   });
 
-  it('phase 23.0: a 3D project\'s controller needs the 3D backend; a game block stays on the 2D plane', () => {
+  it('phase 23.0/23.2: a 3D project\'s controller needs the 3D character controller and backend; a game block stays on the 2D plane', () => {
     const scene = { entities: [entity({ controller: {} })] };
-    expect(resolveRequiredModules({ scene, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
+    // Phase 23.2: the 3D character controller module (with the 3D backend and input it needs).
+    expect(resolveRequiredModules({ scene, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
     expect(resolveRequiredModules({ scene, game: null, physicsDimension: 2 })).toEqual(resolveRequiredModules({ scene, game: null }));
-    expect(resolveRequiredModules({ scene, game: null, behaviors: [{ behaviorId: 'b', requiredModules: ['@thirdlight/physics-rapier'] }], physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
+    expect(resolveRequiredModules({ scene, game: null, behaviors: [{ behaviorId: 'b', requiredModules: ['@thirdlight/physics-rapier'] }], physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
     // Phase 23.3: a collider alone needs it in 3D (rays and picks without a player); not on the 2D plane.
     const colliders = { entities: [entity({ collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } })] };
     expect(resolveRequiredModules({ scene: colliders, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });

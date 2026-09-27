@@ -1312,6 +1312,11 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setDescriptors(registry);
   }, [registry]);
+  // Phase 23.2: handles of one physics dimension (a 3D character's heights) follow the project's.
+  const physicsDimension = settings?.['physics_dimension'] === 3 ? 3 : 2;
+  useEffect(() => {
+    viewportRef.current?.setPhysicsDimension(physicsDimension);
+  }, [physicsDimension]);
   // Phase 15.2: the cameras' frustums use the game view's aspect: the preview while it plays, else the window (an export fills it).
   useEffect(() => {
     const update = (): void => {
