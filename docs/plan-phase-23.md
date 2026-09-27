@@ -281,24 +281,24 @@ for editor items, commit/push/restart, decision log).
 | 23.0 Dimensional model | done 2026-09-26 — two backends (rapier2d untouched for plane2d, rapier3d 0.20.0 for 3d), `physics_dimension`, box `hz`, PhysicsPort3D; 2D rotated-collider bug fixed (no pinned values moved) |
 | 23.1 3D physics world, colliders, triggers | done 2026-09-26 — sphere/capsule/hull/mesh colliders (3D), `_COL`/model-derived colliders stored as data, 3D triggers, kinematic movers carry, scripts may own colliders in 3D; gameZone/respawn in 3D wait for 23.10 |
 | 23.2 3D character controller | done 2026-09-27 — built-in module `thirdlight.character3d:controller` (walk/run, accel, air control, jump, slope, step-up, optional ledge climb, facing), camera-relative input, `ActionFrame.moveY`, script intents |
-| 23.3 Pointer input and 3D queries | in progress |
+| 23.3 Pointer input and 3D queries | done 2026-09-27 — `ActionFrame.pointer`, pointer bindings, cursor lock/auto-hide, `ctx.input.pointer*`, 3D raycast/overlaps/pickAtPointer with tag and collision-layer filters, block-layer hits carry the cell; pointer lock not browser-verified |
 | 23.4 Camera framework | done 2026-09-26 — `virtualCamera` (follow/orbit, orbit-point snapped, top-down, fixed/look-at, rail on `cameraPath`), priority + cut/linear/eased blends, seeded shake, letterbox, `ctx.camera` + VS nodes; brain in the sim step; `depth_buffer` setting; owner look pending |
 | 23.5 Block layers — core | done 2026-09-27 — block types, schema-driven cell fields, stamps, chunked per-file storage, `editBlocks` bulk ops incl. heightmap, merged chunk meshes with hidden-face removal, per-chunk trimesh colliders, `ctx.grid`; block-layer lightmaps and chunk LOD not done |
-| 23.6 Block layers — editor | planned |
+| 23.6 Block layers — editor | done 2026-09-27 — Blocks tab: brushes (paint/line/rect/box/flood/raise/erase/eyedropper/replace), metadata overlay, selection copy/mirror/rotate, stamps, regions, layer hide/lock, `blockFootprint` props, snapping settings |
 | 23.7 Scripting conveniences | done 2026-09-26 — `@lib/<id>` shared libraries (recompile dependents atomically), `.json` imports, seeded `ctx.random` + streams, `ctx.world.find/findAll/withComponent`, quaternion/facing on intents |
 | 23.8 Test and debug entry points | done 2026-09-26 — one Play-start path (editor "Play from…" and `tl_play_start`: scene, variables, save/slot, mode noted until 23.10); `ctx.debug.command` on input frames, `tl_game_control debugCommand`, in-game console (exports only with `debug_console`) |
-| 23.9a Project UI — runtime | in progress |
-| 23.9b Project UI — editor | planned |
+| 23.9a Project UI — runtime | done 2026-09-27 — UI documents/themes as content, DOM/CSS layer (panels, stacks, grids, lists, rich text, 9-slice, bars, buttons, inputs), `ctx.ui`, events on input frames, focus nav, world anchors, tweens, replaceable flow screens, font assets; owner look pending |
+| 23.9b Project UI — editor | done 2026-09-27 — UI document tab on the host's own UI layer: hierarchy, descriptor inspector, drag/resize with snapping, anchor presets, mock values, theme editor, flow screen picker |
 | 23.10 Game modes | planned |
-| 23.11 Sockets and animation speed | planned |
-| 23.12 Runtime material parameters | planned |
-| 23.13 Script audio and 3D audio | planned |
-| 23.14 Input rebinding API and glyphs | planned |
-| 23.15 Lighting inputs in the material graph | planned |
+| 23.11 Sockets and animation speed | done 2026-09-27 — `socketAttach` + `ctx.sockets` resolved in the sim from GLB rigs, per-instance animator speed, morph weights |
+| 23.12 Runtime material parameters | done 2026-09-27 — `ctx.materials` per-object values (no recompiles), `data` parameter (≤64×64 RGBA8) + Sample data node |
+| 23.13 Script audio and 3D audio | done 2026-09-27 — playback handles, buses (sfx/music/voice/ui), music hold/stinger/duck, equal-power panner with distance models, scene-mode audio; owner listen pending |
+| 23.14 Input rebinding API and glyphs | done 2026-09-27 — rebinding (listen, conflicts swap/refuse/allow, reset, profiles), hold modifier, device detection, glyph lookup with neutral SVG set, built-in settings lists all actions |
+| 23.15 Lighting inputs in the material graph | done 2026-09-27 — Main light / Shadow / Diffuse / Ambient nodes, Custom-lit output (fog, tone mapping, post), both backends |
 | 23.16 Dialogue with voice | planned |
 | 23.17 Sequencer and timeline | planned |
 | 23.18 Runtime environment changes | planned |
-| 23.19 Project-defined save documents | planned |
+| 23.19 Project-defined save documents | done 2026-09-27 — `content.saveSchema`, `ctx.saves` with named migrations, 1–99 IndexedDB slots with metadata + thumbnail, project settings document |
 | 23.20 Wrap-up | planned |
 
 ## 6. Results and decision log
