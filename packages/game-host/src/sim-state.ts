@@ -273,6 +273,9 @@ export class FrameEncoder {
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
+    // Phase 23.5: block-layer chunks the simulation changed.
+    const grid = rt.takeGridChanges?.() ?? [];
+    if (grid.length > 0) out.grid = grid;
     // Phase 23.9a: the project UI's diff of the steps since the last frame.
     const ui = rt.takeUiOutput?.() ?? null;
     if (ui !== null) out.ui = ui;
@@ -353,6 +356,8 @@ export class FrameMirror {
   effects: unknown[] = [];
   /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
+  /** Phase 23.5: block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
+  grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
   ui: UiOutput | null = null;
   uiModel: Record<string, unknown> = {};
@@ -423,6 +428,7 @@ export class FrameMirror {
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.ui !== undefined) {
       this.ui = mergeUiOutput(this.ui, s.ui);
       this.uiModel = applyUiOutputToModel(this.uiModel, s.ui);

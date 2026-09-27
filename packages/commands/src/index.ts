@@ -179,6 +179,22 @@ export type {
   DeleteEffectArgs,
   RenameEffectArgs,
   SetGraphInverse,
+  EditBlocksChange,
+  EditBlocksInverse,
+  EditBlocksArgs,
+  SetBlockTypeChange,
+  SetBlockTypeInverse,
+  SetBlockTypeArgs,
+  DeleteBlockTypeArgs,
+  SetCellFieldsChange,
+  SetCellFieldsInverse,
+  SetCellFieldsArgs,
+  SetBlockStampChange,
+  SetBlockStampInverse,
+  SetBlockStampArgs,
+  DeleteBlockStampArgs,
 } from './types';
+// Phase 23.5: block-layer commands and the helpers queries and projections share.
+export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
 // Phase 16.1: graph commands (owner kinds and the shared apply used by undo/redo).
 export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, type GraphOwnerAdapter } from './graph-ops';

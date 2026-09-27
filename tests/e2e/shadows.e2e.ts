@@ -75,7 +75,8 @@ async function playFrame(page: Page, variant: (typeof RENDERER_VARIANTS)[number]
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, `${label}.png`), Buffer.from(last, 'base64'));
   await page.getByTitle('Stop the play preview').click();
-  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible();
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
   return img!;
 }
 

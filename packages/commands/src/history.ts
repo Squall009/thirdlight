@@ -29,6 +29,7 @@ import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { uiOf, withUi } from './ui-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
+import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
 import type {
   BehaviorComponent,
@@ -300,7 +301,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const index = new Map(scene.entities.map((e, i) => [e.id, i]));
     const deletedIds = [...closure].sort((a, b) => (index.get(a) ?? 0) - (index.get(b) ?? 0));
     const change: DeleteEntityChange = { type: 'deleteEntity', rootId: inv.rootId, deletedIds };
-    const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
+    const result = { ...withoutLayersOf(scene, closureSet).scene, revision: scene.revision + 1, entities: nextEntities };
     return finish(state, result, state.content, change, entry.requestId);
   }
 
@@ -351,7 +352,10 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       rootId: rootEntry.entity.id,
       entities: inv.entries.map((e) => deepClone(e.entity)),
     };
-    const result = { ...scene, revision: scene.revision + 1, entities: ents };
+    // Phase 23.5: the deleted block layers' cells come back with them.
+    let restored: SceneDocument = scene;
+    for (const b of inv.blocks ?? []) restored = withLayerData(restored, b.entityId, b);
+    const result = { ...restored, revision: scene.revision + 1, entities: ents };
     return finish(state, result, state.content, change, entry.requestId);
   }
 
@@ -577,7 +581,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (!inv.ids.every((id) => scene.entities.some((e) => e.id === id))) return { ok: false, error: historyInvalid(entry.requestId) };
     const nextEntities = scene.entities.filter((e) => !gone.has(e.id));
     const change: DeleteEntityChange = { type: 'deleteEntity', rootId: inv.ids[0] ?? '', deletedIds: [...inv.ids] };
-    return finish(state, { ...scene, revision: scene.revision + 1, entities: nextEntities }, state.content, change, entry.requestId);
+    return finish(state, { ...withoutLayersOf(scene, gone).scene, revision: scene.revision + 1, entities: nextEntities }, state.content, change, entry.requestId);
   }
 
   if (inv.kind === 'setAssetOptions') {
@@ -606,6 +610,28 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       .sort();
     const change: ChangeData = { type: 'setSettings', previous: before, next: after, changedKeys };
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  // Phase 23.5: block layers (cells restored as whole layer entries; content items by id).
+  if (inv.kind === 'editBlocks') {
+    const before = layerDataOf(scene, inv.entityId);
+    const delta = layerDelta(before, inv.restore);
+    const change: ChangeData = { type: 'editBlocks', entityId: inv.entityId, chunks: delta.chunks, regions: delta.regions, cells: 0 };
+    return finish(state, { ...withLayerData(scene, inv.entityId, inv.restore), revision: scene.revision + 1 }, state.content, change, entry.requestId);
+  }
+  if (inv.kind === 'setBlockType') {
+    const before = blockTypesOf(content).find((t) => t.blockId === inv.blockId) ?? null;
+    const change: ChangeData = { type: 'setBlockType', blockId: inv.blockId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withBlockType(content, inv.blockId, inv.restore), change, entry.requestId);
+  }
+  if (inv.kind === 'setCellFields') {
+    const change: ChangeData = { type: 'setCellFields', previous: deepClone(cellFieldsOf(content)), next: deepClone(inv.restore) };
+    return finish(state, bumped(scene), withCellFields(content, inv.restore), change, entry.requestId);
+  }
+  if (inv.kind === 'setBlockStamp') {
+    const before = blockStampsOf(content).find((x) => x.stampId === inv.stampId) ?? null;
+    const change: ChangeData = { type: 'setBlockStamp', stampId: inv.stampId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withBlockStamp(content, inv.stampId, inv.restore), change, entry.requestId);
   }
 
   // acknowledgeBehaviorTrust
@@ -724,7 +750,8 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       rootId: f.rootId,
       deletedIds: [...f.deletedIds],
     };
-    const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
+    // Phase 23.5: a deleted block layer takes its cells along.
+    const result = { ...withoutLayersOf(scene, gone).scene, revision: scene.revision + 1, entities: nextEntities };
     return finish(state, result, state.content, change, entry.requestId);
   }
 
@@ -1023,6 +1050,29 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       .sort();
     const change: ChangeData = { type: 'setSettings', previous: before, next: after, changedKeys };
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  // Phase 23.5: block layers — redo re-applies the recorded layer entry / content item.
+  if (f.type === 'editBlocks') {
+    const inv = entry.inverse as import('./types').EditBlocksInverse;
+    const before = layerDataOf(scene, f.entityId);
+    const delta = layerDelta(before, inv.next);
+    const change: ChangeData = { type: 'editBlocks', entityId: f.entityId, chunks: delta.chunks, regions: delta.regions, cells: f.cells };
+    return finish(state, { ...withLayerData(scene, f.entityId, inv.next), revision: scene.revision + 1 }, state.content, change, entry.requestId);
+  }
+  if (f.type === 'setBlockType') {
+    const before = blockTypesOf(content).find((t) => t.blockId === f.blockId) ?? null;
+    const change: ChangeData = { type: 'setBlockType', blockId: f.blockId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withBlockType(content, f.blockId, f.next), change, entry.requestId);
+  }
+  if (f.type === 'setCellFields') {
+    const change: ChangeData = { type: 'setCellFields', previous: deepClone(cellFieldsOf(content)), next: deepClone(f.next) };
+    return finish(state, bumped(scene), withCellFields(content, f.next), change, entry.requestId);
+  }
+  if (f.type === 'setBlockStamp') {
+    const before = blockStampsOf(content).find((x) => x.stampId === f.stampId) ?? null;
+    const change: ChangeData = { type: 'setBlockStamp', stampId: f.stampId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withBlockStamp(content, f.stampId, f.next), change, entry.requestId);
   }
 
   // acknowledgeBehaviorTrust

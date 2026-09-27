@@ -107,6 +107,9 @@ interface ExportManifestV2 {
   animators?: unknown[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: unknown[];
+  /** Phase 23.5: the block types and cell fields block layers use. */
+  blockTypes?: unknown[];
+  cellFields?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
@@ -143,7 +146,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'input', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -258,6 +261,9 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.prefabs !== undefined ? { prefabs: manifest.prefabs } : {}),
     // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
     ...(modelBounds !== undefined ? { modelBounds } : {}),
+    // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
+    ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}),
+    ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
     // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
     ...(uiDocumentsForRuntime(manifest.uiDocuments) !== undefined ? { uiDocuments: uiDocumentsForRuntime(manifest.uiDocuments) } : {}),
   } as unknown as RuntimeSnapshot);

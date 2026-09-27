@@ -34,6 +34,8 @@ import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
+import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
+import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
@@ -197,6 +199,8 @@ export interface SceneAdapterDiagnostics {
   effects?: EffectsDiagnostics;
   /** Phase 21.3: the automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame. */
   batching?: AutoBatcherDiagnostics;
+  /** Phase 23.5: the block layers drawn (layers, chunk meshes, triangles). */
+  blocks?: BlockLayerViewDiagnostics;
   /** Phase 21.3: draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
 }
@@ -608,6 +612,33 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   if (batcher !== null) scene.matrixWorldAutoUpdate = false;
   /** Phase 12 (c): the documents of every realized entity (the loaded scenes). */
   const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
+  // Phase 23.5: block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
+  const blockPrefabs = (opts.snapshot as { prefabs?: readonly { prefabId: string; entities: readonly { parentLocalId?: string; components: Record<string, unknown> }[] }[] }).prefabs ?? [];
+  const blockLooks = new Map<string, BlockModelLook | null>();
+  const blockView = new BlockLayerView({
+    modelLook: (assetId, piece, onReady) => {
+      const key = `${assetId}|${piece ?? ''}`;
+      if (blockLooks.has(key)) return blockLooks.get(key) ?? null;
+      const inst = realization?.blockInstance?.(assetId, piece, onReady) ?? null;
+      if (inst === null) return null;
+      const look = blockLookFromObject(inst.root);
+      blockLooks.set(key, look);
+      return look;
+    },
+    prefabModel: (prefabId) => {
+      const root = blockPrefabs.find((p) => p.prefabId === prefabId)?.entities.find((e) => e.parentLocalId === undefined);
+      const m = root?.components['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
+      return typeof m?.asset?.assetId === 'string' ? { assetId: m.asset.assetId, ...(typeof m.piece === 'string' ? { piece: m.piece } : {}) } : null;
+    },
+    applyMaterials: (mesh, type, assetId) => {
+      if (materialLibrary === null) return;
+      const base = opts.models?.assets.find((a) => a.assetId === assetId)?.materials;
+      const mapping = { ...(base ?? {}), ...(type.materials ?? {}) };
+      if (Object.keys(mapping).length > 0) materialLibrary.apply(mesh, mapping, null);
+    },
+  });
+  blockView.setTypes(((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[]);
+  scene.add(blockView.root);
   const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
     const t = e.components.transform;
     let obj: THREE.Object3D;
@@ -653,6 +684,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     objects.set(e.id, obj);
     ownerOf.set(obj, e.id);
+    // Phase 23.5: a block layer (its cells ride on the resolved component).
+    const layer = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
+    if (layer !== undefined) blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
     // Phase 18.3: with the object's values for its graph materials' public parameters.
@@ -671,6 +705,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   };
   const releaseEntity = (id: string): void => {
+    blockView.removeLayer(id);
     if (effects !== null) {
       effects.detach(id);
       effectEntities.delete(id);
@@ -1278,6 +1313,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // frame; no path, token or device string). A scene with no
     // shadow-casting light never enables `shadowMap` (rule 5: no shadow
     // map is allocated).
+    // Phase 23.5: the block chunks the simulation changed, re-meshed before the draw.
+    const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
+    if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
+    blockView.update();
     // Phase 21.3: regroup the repeated objects and copy their matrices (after every transform and look change).
     batcher?.update(camera!);
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
@@ -1427,6 +1466,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
     if (effects !== null && !disposed) d.effects = effects.diagnostics();
     if (batcher !== null && !disposed && lastFrameDrawn) d.batching = batcher.diagnostics();
+    if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     return {
       ok: true,
@@ -1477,6 +1517,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     entityResources.clear();
     batcher?.dispose();
+    blockView.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();
     boxMaterials.clear();
     boxMaterialKeys.clear();

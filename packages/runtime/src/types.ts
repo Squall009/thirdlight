@@ -85,6 +85,10 @@ export interface RuntimeSnapshot {
    * without a size collects over its model's bounds.
    */
   modelBounds?: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.5, v4 only, optional: the block types block layers use (`content.blockTypes`). */
+  blockTypes?: readonly import('@thirdlight/project-model').BlockType[];
+  /** Phase 23.5, v4 only, optional: the cell metadata schema (`content.cellFields`). */
+  cellFields?: readonly import('@thirdlight/project-model').CellField[];
   /**
    * Phase 23.9a, v4 only, optional: the project's UI documents as the
    * simulation knows them (id, layer, modal) — `ctx.ui.show/hide` and a
@@ -709,6 +713,8 @@ export interface StepContext {
   readonly camera?: BehaviorCamera;
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
+  /** Phase 23.5: the block layers of the loaded scenes (`ctx.grid`). */
+  readonly grid?: import('./grid').BehaviorGrid;
   /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
   readonly ui?: BehaviorUi;
 }
@@ -1402,6 +1408,10 @@ export interface Runtime {
   takeAudioRequests?(): { assetId: string; volume: number; stepIndex: number }[];
   /** Phase 20.2: the effect requests (scripts, effect-component signals, gameplay hooks) since the last call; the adapter plays them. */
   takeEffectRequests?(): EffectRequest[];
+  /** Phase 23.5: the block-layer chunks to re-mesh since the last call (their cells now); the adapter applies them. */
+  takeGridChanges?(): import('./grid').GridRenderChange[];
+  /** Phase 23.5: the block cells changed since the run started (plain data). */
+  gridDiff?(): import('./grid').GridDiff;
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */

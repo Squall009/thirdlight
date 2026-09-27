@@ -1535,13 +1535,15 @@ export function readCapturedV3(ctx: ContentContext): CapturedV3ReadResult {
     const content = ctx.content as ContentCatalogV4;
     const byId = new Map(ctx.scenes.map((sc) => [sc.sceneId, sc]));
     const entities = content.startScenes.flatMap((id) => byId.get(id)?.entities ?? []);
+    // Phase 23.5: the start scenes' block-layer cells travel with them.
+    const blocks = content.startScenes.flatMap((id) => byId.get(id)?.blocks ?? []);
     const ordered = content.scenes.map((e) => byId.get(e.sceneId)).filter((x): x is SceneV4 => x !== undefined);
     return {
       ok: true,
       read: {
         projectId: ctx.projectId,
         revision: ctx.revision,
-        scene: { schemaVersion: 4, sceneId: content.startScenes[0] ?? '', revision: ctx.revision, entities },
+        scene: { schemaVersion: 4, sceneId: content.startScenes[0] ?? '', revision: ctx.revision, entities, ...(blocks.length > 0 ? { blocks } : {}) },
         content,
         scenes: ordered.map((sc) => ({ ...sc, revision: ctx.revision })),
         startScenes: [...content.startScenes],

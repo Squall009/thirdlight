@@ -837,6 +837,13 @@ function EditorApp(): JSX.Element {
       lightingKeyRef.current = lightingKey;
       viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>, loadTextureRef.current);
     }
+    // Phase 23.5: the block layers (cells, block types) at their entities' positions.
+    const blockLayers = c.getBlockLayers();
+    if (blockLayers.size > 0 || c.getBlockRevision() > 0) {
+      const byId = new Map(c.projection.listEntities().map((e) => [e.id, e]));
+      const layers = new Map([...blockLayers].filter(([id]) => byId.has(id)).map(([id, l]) => [id, { component: l.component, chunks: l.chunks, origin: byId.get(id)!.position }]));
+      viewportRef.current?.setBlockLayers(c.getBlockTypes(), layers, c.getBlockRevision());
+    }
     setUi((s) => (s.revision === c.projection.revision ? s : { ...s, revision: c.projection.revision }));
   }, [applyEnvironmentView, stable]);
 

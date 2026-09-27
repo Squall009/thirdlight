@@ -19,6 +19,7 @@ import { canonicalGraphData, canonicalGraphDocuments, graphAssetRefs, graphDocum
 import { GRAPH_KINDS } from './graph-kinds';
 import { BEHAVIOR_FUNCTION_ID_RE, BEHAVIOR_GRAPH_LIMITS, behaviorGraphContext } from './behavior-graph';
 import { canonicalEffectComponent, canonicalEffects, validateEffectComponent, validateEffects } from './effects';
+import { canonicalBlockStamps, canonicalBlockTypes, canonicalCellFields, composeBlockContent, validateBlockStamps, validateBlockTypes, validateCellFields, type BlockContentView } from './block-layers';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiReferences, validateUiThemes } from './ui-documents';
 import { canonicalScriptLibraries, scriptLibraryDigest, validateLibraryPins, validateScriptLibraries, type ScriptLibrary } from './script-libraries';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
@@ -2154,8 +2155,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'uiDocuments' || k === 'uiThemes'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'uiDocuments (optional)', 'uiThemes (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'uiDocuments' || k === 'uiThemes'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'uiDocuments (optional)', 'uiThemes (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2310,6 +2311,14 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['effects'] !== undefined) validateEffects(doc['effects'], '/effects', errors);
   // Phase 23.7: shared script libraries (v4) and the behavior pins that name them.
   if (version === 4 && doc['scriptLibraries'] !== undefined) validateScriptLibraries(doc['scriptLibraries'], '/scriptLibraries', errors);
+  // Phase 23.5: block types, the cell metadata schema and stamps (v4), and their references.
+  if (version === 4) {
+    const before = errors.length;
+    if (doc['blockTypes'] !== undefined) validateBlockTypes(doc['blockTypes'], '/blockTypes', errors);
+    if (doc['cellFields'] !== undefined) validateCellFields(doc['cellFields'], '/cellFields', errors);
+    if (doc['blockStamps'] !== undefined) validateBlockStamps(doc['blockStamps'], '/blockStamps', errors);
+    if (errors.length === before && (doc['blockTypes'] !== undefined || doc['blockStamps'] !== undefined)) composeBlockContent(doc as unknown as BlockContentView, errors);
+  }
   validateLibraryPinReferences(doc, errors);
   // Phase 23.9a: project UI documents and themes (v4), and what they reference.
   if (version === 4 && doc['uiDocuments'] !== undefined) validateUiDocuments(doc['uiDocuments'], '/uiDocuments', errors, INPUT_MAPS);
@@ -2453,6 +2462,10 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).effects !== undefined && (c as ContentCatalogV4).effects!.length > 0 ? { effects: canonicalEffects((c as ContentCatalogV4).effects!) } : {}),
     // Phase 23.7: present only when there are script libraries.
     ...((c as ContentCatalogV4).scriptLibraries !== undefined && (c as ContentCatalogV4).scriptLibraries!.length > 0 ? { scriptLibraries: canonicalScriptLibraries((c as ContentCatalogV4).scriptLibraries!) } : {}),
+    // Phase 23.5: present only when there are block types / cell fields / stamps.
+    ...((c as ContentCatalogV4).blockTypes !== undefined && (c as ContentCatalogV4).blockTypes!.length > 0 ? { blockTypes: canonicalBlockTypes((c as ContentCatalogV4).blockTypes!) } : {}),
+    ...((c as ContentCatalogV4).cellFields !== undefined && (c as ContentCatalogV4).cellFields!.length > 0 ? { cellFields: canonicalCellFields((c as ContentCatalogV4).cellFields!) } : {}),
+    ...((c as ContentCatalogV4).blockStamps !== undefined && (c as ContentCatalogV4).blockStamps!.length > 0 ? { blockStamps: canonicalBlockStamps((c as ContentCatalogV4).blockStamps!) } : {}),
     // Phase 23.9a: present only when there are UI documents / themes.
     ...((c as ContentCatalogV4).uiDocuments !== undefined && (c as ContentCatalogV4).uiDocuments!.length > 0 ? { uiDocuments: canonicalUiDocuments((c as ContentCatalogV4).uiDocuments!) } : {}),
     ...((c as ContentCatalogV4).uiThemes !== undefined && (c as ContentCatalogV4).uiThemes!.length > 0 ? { uiThemes: canonicalUiThemes((c as ContentCatalogV4).uiThemes!) } : {}),
