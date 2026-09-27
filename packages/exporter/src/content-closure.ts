@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -110,13 +110,15 @@ function fromCommandError(e: {
 // ---------------------------------------------------------------------------
 
 /** The MIME type of one declared asset artifact by kind (export.md §6.3). */
-const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'music', string> = {
+const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'music' | 'font', string> = {
   model: 'model/gltf-binary',
   audio: 'audio/wav',
   // Phase 9.4: PNG/JPEG/WebP; the runtime decodes by magic bytes.
   texture: 'image/x-texture',
   // Phase 9.10: Ogg Vorbis/Opus, MP3 or WAV; the browser decodes it.
   music: 'audio/x-music',
+  // Phase 23.9a: TTF, OTF, WOFF2 or WOFF; the page loads it through FontFace by its bytes.
+  font: 'font/x-font',
 };
 
 export interface ContentClosureM3Input {
@@ -489,6 +491,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
     // Phase 9.10: the game flow (the game host runs levels, lives and menus from it).
     ...((input.content as { flow?: GameFlow } | null)?.flow !== undefined ? { flow: (input.content as { flow: GameFlow }).flow } : {}),
+    // Phase 23.9a: the project UI (the game host draws the documents; themes hold their shared styles).
+    ...((input.content as { uiThemes?: UiTheme[] } | null)?.uiThemes !== undefined ? { uiThemes: (input.content as { uiThemes: UiTheme[] }).uiThemes } : {}),
+    ...((input.content as { uiDocuments?: UiDocument[] } | null)?.uiDocuments !== undefined ? { uiDocuments: (input.content as { uiDocuments: UiDocument[] }).uiDocuments } : {}),
     // Phase 9.8: the input actions (the game's input binding reads them).
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
     // Phase 9.7: the animator controllers (the game's runtime steps them); phase 16.2: without the editor-only graph layout.

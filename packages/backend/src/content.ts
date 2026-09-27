@@ -55,7 +55,7 @@ import {
   type SessionError,
   type StageInspectRequest,
 } from '@thirdlight/protocol';
-import { inspectAudio, inspectGlb, inspectImage, inspectMusic, AUDIO_PCM_WAV_TOOLCHAIN, IMAGE_TOOLCHAIN, MUSIC_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
+import { inspectAudio, inspectFont, inspectGlb, inspectImage, inspectMusic, AUDIO_PCM_WAV_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, MUSIC_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import type { CommandError, MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
@@ -146,6 +146,9 @@ function frameLimit(limit: string, current: number, max: number): SessionError {
  */
 export function createAssetInspector(): StageInspector {
   return (bytes, job, request) => {
+    if (request?.kind === 'font') {
+      return inspectFont(bytes, { profile: 'font', recipeVersion: 1, toolchain: FONT_TOOLCHAIN, job });
+    }
     if (request?.kind === 'music') {
       return inspectMusic(bytes, { profile: 'music', recipeVersion: 1, toolchain: MUSIC_TOOLCHAIN, job });
     }
@@ -851,7 +854,7 @@ export class ContentRoutes {
       // bounded `inspection` is already tiny and is passed through unchanged.
       const p = result.proposal;
       const proposal =
-        p.kind === 'audio' || p.kind === 'texture' || p.kind === 'music'
+        p.kind === 'audio' || p.kind === 'texture' || p.kind === 'music' || p.kind === 'font'
           ? p
           : {
               ...p,
@@ -932,7 +935,7 @@ export class ContentRoutes {
     this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
     const encoded = JSON.stringify({ ok: true, sourcePath: result.sourcePath, proposal: p });
     const proposal =
-      new TextEncoder().encode(encoded).length > CONTENT_PROPOSAL_MAX_BYTES && p.kind !== 'audio' && p.kind !== 'texture' && p.kind !== 'music'
+      new TextEncoder().encode(encoded).length > CONTENT_PROPOSAL_MAX_BYTES && p.kind !== 'audio' && p.kind !== 'texture' && p.kind !== 'music' && p.kind !== 'font'
         ? { ...p, inspection: { nodeNames: [], materialNames: [], clipNames: [], sceneCount: (p.inspection as { sceneCount: number }).sceneCount, truncated: true } }
         : p;
     this.deps.sendJson(res, 200, { ok: true, sourcePath: result.sourcePath, proposal, truncated: proposal !== p, jobId: job.jobId });
@@ -957,7 +960,7 @@ export class ContentRoutes {
       this.deps.onJobFailed?.(projectId, 'inspect', code, message);
       this.deps.sendError(res, sessionError(code as SessionError['code'], cls, message, extra));
     };
-    if (request.kind === 'audio' || request.kind === 'texture' || request.kind === 'music') return failed('field_value', 'validation', `an FBX file is a model, not ${request.kind}`, { path: '/kind' });
+    if (request.kind === 'audio' || request.kind === 'texture' || request.kind === 'music' || request.kind === 'font') return failed('field_value', 'validation', `an FBX file is a model, not ${request.kind}`, { path: '/kind' });
     const converter = this.deps.fbx;
     if (converter === undefined) return failed('converter_unavailable', 'unavailable', 'FBX import needs Blender on the server (THIRDLIGHT_BLENDER)');
     let original: { sourceDigest: string; sourceByteLength: number; sourcePath?: string };

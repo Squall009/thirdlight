@@ -85,6 +85,12 @@ export interface RuntimeSnapshot {
    * without a size collects over its model's bounds.
    */
   modelBounds?: Readonly<Record<string, ModelBounds>>;
+  /**
+   * Phase 23.9a, v4 only, optional: the project's UI documents as the
+   * simulation knows them (id, layer, modal) — `ctx.ui.show/hide` and a
+   * frame's show/hide entries name them. The host draws the documents.
+   */
+  uiDocuments?: readonly import('@thirdlight/project-model').RuntimeUiDocumentRow[];
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -703,6 +709,8 @@ export interface StepContext {
   readonly camera?: BehaviorCamera;
   /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
+  /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
+  readonly ui?: BehaviorUi;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1001,6 +1009,93 @@ export interface BehaviorCameraState {
   readonly railSpeed: number;
   readonly fovY: number;
   readonly letterbox: number;
+}
+
+/** Phase 23.9a: one UI event of this step (from the input frame). */
+export interface BehaviorUiEvent {
+  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle. */
+  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle';
+  /** The UI document it happened in. */
+  readonly doc: string;
+  /** The widget ('' for none). */
+  readonly widget: string;
+  /** The event name ('' for focus, show, hide). */
+  readonly name: string;
+  /** The value the action carried (or the submitted text). */
+  readonly value?: number | string | boolean | null;
+  /** The list item it came from. */
+  readonly index?: number;
+}
+
+/**
+ * Phase 23.9a: `ctx.ui` — the project UI. Scripts publish view-model values
+ * that UI documents bind to (`{ "bind": "hud.hp" }`, `{hud.hp}` in a text),
+ * show and hide documents, and read the UI events of the step (clicks,
+ * submits, focus changes: part of the input frame, so replays hold). The
+ * game host draws the documents; the view model and the shown documents are
+ * simulation state.
+ */
+export interface BehaviorUi {
+  /**
+   * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
+   * @graphNode Set UI value
+   */
+  set(path: string, value: unknown): boolean;
+  /**
+   * The published value at a path (null when there is none).
+   * @graphPure
+   * @graphNode UI value
+   */
+  get(path: string): unknown;
+  /**
+   * Remove a path from the view model (`false` when it was not there).
+   * @graphNode Clear UI value
+   */
+  clear(path: string): boolean;
+  /**
+   * Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
+   * @graphNode Show UI
+   * @graphLabel docId document
+   */
+  show(docId: string, options?: { layer?: number; modal?: boolean }): boolean;
+  /**
+   * Hide a shown UI document (`false` when it was not shown).
+   * @graphNode Hide UI
+   * @graphLabel docId document
+   */
+  hide(docId: string): boolean;
+  /**
+   * The document is shown.
+   * @graphPure
+   * @graphNode UI shown
+   * @graphLabel docId document
+   */
+  isShown(docId: string): boolean;
+  /**
+   * Play a tween of a document (on a widget, or the whole document). Presentation only.
+   * @graphNode Play UI tween
+   * @graphLabel docId document
+   */
+  play(docId: string, tween: string, widgetId?: string): boolean;
+  /**
+   * Move the keyboard/gamepad focus to a widget of a shown document.
+   * @graphNode Focus UI widget
+   * @graphLabel docId document
+   * @graphLabel widgetId widget
+   */
+  focus(docId: string, widgetId: string): boolean;
+  /**
+   * The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
+   * @graphPure
+   * @graphNode UI events
+   */
+  events(): readonly BehaviorUiEvent[];
+  /**
+   * The first UI event of this step with this name (a button's or an input's event), or null.
+   * @graphPure
+   * @graphNode UI event
+   */
+  event(name: string): BehaviorUiEvent | null;
 }
 
 /**
@@ -1329,6 +1424,15 @@ export interface Runtime {
   cameraView?(): import('./camera-brain').CameraViewInfo | null;
   /** Phase 23.4: the viewport the view is drawn in (screen↔world projection uses its aspect). */
   setCameraViewport?(width: number, height: number): boolean;
+  /**
+   * Phase 23.9a: queue a UI event (a click, a submit, a focus change, a
+   * show/hide from a button) for the next sampled input frame (`ActionFrame.ui`).
+   */
+  queueUiEvent?(event: import('./ui').UiEventRecord): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 23.9a: the view-model writes, shown documents and presentation commands since the last take (null: none). */
+  takeUiOutput?(): import('./ui').UiOutput | null;
+  /** Phase 23.9a: the committed view model and shown documents. */
+  uiView?(): import('./ui').UiStateView;
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };

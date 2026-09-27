@@ -662,6 +662,8 @@ export class Projection {
       case 'setEffect':
       // Phase 23.7: script libraries too (their dependents' records by the prefab projection).
       case 'setScriptLibrary':
+      // Phase 23.9a: UI documents and themes too.
+      case 'setUi':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

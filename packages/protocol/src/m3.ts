@@ -57,7 +57,11 @@ export type V3MutationOp =
   | 'deleteEffect'
   | 'renameEffect'
   | 'setScriptLibrary'
-  | 'deleteScriptLibrary';
+  | 'deleteScriptLibrary'
+  | 'setUiDocument'
+  | 'deleteUiDocument'
+  | 'setUiTheme'
+  | 'deleteUiTheme';
 import type { AuthoringEnvelopeV3, ContentCatalogV3, GameConfig, SceneV3 } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { sessionError, type SessionError } from './errors';
@@ -102,7 +106,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'];
 /** The v3 query op (commands.md §4; packet 45). */
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
 
@@ -137,6 +141,7 @@ export const CHANGE_TYPES = [
   'setGraph',
   'setEffect',
   'setScriptLibrary',
+  'setUi',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------
@@ -838,12 +843,12 @@ export interface AnimationRolesValue {
 }
 
 export interface StageInspectRequest {
-  kind?: 'model' | 'audio' | 'texture' | 'music';
+  kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
   animation?: { entityId?: string; roles: AnimationRolesValue };
 }
 
 const INSPECT_REQUEST_FIELDS = new Map([
-  ['kind', '"model" | "audio" | "texture" | "music" (default "model")'],
+  ['kind', '"model" | "audio" | "texture" | "music" | "font" (default "model")'],
   ['animation', '{ entityId?, roles: { idle, run, airborne } } — the §41.3.3 animated profile'],
 ]);
 const ANIMATION_FIELDS = new Map([
@@ -865,8 +870,8 @@ export function parseStageInspectRequest(
   if (!shape.ok) return { ok: false, error: shape.error };
   let kind: StageInspectRequest['kind'];
   if (shape.value.kind !== undefined) {
-    if (shape.value.kind !== 'model' && shape.value.kind !== 'audio' && shape.value.kind !== 'texture' && shape.value.kind !== 'music') {
-      return { ok: false, error: sessionError('field_value', 'validation', 'kind must be "model", "audio", "texture" or "music"', { path: '/kind', found: String(shape.value.kind).slice(0, 64), expected: '"model" | "audio" | "texture" | "music"' }) };
+    if (shape.value.kind !== 'model' && shape.value.kind !== 'audio' && shape.value.kind !== 'texture' && shape.value.kind !== 'music' && shape.value.kind !== 'font') {
+      return { ok: false, error: sessionError('field_value', 'validation', 'kind must be "model", "audio", "texture", "music" or "font"', { path: '/kind', found: String(shape.value.kind).slice(0, 64), expected: '"model" | "audio" | "texture" | "music" | "font"' }) };
     }
     kind = shape.value.kind;
   }

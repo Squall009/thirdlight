@@ -59,6 +59,7 @@ import type {
   BehaviorAudio,
   BehaviorCamera,
   BehaviorDebug,
+  BehaviorUi,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -207,7 +208,8 @@ export interface BehaviorContext {
    */
   log(level: BehaviorLogLevel, message: string): void;
   /** Phase 23.4: the virtual cameras — activate, priorities, rig values, shake, screen↔world. */
-  readonly camera?: BehaviorCamera;
+  readonly camera?: BehaviorCamera;  /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
+  readonly ui?: BehaviorUi;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -911,6 +913,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.camera !== undefined) fields['camera'] = { value: src.camera, enumerable: true };
         // Phase 23.8: debug commands (the handler, when given, runs once per call of this step).
         if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
+        // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
+        if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };

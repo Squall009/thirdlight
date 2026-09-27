@@ -19,7 +19,11 @@
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
 import { debugCallProblem, validateDebugCommandCall } from '@thirdlight/runtime';
+import { validateUiEvent } from '@thirdlight/runtime';
 import type {
+  UiEventRecord,
+  UiOutput,
+  UiStateView,
   ActionFrame,
   AnimatorPose,
   CameraInfo,
@@ -331,6 +335,20 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return camLens;
     },
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
+    // Phase 23.9a: the project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
+    queueUiEvent: (event: UiEventRecord) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateUiEvent(event);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `UI event: ${checked.message}`, { reason: 'ui_event' }) };
+      command({ op: 'uiEvent', event: checked.event });
+      return { ok: true };
+    },
+    takeUiOutput: (): UiOutput | null => {
+      const out = mirror.ui;
+      mirror.ui = null;
+      return out;
+    },
+    uiView: (): UiStateView => ({ model: mirror.uiModel, shown: mirror.uiShown }),
     setCameraViewport: (width: number, height: number): boolean => {
       if (gone()) return false;
       const valid = typeof width === 'number' && typeof height === 'number' && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384;

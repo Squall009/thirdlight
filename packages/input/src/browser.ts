@@ -174,6 +174,13 @@ export function attachBrowserInput(
   capturePadButton(onButton: (button: number | null) => void): () => void;
   /** Phase 15.5: the device the player used last (a key press, or a pad button/stick) — the HUD names its bindings. */
   activeDevice(): 'keyboard' | 'gamepad';
+  /**
+   * Phase 23.9a: only the actions of these maps feed the frame (null: every
+   * map) — the host switches to a focused UI document's map. With the
+   * gameplay map off the platformer's move and jump read neutral too; when it
+   * comes back, a control still held must be released before it acts.
+   */
+  setActiveMaps(maps: readonly string[] | null): void;
 } {
   const globalWindow =
     typeof globalThis === 'object'
@@ -235,6 +242,9 @@ export function attachBrowserInput(
   let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
   /** Phase 15.5: the device used last (keyboard until a pad button or stick moves). */
   let lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
+  /** Phase 23.9a: the active action maps (null: all). */
+  let activeMaps: ReadonlySet<string> | null = null;
+  const actionActive = (a: { map: string }): boolean => activeMaps === null || activeMaps.has(a.map);
 
   let detached = false;
   let unavailableState: { reason: 'gamepad' | 'environment'; message: string } | null = null;
@@ -622,13 +632,17 @@ export function attachBrowserInput(
     if (gamepadJumpDown && !prevGamepadJumpDown) jumpLatch = true;
     prevGamepadJumpDown = gamepadJumpDown;
 
-    const snapshot: RawInputSnapshot = {
-      keyboardLeft: anyHeld(LEFT_CODES),
-      keyboardRight: anyHeld(RIGHT_CODES),
-      keyboardJump: keyboardJumpSuppressed ? false : anyHeld(JUMP_CODES),
-      jumpLatch,
-      gamepad,
-    };
+    // Phase 23.9a: the gameplay map switched off (a focused UI document): move and jump read neutral.
+    const gameplayOn = activeMaps === null || activeMaps.has('gameplay');
+    const snapshot: RawInputSnapshot = gameplayOn
+      ? {
+          keyboardLeft: anyHeld(LEFT_CODES),
+          keyboardRight: anyHeld(RIGHT_CODES),
+          keyboardJump: keyboardJumpSuppressed ? false : anyHeld(JUMP_CODES),
+          jumpLatch,
+          gamepad,
+        }
+      : { keyboardLeft: false, keyboardRight: false, keyboardJump: false, jumpLatch: false, gamepad: null };
     const { frame, next } = mapRawStep(snapshot, {
       stepIndex,
       previousJumpDown: state.down,
@@ -637,7 +651,7 @@ export function attachBrowserInput(
     state = next;
     jumpLatch = false; // the latch is cleared after the sample, in the same call
     if (evaluator === null) return frame;
-    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null });
+    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null }, activeMaps === null ? undefined : actionActive);
     actionPressed.clear();
     // Phase 23.2: a 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the M2 mapping exactly.
     const move = MOVE_2D ? actions['move'] : undefined;
@@ -731,6 +745,17 @@ export function attachBrowserInput(
       const next = uiQueue.shift();
       if (next !== undefined) out[next] = true;
       return out;
+    },
+    setActiveMaps(maps: readonly string[] | null): void {
+      const next = maps === null ? null : new Set(maps);
+      const wasGameplay = activeMaps === null || activeMaps.has('gameplay');
+      activeMaps = next;
+      const isGameplay = next === null || next.has('gameplay');
+      // Back to gameplay: a key or button still held from the menu must be released before it moves or jumps.
+      if (!wasGameplay && isGameplay) {
+        freshActivation();
+        evaluator?.holdUntilReleased();
+      }
     },
     configure(inputConfig: InputConfigLike): void {
       applyConfig(inputConfig);

@@ -152,6 +152,11 @@ const OPS: readonly MutationOp[] = [
   // phase 23.7: shared script libraries
   'setScriptLibrary',
   'deleteScriptLibrary',
+  // phase 23.9a: project UI documents and themes
+  'setUiDocument',
+  'deleteUiDocument',
+  'setUiTheme',
+  'deleteUiTheme',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -193,7 +198,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1189,7 +1194,11 @@ export type ValidatedOpArgs =
   | { op: 'deleteEffect'; args: { effectId: string } }
   | { op: 'renameEffect'; args: { effectId: string; name: string } }
   | { op: 'setScriptLibrary'; args: import('@thirdlight/project-model').ScriptLibraryPatch }
-  | { op: 'deleteScriptLibrary'; args: { libraryId: string } };
+  | { op: 'deleteScriptLibrary'; args: { libraryId: string } }
+  | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
+  | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
+  | { op: 'setUiTheme'; args: { theme: import('@thirdlight/project-model').UiTheme } }
+  | { op: 'deleteUiTheme'; args: { uiThemeId: string } };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -1292,6 +1301,20 @@ export function validateOpArgs(
         if (k === 'effect' ? !isPlainObject(args[k]) : typeof args[k] !== 'string') {
           return { ok: false, error: fieldType(`/args/${k}`, args[k], k === 'effect' ? 'object ({ effectId, name, duration, loop, seed, bounds, parameters?, systems })' : `string (${k})`) };
         }
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setUiDocument':
+    case 'deleteUiDocument':
+    case 'setUiTheme':
+    case 'deleteUiTheme': {
+      // Phase 23.9a: setUiDocument {document}; deleteUiDocument {uiDocumentId}; setUiTheme {theme}; deleteUiTheme {uiThemeId}.
+      const key = op === 'setUiDocument' ? 'document' : op === 'deleteUiDocument' ? 'uiDocumentId' : op === 'setUiTheme' ? 'theme' : 'uiThemeId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      const isObjectArg = op === 'setUiDocument' || op === 'setUiTheme';
+      if (isObjectArg ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setUiDocument' ? 'object ({ uiDocumentId, name, root, … })' : op === 'setUiTheme' ? 'object ({ uiThemeId, name, styles, icons? })' : `string (${key})`) };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

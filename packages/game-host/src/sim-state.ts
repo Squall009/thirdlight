@@ -15,7 +15,7 @@
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
-import type { AnimatorPose, CameraViewInfo, DebugCommandState, GameView, Runtime, RuntimeDiagnostics, SceneSetView } from '@thirdlight/runtime';
+import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type UiOutput, type UiShownDocument } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -273,6 +273,9 @@ export class FrameEncoder {
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
+    // Phase 23.9a: the project UI's diff of the steps since the last frame.
+    const ui = rt.takeUiOutput?.() ?? null;
+    if (ui !== null) out.ui = ui;
     // Diagnostics: on a change of state or error count, on request, and now and then.
     this.framesSinceDiag += 1;
     if (diag !== null && (this.diagWanted || diag.state !== this.diagState || diag.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
@@ -350,6 +353,10 @@ export class FrameMirror {
   effects: unknown[] = [];
   /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
+  /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
+  ui: UiOutput | null = null;
+  uiModel: Record<string, unknown> = {};
+  uiShown: readonly UiShownDocument[] = [];
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   debugCommands: DebugCommandState | null = null;
@@ -416,6 +423,11 @@ export class FrameMirror {
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.ui !== undefined) {
+      this.ui = mergeUiOutput(this.ui, s.ui);
+      this.uiModel = applyUiOutputToModel(this.uiModel, s.ui);
+      if (s.ui.shown !== undefined) this.uiShown = s.ui.shown;
+    }
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
     if (s.debugCommands !== undefined) this.debugCommands = s.debugCommands;

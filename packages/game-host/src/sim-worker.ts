@@ -232,6 +232,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'debugCommand':
         r = rt.queueDebugCommand?.(c.call) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no debug commands' } };
         break;
+      case 'uiEvent':
+        r = rt.queueUiEvent?.(c.event) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project UI' } };
+        break;
       case 'stop':
         rt.stop();
         break;

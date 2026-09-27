@@ -465,6 +465,33 @@ export {
   validateScriptLibrary,
 } from './script-libraries';
 export type { BehaviorLibraryPin, ScriptLibrary, ScriptLibraryFile, ScriptLibraryPatch } from './script-libraries';
+// Phase 23.9a: project UI documents and themes (content.uiDocuments / uiThemes, flow.screens).
+export {
+  UI_EASINGS,
+  UI_ENGINE_ACTIONS,
+  UI_FLOW_SCREENS,
+  UI_GENERIC_FONTS,
+  UI_LIMITS,
+  UI_SAVE_SLOTS,
+  UI_TWEEN_KINDS,
+  UI_WIDGET_TYPES,
+  canonicalUiDocument,
+  canonicalUiDocuments,
+  canonicalUiTheme,
+  canonicalUiThemes,
+  uiAssetRefs,
+  uiBindPathProblem,
+  uiDocumentsForRuntime,
+  uiTextPlaceholders,
+  validateUiDocument,
+  validateUiDocuments,
+  validateUiReferences,
+  validateUiStyle,
+  validateUiTheme,
+  validateUiThemes,
+} from './ui-documents';
+export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiFlowScreen, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
+export { FLOW_SCREEN_KEYS, type FlowScreenKey } from './flow';
 // Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
 export {
   EFFECT_ATTRIBUTES,
@@ -541,6 +568,7 @@ export {
   DEFAULT_INPUT_3D,
   defaultInputFor,
   INPUT_ACTION_TYPES,
+  INPUT_MAPS,
   MAX_INPUT_ACTIONS,
   validateInput,
   type InputAction,

@@ -35,6 +35,8 @@ export { checkBundleGraphM3 } from './graph';
 export { decodersNeeded } from './decoders';
 export {
   assertRelativeClosure,
+  scanAssetContainer,
+  scanFontContainer,
   scanGlbContainer,
   scanImageContainer,
   scanMusicContainer,

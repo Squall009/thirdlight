@@ -22,6 +22,8 @@ import type {
   RunSaveState,
   RuntimeDiagnostics,
   RuntimeSnapshot,
+  UiEventRecord,
+  UiOutput,
 } from '@thirdlight/runtime';
 import type { ManifestBehaviorRow } from './host';
 
@@ -93,6 +95,8 @@ export type SimCommand =
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
   // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
+  /** Phase 23.9a: a UI event, queued in the worker's runtime for its next sampled frame. */
+  | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
   | { readonly op: 'stop' };
 
 export type SimQuery =
@@ -161,6 +165,8 @@ export interface FrameState {
    * committed view (null: no virtual camera).
    */
   readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
+  /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
+  readonly ui?: UiOutput;
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };

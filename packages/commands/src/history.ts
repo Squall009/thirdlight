@@ -27,6 +27,7 @@ import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, Ligh
 import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
+import { uiOf, withUi } from './ui-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
 import type {
@@ -546,6 +547,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, inv.libraryId, inv.restore), inv.behaviors.map((b) => b.restore)), change, entry.requestId);
   }
 
+  if (inv.kind === 'setUi') {
+    // Phase 23.9a: one UI document or theme back to what it was.
+    const before = uiOf(content, inv.uiKind, inv.id);
+    const change: ChangeData = { type: 'setUi', uiKind: inv.uiKind, id: inv.id, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withUi(content, inv.uiKind, inv.id, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setEffect') {
     const before = effectsOf(content).find((e) => e.effectId === inv.effectId) ?? null;
     const change: ChangeData = { type: 'setEffect', effectId: inv.effectId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
@@ -956,6 +964,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const behaviors = f.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.previous), next: deepClone(b.next) }));
     const change: ChangeData = { type: 'setScriptLibrary', libraryId: f.libraryId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next), behaviors };
     return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, f.libraryId, f.next), f.behaviors.map((b) => b.next)), change, entry.requestId);
+  }
+
+  if (f.type === 'setUi') {
+    const before = uiOf(content, f.uiKind, f.id);
+    const change: ChangeData = { type: 'setUi', uiKind: f.uiKind, id: f.id, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withUi(content, f.uiKind, f.id, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setEffect') {

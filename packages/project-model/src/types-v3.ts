@@ -336,7 +336,8 @@ export interface ResolvedSceneV3 {
 
 /** §23.3.7 the v3 asset-kind discriminator. */
 /** Phase 9.4 adds `texture` (a standalone PNG/JPEG/WebP image). */
-export type AssetKind = 'model' | 'audio' | 'texture' | 'music';
+/** Phase 23.9a adds `font` (a TTF/OTF/WOFF2/WOFF for the project UI). */
+export type AssetKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
 
 /**
  * presentation.md §41.4.3: the `gltf-glb` recipe member (the accepted M2
@@ -493,6 +494,10 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   effects?: import('./effects').EffectDef[];
   /** Phase 23.7: shared script libraries behaviors import as `@lib/<id>` (absent = none). */
   scriptLibraries?: import('./script-libraries').ScriptLibrary[];
+  /** Phase 23.9a: project UI documents drawn by the game host (absent = none). */
+  uiDocuments?: import('./ui-documents').UiDocument[];
+  /** Phase 23.9a: UI themes (named styles and icons documents share; absent = none). */
+  uiThemes?: import('./ui-documents').UiTheme[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

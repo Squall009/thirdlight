@@ -120,6 +120,8 @@ function words(name) {
     .trim();
 }
 const capital = (s) => (s.length === 0 ? s : s[0].toUpperCase() + s.slice(1));
+/** Phase 23.9a: namespaces whose category is not their capitalized name (an acronym). */
+const CATEGORY_NAMES = { ui: 'UI' };
 
 // ---- types -----------------------------------------------------------------------------
 
@@ -316,7 +318,7 @@ class Builder {
       const optional = (member.flags & ts.SymbolFlags.Optional) !== 0;
       const mtype = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(member, decl));
       const memberStep = { prop: name, ...(optional ? { optional: true } : {}) };
-      const cat = category ?? (pathNames.length === 0 ? null : capital(pathNames[0]));
+      const cat = category ?? (pathNames.length === 0 ? null : (CATEGORY_NAMES[pathNames[0]] ?? capital(pathNames[0])));
       const sigs = mtype.getCallSignatures();
       const doc = docOf(checker, member);
       if (sigs.length > 0) {
@@ -384,7 +386,7 @@ class Builder {
       const d = describe(checker, checker.getTypeOfSymbolAtLocation(member, decl), tags);
       if (hasMethods) {
         // A namespace (ctx.game, ctx.timers…): its members, category = its name.
-        this.walk(mtype, [...steps, memberStep], [...pathNames, name], cat ?? capital(name));
+        this.walk(mtype, [...steps, memberStep], [...pathNames, name], cat ?? CATEGORY_NAMES[name] ?? capital(name));
         continue;
       }
       if (d.kind === 'object' && pathNames.length === 0) {

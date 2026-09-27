@@ -13,6 +13,7 @@
  * identically in the Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
+import { validateUiEvents, type UiEventRecord } from './ui';
 
 /** The four jump phases (input.md §2). */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -46,6 +47,14 @@ export interface ActionFrame {
    * @graphNode skip a script receives its debug commands with ctx.debug.command
    */
   commands?: readonly DebugCommandCall[];
+  /**
+   * Phase 23.9a, optional: the UI events of this step (a click, a submit, a
+   * focus change, a custom event, a document shown or hidden by a button) —
+   * part of the input so a recording replays them exactly. Absent: none
+   * (every older frame and recording is unchanged).
+   * @graphNode skip a script reads its UI events with ctx.ui.events / ctx.ui.event
+   */
+  ui?: readonly UiEventRecord[];
 }
 
 /** Phase 23.8: one debug command call carried by an input frame. */
@@ -149,7 +158,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'commands' || key === 'moveY') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'commands' || key === 'moveY' || key === 'ui') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -203,10 +212,18 @@ export function validateActionFrame(
     if (!c.ok) return c;
     commands = c.commands;
   }
+  // Phase 23.9a: the frame's UI events (validated and frozen; absent keeps the frame as it was).
+  let uiEvents: readonly UiEventRecord[] | undefined;
+  if (value['ui'] !== undefined) {
+    const u = validateUiEvents(value['ui']);
+    if (!u.ok) return u;
+    uiEvents = u.events;
+  }
+  const withExtras = { ...(commands !== undefined ? { commands } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}) };
   const rawActions = value['actions'];
-  // Phase 23.2 / 23.8: moveY and commands only when present (a frame without them stays as it was).
+  // Phase 23.2 / 23.8 / 23.9a: moveY, commands and ui only when present (a frame without them stays as it was).
   const withMoveY = moveY !== undefined ? { moveY } : {};
-  if (rawActions === undefined) return { ok: true, frame: moveY === undefined && commands === undefined ? { stepIndex, moveX, jump: jump as JumpPhase } : { stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, ...(commands !== undefined ? { commands } : {}) } };
+  if (rawActions === undefined) return { ok: true, frame: { stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, ...withExtras } };
   if (!isPlainObject(rawActions) || ownKeyCount(rawActions) > MAX_FRAME_ACTIONS) {
     return { ok: false, field: 'actions', message: `actions must map at most ${MAX_FRAME_ACTIONS} action names to values` };
   }
@@ -226,8 +243,7 @@ export function validateActionFrame(
     if (same && !(sameActionValue(prevActions![name], a) && keyAt(prevActions!, index) === name)) same = false;
     index += 1;
   }
-  const withCommands = commands !== undefined ? { commands } : {};
-  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: { stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, actions: prevActions!, ...withCommands } };
+  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: { stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, actions: prevActions!, ...withExtras } };
   const actions: Record<string, ActionValue> = {};
   for (const name in rawActions) {
     if (!hasOwn.call(rawActions, name)) continue;
@@ -238,7 +254,7 @@ export function validateActionFrame(
         ? prev
         : Object.freeze({ v: a['v'] as number, ...(a['x'] !== undefined ? { x: a['x'] as number } : {}), ...(a['y'] !== undefined ? { y: a['y'] as number } : {}), p: a['p'] as JumpPhase });
   }
-  return { ok: true, frame: { stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, actions: Object.freeze(actions), ...withCommands } };
+  return { ok: true, frame: { stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, actions: Object.freeze(actions), ...withExtras } };
 }
 
 /**

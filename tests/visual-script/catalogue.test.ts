@@ -122,6 +122,19 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
       screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
     },
+    // Phase 23.9a: the project UI.
+    ui: {
+      set: rec('ui.set', true),
+      get: rec('ui.get', 7),
+      clear: rec('ui.clear', true),
+      show: rec('ui.show', true),
+      hide: rec('ui.hide', true),
+      isShown: rec('ui.isShown', true),
+      play: rec('ui.play', true),
+      focus: rec('ui.focus', true),
+      events: rec('ui.events', () => [{ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 }]),
+      event: rec('ui.event', () => ({ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 })),
+    },
   };
 }
 
@@ -237,6 +250,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
+      // Phase 23.9a: a frame's UI events are read with ctx.ui.events / ctx.ui.event.
+      'action.ui',
       'debug.command',
       // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
       'emit(control_move).y',
