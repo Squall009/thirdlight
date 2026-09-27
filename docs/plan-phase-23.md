@@ -662,3 +662,79 @@ for editor items, commit/push/restart, decision log).
   optional-settings order) so a release build never ships it by accident;
   the setting is not added to the `GameplaySettings` interface (the public
   script `.d.ts` stays as it was apart from `ctx.debug`).
+- 2026-09-27 (23.3): **pointer samples are input.** `ActionFrame.pointer`
+  (optional: `x, y` 0–1 of the view from the top left — the camera's screen
+  coordinates — `dx, dy` in view fractions, `wheel` in notches, `buttons` /
+  `pressed` / `released` masks 1 left, 2 right, 4 middle, `over`, `locked`),
+  quantized to 1e-4 by the browser owner and strictly validated (old frames
+  and replays stay valid; nothing changes until a pointer is seen). The
+  runtime keeps the pointer between samples (a relay or recording may be
+  sparse: position and held buttons hold, no movement, no edges) and derives
+  the edges (pressed/released from the held mask as well as from the sample —
+  a click between two samples still counts; `entered`/`left` from `over`), so
+  modules and scripts see a complete pointer. The worker's tick source spends
+  movement, wheel and edges on the first step of a tick and adds them up when
+  two samples meet before a step; action values that are amounts per sample
+  carry `i: 1` for the same rule (a mouse-look axis would otherwise count
+  twice at 120 Hz steps).
+- 2026-09-27 (23.3): **pointer bindings and hover edges.** Binding kinds
+  `pointerButton {button}`, `pointerAxis {axis: x|y|wheel}` (movement in
+  percent of the view per step, so 1 % a step drives like a full stick; up
+  positive like a stick), `pointerPosition` and `pointerDelta` (axis2d, not
+  clipped to length 1). "Hover edges" in the engine are the pointer entering
+  or leaving the view; which object is hovered is a pick the script compares
+  with its last one — a per-object hover state in the engine would need a
+  pick every step for every project and one filter for all scripts.
+- 2026-09-27 (23.3): **cursor.** `content.input.cursor {gameplay?, ui?}`
+  (free/locked, absent free: a pointer-driven game needs a visible cursor;
+  mouse-look opts in). The host resolves the mode every frame: the ui map's
+  while a menu is open or the game is paused, else a script's request
+  (`ctx.input.setCursor`, simulation state carried per frame from the worker,
+  cleared at a run start), else the gameplay map's. The browser owner locks
+  (pointer lock, asked again on the next click in the view because browsers
+  want a gesture), releases and hides the cursor (locked, or a gamepad used
+  last — pointer movement counts as the keyboard/mouse device) and reports
+  `data-tl-cursor` / `data-tl-pointer-lock` / `data-tl-cursor-hidden`. A
+  locked pointer's position is the view's centre. Real pointer lock was not
+  exercised in a browser (unit tests with fake DOM; owner look pending on a
+  desktop).
+- 2026-09-27 (23.3): **script queries (3D).** New `PhysicsStepClient`
+  members appended after the 2D ones (the 2D methods, their graph nodes and
+  types are unchanged): `raycast3d`, `overlapSphere`, `overlapBox3d`
+  (rotation), `overlapCapsule`, `pickAt`, `pickAtPointer`; vectors as
+  `[x, y, z]` arrays so `ctx.camera.screenToRay` chains into them; hits
+  `{entityId, point, normal, distance}` — the hit collider's entity, so a
+  23.5 block-layer chunk collider is reported by its entity and `ctx.grid`
+  can map it to a cell later. Filters `{tags?, layers?, exclude?}`: tag
+  names resolve like `ctx.tags.mask` (unknown = script error). Budget 64
+  queries a step for all scripts (twice the 2D plane's 32: a 3D scene picks,
+  tests line of sight and probes several objects a step), then nothing,
+  warned once. Without a live virtual camera `pickAt` and
+  `ctx.camera.screenToRay/worldToScreen` use the scene camera's current pose
+  (the brain answered with a default pose before). Graph nodes generated
+  (Raycast 3D, Overlap sphere / box 3D / capsule, Pick at screen point /
+  pointer, Pointer, Pointer pressed / released / held, Set cursor); no
+  existing node changed.
+- 2026-09-27 (23.3): **collision layers** are project data:
+  `content.collisionLayers` (≤ 15 names; "default" implicit — bit 0), op
+  `setCollisionLayers {layers}` (whole list, undoable), collider `layers`
+  (v4, 1–16 names, checked against the list in the project composition;
+  refused on the 2D plane, which is unchanged). The manifest carries the list
+  (`collisionLayers`, after `input`; absent keeps every existing buildId).
+  Rapier groups: a collider is a member of its layers and filters nothing,
+  so contacts and the character's sweep are unchanged; a query's groups are
+  all memberships filtering to the named layers; tags and exclusions are the
+  query's predicate. Editor: a Collision layers list under the tags
+  (File → Project tags); the collider's field comes from its descriptor.
+- 2026-09-27 (23.3): **a 3D world without a player.** `physics3DConfigOf`
+  returns a `noCharacter` config (a disabled placeholder capsule; its step
+  poses movers and updates the world) when the start scene has colliders but
+  no controller — a pointer-picked scene need not have a player; with
+  neither it stays null. Module resolution wants the 3D backend for a
+  collider in 3D too. Colliders that only arrive with a later-loaded scene
+  do not make a physics world (as before).
+- 2026-09-27 (23.3): **relay fixes found on the way:** the MCP
+  `tl_input_exercise` dropped `actions`, and the backend→editor relay event
+  and the preview bridge stripped/refused them; `actions` and `pointer` now
+  travel end to end (validated by the backend's relay parse). Observations
+  gain `pointer`, `cursor` and `hidden` (the objects scripts hid).
