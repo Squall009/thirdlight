@@ -739,6 +739,8 @@ function runAllProbes(): void {
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
   // Phase 23.3: the named collision layers.
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
+  // Phase 23.19: the project save schema.
+  probe('saveSchema', contentErrors, contentDoc({ saveSchema: { version: 3, slots: 5, migrations: [{ from: 1, name: 'v1to2' }], sections: ['grid', 'storage'], thumbnail: { width: 160, height: 90, format: 'webp', quality: 0.8 }, settings: [{ key: 'hints', type: 'bool', default: true }] } }), '/saveSchema', block('saveSchema'), 'saveSchema:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
   // the content block's own keys (each block's inside is probed above)

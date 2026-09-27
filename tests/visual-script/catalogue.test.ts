@@ -165,6 +165,24 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       setData: rec('materials.setData', true),
       getData: rec('materials.getData', () => [255, 0, 0, 255]),
     },
+    // Phase 23.19: project saves.
+    saves: {
+      version: 2,
+      slotCount: 3,
+      write: rec('saves.write', true),
+      read: rec('saves.read', () => ({ chapter: 1 })),
+      save: rec('saves.save', true),
+      load: rec('saves.load', true),
+      delete: rec('saves.delete', true),
+      slots: rec('saves.slots', () => [{ slot: 2, title: 'T', chapter: '', location: '', playSeconds: 1, savedAt: '', version: 2, bytes: 1, thumbnail: false }]),
+      ready: rec('saves.ready', true),
+      results: rec('saves.results', () => []),
+      playSeconds: rec('saves.playSeconds', 12),
+      migration: rec('saves.migration', true),
+      setting: rec('saves.setting', true),
+      settings: rec('saves.settings', () => ({ hints: true })),
+      setSetting: rec('saves.setSetting', true),
+    },
     // Phase 23.9a: the project UI.
     ui: {
       set: rec('ui.set', true),
@@ -293,6 +311,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
+      // Phase 23.19: storage's answers arrive with the input; a migration is a function.
+      'action.saves',
       // Phase 23.9a: a frame's UI events are read with ctx.ui.events / ctx.ui.event.
       'action.ui',
       'debug.command',
@@ -313,6 +333,7 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'physics.stageCharacterMove',
       'random.pick',
       'random.stream().pick',
+      'saves.migration',
     ]);
     // Intents: one node per kind, with its phase.
     const emit = BEHAVIOR_API_NODES.filter((s) => s.type.startsWith('api.emit.'));

@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -180,6 +180,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '3D queries (physics_dimension 3): ctx.physics.raycast3d/overlapSphere/overlapBox3d/overlapCapsule/pickAt/pickAtPointer with a filter ' +
       '{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to 15 collision layers ("default" is implicit) that ' +
       'collider {layers: [...]} lists. ' +
+      'Project saves (v4): setSaveSchema {schema: {version (1+), slots (1-99), migrations?: [{from, name}], sections?: [grid|materials|spawned|storage], ' +
+      'thumbnail?: {width, height (16-512 px), format: jpeg|webp, quality?}, settings?: [{key, type: bool|number|string|enum, default, label?, min?, max?, values?, ' +
+      'engine?: music|sfx|ui|quality}]} | null}; scripts use ctx.saves.write(doc)/read()/save(slot, {title?, chapter?, location?, thumbnail?})/load(slot)/' +
+      'delete(slot)/slots()/results()/migration(name, fn)/setting(key)/setSetting(key, value) (1 MiB per slot; saves live in the browser). ' +
       'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
       'loop|pingpong|once, wait?, easing?: linear|smooth, startOn?: signal, maxPush? 1-1000 m/s (60: how hard it shoves a player out of its way)} (with a box collider it is a moving platform that carries ' +
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
@@ -487,7 +491,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session (`player` {x, y, z} is the player\'s position; a scene played without a game block reports state "scene", its step and player, no run state). The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22). timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {
@@ -516,6 +520,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'sceneId - start there (a game with levels starts the first level that loads the scene, skipping the title; without levels the scene loads with the start scenes and the player starts at its first player spawn); ' +
       'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
       'save - a save document ({version, levelId, run, ...}, as the game writes them; <= 64 KB) or saveSlot auto|1|2|3 (a save in the Play page) to continue a game with levels; ' +
+      'phase 23.19: or a project save document {format: "thirdlight.save", version, playSeconds?, doc, sections?} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated) or saveSlot 1-99 (a project slot of the Play page); ' +
       'mode - a game mode id (checked once the project defines game modes; ignored and noted in start.notes otherwise). ' +
       'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
@@ -526,8 +531,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         sceneId: { type: 'string', description: 'start Play at this scene' },
         mode: { type: 'string', description: 'a game mode id (applies once the project has game modes)' },
         variables: { type: 'object', description: 'script variables: what ctx.save holds from step 0' },
-        save: { type: 'object', description: 'a save document to continue from (a game with levels)' },
-        saveSlot: { type: 'string', enum: ['auto', '1', '2', '3'], description: 'continue from this save slot of the Play page' },
+        save: { type: 'object', description: 'a save document to continue from (a game with levels), or a project save document (format "thirdlight.save")' },
+        saveSlot: { type: 'string', pattern: '^(auto|[1-9][0-9]?)$', description: 'continue from this save slot of the Play page (auto, 1-3 for a game flow; 1-99 for project saves)' },
       },
       additionalProperties: false,
     },

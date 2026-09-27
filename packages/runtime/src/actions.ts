@@ -13,6 +13,7 @@
  * identically in the Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
+import { validateSaveEvents, type SaveEvent } from './project-saves';
 import { validateUiEvents, type UiEventRecord } from './ui';
 
 /** The four jump phases (input.md §2). */
@@ -53,6 +54,14 @@ export interface ActionFrame {
    * @graphNode skip a script receives its debug commands with ctx.debug.command
    */
   commands?: readonly DebugCommandCall[];
+  /**
+   * Phase 23.19, optional: storage's answers this step (the slot list, save and
+   * delete outcomes, a loaded save document) — part of the input so a
+   * recording replays them and the worker applies them at the same step.
+   * Absent: none (every older frame and recording is unchanged).
+   * @graphNode skip a script reads them through ctx.saves
+   */
+  saves?: readonly SaveEvent[];
   /**
    * Phase 23.9a, optional: the UI events of this step (a click, a submit, a
    * focus change, a custom event, a document shown or hidden by a button) —
@@ -200,7 +209,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'moveY' || key === 'ui') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'moveY' || key === 'ui') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -261,6 +270,13 @@ export function validateActionFrame(
     if (!c.ok) return c;
     commands = c.commands;
   }
+  // Phase 23.19: storage's answers (validated and frozen; absent keeps the frame as it was).
+  let saves: readonly SaveEvent[] | undefined;
+  if (value['saves'] !== undefined) {
+    const sv = validateSaveEvents(value['saves']);
+    if (!sv.ok) return sv;
+    saves = sv.events;
+  }
   // Phase 23.9a: the frame's UI events (validated and frozen; absent keeps the frame as it was).
   let uiEvents: readonly UiEventRecord[] | undefined;
   if (value['ui'] !== undefined) {
@@ -268,7 +284,7 @@ export function validateActionFrame(
     if (!u.ok) return u;
     uiEvents = u.events;
   }
-  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}) });
+  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}) });
   const rawActions = value['actions'];
   // Phase 23.2 / 23.8 / 23.3 / 23.9a: moveY, commands, the pointer and UI events only when present (a frame without them stays as it was).
   const withMoveY = moveY !== undefined ? { moveY } : {};

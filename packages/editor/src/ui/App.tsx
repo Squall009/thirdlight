@@ -28,6 +28,7 @@ import { draggedRoots, effectiveFlagsOf, subtreeOrder } from '../session/hierarc
 import { scatterProblem, scatterTransforms } from '../session/instances';
 import { TagsPanel } from './TagsPanel';
 import { CollisionLayersPanel } from './CollisionLayersPanel';
+import { SavesPanel } from './SavesPanel';
 import type { AssetView } from '../session/content-projection';
 import {
   importFailed,
@@ -140,7 +141,7 @@ import { editorWorkers } from '../workers/editor-workers';
 import { graphIssuesOf, materialIssuesOf, type GraphIssue, type MaterialIssue } from '../workers/problems';
 import { useWorkerJob } from '../workers/use-worker-job';
 import { graphsPortContext, materialPortContext } from '../session/material-graph';
-import type { GraphDocument } from '@thirdlight/project-model';
+import type { GraphDocument, SaveSchema } from '@thirdlight/project-model';
 import { ProjectFilePicker } from './ProjectFilePicker';
 import { sourceIssuesFrom, type SourceIssue } from '../session/asset-sources';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
@@ -550,6 +551,9 @@ function EditorApp(): JSX.Element {
   const [tagsError, setTagsError] = useState<string | null>(null);
   /** Phase 23.3: the named collision layers and the last setCollisionLayers error. */
   const [collisionLayers, setCollisionLayers] = useState<string[]>([]);
+  /** Phase 23.19: the project save schema and the last setSaveSchema error. */
+  const [saveSchema, setSaveSchema] = useState<SaveSchema | null>(null);
+  const [saveSchemaError, setSaveSchemaError] = useState<string | null>(null);
   const [layersError, setLayersError] = useState<string | null>(null);
   const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
 
@@ -828,6 +832,7 @@ function EditorApp(): JSX.Element {
     setSettings(stable('settings', c.getSettings()));
     setTags(stable('tags', c.getTags()));
     setCollisionLayers(stable('collisionLayers', c.getCollisionLayers()));
+    setSaveSchema(stable('saveSchema', c.getSaveSchema()));
     const mats = stable('materials', c.getMaterials());
     const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
@@ -1922,6 +1927,14 @@ function EditorApp(): JSX.Element {
     const res = await c.command('setCollisionLayers', { layers: next }, c.projection.revision);
     if (res.ok) setLayersError(null);
     else setLayersError((res.response as { message?: string }).message ?? 'the collision layers could not be saved');
+  }, []);
+  /** Phase 23.19: replace the project save schema (one setSaveSchema command; null removes it). */
+  const saveSaveSchema = useCallback(async (next: SaveSchema | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setSaveSchema', { schema: next }, c.projection.revision);
+    if (res.ok) setSaveSchemaError(null);
+    else setSaveSchemaError((res.response as { message?: string }).message ?? 'the save schema could not be saved');
   }, []);
   /** Phase 12 (b): set an entity's own tags, by name. */
   const setEntityTags = useCallback(async (entityId: string, names: string[]) => {
@@ -4464,6 +4477,7 @@ function EditorApp(): JSX.Element {
               onSetLayers={(next) => void saveCollisionLayers(next)}
             />
           )}
+          {bottomTab === 'saves' && <SavesPanel schema={saveSchema} error={saveSchemaError} onSave={(next) => void saveSaveSchema(next)} />}
           {bottomTab === 'media' && (
             <MediaPanel
               assets={assets}
@@ -4999,7 +5013,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5013,6 +5027,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },
   { id: 'tags', label: 'Tags' },
+  // Phase 23.19: the project save schema.
+  { id: 'saves', label: 'Saves' },
   { id: 'media', label: 'Media' },
   { id: 'graphs', label: 'Graphs' },
   // Phase 20.0: visual effects.

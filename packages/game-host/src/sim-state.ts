@@ -279,6 +279,9 @@ export class FrameEncoder {
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
+    // Phase 23.19: project save requests (the page carries them out).
+    const saveReq = rt.takeSaveRequests?.() ?? [];
+    if (saveReq.length > 0) out.saveReq = saveReq;
     // Phase 23.5: block-layer chunks the simulation changed.
     const grid = rt.takeGridChanges?.() ?? [];
     if (grid.length > 0) out.grid = grid;
@@ -389,6 +392,8 @@ export class FrameMirror {
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   /** Phase 23.12: the latest material change per object, material and parameter, until the adapter takes them. */
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
+  /** Phase 23.19: project save requests not carried out yet (the host takes them every frame). */
+  saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
   /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
   ui: UiOutput | null = null;
   uiModel: Record<string, unknown> = {};
@@ -464,6 +469,7 @@ export class FrameMirror {
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
+    if (s.saveReq !== undefined) for (const r of s.saveReq) this.saveReq.push(r);
     if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.mat !== undefined) {
       for (const c of s.mat) {

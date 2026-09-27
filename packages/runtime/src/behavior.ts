@@ -30,6 +30,7 @@
  */
 import type { BehaviorGrid } from './grid';
 import type { BehaviorMaterials } from './material-params';
+import type { BehaviorSaves } from './project-saves';
 import type {
   DeclaredProperty,
   PropertyDeclaration,
@@ -224,6 +225,11 @@ export interface BehaviorContext {
    * texture) or write the cells of a data parameter on one object; others wearing the material keep theirs.
    */
   readonly materials?: BehaviorMaterials;
+  /**
+   * Phase 23.19: the project's save document and numbered slots (save, load, delete, the slot list
+   * with title/chapter/location/play time/picture) and the project settings document.
+   */
+  readonly saves?: BehaviorSaves;
   /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
 }
@@ -936,6 +942,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
         // Phase 23.12: graph-material parameters per object.
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
+        // Phase 23.19: project saves.
+        if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
         // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         // Phase 14.1: prefab copies in the running game.

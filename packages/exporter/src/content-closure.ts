@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import type { BlockType, CellField } from '@thirdlight/project-model';
+import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
@@ -507,6 +507,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
     // Phase 23.3: the named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
     ...(((input.content as { collisionLayers?: string[] } | null)?.collisionLayers ?? []).length > 0 ? { collisionLayers: (input.content as { collisionLayers: string[] }).collisionLayers } : {}),
+    // Phase 23.19: the project save schema (the runtime builds and restores save documents with it; the host keeps the slots).
+    ...((input.content as { saveSchema?: SaveSchema } | null)?.saveSchema !== undefined ? { saveSchema: (input.content as { saveSchema: SaveSchema }).saveSchema } : {}),
     // Phase 9.7: the animator controllers (the game's runtime steps them); phase 16.2: without the editor-only graph layout.
     ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: animatorsForRuntime((input.content as { animators: AnimatorController[] }).animators) } : {}),
     // Phase 23.11: the rigs sockets are resolved on (the runtime never loads a model).

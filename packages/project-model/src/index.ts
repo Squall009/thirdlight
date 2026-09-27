@@ -841,3 +841,22 @@ export {
   type CollisionMeshPiece,
 } from './block-mesh';
 export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng } from './png-decode';
+// Phase 23.19: the project save schema (save document, slots, sections, settings document).
+export {
+  SAVE_LIMITS,
+  SAVE_SECTIONS,
+  SAVE_THUMBNAIL_DEFAULT,
+  SETTINGS_ENGINE_BINDINGS,
+  canonicalSaveSchema,
+  effectiveField,
+  settingsDocumentOf,
+  settingsValueFits,
+  validateSaveSchema,
+  type SaveMigration,
+  type SaveSchema,
+  type SaveSection,
+  type SaveThumbnail,
+  type SettingsEngineBinding,
+  type SettingsField,
+  type SettingsFieldValue,
+} from './save-schema';

@@ -101,6 +101,8 @@ export interface RuntimeSnapshot {
    * values against them; built from the manifest by `materialCatalogOf`).
    */
   materialCatalog?: import('./material-params').RuntimeMaterialCatalog;
+  /** Phase 23.19, optional: the project save schema (`content.saveSchema`; `ctx.saves`). */
+  saveSchema?: import('@thirdlight/project-model').SaveSchema;
   /**
    * Phase 23.9a, v4 only, optional: the project's UI documents as the
    * simulation knows them (id, layer, modal) — `ctx.ui.show/hide` and a
@@ -302,6 +304,8 @@ export interface InstantiateConfig {
    * them is `config_invalid`.
    */
   variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.19: the stored project settings document (values that do not fit the save schema's fields fall back to the defaults). */
+  projectSettings?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -733,6 +737,8 @@ export interface StepContext {
   readonly grid?: import('./grid').BehaviorGrid;
   /** Phase 23.12: graph-material parameters per object (`ctx.materials`). */
   readonly materials?: import('./material-params').BehaviorMaterials;
+  /** Phase 23.19: project saves (`ctx.saves`). */
+  readonly saves?: import('./project-saves').BehaviorSaves;
   /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
   readonly ui?: BehaviorUi;
 }
@@ -1592,6 +1598,16 @@ export interface Runtime {
    * declaration, or 16 calls are already waiting.
    */
   queueDebugCommand?(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError };
+
+  // ---- Phase 23.19 project saves --------------------------------------------
+  /** The save/load/delete/settings requests scripts made since the last call (the host owns storage). */
+  takeSaveRequests?(): import('./project-saves').SaveRequest[];
+  /** Queue one storage answer for the next executed step (it rides on that step's input frame). */
+  queueSaveEvent?(event: import('./project-saves').SaveEvent): { ok: true } | { ok: false; error: RuntimeError };
+  /** The project saves state as digest text (null without a save schema or before any save activity). */
+  savesState?(): string | null;
+  /** The project settings document now. */
+  projectSettings?(): Readonly<Record<string, boolean | number | string>>;
 }
 
 /** One interpolated transform (runtime.md §6). */
