@@ -213,6 +213,11 @@ export interface PhysicsHit {
   normal: [number, number, number];
   /** Metres from the ray's origin. */
   distance: number;
+  /**
+   * A block layer's cell when the ray hit one (then `entityId` is the layer):
+   * [x, y, z] in `ctx.grid` coordinates — the cell just inside the surface.
+   */
+  cell?: [number, number, number];
 }
 
 /** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */

@@ -194,6 +194,15 @@ function queryPositive(v: unknown, what: string): number {
   return v;
 }
 
+/**
+ * Phase 23.3: the entity a physics collider belongs to — a block layer's
+ * chunk collider (`<layer>#blocks:<chunk>:<piece>`, phase 23.5) is its layer.
+ */
+function colliderEntityOf(colliderId: string): string {
+  const i = colliderId.indexOf('#blocks:');
+  return i > 0 ? colliderId.slice(0, i) : colliderId;
+}
+
 /** Phase 23.3: a query's reach (absent: `fallback`; at most 10 km). */
 function queryDistance(v: unknown, fallback: number, what: string): number {
   if (v === undefined || v === null) return fallback;
@@ -4561,7 +4570,10 @@ class RuntimeInstance implements Runtime {
     const accept =
       mask === undefined && skip === null
         ? undefined
-        : (id: string): boolean => (skip === null || !skip.has(id)) && (mask === undefined || (mask !== 0 && tagIndex !== null && tagIndex.has(id, mask)));
+        : (colliderId: string): boolean => {
+            const id = colliderEntityOf(colliderId);
+            return (skip === null || !skip.has(id)) && (mask === undefined || (mask !== 0 && tagIndex !== null && tagIndex.has(id, mask)));
+          };
     return { ...(layers !== undefined ? { layers } : {}), ...(accept !== undefined ? { accept } : {}) };
   }
 
@@ -4576,7 +4588,14 @@ class RuntimeInstance implements Runtime {
     const hit = port.raycast({ x: origin[0]!, y: origin[1]!, z: origin[2]! }, { x: u[0]!, y: u[1]!, z: u[2]! }, maxDistance, f);
     if (hit === null) return null;
     const p = hit.point ?? { x: origin[0]! + u[0]! * hit.distance, y: origin[1]! + u[1]! * hit.distance, z: origin[2]! + u[2]! * hit.distance };
-    return Object.freeze({ entityId: hit.entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance }) as PhysicsHit;
+    const entityId = colliderEntityOf(hit.entityId);
+    // A block layer's chunk: the layer, and the cell just inside the surface the ray hit (1 mm behind it).
+    let cell: [number, number, number] | undefined;
+    if (entityId !== hit.entityId) {
+      const c = this.grid.api.worldToCell(entityId, [p.x - hit.normal.x * 1e-3, p.y - hit.normal.y * 1e-3, p.z - hit.normal.z * 1e-3]);
+      if (c !== null) cell = [c.x, c.y, c.z];
+    }
+    return Object.freeze({ entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance, ...(cell !== undefined ? { cell } : {}) }) as PhysicsHit;
   }
 
   /** Phase 23.3: a filtered 3D overlap (sorted ids, at most 64). */
@@ -4584,7 +4603,8 @@ class RuntimeInstance implements Runtime {
     const f = this.queryFilter3D(filter);
     const port = this.takeQuery3D();
     if (port === null || typeof port.overlap !== 'function') return [];
-    return port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f);
+    // A block layer's chunk colliders are reported as their layer (once).
+    return [...new Set(port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f).map(colliderEntityOf))].sort();
   }
 
   /** Phase 23.3: the camera brain has resolved a view (a virtual camera is loaded and it has stepped). */

@@ -850,3 +850,15 @@ for editor items, commit/push/restart, decision log).
   and the preview bridge stripped/refused them; `actions` and `pointer` now
   travel end to end (validated by the backend's relay parse). Observations
   gain `pointer`, `cursor` and `hidden` (the objects scripts hid).
+- 2026-09-27 (23.3, after 23.5): **a 3D hit on a block layer maps to its
+  cell.** A block layer's chunk colliders (`<layer>#blocks:<chunk>:<piece>`)
+  are reported by the layer's entity id in every 3D query (hits, overlaps —
+  once — and the tag/exclude filters), and a hit carries `cell: [x, y, z]`,
+  the cell just inside the surface (1 mm behind the hit along the normal —
+  `ctx.grid` coordinates, the same cell `ctx.grid.pick` finds on that ray).
+  So `ctx.physics.pickAtPointer()` picks cells too (no separate
+  `ctx.grid.pickAtPointer`: `ctx.grid.pick(ctx.camera.screenToRay(...))`
+  covers grid-only picks). Chunk colliders are triangle meshes, so an
+  overlap finds a layer where the volume crosses its surface, not deep
+  inside it. A 3D scene whose only collision is a block layer gets a physics
+  world (and the 3D backend) too.

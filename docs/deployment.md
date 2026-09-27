@@ -2447,6 +2447,8 @@ layers?, exclude? }`. At most 64 queries a step for all scripts together
 still has physics when it has colliders (they answer the queries).
 Hover edges on objects are the script's own: compare this step's pick with
 the last one.
+A hit on a block layer names the layer (`entityId`) and carries `cell:
+[x, y, z]` (`ctx.grid` coordinates), so `pickAtPointer` picks cells too.
 
 **Collision layers.** **File → Project tags** also lists the project's
 collision layers ("default" is implicit; up to 15 more). A collider's

@@ -254,7 +254,8 @@ export function physics3DConfigOf(
   }
   const noCharacter = character === null;
   // Nothing to simulate or query: no physics (the module resolution then needs no 3D backend either).
-  if (character === null && statics.length === 0) return null;
+  // Phase 23.3: a block layer's chunks become colliders at run time (23.5), so it needs a world too.
+  if (character === null && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
   if (character === null) {
     // A placeholder the port ignores (the default capsule at the origin).
     const capsule = playerCapsuleOf(undefined);
