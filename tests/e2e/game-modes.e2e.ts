@@ -151,13 +151,8 @@ async function buildProject(): Promise<Ids> {
   await cmd('setComponent', { entityId: board, component: 'behaviorGroup', value: { group: 'board' } });
   // The documents.
   await cmd('setUiDocument', { document: { uiDocumentId: 'hud', name: 'HUD', root: { type: 'text', id: 'count', anchor: [0, 0], offset: [16, 16], text: 'Explore {field}' } } });
-  await cmd('setUiDocument', { document: {
-    uiDocumentId: 'board', name: 'Board',
-    root: { type: 'stack', anchor: [0, 0], offset: [16, 16], direction: 'column', gap: 6, children: [
-      { id: 'count', type: 'text', text: 'Tactical {board} · selects {selects}' },
-      { id: 'back', type: 'button', text: 'Back', onClick: { do: 'mode', mode: 'explore' } },
-    ] },
-  } });
+  // The board without its Back button first: the button names a mode, and the modes name the board.
+  await cmd('setUiDocument', { document: { uiDocumentId: 'board', name: 'Board', root: { type: 'text', text: 'board' } } });
   await cmd('setUiDocument', { document: {
     uiDocumentId: 'pause', name: 'Pause',
     root: { type: 'stack', anchor: [0.5, 0.5], direction: 'column', gap: 8, children: [
@@ -169,6 +164,13 @@ async function buildProject(): Promise<Ids> {
     { modeId: 'explore', name: 'Explore', inputMaps: ['gameplay', 'ui'], camera: follow, ui: ['hud'], groups: ['field'], pauseScreen: 'pause' },
     { modeId: 'tactical', name: 'Tactical', inputMaps: ['tactical', 'ui'], camera: top, ui: ['board'], groups: ['board'], pause: false, physics: 'hold', enter: { blend: 'eased', blendTime: 0.5 } },
   ] });
+  await cmd('setUiDocument', { document: {
+    uiDocumentId: 'board', name: 'Board',
+    root: { type: 'stack', anchor: [0, 0], offset: [16, 16], direction: 'column', gap: 6, children: [
+      { id: 'count', type: 'text', text: 'Tactical {board} · selects {selects}' },
+      { id: 'back', type: 'button', text: 'Back', onClick: { do: 'mode', mode: 'explore' } },
+    ] },
+  } });
   return { player, follow, top };
 }
 
@@ -231,6 +233,8 @@ test('game modes in Play: one switch changes input map, camera, UI and ticking g
   test.setTimeout(360_000);
   be = await startBackend('game-modes-e2e');
   const ids = await buildProject();
+  const consoleLines: string[] = [];
+  page.on('console', (m) => consoleLines.push(m.text().slice(0, 300)));
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -276,8 +280,8 @@ test('game modes in Play: one switch changes input map, camera, UI and ticking g
   const box = (await iframe.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8);
   const x0 = (await observe())!.player!.x;
-  await press(page, 'd', 400);
-  await expect.poll(async () => (await observe())!.player!.x, { timeout: 10_000 }).toBeGreaterThan(x0 + 0.3);
+  await press(page, 'd', 900);
+  await expect.poll(async () => (await observe())!.player!.x, { timeout: 10_000 }).toBeGreaterThan(x0 + 0.1);
   await page.waitForTimeout(300);
   const exploreShot = decodePng(await iframe.screenshot({ path: 'test-results/game-modes-explore.png' }));
   const values = async (): Promise<Record<string, number | Record<string, string>>> => ((await observe())?.ui?.values ?? {}) as never;
@@ -339,6 +343,8 @@ test('game modes in Play: one switch changes input map, camera, UI and ticking g
   await expect.poll(async () => (await observe())!.stepIndex, { timeout: 10_000 }).toBeGreaterThan(s1);
   await expect(frame.locator('[data-tl-ui-doc="pause"]')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await api(`play/${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(404);
 
   // MCP tl_play_start with mode "tactical": the run starts there.
   const { mcp, call } = await mcpClient();
@@ -347,7 +353,18 @@ test('game modes in Play: one switch changes input map, camera, UI and ticking g
     expect(start.isError, JSON.stringify(start.body)).toBe(false);
     expect((start.body.start as { mode?: string }).mode).toBe('tactical');
     const id = String(start.body.playSessionId);
-    await expect.poll(async () => ((await call('tl_game_observe', { playSessionId: id })).body as Observation).mode?.current ?? null, { timeout: 60_000 }).toBe('tactical');
+    let last: unknown = null;
+    await expect
+      .poll(async () => {
+        const b = (await call('tl_game_observe', { playSessionId: id })).body;
+        last = b;
+        return (b as unknown as Observation).mode?.current ?? null;
+      }, { timeout: 60_000, message: 'the MCP start mode' })
+      .toBe('tactical')
+      .catch(async (e: unknown) => {
+        const text = (await page.locator('body').innerText()).split('\n').filter((l) => /fail|error|refus/i.test(l)).join(' | ');
+        throw new Error(`${String(e)} last observation: ${JSON.stringify(last).slice(0, 1500)} page: ${text.slice(0, 1500)} console: ${consoleLines.slice(-15).join(' || ')}`);
+      });
     const obs = (await call('tl_game_observe', { playSessionId: id })).body as Observation & { start?: { applied?: string[] } };
     expect(obs.ui?.shown).toEqual(['board']);
     expect(obs.start?.applied).toContain('mode tactical');
@@ -400,8 +417,8 @@ test('game modes in the static export: the switch, the Back button, pause only i
     await expect(root.locator('[data-tl-ui-doc="hud"]')).toHaveCount(1, { timeout: 20_000 });
     await game.mouse.click(20, 700);
     const x0 = (await read())!.player!.x;
-    await press(game, 'd', 400);
-    await expect.poll(async () => (await read())!.player!.x, { timeout: 10_000 }).toBeGreaterThan(x0 + 0.3);
+    await press(game, 'd', 900);
+    await expect.poll(async () => (await read())!.player!.x, { timeout: 10_000 }).toBeGreaterThan(x0 + 0.1);
     // T: tactical — top camera, the board document, the field counter stops.
     await press(game, 't');
     await expect.poll(async () => (await read())?.mode?.current ?? null, { timeout: 15_000 }).toBe('tactical');

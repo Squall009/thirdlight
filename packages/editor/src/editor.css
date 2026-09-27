@@ -922,3 +922,9 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-snapform__row > span:first-child { min-width: 120px; }
 .tl-snapform__row input[type='number'] { width: 90px; }
 .tl-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Phase 23.10: the Game modes panel (list | selected mode's form | behavior groups) and the Play toolbar's mode. */
+.tl-modes__cols { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) minmax(220px, 1fr); gap: 12px; align-items: start; }
+.tl-modes__col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tl-modes .tl-tags__row.is-selected { outline: 1px solid var(--tl-accent, #5aa0ff); border-radius: 4px; }
+.tl-toolbar__mode { align-self: center; padding: 2px 8px; margin-right: 6px; border-radius: 999px; font-size: 12px; background: #ffffff14; }
