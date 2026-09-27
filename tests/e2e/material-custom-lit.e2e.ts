@@ -52,7 +52,11 @@ function serveDir(root: string): Promise<{ url: string; close: () => Promise<voi
     res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
     createReadStream(file).pipe(res);
   });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
+  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => {
+    // Keep-alive connections of the export page would hold close() open.
+    server.close(() => d());
+    server.closeAllConnections();
+  }) })));
 }
 
 function count(img: Image, test: (r: number, g: number, b: number) => boolean): number {
@@ -180,6 +184,7 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
     console.log(`[material-custom-lit] ${variant} export: yellow ${count(ex, yellow)}, blue ${count(ex, blue)}`);
     expect(errors).toEqual([]);
   } finally {
+    await exported.close();
     await site.close();
   }
 });
