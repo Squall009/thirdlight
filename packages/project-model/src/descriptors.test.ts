@@ -37,9 +37,11 @@ import {
 import type { ModelErrorV2 } from './errors';
 import { validateFlow } from './flow';
 import { validateInput } from './input';
+import { validateModes } from './modes';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, validateEnvironment, validateMaterials } from './materials';
 import { validateEffects } from './effects';
 import { validateBlockStamps, validateBlockTypes, validateCellFields } from './block-layers';
+import { validateUiDocument } from './ui-documents';
 import { V4_REGISTRY, validateSceneV4 } from './scene-v3';
 
 type J = unknown;
@@ -159,6 +161,8 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
 
 /** List count probes that cannot run in a minimal base (their items must resolve against other data). */
 const SKIP_COUNT = new Set(['startScenes:']);
+/** Phase 23.9b: optional fields of an exactly-one-of pair (removing the present one leaves none). */
+const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point']);
 
 
 interface Ctx {
@@ -375,7 +379,7 @@ function probeObject(ctx: Ctx, root: J, ptr: string, d: ObjectFieldDescriptor, d
     if (f.required) {
       if (ctx.validate(without).length === 0) fail(`${ctx.label} ${p}: removing a required field should be refused`);
     }
-    else if (!(disc.has(f.key) && obj[f.key] !== f.default)) {
+    else if (!(disc.has(f.key) && obj[f.key] !== f.default) && !ONE_OF_REMOVAL.has(here(f.key))) {
       const errs = ctx.validate(without);
       if (errs.length > 0) fail(`${ctx.label} ${p}: removing the optional field should be accepted, got ${errs.map((e) => `${e.code} ${e.path}`).join('; ')}`);
     }
@@ -463,6 +467,8 @@ const COMPONENT_BASES: Record<string, J[]> = {
   ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
+  // Phase 23.10: the behavior group an object's script belongs to.
+  behaviorGroup: [{ group: 'field' }],
   // Phase 23.11: a socket with its offset, and one a script attaches later.
   socketAttach: [
     { target: 'spawn-0001', node: 'hand_R', position: [0.1, 0, -0.05], rotation: [0, 0.7071067811865476, 0, 0.7071067811865476], scale: [1, 2, 1], attached: false },
@@ -582,7 +588,11 @@ const BINDINGS: { type: string; binding: Obj }[] = [
   { type: 'axis2d', binding: { kind: 'pointerPosition' } },
   { type: 'axis2d', binding: { kind: 'pointerDelta' } },
 ];
-const INPUT_BASES: J[] = BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' }, glyphs: { 'xbox:pad-south': 'tex-a' } } : {}) }));
+const INPUT_BASES: J[] = [
+  ...BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' }, glyphs: { 'xbox:pad-south': 'tex-a' } } : {}) })),
+  // Phase 23.10: the project's own input maps (an action of one).
+  { actions: [{ name: 'select', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'KeyE' }] }], maps: ['tactical', 'build'] },
+];
 
 // Phase 20.0: an effect with a parameter of every type and one system.
 const EFFECT_GRAPH = { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] };
@@ -714,6 +724,54 @@ const comp = (name: string): ComponentDescriptor => DESCRIPTORS.components.find(
 
 // ---- the probes ------------------------------------------------------------------------
 
+// ---- phase 23.9b: UI documents -----------------------------------------------------------
+
+const UI_STYLE_VALUES = { color: '#ffffff', background: '#00000080', opacity: 0.5, backgroundImage: 'tex-a', slice: [2, 2, 2, 2], font: 'sans', fontSize: 16, bold: true, italic: false, align: 'center', lineHeight: 1.2, letterSpacing: 1, textShadow: '#000000', padding: 4, radius: 4, borderWidth: 1, borderColor: '#ffffff', shadow: '#000000' };
+const UI_STYLE = { ...UI_STYLE_VALUES, hover: { ...UI_STYLE_VALUES }, focus: { ...UI_STYLE_VALUES }, pressed: { ...UI_STYLE_VALUES }, disabled: { ...UI_STYLE_VALUES } };
+const UI_WIDGET_BASES: Record<string, unknown>[] = [
+  {
+    id: 'w', type: 'panel', anchor: [0.5, 0.5], pivot: [0.5, 0.5], offset: [1, 2], size: [100, 50], stretch: 'x', margin: [1, 2, 3, 4], grow: 1, style: 's1', css: UI_STYLE, visible: true, enabled: { bind: 'a.b' }, focusable: true,
+    nav: { up: 'x1', down: 'x1', left: 'x1', right: 'x1', next: 'x1', prev: 'x1' }, onFocus: { do: 'event', name: 'f' },
+    worldAnchor: { point: [0, 0, 0], offset: [0, 1, 0], clamp: true, margin: 12 }, children: [{ id: 'ind', type: 'panel' }],
+  },
+  { type: 'stack', direction: 'row', gap: 4, align: 'center', justify: 'between', wrap: true, children: [] },
+  { type: 'grid', columns: 3, gap: 2, cellSize: [10, 10], align: 'start', children: [] },
+  { type: 'text', text: 'Hi', wrap: false },
+  { type: 'image', image: 'tex-a', slice: [1, 1, 1, 1], fit: 'contain' },
+  { type: 'image', image: 'tex-a', tint: '#ff0000' },
+  { type: 'bar', value: 0.5, min: 0, max: { bind: 'm' }, shape: 'radial', direction: 'left', fillColor: '#00ff00', fillStyle: 's1', startAngle: 90 },
+  { id: 'b', type: 'button', text: 'Go', direction: 'row', gap: 2, align: 'center', justify: 'center', onClick: { do: 'event', name: 'go' }, children: [] },
+  { type: 'list', items: { bind: 'rows' }, template: { type: 'text', text: '{$item}' }, direction: 'row', gap: 1, align: 'start', justify: 'start', columns: 2, wrap: true },
+  { type: 'input', value: 'x', placeholder: 'Name', maxLength: 20, onSubmit: { do: 'event', name: 's' } },
+];
+
+function runUiProbes(): void {
+  const ui = DESCRIPTORS.ui!;
+  const validate: Validate = (v) => errorsOf((e) => validateUiDocument(v, '', e));
+  const doc = {
+    uiDocumentId: 'hud', name: 'HUD', theme: 'th-a', layer: 1, modal: true, focus: true, actionMap: 'ui', scale: { reference: [1280, 720], mode: 'fit' }, initialFocus: 'b1', onCancel: { do: 'hide', doc: 'hud' },
+    styles: { s1: UI_STYLE }, icons: { i1: { asset: 'tex-a', rect: [0, 0, 8, 8] } }, tweens: { in: { kind: 'slide', duration: 0.2, delay: 0, easing: 'easeOut', from: 1, to: 0, direction: 'left', distance: 40 } },
+    root: { type: 'panel', children: [{ id: 'b1', type: 'button' }] },
+  };
+  probe('uiDocument', validate, doc, '', ui.document, 'uiDocument:');
+  // The show/hide tweens name a tween of the document (removing the tweens would leave them dangling: probed on their own).
+  probe('uiDocument[1]', validate, { ...doc, showTween: 'in', hideTween: 'in' }, '/showTween', ui.document.fields.find((f) => f.key === 'showTween')!, 'uiDocument:showTween');
+  probe('uiDocument[2]', validate, { ...doc, showTween: 'in', hideTween: 'in' }, '/hideTween', ui.document.fields.find((f) => f.key === 'hideTween')!, 'uiDocument:hideTween');
+  UI_WIDGET_BASES.forEach((w, i) =>
+    probe(`uiWidget[${i}]`, validate, { uiDocumentId: 'd', name: 'D', root: { type: 'panel', children: [w, { id: 'x1', type: 'panel' }] } }, '/root/children/0', ui.widget, 'uiWidget:'),
+  );
+  // A style (the document's own), and its states with the same value fields.
+  probe('uiStyle', validate, doc, '/styles/s1', ui.style, 'uiStyle:');
+  const stateFields: ObjectFieldDescriptor = { ...ui.style, fields: ui.style.fields.filter((f) => !(f.type === 'json' && f.typedBy === 'uiStyleState')) };
+  for (const st of ['hover', 'focus', 'pressed', 'disabled']) probe(`uiStyle.${st}`, validate, doc, `/styles/s1/${st}`, stateFields, `uiStyle.${st}:`);
+  probe('uiWidget.css', validate, { uiDocumentId: 'd', name: 'D', root: { type: 'panel', css: UI_STYLE } }, '/root/css', ui.style, 'uiWidget.css:');
+  // The world anchor's indicator names a child (removing the children would leave it dangling: probed on its own).
+  const withIndicator = { type: 'panel', worldAnchor: { point: [0, 0, 0], indicator: 'ind' }, children: [{ id: 'ind', type: 'panel' }] };
+  const indicator = (ui.widget.fields.find((f) => f.key === 'worldAnchor') as ObjectFieldDescriptor).fields.find((f) => f.key === 'indicator')!;
+  probe('uiWidget.indicator', validate, { uiDocumentId: 'd', name: 'D', root: withIndicator }, '/root/worldAnchor/indicator', indicator, 'uiWidget:worldAnchor.indicator');
+  probe('uiTween', validate, { uiDocumentId: 'd', name: 'D', tweens: { t: { kind: 'fade', duration: 1, from: 0, to: 1 } }, root: { type: 'panel' } }, '/tweens/t', ui.tween, 'uiTween:');
+}
+
 function runAllProbes(): void {
   for (const c of DESCRIPTORS.components) {
     const bases = COMPONENT_BASES[c.name];
@@ -758,6 +816,12 @@ function runAllProbes(): void {
   // Phase 23.9a: UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
+  // Phase 23.10: game modes (every field, the references present) and behavior groups.
+  // (The shape validator: the references to documents, maps and groups are the project's check, tested in modes.test.ts.)
+  probe('modes', (v) => errorsOf((e) => validateModes(v, '', e)), [{ modeId: 'explore', name: 'Explore', inputMaps: ['gameplay', 'tactical'], camera: 'cam-0001', ui: ['hud'], groups: ['field'], ungrouped: 'pause', pause: false, pauseScreen: 'hud', timeScale: 0.5, physics: 'hold', enter: { blend: 'eased', blendTime: 0.5, fade: 'fade', fadeTime: 0.25 } }], '', block('modes'), 'modes:');
+  probe('behaviorGroups', contentErrors, contentDoc({ behaviorGroups: ['field', 'board'] }), '/behaviorGroups', block('behaviorGroups'), 'behaviorGroups:');
+  // Phase 23.9b: the UI editor's descriptors (a document's own fields, each widget type, styles, tweens).
+  runUiProbes();
   // Phase 23.3: the named collision layers.
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   // Phase 23.19: the project save schema.
@@ -846,7 +910,8 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(new Set(DESCRIPTORS.components.map((c) => c.name)).size).toBe(DESCRIPTORS.components.length);
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(200_000);
+    // (phase 23.9b: + the UI document vocabulary, about 20 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(220_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
@@ -857,6 +922,7 @@ describe('descriptor registry (phase 15.0)', () => {
     const all: FieldDescriptor[] = [];
     for (const c of DESCRIPTORS.components) walk(c.value, all, false);
     for (const b of DESCRIPTORS.content) walk(b.value, all, false);
+    for (const d of Object.values(DESCRIPTORS.ui ?? {})) walk(d, all, false);
     walk(DESCRIPTORS.entity, all, false);
     const unreached = all.filter((d) => !visited.has(d) && d.type !== 'json' && d.type !== 'components');
     for (const d of unreached) failures.push(`descriptor "${d.key}" (${d.label}) is never reached by a test base`);

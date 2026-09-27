@@ -58,6 +58,7 @@ import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-librar
 import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
 import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
+import { applySetBehaviorGroups, applySetModes } from './mode-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -331,6 +332,17 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setInput', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setModes': {
+      // Phase 23.10: the game modes (the whole list).
+      const r = applySetModes(input, va.validated.args as { modes: import('@thirdlight/project-model').GameMode[] });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'setModes', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
+    case 'setBehaviorGroups': {
+      const r = applySetBehaviorGroups(input, va.validated.args as { groups: string[] });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'setBehaviorGroups', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setCollisionLayers': {
       const r = applySetCollisionLayers(input, va.validated.args as { layers: string[] });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -591,7 +603,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setModes, setBehaviorGroups',
         }),
       };
     }

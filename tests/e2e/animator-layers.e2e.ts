@@ -177,14 +177,14 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   const q2 = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   const put = await be.command({ op: 'setComponent', projectId: be.projectId, expectedRevision: q2.revision, requestId: 'req-00000000000000000000000000146a02', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { entityId: created['createdId'], component: 'animator', value: { controller: (stored as unknown as { controllerId: string }).controllerId } } });
   expect(put.ok, JSON.stringify(put)).toBe(true);
-  const rootOnly = playRightPixels(await play(page));
+  const rootOnly = await play(page, 'baseline');
   await page.getByRole('tab', { name: 'Animator: New animator', exact: true }).click();
   await doc.getByRole('tab', { name: 'Layer 1' }).click();
   await doc.getByLabel('mask bone root').click();
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":[]');
   await doc.getByLabel('mask bone upper').click();
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":["upper"]');
-  const upper = playRightPixels(await play(page));
+  const upper = await play(page, rootOnly + 40);
   console.log(`[animator-layers] Play: orange pixels right of the column, mask root ${rootOnly}, mask upper ${upper}`);
   expect(upper).toBeGreaterThan(rootOnly + 40);
 });
@@ -198,12 +198,40 @@ function playRightPixels(img: Image): number {
   return n;
 }
 
-async function play(page: Page): Promise<Image> {
+/**
+ * Play, measure the orange pixels right of the column's top, stop. Polls the
+ * preview instead of a fixed wait (a loaded host takes seconds to show the
+ * first frame and to advance the clip):
+ * - 'baseline': once the column shows, the most seen over 3 s (a clip that
+ *   wrongly bends the column has time to show, so the baseline is not low by luck);
+ * - a number: until more than that many show (30 s), else the last count
+ *   (the caller's expect then fails with it).
+ */
+async function play(page: Page, want: 'baseline' | number): Promise<number> {
   const frame = page.locator('iframe.tl-app__preview-frame');
   await page.getByTitle('Start an isolated play preview').click();
   await expect(frame).toBeVisible();
-  await page.waitForTimeout(2500);
-  const img = decodePng(await frame.screenshot());
+  // The column is on screen (the game camera frames it every run).
+  await expect.poll(async () => orangePixels(decodePng(await frame.screenshot())), { timeout: 30_000 }).toBeGreaterThan(40);
+  let n = 0;
+  if (want === 'baseline') {
+    const until = Date.now() + 3000;
+    while (Date.now() < until) n = Math.max(n, playRightPixels(decodePng(await frame.screenshot())));
+  } else {
+    await expect
+      .poll(async () => (n = playRightPixels(decodePng(await frame.screenshot()))), { timeout: 30_000 })
+      .toBeGreaterThan(want)
+      .catch(() => undefined);
+  }
   await page.getByTitle('Stop the play preview').click();
-  return img;
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+  return n;
+}
+
+/** Orange pixels anywhere in the frame (the column is shown). */
+function orangePixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) if (orange(img, x, y)) n += 1;
+  return n;
 }

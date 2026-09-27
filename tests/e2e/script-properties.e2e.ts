@@ -182,7 +182,8 @@ test('a public and a private script property: Inspector, per-object override and
     ['secret', 'private', 7],
   ]);
   await page.getByTitle('Stop the play preview').click();
-  await expect(debug).toHaveCount(0);
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(debug).toHaveCount(0, { timeout: 30_000 });
 });
 
 test('properties declared in the script source: the compiler derives the declaration and the Behaviors tab shows it read-only', async ({ page }) => {

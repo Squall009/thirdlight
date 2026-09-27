@@ -3102,9 +3102,9 @@ chromium`); on this LXC they use the library tree described in
 ## Project UI (UI documents)
 
 Projects draw their own HUDs, menus and screens as UI documents: JSON widget
-trees stored in the project (`setUiDocument`, `setUiTheme` through MCP; the
-visual editor tab comes with 23.9b). The game host draws them over the view in
-Play and in exported games.
+trees stored in the project (`setUiDocument`, `setUiTheme` through MCP, or the
+visual editor below). The game host draws them over the view in Play and in
+exported games.
 
 - Widgets: panel (anchors, pivot, offset, size or stretch), stack, grid, list
   (repeats a template for a bound array), text (rich text `[b] [i]
@@ -3130,3 +3130,69 @@ Play and in exported games.
   in a style's `font`.
 - Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
   view model.
+
+## Game modes (phase 23.10)
+
+A project defines game modes — named states of the running game such as
+explore and tactical, on foot and driving, build and play, a photo mode or a
+title screen. Edit them in the **Game modes** tab (the list, the selected
+mode's form, the behavior groups) or with `setModes` / `setBehaviorGroups`
+through MCP. The first mode is the one a run starts in.
+
+- Each mode sets, together: the **input maps** that are active (gameplay, ui
+  or maps the project adds in the Input tab — the actions of other maps read
+  as released), the **camera** (a virtual camera that is live over the
+  priorities while the mode is), the **UI documents** shown, the **behavior
+  groups** whose scripts run (an object joins a group with its Behavior group
+  component; the other groups pause; ungrouped scripts tick unless the mode
+  says otherwise), whether the **engine pause** is allowed and the **pause
+  screen** document, the **time scale** (0.1–4) and whether **physics**
+  steps or holds. A transition may blend the camera (cut, linear, eased) and
+  show a fade document for a moment.
+- Switching: a script calls `ctx.modes.switch('tactical')` (it applies at the
+  next step; `ctx.modes.events()` / `entered()` / `exited()` report the switch
+  in that step), or a UI button runs `{ "do": "mode", "mode": "explore" }`.
+  Nothing is loaded: the switch happens in one step and replays exactly.
+- Pause: a game with modes and no platformer flow pauses with the pause key
+  when its mode allows it — the mode's pause screen document (buttons with
+  the engine actions resume and restartLevel) or the engine's small pause
+  panel. A game with the platformer flow keeps its own pause menu; a mode
+  that does not allow the pause keeps it closed.
+- A game without the platformer game block (a 3D game) has the run lifecycle
+  as script calls: `ctx.lifecycle.respawn(spawnId?)` puts the character at a
+  Player spawn object (from rest), `setSpawn` picks the spawn respawns use,
+  `restart()` starts the run over (objects at their authored place, scripts
+  fresh, the start mode). Lives, scores and goals are the game's own scripts.
+- Play from a mode: "Play from…" / MCP `tl_play_start` `mode`; the Play
+  toolbar shows the mode the running game is in; `tl_game_observe` reports
+  `mode` and `paused`.
+- Engine limits: 16 modes, 32 behavior groups, 8 project input maps.
+
+### The UI document editor
+
+- The **UI** tab of the bottom dock lists the UI documents and themes: create,
+  rename, delete, open. **Assets → new UI document** creates one too.
+- A document opens as a **UI: <name>** tab. Left: the widget hierarchy (add a
+  widget of any type into the selected container, delete, move up/down,
+  duplicate, move into another container — or drag a row onto a container).
+  Centre: the live preview — the same game-host code Play uses — at 16:9, 4:3,
+  21:9, portrait or the document's reference size, with a safe-area frame.
+  Click selects; drag an anchored widget to move it, drag a grip to resize;
+  it snaps to the parent's and siblings' edges and centres or to the grid
+  (hold Alt to drag freely). Arrow keys nudge (Shift: 10 px), Delete removes,
+  Ctrl+D duplicates.
+- Right: the Inspector. **Widget**: anchor presets (they keep the widget where
+  it is; Alt-click moves it onto the anchor), layout, container settings,
+  text, image / 9-slice, bar, list, input, bindings (a value or a view-model
+  path), styles, an own style, click / submit / focus actions, navigation and
+  a world anchor. **Document**: its settings, cancel action, own styles,
+  tweens (with a play button) and icons. **Theme**: the document's theme
+  styles beside the preview (the **UI theme** tab edits a theme on its own).
+  **Mock values**: a JSON object of view-model values (as scripts would set
+  with `ctx.ui.set`) that the preview's bound bars, lists and texts show;
+  "Fill from bindings" adds a sample for every bound path. Mock values stay
+  in this browser; they are not project data.
+- Every change is one command with undo/redo; a drag is one command when you
+  let go.
+- **Game flow → Screens** replaces a built-in screen (title, pause, settings,
+  level complete, game over, finished, load, save) with a UI document.

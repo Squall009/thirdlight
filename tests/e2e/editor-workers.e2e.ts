@@ -18,7 +18,7 @@
  * inline — the test checks both paths give the same result.
  */
 import { createHash } from 'node:crypto';
-import { loadavg } from 'node:os';
+import { availableParallelism, loadavg } from 'node:os';
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -46,6 +46,38 @@ const label = process.env['TL_EDITOR_DIR'] !== undefined ? 'before' : 'after';
  * every task several times over.
  */
 const LONGEST_TASK_BOUND_MS = 400;
+/**
+ * The strict bound holds while the host has a free core for the page: at a
+ * load of at most one runnable thread per core a main-thread task's wall time
+ * is its own CPU time. Past that the scheduler shares cores and wall time
+ * stretches with everyone else's work (measured: 601–745 ms at load 3.2 per
+ * core, 681 ms at 2.3 with the gate's own workers running, on code that takes
+ * ~300 ms at 1.7 and less on a quiet host), so the strict bound is recorded
+ * (an annotation and a log line) but not asserted. A job back on the main
+ * thread is still caught at any load: GROSS_TASK_BOUND_MS stays asserted.
+ */
+const SATURATED_LOAD_PER_CORE = 1;
+/** Before 22.1 these jobs blocked the main thread 0.3–2 s on a quiet host; past 2 s is a job on the main thread at any load. */
+const GROSS_TASK_BOUND_MS = 2000;
+
+/** The host's 1-minute load per core (the higher of two readings, as the average lags). */
+function loadPerCore(earlier: number): number {
+  return Math.max(earlier, loadavg()[0]!) / availableParallelism();
+}
+
+/** Assert the longest-task bound, or only record it when the host has no free core. */
+function expectLongestTask(what: string, longestMs: number, loadAtStart: number): void {
+  if (measureOnly) return;
+  const perCore = loadPerCore(loadAtStart);
+  expect(longestMs, `${what}: a job is back on the main thread`).toBeLessThan(GROSS_TASK_BOUND_MS);
+  if (perCore <= SATURATED_LOAD_PER_CORE) {
+    expect(longestMs, `${what} (load ${perCore.toFixed(2)} per core)`).toBeLessThan(LONGEST_TASK_BOUND_MS);
+  } else if (longestMs >= LONGEST_TASK_BOUND_MS) {
+    const note = `${what}: longest task ${longestMs} ms ≥ ${LONGEST_TASK_BOUND_MS} ms at load ${perCore.toFixed(2)} per core (> ${SATURATED_LOAD_PER_CORE}): recorded, not asserted`;
+    test.info().annotations.push({ type: 'overloaded-host', description: note });
+    console.log(`[editor-workers] ${note}`);
+  }
+}
 
 async function installLongTaskObserver(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -178,6 +210,7 @@ test('a scatter of 50 000 copies: the same buffer with and without workers; no l
   await settle(page);
   const N = 50_000;
   const prof = await startProfile(page);
+  const load0 = loadavg()[0]!;
   const t0 = await now(page);
   const [digest] = await scatter(page, N, 7);
   // The Scene view builds the set once the buffer is fetched: give it time to draw.
@@ -194,7 +227,7 @@ test('a scatter of 50 000 copies: the same buffer with and without workers; no l
     const both = await scatter(page, N, 7, 2);
     expect(both).toEqual([digest, digest]);
   }
-  if (!measureOnly) expect(lt.longestMs).toBeLessThan(LONGEST_TASK_BOUND_MS);
+  expectLongestTask(`scatter ${N} copies`, lt.longestMs, load0);
 });
 
 async function bakeScene(page: Page): Promise<void> {
@@ -231,6 +264,7 @@ test('a preview bake: no long main-thread task above the bound; the lightmap is 
   await expect(page.locator('[aria-label="bake status"]')).toContainText('No bake for this scene');
   await settle(page);
   const prof = await startProfile(page);
+  const load0 = loadavg()[0]!;
   const t0 = await now(page);
   await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
   await expect(page.locator('[aria-label="bake status"]')).toContainText('Preview (browser) bake', { timeout: 180_000 });
@@ -262,7 +296,7 @@ test('a preview bake: no long main-thread task above the bound; the lightmap is 
     console.log(`[editor-workers] worker atlas ${worker.slice(0, 12)} inline atlas ${inline.slice(0, 12)}`);
     expect(inline).toBe(worker);
   }
-  if (!measureOnly) expect(bakeOnly.longestMs).toBeLessThan(LONGEST_TASK_BOUND_MS);
+  expectLongestTask('preview bake', bakeOnly.longestMs, load0);
 });
 
 /** Each model tile's thumbnail PNG (by the tile's name), once every model tile shows one. */

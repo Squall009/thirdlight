@@ -74,7 +74,8 @@ export interface InputBindingStatus extends InputGlyph {
 export interface InputActionStatus {
   readonly name: string;
   readonly type: 'button' | 'axis1d' | 'axis2d';
-  readonly map: 'gameplay' | 'ui';
+  /** gameplay, ui or (phase 23.10) one of the project's own input maps. */
+  readonly map: string;
   readonly bindings: readonly InputBindingStatus[];
   /** The player changed this action's bindings (they differ from the project's). */
   readonly changed?: boolean;
@@ -192,7 +193,8 @@ function checkAction(a: unknown, at: string): Fail | null {
   if (k !== null) return k;
   if (typeof a['name'] !== 'string' || !NAME_RE.test(a['name'])) return { ok: false, field: `${at}/name`, message: 'an action name' };
   if (a['type'] !== 'button' && a['type'] !== 'axis1d' && a['type'] !== 'axis2d') return { ok: false, field: `${at}/type`, message: 'type is button, axis1d or axis2d' };
-  if (a['map'] !== 'gameplay' && a['map'] !== 'ui') return { ok: false, field: `${at}/map`, message: 'map is gameplay or ui' };
+  // Phase 23.10: gameplay, ui or one of the project's own input maps.
+  if (typeof a['map'] !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(a['map'])) return { ok: false, field: `${at}/map`, message: 'map is gameplay, ui or a project input map' };
   if (a['changed'] !== undefined && typeof a['changed'] !== 'boolean') return { ok: false, field: `${at}/changed`, message: 'changed is true or false' };
   const bs = a['bindings'];
   if (!Array.isArray(bs) || bs.length > MAX_BINDINGS) return { ok: false, field: `${at}/bindings`, message: `bindings is a list of at most ${MAX_BINDINGS}` };

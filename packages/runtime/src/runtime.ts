@@ -65,6 +65,7 @@ import {
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
+import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
 import { byEntityId, capsuleInZone, character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
@@ -559,6 +560,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     'fixedStepHz',
     'onFrame',
     'variables',
+    'startMode',
     'projectSettings',
   ]);
   for (const key of Object.keys(config)) {
@@ -683,6 +685,11 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       variables[k] = JSON.parse(text) as unknown;
     }
   }
+  // Phase 23.10: the game mode runs start in (checked against the snapshot's modes at instantiate).
+  const startMode = config.startMode;
+  if (startMode !== undefined && (typeof startMode !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(startMode))) {
+    return { error: fail('config_invalid', 'config field "startMode" must be a game mode id', { reason: 'shape', path: '/startMode' }) };
+  }
   // Phase 23.19: the stored project settings document (checked field by field against the save schema by the runtime).
   let projectSettings: Record<string, unknown> | undefined;
   if (config.projectSettings !== undefined) {
@@ -706,6 +713,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       hz,
       onFrame,
       ...(variables !== undefined ? { variables } : {}),
+      ...(startMode !== undefined ? { startMode } : {}),
       ...(projectSettings !== undefined ? { projectSettings } : {}),
     },
   };
@@ -741,6 +749,7 @@ interface ParsedConfig {
   hz: number;
   onFrame?: () => void;
   variables?: Record<string, unknown>;
+  startMode?: string;
   projectSettings?: Record<string, unknown>;
 }
 
@@ -757,10 +766,14 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings, startMode } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
+  // Phase 23.10: a start mode names one of the project's modes (ignored without modes).
+  if (startMode !== undefined && snap.modes !== undefined && !snap.modes.modes.some((m) => m.modeId === startMode)) {
+    return { ok: false, error: fail('config_invalid', `config field "startMode": the project has no game mode "${startMode}"`, { reason: 'reference', path: '/startMode' }) };
+  }
   const { scene, sceneVersion, snapshotId, revision, game } = snap;
   // Phase 12 (c): the scene catalog (v4 only; null: one fixed scene).
   const sceneRows = snap.scenes;
@@ -1298,6 +1311,8 @@ export function instantiateRuntime(
     ...(projectSettings !== undefined ? { projectSettings } : {}),
     environmentPresets: snap.environmentPresets ?? [],
     uiDocuments: snap.uiDocuments,
+    ...(snap.modes !== undefined ? { modes: snap.modes } : {}),
+    ...(startMode !== undefined ? { startMode } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1387,6 +1402,9 @@ interface RuntimeArgs {
   projectSettings?: Readonly<Record<string, unknown>>;
   /** Phase 23.9a: the project's UI documents (id, layer, modal). */
   uiDocuments: readonly RuntimeUiDocumentRow[];
+  /** Phase 23.10: the project's game modes (absent: none) and the mode runs start in. */
+  modes?: import('@thirdlight/project-model').RuntimeModes;
+  startMode?: string;
   /** Phase 23.18: the environment preset ids (ctx.environment). */
   environmentPresets: readonly string[];
 }
@@ -1618,6 +1636,21 @@ class RuntimeInstance implements Runtime {
   /** UI events the host queued for the next sampled frame. */
   private uiQueue: UiEventRecord[] = [];
   private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
+  // ---- Phase 23.10: game modes and the run lifecycle of a game without the platformer session ----
+  private readonly modes: ModeState;
+  private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
+  /** The behavior group of each loaded entity that carries one (`behaviorGroup` component). */
+  private readonly behaviorGroupOf = new Map<string, string>();
+  /** The mode's time scale the frame clock was anchored with (a change re-anchors it). */
+  private anchorScale = 1;
+  /** The player spawn respawns use (null: the first one loaded, else where the player started). */
+  private activeSpawn: string | null = null;
+  /** A respawn (or a restart's placement) waiting for the next intent phase: where the character goes. */
+  private pendingRespawn: [number, number, number] | null = null;
+  /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
+  private pendingRestart = false;
+  private readonly lifecycleControl: import('./types').BehaviorLifecycle;
+  private behaviorTicksFn: ((entityId: string) => boolean) | undefined = undefined;
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
   /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
@@ -1905,6 +1938,19 @@ class RuntimeInstance implements Runtime {
     this.cameraControl = this.buildCameraControl();
     // Phase 23.9a: the project UI (inert until a script or a frame uses it).
     this.ui = new UiState(args.uiDocuments);
+    // Phase 23.10: the game modes (inert without modes) — the first run begins in the start mode.
+    this.modes = new ModeState(args.modes, this.hz, {
+      showUi: (doc) => void this.ui.show(doc),
+      hideUi: (doc) => void this.ui.hide(doc),
+      isShown: (doc) => this.ui.isShown(doc),
+      setCamera: (id, blend) => this.cameras.setOverride(id, blend),
+      warn: (message) => this.recordBehaviorLog('thirdlight.runtime:modes', 'warn', message),
+    });
+    this.modes.setStartMode(args.startMode);
+    this.modes.beginRun(1);
+    this.anchorScale = this.modes.active ? this.modes.timeScale() : 1;
+    this.noteBehaviorGroups(args.initialEntities);
+    this.lifecycleControl = this.buildLifecycleControl();
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
     const rt = this;
     this.blocks = new GameplayBlocks(
@@ -3096,7 +3142,9 @@ class RuntimeInstance implements Runtime {
       this.onFrame?.();
       return;
     }
-    const targetSim = this.anchor.simTime + elapsed;
+    // Phase 23.10: the game mode's time scale — fewer or more fixed steps per wall second, each
+    // step unchanged (1 without modes: exactly the arithmetic before).
+    const targetSim = this.anchor.simTime + elapsed * this.anchorScale;
     const rawN = Math.floor((targetSim - this.simTime) / this.dt + STEP_COUNT_EPS);
     const n = Math.min(rawN, MAX_CATCHUP_STEPS);
     let held = false;
@@ -3129,6 +3177,12 @@ class RuntimeInstance implements Runtime {
     } else {
       this.lastAlpha = clamp01((targetSim - this.simTime) / this.dt);
     }
+    // Phase 23.10: a switch changed the time scale — the clock is re-anchored here (no jump).
+    if (this.modes.active && this.modes.timeScale() !== this.anchorScale) {
+      this.anchorScale = this.modes.timeScale();
+      this.anchor = { wall: t, simTime: this.simTime };
+      this.lastAlpha = 0;
+    }
     this.onFrame?.();
   }
 
@@ -3136,6 +3190,9 @@ class RuntimeInstance implements Runtime {
   private stepOnce(): boolean {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
+    // Phase 23.10: a restart asked for, then the game mode's step start.
+    if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
+    this.modes.beginStep(this.stepIndex + 1);
     this.grid.beginStep(this.stepIndex + 1);
     this.materials.beginStep(this.stepIndex + 1);
     // §5.1: copy curr before the step; restore it if any module throws
@@ -3181,7 +3238,19 @@ class RuntimeInstance implements Runtime {
       this.curr = cloneCurr(backup);
       return true;
     }
-    if (this.physics3d !== undefined) {
+    // Phase 23.10: a respawn places the character (a plain step has no intent phase).
+    if (this.physics3d !== undefined && this.pendingRespawn !== null) {
+      const [x, y, z] = this.pendingRespawn;
+      this.pendingRespawn = null;
+      try {
+        this.placeCharacter3D(x, y, z);
+      } catch (e) {
+        this.curr = cloneCurr(backup);
+        this.failStopFromError(e, stepOrdinal);
+        return false;
+      }
+    }
+    if (this.physics3d !== undefined && !this.modes.physicsHeld) {
       // Phase 23.0: a 3D game steps its physics in a plain (scene-mode) step
       // too — its character falls and rests under the runtime's 3D phase (no
       // controller module drives it before phase 23.2). The 2D plane keeps
@@ -3244,6 +3313,10 @@ class RuntimeInstance implements Runtime {
     if (!this.applySpawnOps()) return false;
     this.spawnsThisStep = 0;
     this.spawnRefusalLogged = false;
+    // Phase 23.10: a restart asked for last step (a game without the platformer session), then
+    // the game mode's step start (last step's events end; a script's switch applies now).
+    if (this.pendingRestart && !this.restartRun(ordinal)) return false;
+    this.modes.beginStep(ordinal);
     if (this.isM3 && this.executedSteps >= this.timing.settleSteps) {
       if (!this.runLevelSwitch()) return false;
       if (!this.runResetBarrier(ordinal)) return false;
@@ -3271,6 +3344,9 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
+    // Phase 23.10: the actions of input maps the game mode does not activate read as released
+    // (the sampled frame stays the recorded input).
+    if (this.modes.active) action = this.modes.mask(action);
     // M3 effective-frame override (gameplay.md §2.5): the sampled frame stays
     // the recorded input; the controller receives the effective frame.
     if (this.isM3) action = this.effectiveFrame(action, ordinal);
@@ -3279,7 +3355,9 @@ class RuntimeInstance implements Runtime {
     this.raycastsThisStep = 0;
     // Phase 23.1: the colliders scripts drive become kinematic bodies before they are first posed.
     if (this.physics3d !== undefined && this.scriptCollidersDirty && !this.syncScriptColliders3D()) return false;
-    this.blocks?.beforeStep(ordinal);
+    // Phase 23.10: a game mode may hold physics (the controller, physics, movers and triggers stand still).
+    const held = this.modes.physicsHeld;
+    if (!held) this.blocks?.beforeStep(ordinal);
     this.stepBounce = this.blocks?.takeBounce() ?? null;
     if (
       action.jump === 'pressed' &&
@@ -3302,13 +3380,24 @@ class RuntimeInstance implements Runtime {
     this.intentsVersion += 1;
     try {
       this.runPhase('intent', action);
+      // Phase 23.10: a respawn (ctx.lifecycle, a restart) places the character unless a script placed it this step.
+      if (this.physics3d !== undefined && this.pendingRespawn !== null) {
+        if (this.intents.characterPlace === null) {
+          const [x, y, z] = this.pendingRespawn;
+          this.intents.characterPlace = { x, y, z };
+          this.intentsVersion += 1;
+        }
+        this.pendingRespawn = null;
+      }
       // Phase 23.2: a script's character_place takes effect before the controller runs.
       if (this.physics3d !== undefined && this.intents.characterPlace !== null) this.applyCharacterPlace3D();
-      this.runPhase('controller', action);
-      this.runPhysicsPhase();
+      if (!held) {
+        this.runPhase('controller', action);
+        this.runPhysicsPhase();
+      }
       this.runPhase('transform', action);
       // Phase 23.1: a 3D scene (no game block) tests its triggers after the transform phase.
-      if (!this.isM3 && this.physics3d !== undefined) this.blocks?.afterPhysics(action, true);
+      if (!this.isM3 && this.physics3d !== undefined && !held) this.blocks?.afterPhysics(action, true);
       if (this.isM3) {
         // M3 phases 6/7: the gameplay phase (the session module's zone
         // decisions through `ctx.gameplay`) and the camera phase, in the
@@ -3318,8 +3407,8 @@ class RuntimeInstance implements Runtime {
         if (this.respawnRequested && this.session !== null && this.session.runState === 'playing') {
           this.session.beginRespawn(ordinal, 'fall');
         }
-        // Phase 9.9: pickups, switches, triggers, enemies and damage.
-        this.blocks?.afterPhysics(action, this.session?.runState === 'playing');
+        // Phase 9.9: pickups, switches, triggers, enemies and damage (not while a game mode holds physics).
+        if (!held) this.blocks?.afterPhysics(action, this.session?.runState === 'playing');
         this.runPhase('camera', action);
       }
     } catch (e) {
@@ -3414,6 +3503,160 @@ class RuntimeInstance implements Runtime {
     return this.ui.view();
   }
 
+  // ---- Phase 23.10: game modes and the run lifecycle -------------------------------
+
+  /** Phase 23.10: the game modes as of the last step (null without modes). */
+  modeView(): ModeView | null {
+    return this.modes.active ? this.modes.view() : null;
+  }
+
+  /** The behavior groups of entities that came in. */
+  private noteBehaviorGroups(entities: readonly EntityV3[]): void {
+    for (const e of entities) {
+      const g = (e.components as { behaviorGroup?: { group?: unknown } }).behaviorGroup?.group;
+      if (typeof g === 'string') this.behaviorGroupOf.set(e.id, g);
+    }
+  }
+
+  /**
+   * `StepContext.behaviorTicks`: whether an entity's behavior runs this step
+   * (undefined — every behavior runs — without modes or while the mode ticks
+   * every group; one function per runtime).
+   */
+  private behaviorTicks(): ((entityId: string) => boolean) | undefined {
+    if (!this.modes.active || this.modes.ticksAll) return undefined;
+    if (this.behaviorTicksFn === undefined) this.behaviorTicksFn = (entityId: string): boolean => this.modes.ticks(this.behaviorGroupOf.get(entityId));
+    return this.behaviorTicksFn;
+  }
+
+  /** `ctx.modes` for one phase (the enter/exit events are read in the intent phase only, once per step). */
+  private modeControlFor(phase: SimulationPhase): import('./types').BehaviorModes {
+    let c = this.modeControls.get(phase);
+    if (c !== undefined) return c;
+    const modes = this.modes;
+    const none: readonly import('./modes').ModeEventRecord[] = Object.freeze([]);
+    const events = (): readonly import('./modes').ModeEventRecord[] => (phase === 'intent' ? modes.events(this.stepIndex + 1) : none);
+    c = Object.freeze({
+      current: (): string => modes.current ?? '',
+      previous: (): string => modes.previous ?? '',
+      is: (modeId: string): boolean => modes.current !== null && modes.current === modeId,
+      switch: (modeId: string, transition?: import('./types').BehaviorModeTransition): boolean => modes.request(modeId, transition),
+      events,
+      entered: (modeId?: string): boolean => events().some((e) => e.kind === 'enter' && (modeId === undefined || modeId === '' || e.mode === modeId)),
+      exited: (modeId?: string): boolean => events().some((e) => e.kind === 'exit' && (modeId === undefined || modeId === '' || e.mode === modeId)),
+      time: (): number => modes.secondsIn(this.stepIndex + 1),
+    });
+    this.modeControls.set(phase, c);
+    return c;
+  }
+
+  /** The player spawns loaded now, in entity order. */
+  private playerSpawnIds(): string[] {
+    const out: string[] = [];
+    for (const id of this.order) if (this.entities.get(id)?.componentKinds?.includes('playerSpawn') === true) out.push(id);
+    return out;
+  }
+
+  /** Where a respawn puts the character: the spawn's position, else where the player started (null: no character). */
+  private respawnTarget(spawnId: string | null): [number, number, number] | null {
+    const id = spawnId ?? this.activeSpawn ?? this.playerSpawnIds()[0] ?? null;
+    const t = id !== null ? this.curr.get(id) : undefined;
+    if (t !== undefined) return [t.position[0], t.position[1], t.position[2]];
+    const player = this.controllerEntityId !== undefined ? this.entities.get(this.controllerEntityId) : undefined;
+    return player === undefined ? null : [player.transform.position[0], player.transform.position[1], player.transform.position[2]];
+  }
+
+  /** `ctx.lifecycle` (a game without the platformer session; the session owns them otherwise). */
+  private buildLifecycleControl(): import('./types').BehaviorLifecycle {
+    const spawnOk = (id: unknown): id is string => typeof id === 'string' && this.entities.get(id)?.componentKinds?.includes('playerSpawn') === true;
+    return Object.freeze({
+      respawn: (spawnId?: string): boolean => {
+        if (this.isM3 || this.physics3d === undefined || this.controllerEntityId === undefined) return false;
+        if (spawnId !== undefined && spawnId !== '' && !spawnOk(spawnId)) return false;
+        if (spawnId !== undefined && spawnId !== '') this.activeSpawn = spawnId;
+        const target = this.respawnTarget(null);
+        if (target === null) return false;
+        this.pendingRespawn = target;
+        return true;
+      },
+      setSpawn: (spawnId: string): boolean => {
+        if (this.isM3 || !spawnOk(spawnId)) return false;
+        this.activeSpawn = spawnId;
+        return true;
+      },
+      spawnPoint: (): string => (this.isM3 ? '' : (this.activeSpawn ?? this.playerSpawnIds()[0] ?? '')),
+      restart: (): boolean => {
+        if (this.isM3) return false;
+        this.pendingRestart = true;
+        return true;
+      },
+    });
+  }
+
+  /**
+   * Phase 23.10: restart the run of a game without the platformer session, at
+   * a step boundary: the start scenes (later loads unloaded, spawned copies
+   * gone), every object at its authored transform, the scripts started over
+   * (their reset hook, as a replay), cameras, animators, sockets, blocks,
+   * cells, material values, the UI and the start mode as at the start, the
+   * character placed where it started (from rest). `ctx.save` values stay (as
+   * across a replay). Returns false after a fail-stop.
+   */
+  private restartRun(ordinal: number): boolean {
+    this.pendingRestart = false;
+    this.clearSpawned();
+    if (!this.restoreStartSet()) return false;
+    for (const [id, data] of this.entities) {
+      const t = this.curr.get(id);
+      if (t === undefined) continue;
+      for (let k = 0; k < 3; k += 1) t.position[k] = data.transform.position[k]!;
+      for (let k = 0; k < 4; k += 1) t.rotation[k] = data.transform.rotation[k]!;
+      for (let k = 0; k < 3; k += 1) t.scale[k] = data.transform.scale[k]!;
+    }
+    this.cameras.reset();
+    this.cursorMode = null;
+    this.resetAnimators();
+    this.sockets.reset();
+    this.settleSockets();
+    this.blocks?.resetRun();
+    this.grid.reset();
+    this.grid.flushCollision(this.physics3d);
+    this.materials.reset();
+    this.ui.resetRun();
+    this.modes.beginRun(ordinal);
+    this.activeSpawn = null;
+    const player = this.controllerEntityId !== undefined ? this.entities.get(this.controllerEntityId) : undefined;
+    const start: Vec2 = player === undefined ? { x: 0, y: 0 } : { x: player.transform.position[0], y: player.transform.position[1] };
+    for (const entry of this.entries) {
+      if (!entry.phased) continue;
+      const instance = entry.instance as SimulationPhaseModule;
+      if (typeof instance.reset !== 'function') continue;
+      this.currentModuleId = entry.id;
+      try {
+        instance.reset(this.buildResetContext('replay', ordinal, start, new Set(entry.owners)));
+      } catch (e) {
+        this.failStopFromError(e, this.stepIndex);
+        return false;
+      }
+    }
+    // The character from rest where it started (its controller module sees the placement in the next intent phase).
+    if (this.physics3d !== undefined && player !== undefined) {
+      const p = player.transform.position;
+      try {
+        this.placeCharacter3D(p[0], p[1], p[2]);
+      } catch (e) {
+        this.failStopFromError(e, this.stepIndex);
+        return false;
+      }
+      this.pendingRespawn = [p[0], p[1], p[2]];
+    }
+    // No render streak: prev := curr for the restarted state.
+    const prevMirror = this.stepMirrors[this.stepMirrors[1].map === this.prev ? 1 : 0];
+    prevMirror.copyFrom(this.curr, this.currShape);
+    this.prev = prevMirror.map;
+    return true;
+  }
+
   private sampleAction(stepIndex: number): ActionFrame {
     let raw: unknown;
     try {
@@ -3451,6 +3694,11 @@ class RuntimeInstance implements Runtime {
     this.inputStatus.apply(check.frame.input);
     // Phase 23.9a: the frame's show/hide entries apply before any script runs.
     this.ui.deliver(check.frame.ui);
+    // Phase 23.10: a mode action switches now (before the scripts); a restart applies at the next boundary.
+    if (check.frame.ui !== undefined) {
+      this.modes.deliver(check.frame.ui, stepIndex + 1);
+      if (!this.isM3 && check.frame.ui.some((e) => e.kind === 'restart')) this.pendingRestart = true;
+    }
     return this.withHeldPointer(check.frame);
   }
 
@@ -3817,6 +4065,8 @@ class RuntimeInstance implements Runtime {
     }
     // Phase 23.9a: and starts with an empty view model and no document shown.
     if (reset === 'replay' || reset === 'start') this.ui.resetRun();
+    // Phase 23.10: and in the start mode (its documents shown, its camera live).
+    if (reset === 'replay' || reset === 'start') this.modes.beginRun(ordinal);
     // Phase 9.11: a loaded save's run on top of the fresh one.
     if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
       const r = this.pendingRestore;
@@ -4180,6 +4430,8 @@ class RuntimeInstance implements Runtime {
     }
     this.order = [...this.order, ...frozen.map((e) => e.id)];
     this.entityCount = this.order.length;
+    // Phase 23.10: their behavior groups (game modes tick groups).
+    this.noteBehaviorGroups(frozen);
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
     this.addAnimators(frozen);
     this.blocks?.add(frozen);
@@ -4248,6 +4500,7 @@ class RuntimeInstance implements Runtime {
     for (const id of ids) {
       this.colliderComponents3D.delete(id);
       this.scriptColliders3D.delete(id);
+      this.behaviorGroupOf.delete(id);
     }
     for (const entry of this.entries) {
       const instance = entry.instance as SimulationPhaseModule;
@@ -4723,6 +4976,10 @@ class RuntimeInstance implements Runtime {
       fields['saves'] = { value: this.saves.api, enumerable: true };
       // Phase 23.9a: the project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
+      // Phase 23.10: the game modes, the run lifecycle, and which behaviors tick in the current mode.
+      fields['modes'] = { value: this.modeControlFor(phase), enumerable: true };
+      fields['lifecycle'] = { value: this.lifecycleControl, enumerable: true };
+      fields['behaviorTicks'] = { get: () => rt.behaviorTicks(), enumerable: true };
       // Phase 23.18: the environment presets (ctx.environment).
       fields['environment'] = { value: this.environment.api, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
@@ -5285,9 +5542,16 @@ class RuntimeInstance implements Runtime {
    */
   private applyCharacterPlace3D(): void {
     const place = this.intents.characterPlace;
+    if (place === null) return;
+    this.placeCharacter3D(place.x, place.y, place.z);
+  }
+
+  /** Phase 23.2/23.10: put the 3D character at an origin (the port's clearance rules), from rest. */
+  private placeCharacter3D(x: number, y: number, z: number): void {
+    const place = { x, y, z };
     const port = this.physics3d;
     const id = this.controllerEntityId;
-    if (place === null || port === undefined || id === undefined) return;
+    if (port === undefined || id === undefined) return;
     if (typeof port.placeCharacter !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot place the character');
     try {
       port.placeCharacter({ x: place.x, y: place.y, z: place.z });

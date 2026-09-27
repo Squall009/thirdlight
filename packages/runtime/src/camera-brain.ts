@@ -249,6 +249,11 @@ export class CameraBrain {
   private readonly lensOut = { fovY: 60, near: 0.1, far: 100, letterbox: 0 };
   /** Warnings for missing targets or paths (reported once per camera). */
   private readonly warned = new Set<string>();
+  /**
+   * Phase 23.10: the game mode's camera — live over every priority while the
+   * mode is active (null: the priority rule). Set by the mode switch.
+   */
+  private overrideId: string | null = null;
 
   constructor(
     hz: number,
@@ -295,6 +300,23 @@ export class CameraBrain {
     this.impulseSerial = 0;
     this.stepCount = 0;
     this.time = 0;
+    this.overrideId = null;
+  }
+
+  /**
+   * Phase 23.10: a game mode's camera (null: back to the priority rule) and
+   * the blend into it (the incoming camera's own when absent). A camera that
+   * is not loaded is warned once and the priority rule applies.
+   */
+  setOverride(id: string | null, options?: unknown): void {
+    this.overrideId = id;
+    if (id !== null && !this.cams.has(id)) this.warnOnce(`override:${id}`, `the game mode's camera "${id}" is not a loaded virtual camera; the priority rule applies`);
+    this.noteBlend(options);
+  }
+
+  /** Phase 23.10: the game mode's camera (null: none). */
+  get override(): string | null {
+    return this.overrideId;
   }
 
   private fresh(id: string, d: VirtualCameraData, order: number): CamState {
@@ -484,6 +506,11 @@ export class CameraBrain {
   // ---- the step ------------------------------------------------------------------
 
   private best(): CamState | null {
+    // Phase 23.10: a game mode's camera is live over every priority.
+    if (this.overrideId !== null) {
+      const o = this.cams.get(this.overrideId);
+      if (o !== undefined) return o;
+    }
     let best: CamState | null = null;
     for (const s of this.cams.values()) {
       if (!s.enabled) continue;

@@ -30,6 +30,7 @@ import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { uiOf, withUi } from './ui-ops';
+import { behaviorGroupsOf, modesOf, withBehaviorGroups, withModes } from './mode-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
@@ -526,6 +527,19 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withFlow(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setModes') {
+    // Phase 23.10: the game modes back to what they were.
+    const before = modesOf(content);
+    const change: ChangeData = { type: 'setModes', previous: deepClone(before), next: deepClone(inv.restore) };
+    return finish(state, bumped(scene), withModes(content, inv.restore), change, entry.requestId);
+  }
+
+  if (inv.kind === 'setBehaviorGroups') {
+    const before = behaviorGroupsOf(content);
+    const change: ChangeData = { type: 'setBehaviorGroups', previous: [...before], next: [...inv.restore] };
+    return finish(state, bumped(scene), withBehaviorGroups(content, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setSaveSchema') {
     const before = (content as { saveSchema?: import('@thirdlight/project-model').SaveSchema }).saveSchema ?? null;
     const change: ChangeData = { type: 'setSaveSchema', previous: before === null ? null : structuredClone(before), next: inv.restore === null ? null : structuredClone(inv.restore) };
@@ -978,6 +992,18 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { flow?: GameFlow }).flow ?? null;
     const change: ChangeData = { type: 'setFlow', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withFlow(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setModes') {
+    const before = modesOf(content);
+    const change: ChangeData = { type: 'setModes', previous: deepClone(before), next: deepClone(f.next) };
+    return finish(state, bumped(scene), withModes(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setBehaviorGroups') {
+    const before = behaviorGroupsOf(content);
+    const change: ChangeData = { type: 'setBehaviorGroups', previous: [...before], next: [...f.next] };
+    return finish(state, bumped(scene), withBehaviorGroups(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setSaveSchema') {

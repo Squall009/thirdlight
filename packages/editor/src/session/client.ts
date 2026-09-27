@@ -18,7 +18,7 @@
 
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, GameMode } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -319,6 +319,9 @@ export class SessionClient {
   private input: InputConfig | null = null;
   /** Phase 23.3: the project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
   private collisionLayers: string[] = [];
+  /** Phase 23.10: the game modes and behavior groups (from `queryGameConfig`, then setModes / setBehaviorGroups changes). */
+  private modes: GameMode[] = [];
+  private behaviorGroups: string[] = [];
   /** Phase 23.19: the project save schema (from `queryGameConfig`, then `setSaveSchema` changes). */
   private saveSchema: SaveSchema | null = null;
   private inputDefaults: InputConfig = { actions: [] };
@@ -544,6 +547,10 @@ export class SessionClient {
         this.input = input !== undefined && input !== null ? structuredClone(input) : null;
         const layers = (g as { collisionLayers?: string[] }).collisionLayers;
         this.collisionLayers = Array.isArray(layers) ? [...layers] : [];
+        const modes = (g as { modes?: GameMode[] }).modes;
+        this.modes = Array.isArray(modes) ? structuredClone(modes) : [];
+        const groups = (g as { behaviorGroups?: string[] }).behaviorGroups;
+        this.behaviorGroups = Array.isArray(groups) ? [...groups] : [];
         const saveSchema = (g as { saveSchema?: SaveSchema | null }).saveSchema;
         this.saveSchema = saveSchema !== undefined && saveSchema !== null ? structuredClone(saveSchema) : null;
         const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
@@ -778,6 +785,10 @@ export class SessionClient {
         this.input = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setCollisionLayers') {
         this.collisionLayers = [...change.next];
+      } else if (change.type === 'setModes') {
+        this.modes = structuredClone(change.next);
+      } else if (change.type === 'setBehaviorGroups') {
+        this.behaviorGroups = [...change.next];
       } else if (change.type === 'setSaveSchema') {
         this.saveSchema = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setAnimators') {
@@ -1269,6 +1280,16 @@ export class SessionClient {
   /** Phase 23.3: the project's named collision layers ("default" is implicit). */
   getCollisionLayers(): string[] {
     return [...this.collisionLayers];
+  }
+
+  /** Phase 23.10: the game modes (the first is the start mode). */
+  getModes(): GameMode[] {
+    return structuredClone(this.modes);
+  }
+
+  /** Phase 23.10: the behavior group names. */
+  getBehaviorGroups(): string[] {
+    return [...this.behaviorGroups];
   }
 
   /** Phase 9.8: the project's input actions (null = the defaults). */

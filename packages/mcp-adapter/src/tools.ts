@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setModes', 'setBehaviorGroups'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -270,6 +270,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{do: "show"|"hide"|"toggle", doc}, {do: "play", tween, widget?}. Bindings read the scripts\' view model (ctx.ui.set(path, value)); $flow.* reads the game flow (screen, level, lives, volumes, result, slots). ' +
       'setFlow flow.screens {title|paused|settings|levelComplete|gameOver|finished|load|save: uiDocumentId} replaces built-in screens. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus, events()/event(name). ' +
       'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
+      'Game modes: setModes {modes: [{modeId, name, inputMaps? (gameplay|ui|input.maps names; absent: every map — actions of other maps read as released), camera? (a virtualCamera object, live over priorities while the mode is), ' +
+      'ui? (uiDocumentIds shown while active), groups? (behavior groups that tick; absent: all), ungrouped?: tick|pause, pause? (engine pause allowed, default true), pauseScreen? (uiDocumentId drawn while paused; absent: the engine panel), ' +
+      'timeScale? (0.1-4), physics?: run|hold, enter? {blend?: cut|linear|eased, blendTime?, fade? (uiDocumentId shown for fadeTime s), fadeTime?}}]} replaces the whole list (the first is the start mode; ≤ 16); ' +
+      'setBehaviorGroups {groups: [names]}; an object joins a group with setComponent behaviorGroup {group}; setInput input.maps [names] adds project input maps. A UI action {do: "mode", mode} switches from a button. ' +
+      'Scripts: ctx.modes.current/previous/is/switch(id, {blend?, blendTime?, fade?, fadeTime?})/events()/entered(id?)/exited(id?)/time() (a switch applies at the next step; enter/exit events in that step); ' +
+      'ctx.lifecycle.respawn(spawnId?)/setSpawn/spawnPoint/restart() for a game without the platformer game block. tl_game_observe reports mode {current, previous, since, pending, pause, inputMaps, timeScale, physics, modes} and paused. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
@@ -521,7 +527,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
       'save - a save document ({version, levelId, run, ...}, as the game writes them; <= 64 KB) or saveSlot auto|1|2|3 (a save in the Play page) to continue a game with levels; ' +
       'phase 23.19: or a project save document {format: "thirdlight.save", version, playSeconds?, doc, sections?} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated) or saveSlot 1-99 (a project slot of the Play page); ' +
-      'mode - a game mode id (checked once the project defines game modes; ignored and noted in start.notes otherwise). ' +
+      'mode - the game mode the run starts in (checked against content.modes; ignored and noted in start.notes when the project has none). ' +
       'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
       type: 'object',
