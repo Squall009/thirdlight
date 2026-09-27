@@ -1910,7 +1910,7 @@ class RuntimeInstance implements Runtime {
     const durations = args.audioDurations;
     this.dialogue = new DialogueRunner(
       args.dialogue ?? null,
-      { set: (p, v) => ui.set(p, v), clear: (p) => ui.clear(p), show: (d) => ui.show(d), hide: (d) => ui.hide(d), isShown: (d) => ui.isShown(d) },
+      { set: (p, v) => ui.set(p, v), clear: (p) => ui.clear(p), show: (d) => ui.show(d), hide: (d) => ui.hide(d), isShown: (d) => ui.isShown(d), focus: (d, w) => ui.command('focus', d, w, undefined) },
       this.audio,
       this.hz,
       (id) => {

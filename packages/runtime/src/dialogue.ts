@@ -25,6 +25,7 @@
 import {
   applyDialogueEffect,
   DIALOGUE_DEFAULTS,
+  DIALOGUE_DOCUMENT_ID,
   DIALOGUE_LIMITS,
   dialogueLineText,
   dialogueTruthy,
@@ -91,6 +92,8 @@ export interface DialogueUiPort {
   show(doc: string): boolean;
   hide(doc: string): boolean;
   isShown(doc: string): boolean;
+  /** Move the keyboard/gamepad focus to a widget (a presentation command; optional). */
+  focus?(doc: string, widget: string): boolean;
 }
 
 /** The simulation's audio intent log (phase 23.13 `AudioMixer`). */
@@ -329,7 +332,7 @@ export class DialogueRunner {
     return Object.freeze({
       conversation: c.serial,
       dialogueId: c.dialogue.dialogueId,
-      node: c.node,
+      nodeId: c.node,
       kind: c.phase,
       speaker: line?.speakerId ?? '',
       text: line?.display ?? '',
@@ -621,10 +624,12 @@ export class DialogueRunner {
     const d = c.dialogue.dialogueId;
     this.seenSet.add(`${d}/${o.id}`);
     this.trimSeen();
-    this.pushHistory({ dialogueId: d, node: o.id, speaker: '', name: '', text: o.text, choice: true });
+    this.pushHistory({ dialogueId: d, nodeId: o.id, speaker: '', name: '', text: o.text, choice: true });
     this.emit({ kind: 'chosen', node: c.choice.id, text: o.text, name: o.id, index });
     this.applyEffects(c, o.effects);
     c.choice = null;
+    // The engine box: the focus goes back to the box (Enter advances).
+    if (this.data?.document === DIALOGUE_DOCUMENT_ID) this.ui?.focus?.(this.data.document, 'box');
     this.follow(c, o.next);
   }
 
@@ -668,6 +673,8 @@ export class DialogueRunner {
           c.phase = 'choice';
           c.choice = { id, options: shown.map((o) => ({ id: o.id, text: this.interpolate(c, o.text), effects: o.effects, next: o.next })) };
           this.skipMode = false;
+          // The engine box: the keyboard/gamepad focus goes to the first option.
+          if (this.data?.document === DIALOGUE_DOCUMENT_ID) this.ui?.focus?.(this.data.document, 'choice');
           this.emit({ kind: 'choice', node: id, name: '', text: c.choice.options.map((o) => o.text).join('\n') });
           return;
         }
@@ -772,7 +779,7 @@ export class DialogueRunner {
         this.audio.setDuck('dialogue-voice', duck, DUCK_IN_SECONDS, 'sfx');
       }
     }
-    this.pushHistory({ dialogueId: c.dialogue.dialogueId, node: id, speaker: speakerId, name: speaker?.name ?? (speakerId !== '' ? speakerId : ''), text: text.display, choice: false });
+    this.pushHistory({ dialogueId: c.dialogue.dialogueId, nodeId: id, speaker: speakerId, name: speaker?.name ?? (speakerId !== '' ? speakerId : ''), text: text.display, choice: false });
     this.emit({ kind: 'lineStart', node: id, speaker: speakerId, text: text.display, name: '' });
   }
 
@@ -807,7 +814,7 @@ export class DialogueRunner {
   }
 
   private emitFor(c: Conversation, e: { kind: BehaviorDialogueEvent['kind']; node: string; speaker?: string; text?: string; name: string; value?: string; index?: number }): void {
-    this.stepEvents.push({ kind: e.kind, conversation: c.serial, dialogueId: c.dialogue.dialogueId, node: e.node, speaker: e.speaker ?? '', text: e.text ?? '', name: e.name, value: e.value ?? '', index: e.index ?? -1 });
+    this.stepEvents.push({ kind: e.kind, conversation: c.serial, dialogueId: c.dialogue.dialogueId, nodeId: e.node, speaker: e.speaker ?? '', text: e.text ?? '', name: e.name, value: e.value ?? '', index: e.index ?? -1 });
   }
 
   // ---- expressions -----------------------------------------------------------

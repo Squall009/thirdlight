@@ -66,7 +66,7 @@ export default {
     const d = ctx.dialogue;
     if (ctx.stepIndex === 30) state.started = d.start('talk');
     for (const e of d.events()) {
-      if (e.kind === 'lineStart') state.lines.push(e.node);
+      if (e.kind === 'lineStart') state.lines.push(e.nodeId);
       if (e.kind === 'end') state.ended = ctx.stepIndex;
     }
     ctx.ui.set('probe', { lines: state.lines.join(','), served: d.get('served'), ended: state.ended });

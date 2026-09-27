@@ -84,7 +84,7 @@ describe('dialogue runner', () => {
     expect(ui.isShown('tl-dialogue')).toBe(true);
     expect(r.api.events().map((e) => e.kind)).toEqual(['start', 'lineStart']);
     const cur = r.api.current()!;
-    expect(cur).toMatchObject({ node: 'l1', kind: 'line', speaker: 'guide', text: 'Hello [b]there[/b].', total: 12, revealed: 0 });
+    expect(cur).toMatchObject({ nodeId: 'l1', kind: 'line', speaker: 'guide', text: 'Hello [b]there[/b].', total: 12, revealed: 0 });
     // 30 chars/s at 60 Hz: a character every 2 steps.
     for (let i = 0; i < 4; i++) step();
     expect(r.api.current()!.revealed).toBe(2);
@@ -100,7 +100,7 @@ describe('dialogue runner', () => {
     // Advance again: the next line (bindings in the text).
     r.api.advance();
     step();
-    expect(r.api.current()).toMatchObject({ node: 'l2', speaker: 'visitor', text: 'Hi, Sam!' });
+    expect(r.api.current()).toMatchObject({ nodeId: 'l2', speaker: 'visitor', text: 'Hi, Sam!' });
     expect(r.api.events().map((e) => e.kind)).toEqual(['lineEnd', 'lineStart']);
   });
 
@@ -122,9 +122,9 @@ describe('dialogue runner', () => {
     step();
     expect(r.api.get('tea')).toBe(true);
     expect(r.api.get('cups')).toBe(1);
-    expect(r.api.current()).toMatchObject({ node: 'yes', text: 'One tea for 1 cup.' });
+    expect(r.api.current()).toMatchObject({ nodeId: 'yes', text: 'One tea for 1 cup.' });
     const chosen = r.api.event('chosen')!;
-    expect(chosen).toMatchObject({ node: 'ask', text: 'Tea, please', index: 0, name: 'o1' });
+    expect(chosen).toMatchObject({ nodeId: 'ask', text: 'Tea, please', index: 0, name: 'o1' });
     expect((ui.get('dialogue.line') as { portrait: string }).portrait).toBe('tex-guide-happy');
     r.api.advance();
     step();
@@ -132,7 +132,7 @@ describe('dialogue runner', () => {
     expect(r.api.event('end')).toMatchObject({ name: 'end', dialogueId: 'intro' });
     expect(ui.isShown('tl-dialogue')).toBe(false);
     const h = r.api.history();
-    expect(h.map((x) => [x.node, x.choice])).toEqual([['l1', false], ['l2', false], ['o1', true], ['yes', false]]);
+    expect(h.map((x) => [x.nodeId, x.choice])).toEqual([['l1', false], ['l2', false], ['o1', true], ['yes', false]]);
     expect(h[0]!.name).toBe('Guide');
     const backlog = ui.get('dialogue.backlog') as { name: string; text: string }[];
     expect(backlog.map((b) => b.text)).toEqual(['Hello [b]there[/b].', 'Hi, Ada!', '> Tea, please', 'One tea for 1 cup.']);
@@ -168,7 +168,7 @@ describe('dialogue runner', () => {
     const { r, step } = setup([first, second], { textSpeed: 0 });
     r.api.start('first');
     step();
-    expect(r.api.current()).toMatchObject({ dialogueId: 'second', node: 'sig', kind: 'signal' });
+    expect(r.api.current()).toMatchObject({ dialogueId: 'second', nodeId: 'sig', kind: 'signal' });
     expect(r.api.event('signal', 'camera.cut')).toMatchObject({ value: 'wide' });
     step();
     expect(r.api.current()!.kind).toBe('signal'); // still waiting
@@ -176,7 +176,7 @@ describe('dialogue runner', () => {
     step();
     expect(r.api.current()!.kind).toBe('wait');
     for (let i = 0; i < 3; i++) step();
-    expect(r.api.current()).toMatchObject({ node: 'l', kind: 'line' });
+    expect(r.api.current()).toMatchObject({ nodeId: 'l', kind: 'line' });
     r.api.advance();
     step();
     expect(r.api.current()!.options).toEqual(['Once']);
@@ -196,7 +196,7 @@ describe('dialogue runner', () => {
     r.api.setSkip(true);
     step();
     step();
-    expect(r.api.current()!.node).toBe('l1');
+    expect(r.api.current()!.nodeId).toBe('l1');
     r.api.stop();
     step();
     expect(r.api.seen('intro/l1')).toBe(true);
@@ -207,10 +207,10 @@ describe('dialogue runner', () => {
     r.deliver([{ kind: 'skip' }]);
     step();
     step();
-    expect(r.api.current()!.node).toBe('l2');
+    expect(r.api.current()!.nodeId).toBe('l2');
     step();
     step();
-    expect(r.api.current()!.node).toBe('l2');
+    expect(r.api.current()!.nodeId).toBe('l2');
   });
 
   it('voice: plays on the voice bus, ducks music and SFX, auto-advances after the clip and the delay, then unducks', () => {
@@ -239,18 +239,18 @@ describe('dialogue runner', () => {
     expect(ui.get('dialogue.line.voiced')).toBe(true);
     // The clip lasts 30 steps; then 15 steps of delay.
     for (let i = 0; i < 30; i++) step();
-    expect(r.api.current()!.node).toBe('a');
+    expect(r.api.current()!.nodeId).toBe('a');
     expect(commands.filter((c) => c.op === 'duck').slice(-2)).toEqual([expect.objectContaining({ level: 1 }), expect.objectContaining({ level: 1, bus: 'sfx' })]);
     for (let i = 0; i < 14; i++) step();
-    expect(r.api.current()!.node).toBe('a');
+    expect(r.api.current()!.nodeId).toBe('a');
     step();
-    expect(r.api.current()!.node).toBe('b');
+    expect(r.api.current()!.nodeId).toBe('b');
     // Line b is not voiced: its speaker's blip plays while it reveals (sfx bus), and it waits for input (no auto).
     const before = commands.filter((c) => c.op === 'play' && c.assetId === 'blip').length;
     for (let i = 0; i < 40; i++) step();
     expect(commands.filter((c) => c.op === 'play' && c.assetId === 'blip').length).toBeGreaterThan(before);
     expect(commands.find((c) => c.op === 'play' && c.assetId === 'blip')).toMatchObject({ bus: 'sfx' });
-    expect(r.api.current()!.node).toBe('b');
+    expect(r.api.current()!.nodeId).toBe('b');
   });
 
   it('an advance during a voiced line cuts the voice with a short fade and unducks', () => {
@@ -260,7 +260,7 @@ describe('dialogue runner', () => {
     step();
     r.api.advance();
     step();
-    expect(r.api.current()!.node).toBe('b');
+    expect(r.api.current()!.nodeId).toBe('b');
     expect(commands.find((c) => c.op === 'stop')).toMatchObject({ fade: expect.any(Number) });
     expect(commands.filter((c) => c.op === 'duck').at(-1)).toMatchObject({ level: 1, bus: 'sfx' });
   });
@@ -272,7 +272,7 @@ describe('dialogue runner', () => {
     r.deliver([{ kind: 'auto' }]);
     step();
     for (let i = 0; i < 6; i++) step();
-    expect(r.api.current()!.node).toBe('l2');
+    expect(r.api.current()!.nodeId).toBe('l2');
   });
 
   it('the save section: variables and the seen set out and back', () => {

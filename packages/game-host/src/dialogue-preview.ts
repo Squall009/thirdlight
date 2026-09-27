@@ -76,7 +76,7 @@ export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePrevie
   const ui = new UiState(uiDocumentsForRuntime(docs));
   let step = 0;
   const mixer = new AudioMixer(hz, deps.durations, () => step);
-  const runner = new DialogueRunner(deps.data, { set: (p, v) => ui.set(p, v), clear: (p) => ui.clear(p), show: (d) => ui.show(d), hide: (d) => ui.hide(d), isShown: (d) => ui.isShown(d) }, mixer, hz, (id) => {
+  const runner = new DialogueRunner(deps.data, { set: (p, v) => ui.set(p, v), clear: (p) => ui.clear(p), show: (d) => ui.show(d), hide: (d) => ui.hide(d), isShown: (d) => ui.isShown(d), focus: (d, w) => ui.command('focus', d, w, undefined) }, mixer, hz, (id) => {
     const ms = deps.durations[id];
     return typeof ms === 'number' && ms > 0 ? ms / 1000 : null;
   });

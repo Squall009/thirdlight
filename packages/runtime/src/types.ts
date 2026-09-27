@@ -1321,7 +1321,7 @@ export interface BehaviorDialogueEvent {
   readonly conversation: number;
   readonly dialogueId: string;
   /** The node (a line, a choice, a signal; '' for start/end). */
-  readonly node: string;
+  readonly nodeId: string;
   /** lineStart: the speaker id ('' for narration). */
   readonly speaker: string;
   /** lineStart: the line as shown (rich text); chosen: the option's text. */
@@ -1338,7 +1338,7 @@ export interface BehaviorDialogueEvent {
 export interface BehaviorDialogueState {
   readonly conversation: number;
   readonly dialogueId: string;
-  readonly node: string;
+  readonly nodeId: string;
   /** line, choice, signal (waiting for resume), wait. */
   readonly kind: 'line' | 'choice' | 'signal' | 'wait';
   readonly speaker: string;
@@ -1354,7 +1354,7 @@ export interface BehaviorDialogueState {
 /** Phase 23.16: one line (or a chosen option) in the backlog. */
 export interface BehaviorDialogueHistoryEntry {
   readonly dialogueId: string;
-  readonly node: string;
+  readonly nodeId: string;
   readonly speaker: string;
   /** The speaker's display name ('' for narration or a chosen option). */
   readonly name: string;
