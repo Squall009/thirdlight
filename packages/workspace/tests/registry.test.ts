@@ -33,29 +33,29 @@ describe('projects in their own folders', () => {
   it('creates a project in a folder: marker, thirdlight/ subfolder, .gitignore, registry', () => {
     const base = makeRoot('reg-create');
     const root = join(base, 'data');
-    const game = join(base, 'games', 'sprout');
+    const game = join(base, 'games', 'my-game');
     mkdirSync(join(base, 'games'), { recursive: true });
     const svc = openWorkspaceService({ root });
-    const res = svc.createProjectInFolder(game, 'sprout', 'Sprout', { engine: PIN });
+    const res = svc.createProjectInFolder(game, 'my-game', 'My Game', { engine: PIN });
     expect(res, JSON.stringify(res)).toMatchObject({ ok: true, created: true, revision: 0 });
 
     const marker = JSON.parse(readFileSync(join(game, 'thirdlight.json'), 'utf8'));
-    expect(marker).toEqual({ thirdlightProject: 1, projectId: 'sprout', name: 'Sprout', projectDir: 'thirdlight', engine: PIN });
+    expect(marker).toEqual({ thirdlightProject: 1, projectId: 'my-game', name: 'My Game', projectDir: 'thirdlight', engine: PIN });
     expect(existsSync(join(game, 'thirdlight', 'project.json'))).toBe(true);
     expect(existsSync(join(game, 'thirdlight', 'content.json'))).toBe(true);
     expect(existsSync(join(game, 'thirdlight', 'scenes', 'scene-main.json'))).toBe(true);
     expect(JSON.parse(readFileSync(join(game, 'thirdlight', 'project.json'), 'utf8')).schemaVersion).toBe(2);
     expect(readFileSync(join(game, 'thirdlight', '.gitignore'), 'utf8')).toContain('.thirdlight/');
-    expect(existsSync(join(root, 'projects', 'sprout'))).toBe(false);
-    expect(JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8'))).toEqual({ registryVersion: 1, projects: { sprout: { folder: game } } });
+    expect(existsSync(join(root, 'projects', 'my-game'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8'))).toEqual({ registryVersion: 1, projects: { 'my-game': { folder: game } } });
 
     // Edits land in the folder; a fresh service (backend restart) finds the project.
-    expect(createBox(svc, 'sprout').ok).toBe(true);
+    expect(createBox(svc, 'my-game').ok).toBe(true);
     svc.close();
     const svc2 = openWorkspaceService({ root });
-    const q = svc2.query({ op: 'queryProject', projectId: 'sprout' }) as { ok: boolean; revision: number };
+    const q = svc2.query({ op: 'queryProject', projectId: 'my-game' }) as { ok: boolean; revision: number };
     expect(q).toMatchObject({ ok: true, revision: 1 });
-    expect(svc2.lastScan.entries.find((e) => e.projectId === 'sprout')).toMatchObject({ kind: 'project', loadable: true, folder: game });
+    expect(svc2.lastScan.entries.find((e) => e.projectId === 'my-game')).toMatchObject({ kind: 'project', loadable: true, folder: game });
     svc2.close();
   });
 
@@ -120,11 +120,11 @@ describe('projects in their own folders', () => {
     const base = makeRoot('reg-resolve');
     const svc = openWorkspaceService({ root: join(base, 'data') });
     const game = join(base, 'game');
-    expect(svc.createProjectInFolder(game, 'sprout', 'Sprout').ok).toBe(true);
+    expect(svc.createProjectInFolder(game, 'my-game', 'My Game').ok).toBe(true);
     const deep = join(game, 'art', 'scripts');
     mkdirSync(deep, { recursive: true });
-    expect(svc.resolveFolder(deep)).toEqual({ ok: true, projectId: 'sprout', folder: game });
-    expect(svc.resolveFolder(game)).toMatchObject({ ok: true, projectId: 'sprout' });
+    expect(svc.resolveFolder(deep)).toEqual({ ok: true, projectId: 'my-game', folder: game });
+    expect(svc.resolveFolder(game)).toMatchObject({ ok: true, projectId: 'my-game' });
     expect(svc.resolveFolder(base)).toMatchObject({ ok: false, reason: 'no_marker' });
     const loose = join(base, 'loose');
     mkdirSync(loose);

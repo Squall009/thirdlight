@@ -131,19 +131,19 @@ describe('backup create / verify / restore', () => {
   it('a folder project backs up the whole game folder (assets, art, .git) except process state, and restores into a new folder', () => {
     // A registered folder project: <game>/thirdlight.json + <game>/thirdlight/ + the game's own files.
     const game = join(root, 'game');
-    const marker = { thirdlightProject: 1, projectId: 'sprout', name: 'Sprout', projectDir: 'thirdlight', engine: { version: '0.1.0' } };
+    const marker = { thirdlightProject: 1, projectId: 'my-game', name: 'My Game', projectDir: 'thirdlight', engine: { version: '0.1.0' } };
     mkdirSync(join(game, 'assets', 'props'), { recursive: true });
     mkdirSync(join(game, '.git', 'lfs'), { recursive: true });
     writeFileSync(join(game, 'thirdlight.json'), JSON.stringify(marker));
     writeFileSync(join(game, 'assets', 'props', 'crate.glb'), 'glTF crate bytes');
     writeFileSync(join(game, '.git', 'lfs', 'object'), 'lfs object');
     writeFileSync(join(game, 'README.md'), 'the game');
-    const inTree = fakeProject(root, 'sprout');
+    const inTree = fakeProject(root, 'my-game');
     renameSync(inTree, join(game, 'thirdlight'));
-    writeFileSync(join(root, 'registry.json'), JSON.stringify({ registryVersion: 1, projects: { sprout: { folder: game } } }));
+    writeFileSync(join(root, 'registry.json'), JSON.stringify({ registryVersion: 1, projects: { 'my-game': { folder: game } } }));
     const out = join(root, 'backups');
     mkdirSync(out);
-    const r = createBackup({ dataRoot: root, projectId: 'sprout', outRoot: out });
+    const r = createBackup({ dataRoot: root, projectId: 'my-game', outRoot: out });
     expect(r.manifest).toMatchObject({ backupVersion: 2, scope: 'game-folder', folder: game, projectDir: 'thirdlight', revision: 7 });
     expect(r.manifest.files.map((f) => f.path)).toEqual([
       '.git/lfs/object',
@@ -162,26 +162,26 @@ describe('backup create / verify / restore', () => {
     expect(() => restoreBackup({ backupDir: r.dir, dataRoot: root, folder: game })).toThrow(/not empty/);
 
     const target = join(root, 'restored-game');
-    const restored = restoreBackup({ backupDir: r.dir, dataRoot: root, as: 'sprout-2', folder: target });
-    expect(restored).toMatchObject({ projectId: 'sprout-2', folder: target, dir: join(target, 'thirdlight') });
+    const restored = restoreBackup({ backupDir: r.dir, dataRoot: root, as: 'my-game-2', folder: target });
+    expect(restored).toMatchObject({ projectId: 'my-game-2', folder: target, dir: join(target, 'thirdlight') });
     expect(readFileSync(join(target, 'assets', 'props', 'crate.glb'), 'utf8')).toBe('glTF crate bytes');
     expect(readFileSync(join(target, '.git', 'lfs', 'object'), 'utf8')).toBe('lfs object');
-    expect(JSON.parse(readFileSync(join(target, 'thirdlight.json'), 'utf8'))).toMatchObject({ thirdlightProject: 1, projectId: 'sprout-2', name: 'Sprout', projectDir: 'thirdlight' });
-    expect(JSON.parse(readFileSync(join(target, 'thirdlight', 'project.json'), 'utf8')).id).toBe('sprout-2');
+    expect(JSON.parse(readFileSync(join(target, 'thirdlight.json'), 'utf8'))).toMatchObject({ thirdlightProject: 1, projectId: 'my-game-2', name: 'My Game', projectDir: 'thirdlight' });
+    expect(JSON.parse(readFileSync(join(target, 'thirdlight', 'project.json'), 'utf8')).id).toBe('my-game-2');
     const env = JSON.parse(readFileSync(join(target, 'thirdlight', 'scenes', 'main.json'), 'utf8'));
-    expect(env).toMatchObject({ projectId: 'sprout-2', retry: { records: [] } });
+    expect(env).toMatchObject({ projectId: 'my-game-2', retry: { records: [] } });
     expect(existsSync(join(target, 'thirdlight', '.thirdlight'))).toBe(false);
     // Never overwrites a folder that already holds something.
-    expect(() => restoreBackup({ backupDir: r.dir, dataRoot: root, as: 'sprout-3', folder: target })).toThrow(/not empty/);
+    expect(() => restoreBackup({ backupDir: r.dir, dataRoot: root, as: 'my-game-3', folder: target })).toThrow(/not empty/);
     // An empty target folder is fine; the same id is kept without --as.
     const empty = join(root, 'empty-target');
     mkdirSync(empty);
     const same = restoreBackup({ backupDir: r.dir, dataRoot: root, folder: empty });
-    expect(same.projectId).toBe('sprout');
+    expect(same.projectId).toBe('my-game');
     expect(readFileSync(join(empty, 'thirdlight.json'))).toEqual(readFileSync(join(game, 'thirdlight.json')));
 
     // The backup may not be written inside the game folder it copies.
-    expect(() => createBackup({ dataRoot: root, projectId: 'sprout', outRoot: join(game, 'backups') })).toThrow(/inside the game folder/);
+    expect(() => createBackup({ dataRoot: root, projectId: 'my-game', outRoot: join(game, 'backups') })).toThrow(/inside the game folder/);
   });
 
   it('an older folder backup (version 1: project subfolder + marker in the manifest) still restores into a folder', () => {

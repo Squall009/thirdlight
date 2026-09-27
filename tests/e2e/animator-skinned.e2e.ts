@@ -1,21 +1,20 @@
 /**
- * Phase 9.7 with the real game: Sprout's character (a skinned GLB with idle,
- * run, jump, fall and land clips) rides on Beacon Reach's player; a
+ * Phase 9.7 on a rigged character: a generated skinned GLB (skinned-glb.ts)
+ * with idle, run, jump, fall and land clips rides on Beacon Reach's player; a
  * "Platformer" controller built from its clips in the Animator window gets
  * the player's speed, grounding and vertical velocity automatically. Driven
  * through the play relays, the observed animator state goes idle → run →
- * airborne. Runs only where the Sprout game folder is (TL_SPROUT_CHAR);
- * TL_ANIM_SHOTS saves the Play frames for a look.
+ * airborne. TL_ANIM_SHOTS saves the Play frames for a look.
  */
-import { existsSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';
 
-const glb = process.env['TL_SPROUT_CHAR'] ?? join(homedir(), 'projects', 'sprout', 'assets', 'characters', 'sprout', 'char_sprout.glb');
 const shots = process.env['TL_ANIM_SHOTS'];
 
 let be: E2EBackend;
@@ -27,7 +26,7 @@ test.afterEach(async () => {
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   seq += 1;
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: q.revision, requestId: `req-${(0x5a0a00 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-sprout-anim' }, args });
+  const res = await be.command({ op, projectId: be.projectId, expectedRevision: q.revision, requestId: `req-${(0x5a0a00 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-skinned-anim' }, args });
   expect(res.ok, JSON.stringify(res)).toBe(true);
   return res;
 }
@@ -43,13 +42,14 @@ async function relay(path: string, body: unknown): Promise<{ status: number; jso
 
 async function shot(page: Page, name: string): Promise<void> {
   if (shots === undefined) return;
-  writeFileSync(join(shots, `sprout-anim-${name}.png`), await page.locator('iframe.tl-app__preview-frame').screenshot());
+  writeFileSync(join(shots, `skinned-anim-${name}.png`), await page.locator('iframe.tl-app__preview-frame').screenshot());
 }
 
-test("Sprout's clips play on Beacon Reach's player: idle, run, airborne", async ({ page }) => {
-  test.skip(!existsSync(glb), 'needs the Sprout game folder');
+test("a rigged character's clips play on Beacon Reach's player: idle, run, airborne", async ({ page }) => {
   test.setTimeout(240_000);
-  be = await startBackend('sprout-anim', 'beacon-reach');
+  be = await startBackend('skinned-anim', 'beacon-reach');
+  const glb = join(mkdtempSync(join(tmpdir(), 'tl-skin-')), 'char_rigged.glb');
+  writeFileSync(glb, skinnedGlb(LOCOMOTION_CLIPS));
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
@@ -58,13 +58,13 @@ test("Sprout's clips play on Beacon Reach's player: idle, run, airborne", async 
   await expect(publish).toBeEnabled({ timeout: 60_000 });
   await publish.click();
   const assets = async () => (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; displayName: string }[];
-  await expect.poll(async () => (await assets()).some((a) => a.displayName.includes('char_sprout'))).toBe(true);
-  const sprout = (await assets()).find((a) => a.displayName.includes('char_sprout'))!.assetId;
+  await expect.poll(async () => (await assets()).some((a) => a.displayName.includes('char_rigged'))).toBe(true);
+  const character = (await assets()).find((a) => a.displayName.includes('char_rigged'))!.assetId;
   const game = (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['game'] as { playerId: string };
-  const model = String((await cmd('createEntity', { kind: 'model', name: 'Sprout', parentId: game.playerId, model: { asset: { assetId: sprout } }, transform: { position: [0, 0, 0] } })).createdId);
+  const model = String((await cmd('createEntity', { kind: 'model', name: 'Character', parentId: game.playerId, model: { asset: { assetId: character } }, transform: { position: [0, 0, 0] } })).createdId);
 
   await page.getByRole('tab', { name: 'Animator', exact: true }).click();
-  await page.getByLabel('animator model').selectOption(sprout);
+  await page.getByLabel('animator model').selectOption(character);
   await page.getByRole('button', { name: 'New from clips: Platformer' }).click();
   // Phase 16.2: the new controller opens as a centre tab (its state graph).
   const graph = page.getByRole('tabpanel', { name: 'Animator: Platformer' }).getByLabel('animator graph');

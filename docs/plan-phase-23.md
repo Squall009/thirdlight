@@ -290,7 +290,8 @@ in Thirdlight's tests. Thirdlight tests use neutral fixtures.
   mapping). A GPU option for the harness is the next infra step.
 - Test depending on an external repo: the Sprout play-through
   (`TL_SKIP_SPROUT=1` while ~/projects/sprout is mid-edit) — part of the
-  engine/game separation audit.
+  engine/game separation audit. (Removed in 24.1: the test and the variable
+  are gone.)
 - Owner look pending (visual/audible): 3D collider outlines, cameras (shake,
   letterbox, blends), UI styles and the UI editor, rebinding glyph icons and pad
   labels on real controllers, custom-lit shading, 3D audio panning and music
@@ -329,7 +330,7 @@ for editor items, commit/push/restart, decision log).
 | 23.17 Sequencer and timeline | done 2026-09-27 — timelines with 14 track types (incl. mode, environment, dialogue), slot bindings, skip to end states, timeline tab with scrubbing |
 | 23.18 Runtime environment changes | done 2026-09-27 — environment presets, `ctx.environment` set/blend with easing and overrides, lightmap multiplier, editor capture/preview, timeline environment track |
 | 23.19 Project-defined save documents | done 2026-09-27 — `content.saveSchema`, `ctx.saves` with named migrations, 1–99 IndexedDB slots with metadata + thumbnail, project settings document |
-| 23.20 Wrap-up | done 2026-09-27 — leftovers and owner-look list below; block-layer numbers from 23.5; final full gate green (TL_SKIP_SPROUT=1) |
+| 23.20 Wrap-up | done 2026-09-27 — leftovers and owner-look list below; block-layer numbers from 23.5; final full gate green (TL_SKIP_SPROUT=1, removed in 24.1) |
 
 ## 6. Results and decision log
 

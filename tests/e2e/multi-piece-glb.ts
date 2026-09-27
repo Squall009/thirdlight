@@ -4,6 +4,9 @@
  * top-level nodes at the origin, one shared material, and a COLOR_0 on every
  * render mesh. The vertex colour is pure red, so a render shows whether it is
  * used as data (the white material stays white/grey) or as a tint (red).
+ * With `{ lightmapUv: true }` every render mesh also gets TEXCOORD_0/1 (UV1)
+ * that lays the box's six faces out without overlap, like a kit exported
+ * for light baking.
  */
 
 export interface PieceSpec {
@@ -14,7 +17,7 @@ export interface PieceSpec {
   col?: [number, number, number];
 }
 
-function box(size: [number, number, number]): { positions: number[]; normals: number[]; indices: number[] } {
+function box(size: [number, number, number]): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
   const [sx, sy, sz] = size;
   // Pivot at the base centre-left like a kit piece: x 0..sx, y 0..sy, z -sz/2..sz/2.
   const x0 = 0, x1 = sx, y0 = 0, y1 = sy, z0 = -sz / 2, z1 = sz / 2;
@@ -28,19 +31,24 @@ function box(size: [number, number, number]): { positions: number[]; normals: nu
   ];
   const positions: number[] = [];
   const normals: number[] = [];
+  const uv1: number[] = [];
   const indices: number[] = [];
+  // UV1: a 3 × 2 grid of cells, one face per cell, with a margin between faces.
+  const corners: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
   faces.forEach((f, i) => {
-    for (const v of f.v) {
+    const cu = i % 3, cv = Math.floor(i / 3);
+    f.v.forEach((v, k) => {
       positions.push(...v);
       normals.push(...f.n);
-    }
+      uv1.push((cu + 0.05 + corners[k]![0] * 0.9) / 3, (cv + 0.05 + corners[k]![1] * 0.9) / 2);
+    });
     const b = i * 4;
     indices.push(b, b + 1, b + 2, b, b + 2, b + 3);
   });
-  return { positions, normals, indices };
+  return { positions, normals, uv1, indices };
 }
 
-export function multiPieceGlb(pieces: readonly PieceSpec[]): Buffer {
+export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapUv?: boolean } = {}): Buffer {
   const chunks: Buffer[] = [];
   let offset = 0;
   const bufferViews: Record<string, unknown>[] = [];
@@ -73,6 +81,13 @@ export function multiPieceGlb(pieces: readonly PieceSpec[]): Buffer {
       const col = addView(Buffer.from(colors.buffer), 34962);
       accessors.push({ bufferView: col, componentType: 5126, count, type: 'VEC4' });
       attributes['COLOR_0'] = accessors.length - 1;
+      if (options.lightmapUv === true) {
+        const uv = addView(Buffer.from(new Float32Array(g.uv1).buffer), 34962);
+        accessors.push({ bufferView: uv, componentType: 5126, count, type: 'VEC2' });
+        // glTF numbers texture coordinate sets from 0, so UV0 is the same layout.
+        attributes['TEXCOORD_0'] = accessors.length - 1;
+        attributes['TEXCOORD_1'] = accessors.length - 1;
+      }
     }
     meshes.push({ name, primitives: [{ attributes, indices: idxA, ...(render ? { material: 0 } : {}) }] });
     return meshes.length - 1;

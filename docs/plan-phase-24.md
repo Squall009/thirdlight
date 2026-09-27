@@ -101,7 +101,7 @@ keeps the gate green.
 | Item | Status |
 |---|---|
 | 24.0 | done 2026-09-27 |
-| 24.1 | — |
+| 24.1 | done 2026-09-27: Sprout tests deleted; `animator-skinned`, `lightmaps-kit` on generated GLBs (browser bake always, Blender bake when Blender is there) |
 | 24.2 | — |
 | 24.3 | — |
 | 24.4 | — |

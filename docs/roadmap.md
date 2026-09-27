@@ -12,10 +12,8 @@ that phase plan's decision log, and move on. The owner reviews at the end.
    top-down, puzzle, 3D walker…), not for Sprout or Beacon Reach. A default
    is an engine default with a genre-neutral reason written next to it
    (e.g. "1.8 m: an adult human"), never a value fitted to the demo.
-   Tests use neutral fixtures; only the opt-in Sprout tests
-   (`tests/integration/sprout-meadows`, `tests/e2e/sprout-live.e2e.ts`) use
-   the demo. Sprout is a consumer: its own values live in its own project
-   data and scripts. When an existing default turns out to be demo-shaped,
+   Tests use neutral fixtures. Sprout is a consumer: its own values live
+   in its own project data and scripts. When an existing default turns out to be demo-shaped,
    fix it and log it. This covers **API shape and dimensionality**, not only
    values: a port, library or data model that only works in 2D, on one axis
    or for one genre is demo-shaped even when every default is neutral

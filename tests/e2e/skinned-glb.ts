@@ -3,14 +3,30 @@
  * ring vertices every 0.5 m) on a two-joint skin — `root` at the base and
  * `upper` at 1 m — with two clips: `idle` (straight) and `bend` (the upper
  * half bent 80° about Z). A pose change is easy to see from the front.
+ * `extraClips` adds more clips on the same joint, each a fixed bend of the
+ * upper half (e.g. a locomotion set: idle/run/jump/fall/land).
  */
+
+export interface ExtraClip {
+  name: string;
+  /** Bend of the upper half about Z, in degrees. */
+  bend: number;
+}
+
+/** Clips named like a character's locomotion set, each a distinct pose. */
+export const LOCOMOTION_CLIPS: readonly ExtraClip[] = [
+  { name: 'run', bend: 30 },
+  { name: 'jump', bend: -30 },
+  { name: 'fall', bend: -60 },
+  { name: 'land', bend: 15 },
+];
 
 function quatZ(deg: number): [number, number, number, number] {
   const h = (deg * Math.PI) / 360;
   return [0, 0, Math.sin(h), Math.cos(h)];
 }
 
-export function skinnedGlb(): Buffer {
+export function skinnedGlb(extraClips: readonly ExtraClip[] = []): Buffer {
   const rings = [0, 0.5, 1, 1.5, 2];
   const half = 0.2;
   const corners: [number, number][] = [
@@ -79,6 +95,7 @@ export function skinnedGlb(): Buffer {
   const TIMES = acc(Buffer.from(new Float32Array([0, 1]).buffer), 5126, 2, 'SCALAR', { min: [0], max: [1] });
   const STRAIGHT = acc(Buffer.from(new Float32Array([...quatZ(0), ...quatZ(0)]).buffer), 5126, 2, 'VEC4');
   const BENT = acc(Buffer.from(new Float32Array([...quatZ(80), ...quatZ(80)]).buffer), 5126, 2, 'VEC4');
+  const EXTRA = extraClips.map((c) => ({ name: c.name, output: acc(Buffer.from(new Float32Array([...quatZ(c.bend), ...quatZ(c.bend)]).buffer), 5126, 2, 'VEC4') }));
 
   const bin = Buffer.concat(chunks);
   const json = {
@@ -96,6 +113,7 @@ export function skinnedGlb(): Buffer {
     animations: [
       { name: 'idle', samplers: [{ input: TIMES, output: STRAIGHT, interpolation: 'LINEAR' }], channels: [{ sampler: 0, target: { node: 2, path: 'rotation' } }] },
       { name: 'bend', samplers: [{ input: TIMES, output: BENT, interpolation: 'LINEAR' }], channels: [{ sampler: 0, target: { node: 2, path: 'rotation' } }] },
+      ...EXTRA.map((c) => ({ name: c.name, samplers: [{ input: TIMES, output: c.output, interpolation: 'LINEAR' }], channels: [{ sampler: 0, target: { node: 2, path: 'rotation' } }] })),
     ],
     accessors,
     bufferViews,

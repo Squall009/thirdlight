@@ -1,6 +1,6 @@
 /**
  * Phase 14.9: an expired stage (past the 3600 s TTL — `resolveStage` refuses
- * it) no longer holds one of the eight open-stage slots. Found with the Sprout
+ * it) no longer holds one of the eight open-stage slots. Found with a game
  * level script: publications keep their stages, and eight stages from earlier
  * sessions refused every new upload (`stage_limits_exceeded`, open_stages)
  * until the 24 h abandoned-stage cleanup on the next open.
