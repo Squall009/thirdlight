@@ -101,6 +101,7 @@ export {
   M2_SETTINGS_KEYS,
   AUDIO_VOICE_CAP,
   PHYSICS_DIMENSIONS,
+  audioSpatialOf,
   depthBufferOf,
   physicsDimensionOf,
   type PhysicsDimension,

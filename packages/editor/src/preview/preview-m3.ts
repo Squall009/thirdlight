@@ -61,8 +61,8 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
@@ -452,7 +452,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsS = manifest.saveSchema !== undefined ? ({ ...withBoundsM, saveSchema: manifest.saveSchema } as RuntimeSnapshot) : withBoundsM;
   // Phase 23.9a: the UI documents scripts show and hide (id, layer, modal; the host draws them from the manifest).
   const uiRows = uiDocumentsForRuntime(manifest.uiDocuments);
-  const withBounds = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
+  const withBoundsU = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
+  // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
+  const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
+  const withBounds = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
@@ -654,6 +657,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 23.19: project save slots in this browser's IndexedDB (Play and exported games keep separate ones).
       ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
       assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
+      // Phase 23.13: how audio sources are heard (the audio_spatial setting; 3D: panned).
+      audioSpatial: audioSpatialOf(settings),
       // Phase 23.8: Play always has the debug console (the backquote key); a start from "Play from…" / tl_play_start.
       debugConsole: true,
       focusGame: () => cfg.canvas.focus(),
@@ -948,6 +953,8 @@ export function bootstrapPreviewM3(): void {
         ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
         ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
         ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
+        // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
+        ...(o.audio !== undefined ? { audio: structuredClone(o.audio) } : {}),
         // Phase 23.11: the objects riding on sockets and their world positions.
         ...(o.sockets !== undefined ? { sockets: structuredClone(o.sockets) } : {}),
         // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
@@ -1005,6 +1012,8 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
       // Phase 23.4: the resolved camera (virtual cameras: the live one, a blend, the pose and lens).
       ...(obs.observation.camera !== undefined ? { camera: structuredClone(obs.observation.camera) } : {}),
+      // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
+      ...(obs.observation.audio !== undefined ? { audio: structuredClone(obs.observation.audio) } : {}),
       // Phase 23.11: the objects riding on sockets and their world positions.
       ...(obs.observation.sockets !== undefined ? { sockets: structuredClone(obs.observation.sockets) } : {}),
       // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.

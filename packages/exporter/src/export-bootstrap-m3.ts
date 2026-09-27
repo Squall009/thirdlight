@@ -39,7 +39,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -70,7 +70,7 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
@@ -255,6 +255,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
+  const audioDurations = audioDurationsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
   const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
@@ -270,6 +271,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.prefabs !== undefined ? { prefabs: manifest.prefabs } : {}),
     // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
     ...(modelBounds !== undefined ? { modelBounds } : {}),
+    // Phase 23.13: the audio assets' recorded durations (script sounds' finished events).
+    ...(audioDurations !== undefined ? { audioDurations } : {}),
     // Phase 23.11: the model rigs sockets are resolved on (bound by the buildId).
     ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
     // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
@@ -514,6 +517,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     // Phase 23.19: project save slots in the player's IndexedDB (no backend: the export runs standalone).
     ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
+    // Phase 23.13: how audio sources are heard (the audio_spatial setting; 3D: panned).
+    audioSpatial: audioSpatialOf(settings),
     // Phase 23.8: the debug console only when the project turns debug_console on (absent/0: a release game has none).
     ...((settings as unknown as Record<string, unknown>)['debug_console'] === 1 ? { debugConsole: true, focusGame: () => canvas.focus() } : {}),
     // Phase 23.9a: the project UI documents and themes (the host draws them).

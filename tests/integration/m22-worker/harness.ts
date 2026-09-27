@@ -123,6 +123,8 @@ export interface Harness {
   readonly digests: string[];
   /** Sounds the host played (script `ctx.audio`), in order. */
   readonly sounds: string[];
+  /** Phase 23.13: the audio commands the host received from the simulation, in order. */
+  readonly audioCommands: Any[];
   /** One frame at `now` seconds. */
   tick(now: number): Promise<void>;
   dispose(): Promise<void>;
@@ -145,6 +147,11 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   const sounds: string[] = [];
   const audio: Any = createGameAudioOwner({ contextFactory: () => null } as Any);
   audio.playSound = (assetId: string) => sounds.push(assetId);
+  const audioCommands: Any[] = [];
+  audio.command = (c: Any) => {
+    audioCommands.push(c);
+    if (c.op === 'play') sounds.push(c.assetId);
+  };
   const baseConfig: Any = {
     snapshot: cfg.snapshot,
     settings: cfg.settings,
@@ -186,6 +193,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       access: createLocalSimAccess({ runtime: rt, ...(physics !== undefined ? { physics } : {}), stepHz: cfg.settings.fixed_step_hz ?? 120 }),
       digests,
       sounds,
+      audioCommands,
       tick: async (now) => {
         const r = rt.tick(now);
         if (!r.ok) throw new Error(JSON.stringify(r.error));
@@ -226,6 +234,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     access: remote.access,
     digests: remote.digests,
     sounds,
+    audioCommands,
     tick: async (now) => {
       await remote.tick(now);
       if (remote.failure !== null) throw new Error(JSON.stringify(remote.failure));

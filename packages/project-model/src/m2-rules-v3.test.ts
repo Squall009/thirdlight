@@ -288,6 +288,8 @@ describe('gameplay settings resolution (§21.5)', () => {
       'random_seed',
       // Phase 23.4: the depth buffer (1 standard, 2 logarithmic, 3 reversed Z).
       'depth_buffer',
+      // Phase 23.13: how audio sources are heard (0 automatic, 1 by X distance, 2 panned).
+      'audio_spatial',
     ]);
     // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
     const engine = resolveGameplaySettings({ settings: { audio_voices: 4, fixed_step_hz: 60 } });

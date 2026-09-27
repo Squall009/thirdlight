@@ -40,6 +40,14 @@ export {
   type AudioContextLike,
   type AudioBus,
   MUSIC_MAX_REGISTERED,
+  AUDIO_PANNING_MODEL,
+  type AudioCommandLike,
+  type AudioListenerLike,
+  type AudioObservation,
+  type AudioParamLike,
+  type AudioSpatialLike,
+  type AudioVoiceInfo,
+  type PannerNodeLike,
 } from './audio';
 export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveRecords, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
 export { counterPoints, levelScore, timeBonus, type ScoreRulesLike } from './score';

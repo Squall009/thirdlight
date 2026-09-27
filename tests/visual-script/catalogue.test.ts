@@ -108,7 +108,27 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     signals: { emit: rec('signals.emit'), on: rec('signals.on', true) },
     messages: { send: rec('messages.send', true), received: rec('messages.received', () => [{ name: 'x', value: 2, from: 'box-2', stepIndex: stepIndex - 1 }]) },
     game: { counter: rec('game.counter', 3), add: rec('game.add'), health: rec('game.health', { current: 2, max: 3 }), setVisible: rec('game.setVisible') },
-    audio: { play: rec('audio.play') },
+    // Phase 23.13: playback handles, music, duck, bus mix.
+    audio: {
+      play: rec('audio.play', 1),
+      stop: rec('audio.stop'),
+      fade: rec('audio.fade'),
+      setVolume: rec('audio.setVolume'),
+      setPitch: rec('audio.setPitch'),
+      setLoop: rec('audio.setLoop'),
+      playing: rec('audio.playing', true),
+      volumeOf: rec('audio.volumeOf', 0.5),
+      finished: rec('audio.finished', false),
+      events: rec('audio.events', () => []),
+      music: rec('audio.music'),
+      releaseMusic: rec('audio.releaseMusic'),
+      stinger: rec('audio.stinger', 2),
+      duck: rec('audio.duck'),
+      unduck: rec('audio.unduck'),
+      musicState: rec('audio.musicState', () => ({ owner: 'flow', track: null, duck: 1 })),
+      setBusVolume: rec('audio.setBusVolume'),
+      busVolume: rec('audio.busVolume', 1),
+    },
     effects: { play: (...a: unknown[]) => { rec('effects.play')(...a); return 1; }, stop: rec('effects.stop') },
     save: { get: rec('save.get', 4), set: rec('save.set', true), remove: rec('save.remove'), keys: rec('save.keys', () => ['k']) },
     // Phase 23.5: block layers.
@@ -303,7 +323,7 @@ const CATALOGUE = [...BEHAVIOR_GRAPH_KIND.nodes.filter((d) => !d.type.startsWith
 describe('the visual-script catalogue (every node type compiles and runs)', () => {
   it('covers every ctx member of the runtime typings (generated), except the documented skips', () => {
     const members = new Set(BEHAVIOR_API_NODES.map(memberOf));
-    for (const m of ['game.add', 'game.counter', 'game.health', 'game.setVisible', 'signals.emit', 'signals.on', 'messages.send', 'messages.received', 'timers.after', 'timers.every', 'timers.fired', 'timers.cancel', 'physics.raycast', 'physics.overlapBox', 'physics.overlapCircle', 'physics.characterResult', 'tags.mask', 'tags.has', 'tags.query', 'tags.of', 'world.transform', 'world.find', 'world.findAll', 'world.withComponent', 'random.next', 'random.range', 'random.int', 'random.chance', 'random.stream.next', 'random.stream.range', 'random.stream.int', 'random.stream.chance', 'scenes.load', 'scenes.unload', 'scenes.status', 'scenes.loaded', 'input.pressed', 'input.released', 'input.held', 'input.value', 'input.vector', 'animator.set', 'animator.trigger', 'animator.get', 'animator.state', 'audio.play', 'save.get', 'save.set', 'save.remove', 'save.keys', 'spawn', 'destroy', 'emit', 'entityId', 'stepIndex']) {
+    for (const m of ['game.add', 'game.counter', 'game.health', 'game.setVisible', 'signals.emit', 'signals.on', 'messages.send', 'messages.received', 'timers.after', 'timers.every', 'timers.fired', 'timers.cancel', 'physics.raycast', 'physics.overlapBox', 'physics.overlapCircle', 'physics.characterResult', 'tags.mask', 'tags.has', 'tags.query', 'tags.of', 'world.transform', 'world.find', 'world.findAll', 'world.withComponent', 'random.next', 'random.range', 'random.int', 'random.chance', 'random.stream.next', 'random.stream.range', 'random.stream.int', 'random.stream.chance', 'scenes.load', 'scenes.unload', 'scenes.status', 'scenes.loaded', 'input.pressed', 'input.released', 'input.held', 'input.value', 'input.vector', 'animator.set', 'animator.trigger', 'animator.get', 'animator.state', 'audio.play', 'audio.stop', 'audio.fade', 'audio.setPitch', 'audio.finished', 'audio.music', 'audio.stinger', 'audio.duck', 'save.get', 'save.set', 'save.remove', 'save.keys', 'spawn', 'destroy', 'emit', 'entityId', 'stepIndex']) {
       expect(members, m).toContain(m);
     }
     // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
@@ -315,6 +335,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'action.saves',
       // Phase 23.9a: a frame's UI events are read with ctx.ui.events / ctx.ui.event.
       'action.ui',
+      // Phase 23.13: the finished events as a list (the Sound finished node checks one handle).
+      'audio.events',
       'debug.command',
       // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
       'emit(control_move).y',
