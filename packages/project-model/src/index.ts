@@ -493,6 +493,7 @@ export {
   validateUiThemes,
 } from './ui-documents';
 export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiFlowScreen, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
+export { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
 export { FLOW_SCREEN_KEYS, type FlowScreenKey } from './flow';
 // Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
 export {

@@ -2896,9 +2896,9 @@ chromium`); on this LXC they use the library tree described in
 ## Project UI (UI documents)
 
 Projects draw their own HUDs, menus and screens as UI documents: JSON widget
-trees stored in the project (`setUiDocument`, `setUiTheme` through MCP; the
-visual editor tab comes with 23.9b). The game host draws them over the view in
-Play and in exported games.
+trees stored in the project (`setUiDocument`, `setUiTheme` through MCP, or the
+visual editor below). The game host draws them over the view in Play and in
+exported games.
 
 - Widgets: panel (anchors, pivot, offset, size or stretch), stack, grid, list
   (repeats a template for a bound array), text (rich text `[b] [i]
@@ -2924,3 +2924,32 @@ Play and in exported games.
   in a style's `font`.
 - Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
   view model.
+
+### The UI document editor
+
+- The **UI** tab of the bottom dock lists the UI documents and themes: create,
+  rename, delete, open. **Assets → new UI document** creates one too.
+- A document opens as a **UI: <name>** tab. Left: the widget hierarchy (add a
+  widget of any type into the selected container, delete, move up/down,
+  duplicate, move into another container — or drag a row onto a container).
+  Centre: the live preview — the same game-host code Play uses — at 16:9, 4:3,
+  21:9, portrait or the document's reference size, with a safe-area frame.
+  Click selects; drag an anchored widget to move it, drag a grip to resize;
+  it snaps to the parent's and siblings' edges and centres or to the grid
+  (hold Alt to drag freely). Arrow keys nudge (Shift: 10 px), Delete removes,
+  Ctrl+D duplicates.
+- Right: the Inspector. **Widget**: anchor presets (they keep the widget where
+  it is; Alt-click moves it onto the anchor), layout, container settings,
+  text, image / 9-slice, bar, list, input, bindings (a value or a view-model
+  path), styles, an own style, click / submit / focus actions, navigation and
+  a world anchor. **Document**: its settings, cancel action, own styles,
+  tweens (with a play button) and icons. **Theme**: the document's theme
+  styles beside the preview (the **UI theme** tab edits a theme on its own).
+  **Mock values**: a JSON object of view-model values (as scripts would set
+  with `ctx.ui.set`) that the preview's bound bars, lists and texts show;
+  "Fill from bindings" adds a sample for every bound path. Mock values stay
+  in this browser; they are not project data.
+- Every change is one command with undo/redo; a drag is one command when you
+  let go.
+- **Game flow → Screens** replaces a built-in screen (title, pause, settings,
+  level complete, game over, finished, load, save) with a UI document.
