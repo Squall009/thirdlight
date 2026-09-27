@@ -2700,6 +2700,39 @@ and `hidden` (the objects scripts hid). Headless browsers may refuse pointer
 lock; the `data-tl-pointer-lock` attribute on the game canvas shows whether
 the browser granted it.
 
+## Input rebinding and glyphs (phase 23.14)
+
+- **Players rebind in the built-in settings screen**: every action is listed
+  for keys/mouse and for the pad (composites one row per direction); choose
+  a row, press the new key or button (Esc cancels, 10 s timeout). An input
+  already used by another action of the same map is swapped. "Reset controls
+  to defaults" restores the project's bindings. Changes are saved in the
+  browser per player profile (`bindings:<profile>` in the game's storage
+  namespace) and load at start.
+- **Scripts** read `ctx.input.device()` / `usingGamepad()`, `bindings()`,
+  `glyph(action)` (label, icon id, the project's image) and ask for
+  `ctx.input.rebind(action, { index, part, device, policy: 'swap' | 'refuse' |
+  'allow', cancelKey, timeout })`, `cancelRebind()`, `resetBindings(action?)`,
+  `useBindingProfile(name)`; outcomes arrive in `rebindEvents()`. A game's own
+  rebinding screen is built on these. Replays stay valid: the simulation only
+  sees action values and the binding information travels in the recorded input.
+- **Hold instead of tap**: a key, pad button or mouse button binding takes a
+  `hold` time (seconds) in the Input window.
+- **Glyphs**: the engine has a neutral SVG icon set (key caps, face buttons by
+  position, bumpers/triggers, D-pad, sticks, mouse buttons); pad labels follow
+  the pad family (Xbox, PlayStation, Switch, generic) detected from the pad.
+  Projects replace icons with their own textures in the Input window's Glyphs
+  list (e.g. `xbox:pad-south`, `pad-south`, `key:Space`).
+- Observation: Play observe and the export's `window.__thirdlightObserve()`
+  report `inputBindings` (device used last, profile, listening, changed
+  actions, each action's glyph).
+- **Project UI** (UI documents): a button's engine action `rebind` (with
+  `input`: the action, optional `device`, `index`, `part`, `policy`),
+  `cancelRebind` or `resetBindings`; `{action:jump}` in a text shows the
+  action's glyph for the device in use; `$flow.input.actions` lists every
+  action's key and pad labels for a settings document.
+- Limits: 64 actions per project; 8 binding requests per step from scripts.
+
 ## Performance
 
 Phase 21 measures the engine against written budgets with generated

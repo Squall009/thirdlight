@@ -16,7 +16,7 @@ import type { GameView, RunRestore, RunSaveState } from '@thirdlight/runtime';
 import { SAVE_SLOTS, SAVE_VERSION, type SaveDocument, type SaveSlot, type SaveStore, type SlotState } from './save';
 import type { HostDom, HostDomNode } from './hud';
 import { counterPoints, levelScore, type ScoreRulesLike } from './score';
-import { PAD_STANDARD, withKeyBinding, withPadBinding } from './bindings';
+import type { InputBindingsController } from './rebind';
 
 /** The flow block as the host reads it (structurally; validated by the model). */
 export interface FlowConfigLike {
@@ -80,8 +80,8 @@ export interface FlowObservation {
   readonly menuSounds: { readonly played: number; readonly last: MenuSoundKind | null };
   /** Phase 14.5: the ambience assets looping now (the playing level's). */
   readonly ambience: readonly string[];
-  /** Phase 14.5: the pad buttons rebound in the settings (action → button). */
-  readonly pad: Readonly<Record<string, number>>;
+  /** Phase 23.14: the actions whose bindings the player changed (the settings screen, scripts or project UI). */
+  readonly rebound: readonly string[];
   /** Phase 9.11: each save slot's state, and the last save written. */
   readonly save?: { readonly slots: Readonly<Record<SaveSlot, 'ok' | 'empty' | 'damaged'>>; readonly lastWrite: SaveSlot | null; readonly note: string | null };
   /**
@@ -114,14 +114,12 @@ export interface FlowDeps {
     /** Phase 14.5: a menu sound on the `ui` bus (true when a voice started). */
     playSound?(assetId: string, volume: number, bus?: 'sfx' | 'ui'): boolean;
   };
-  /** Rebinding (the input owner's `captureKey` / `configure`, and the current config). */
-  readonly input?: {
-    captureKey?(onKey: (code: string | null) => void): () => void;
-    /** Phase 14.5: the next pad button pressed (null: cancelled). */
-    capturePadButton?(onButton: (button: number | null) => void): () => void;
-    configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
-    config?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
-  };
+  /**
+   * Phase 23.14: the player's bindings — the settings screen lists every
+   * action through the same API scripts and project UI use (absent: no
+   * rebinding in the settings).
+   */
+  readonly bindings?: InputBindingsController;
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
   /** Phase 14.4: the playing level's look over the project environment (null: none). */
   readonly setLevelEnvironment?: (environment: LevelEnvironmentLike | null) => void;
@@ -171,7 +169,7 @@ function styleText(flow: FlowConfigLike): string {
 .tl-flow__logo.is-hidden{display:none}
 .tl-flow__title{margin:0 0 6px;font-size:28px;letter-spacing:.02em;color:${ui.accent}}
 .tl-flow__line{margin:4px 0;opacity:.9;white-space:pre-line}
-.tl-flow__items{display:flex;flex-direction:column;gap:6px;margin-top:16px}
+.tl-flow__items{display:flex;flex-direction:column;gap:6px;margin-top:16px;max-height:60vh;overflow-y:auto}
 .tl-flow__item{font:inherit;font-size:17px;padding:8px 14px;border-radius:8px;border:2px solid transparent;background:#ffffff14;color:inherit;cursor:pointer}
 .tl-flow__item.is-selected{border-color:${ui.accent};background:${ui.accent}33}
 .tl-flow-hud{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:999px;background:${ui.panel}cc;color:${ui.text};font-family:${FONTS[ui.font] ?? FONTS['sans']};z-index:4;pointer-events:auto}
@@ -187,10 +185,12 @@ function styleText(flow: FlowConfigLike): string {
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`;
 const time = (s: number): string => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
-export const REBINDABLE = ['jump', 'attack', 'interact'] as const;
-/** Phase 14.5: pad rebinding — the button actions and the move buttons (`left`/`right`: the move action's negative/positive). */
-export const PAD_REBINDABLE = ['jump', 'attack', 'interact', 'left', 'right'] as const;
-const PAD_LABEL: Record<(typeof PAD_REBINDABLE)[number], string> = { jump: 'Jump', attack: 'Attack', interact: 'Interact', left: 'Move left', right: 'Move right' };
+/** Phase 23.14: an action name as the settings show it (`jump` → Jump, `openMap` → Open map). */
+const actionTitle = (name: string): string => {
+  const words = name.replace(/_/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().trim();
+  return words.length === 0 ? name : `${words[0]!.toUpperCase()}${words.slice(1)}`;
+};
+const PART_WORD: Readonly<Record<string, string>> = { negative: '−', positive: '+', up: 'up', down: 'down', left: 'left', right: 'right' };
 
 export interface FlowController {
   /** The frame's work; returns true when a menu used the confirm press (the host marks it consumed). */
@@ -299,12 +299,10 @@ export function createFlowController(deps: FlowDeps): FlowController {
   // Phase 14.5: `ui` (the menu sounds) at full by default, like the sound effects.
   let volumes = { music: flow.volumes?.music ?? 0.8, sfx: flow.volumes?.sfx ?? 1, ui: flow.volumes?.ui ?? 1 };
   let quality: 'low' | 'medium' | 'high' = 'high';
-  let capturing: string | null = null;
-  /** Phase 14.5: the capture waits for a pad button (else a key). */
-  let capturingPad = false;
+  /** Phase 23.14: the rebind the settings started (its prompt; null: none). */
+  let capturing: { title: string; pad: boolean } | null = null;
   let menuSoundsPlayed = 0;
   let lastMenuSound: MenuSoundKind | null = null;
-  let cancelCapture: (() => void) | null = null;
   let disposed = false;
   let lastView: GameView | null = null;
   // Phase 9.11: saves.
@@ -312,8 +310,6 @@ export function createFlowController(deps: FlowDeps): FlowController {
   let lastCheckpoint: string | null = null;
   let lastWrite: SaveSlot | null = null;
   let saveNote: string | null = null;
-  const boundKeys: Record<string, string> = {};
-  const boundPad: Record<string, number> = {};
   // Phase 14.3: the score of the levels completed in this game, and the best per level (kept in the save's records).
   const rules = flow.score;
   let gameScore = 0;
@@ -343,25 +339,31 @@ export function createFlowController(deps: FlowDeps): FlowController {
   const hudScore = (): number => (screen === 'levelComplete' || screen === 'finished' ? gameScore : gameScore + runningLevelScore());
   const bestOf = (id: string): number | undefined => (Object.prototype.hasOwnProperty.call(bestScores, id) ? bestScores[id] : undefined);
 
-  const bindingOf = (name: string): string => {
-    const a = deps.input?.config?.actions.find((x) => x.name === name);
-    const b = a?.bindings.find((x) => (x as { kind?: string }).kind === 'key') as { code?: string } | undefined;
-    return b?.code ?? '—';
-  };
-
-  /** Phase 14.5: the pad button an action (or `left`/`right` of move) is bound to, as shown in the settings. */
-  const padBindingOf = (name: string): string => {
-    const cfg = deps.input?.config;
-    let button: number | undefined;
-    if (name === 'left' || name === 'right') {
-      const b = cfg?.actions.find((x) => x.name === 'move')?.bindings.find((x) => (x as { kind?: string }).kind === 'gamepadButtons1d') as { negative?: unknown; positive?: unknown } | undefined;
-      const v = b === undefined ? PAD_STANDARD[name] : name === 'left' ? b.negative : b.positive;
-      button = typeof v === 'number' ? v : undefined;
-    } else {
-      const b = cfg?.actions.find((x) => x.name === name)?.bindings.find((x) => (x as { kind?: string }).kind === 'gamepadButton') as { button?: unknown } | undefined;
-      button = typeof b?.button === 'number' ? b.button : PAD_STANDARD[name];
+  /**
+   * Phase 23.14: the settings' rebind items — every action, for the keys and
+   * mouse and for the pad, its first binding of that device (a composite one
+   * item per part); an action with none there adds one.
+   */
+  const rebindItems = (): MenuItem[] => {
+    const b = deps.bindings;
+    if (b === undefined) return [];
+    const out: MenuItem[] = [];
+    for (const a of b.actions()) {
+      for (const group of ['keyboardMouse', 'gamepad'] as const) {
+        const tag = group === 'gamepad' ? 'pad' : 'keys';
+        const index = a.bindings.findIndex((x) => (group === 'gamepad' ? x.device === 'gamepad' : x.device !== 'gamepad'));
+        const title = actionTitle(a.name);
+        if (index < 0) {
+          out.push({ id: `rebind:${a.name}:${group}:-:`, label: `${title} (${tag}): —` });
+          continue;
+        }
+        const g = a.bindings[index]!;
+        if (g.parts !== undefined && g.parts.length > 0) for (const p of g.parts) out.push({ id: `rebind:${a.name}:${group}:${index}:${p.part}`, label: `${title} ${PART_WORD[p.part] ?? p.part} (${tag}): ${p.label}` });
+        else out.push({ id: `rebind:${a.name}:${group}:${index}:`, label: `${title} (${tag}): ${g.label}${g.hold !== undefined ? ' (hold)' : ''}` });
+      }
     }
-    return button === undefined ? '—' : `button ${button}`;
+    out.push({ id: 'resetbindings', label: 'Reset controls to defaults' });
+    return out;
   };
 
   /** The observable state on the menu root (tests read it in Play and in an export). */
@@ -435,14 +437,13 @@ export function createFlowController(deps: FlowDeps): FlowController {
       }
       case 'settings':
         title = 'Settings';
-        lines = capturing !== null ? [capturingPad ? `Press a pad button for ${PAD_LABEL[capturing as (typeof PAD_REBINDABLE)[number]] ?? capturing} (Esc cancels)` : `Press a key for ${capturing} (Esc cancels)`] : [];
+        lines = capturing !== null ? [capturing.pad ? `Press a pad button for ${capturing.title} (Esc cancels)` : `Press a key for ${capturing.title} (Esc cancels)`] : [];
         items = [
           { id: 'music', label: `Music volume: ${pct(volumes.music)}` },
           { id: 'sfx', label: `Sound volume: ${pct(volumes.sfx)}` },
           ...(flow.sounds !== undefined ? [{ id: 'ui', label: `Menu sounds volume: ${pct(volumes.ui)}` }] : []),
           { id: 'quality', label: `Quality: ${quality}` },
-          ...(deps.input?.captureKey !== undefined ? REBINDABLE.map((n) => ({ id: `bind:${n}`, label: `${n[0]!.toUpperCase()}${n.slice(1)}: ${bindingOf(n)}` })) : []),
-          ...(deps.input?.capturePadButton !== undefined ? PAD_REBINDABLE.map((n) => ({ id: `pad:${n}`, label: `${PAD_LABEL[n]} (pad): ${padBindingOf(n)}` })) : []),
+          ...rebindItems(),
           { id: 'back', label: 'Back' },
         ];
         break;
@@ -587,7 +588,8 @@ export function createFlowController(deps: FlowDeps): FlowController {
     for (const k of Object.keys(totals)) delete totals[k];
     void beginLevel(index, doc.run);
   };
-  const saveSettings = (): void => deps.save?.writeSettings({ music: volumes.music, sfx: volumes.sfx, ui: volumes.ui, quality, keys: { ...boundKeys }, pad: { ...boundPad } });
+  // Phase 23.14: bindings are saved per player profile by the bindings controller (`keys` stays for the settings document's shape).
+  const saveSettings = (): void => deps.save?.writeSettings({ music: volumes.music, sfx: volumes.sfx, ui: volumes.ui, quality, keys: {} });
 
   const setVolume = (bus: 'music' | 'sfx' | 'ui', v: number): void => {
     volumes = { ...volumes, [bus]: Math.max(0, Math.min(1, Math.round(v * 10) / 10)) };
@@ -595,67 +597,25 @@ export function createFlowController(deps: FlowDeps): FlowController {
     saveSettings();
   };
 
-  /** Bind a key to a button action (the first key binding; pad bindings stay). */
-  const applyKey = (name: string, code: string): void => {
-    const inp = deps.input;
-    if (inp?.config === undefined) return;
-    const next = withKeyBinding(inp.config, name, code) as NonNullable<typeof inp.config>;
-    inp.config = next;
-    inp.configure?.(next);
-    boundKeys[name] = code;
-  };
-  for (const [name, code] of Object.entries(stored?.keys ?? {})) if ((REBINDABLE as readonly string[]).includes(name)) applyKey(name, code);
-
-  /**
-   * Phase 14.5: bind a pad button — a button action's pad binding is
-   * replaced (its keys stay); `left`/`right` set the move action's button
-   * pair (the D-pad's 14/15 until rebound).
-   */
-  const applyPad = (name: string, button: number): void => {
-    const inp = deps.input;
-    if (inp?.config === undefined) return;
-    const next = withPadBinding(inp.config, name, button) as NonNullable<typeof inp.config>;
-    inp.config = next;
-    inp.configure?.(next);
-    boundPad[name] = button;
-  };
-  for (const [name, button] of Object.entries(stored?.pad ?? {})) if ((PAD_REBINDABLE as readonly string[]).includes(name)) applyPad(name, button);
-
-  const rebind = (name: string): void => {
-    const cfg = deps.input?.config;
-    if (deps.input?.captureKey === undefined || cfg === undefined) return;
-    capturing = name;
-    capturingPad = false;
-    render();
-    cancelCapture = deps.input.captureKey((code) => {
-      capturing = null;
-      cancelCapture = null;
-      if (code !== null) {
-        applyKey(name, code);
-        saveSettings();
-        menuSound('confirm');
-      } else menuSound('back');
-      render();
+  /** Phase 23.14: listen for the input of one settings item (`rebind:<action>:<group>:<index|->:<part>`). */
+  const rebind = (id: string): void => {
+    const b = deps.bindings;
+    if (b === undefined) return;
+    const [, name = '', group = 'keyboardMouse', index = '-', part = ''] = id.split(':');
+    const pad = group === 'gamepad';
+    const r = b.listen(name, {
+      device: pad ? 'gamepad' : 'keyboardMouse',
+      ...(index !== '-' ? { index: Number(index) } : {}),
+      ...(part !== '' ? { part: part as 'negative' } : {}),
+      onDone: (e) => {
+        capturing = null;
+        menuSound(e.type === 'rebound' ? 'confirm' : 'back');
+        render();
+      },
     });
-  };
-
-  const rebindPad = (name: string): void => {
-    const cfg = deps.input?.config;
-    if (deps.input?.capturePadButton === undefined || cfg === undefined) return;
-    capturing = name;
-    capturingPad = true;
+    if (!r.ok) return;
+    capturing = { title: `${actionTitle(name)}${part !== '' ? ` ${PART_WORD[part] ?? part}` : ''}`, pad };
     render();
-    cancelCapture = deps.input.capturePadButton((button) => {
-      capturing = null;
-      capturingPad = false;
-      cancelCapture = null;
-      if (button !== null) {
-        applyPad(name, button);
-        saveSettings();
-        menuSound('confirm');
-      } else menuSound('back');
-      render();
-    });
   };
 
   /** One menu action; `dir` is −1/+1 for left/right on an adjustable item (0: submit). */
@@ -721,9 +681,11 @@ export function createFlowController(deps: FlowDeps): FlowController {
         return;
       }
       default:
-        if (id.startsWith('bind:')) rebind(id.slice(5));
-        else if (id.startsWith('pad:')) rebindPad(id.slice(4));
-        else if (id.startsWith('load:')) {
+        if (id.startsWith('rebind:')) rebind(id);
+        else if (id === 'resetbindings') {
+          deps.bindings?.reset();
+          render();
+        } else if (id.startsWith('load:')) {
           const st = deps.save?.read(id.slice(5) as SaveSlot);
           if (st?.state === 'ok') loadDoc(st.doc);
         } else if (id.startsWith('save:')) {
@@ -907,7 +869,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
         quality,
         menuSounds: { played: menuSoundsPlayed, last: lastMenuSound },
         ambience: ambience(),
-        pad: { ...boundPad },
+        rebound: deps.bindings?.observe().changed ?? [],
         ...(rules !== undefined ? { score: { game: hudScore(), level: runningLevelScore(), best: { ...bestScores } } } : {}),
         ...(deps.save !== undefined ? { save: { slots: Object.fromEntries(SAVE_SLOTS.map((s) => [s, slots[s].state])) as Record<SaveSlot, 'ok' | 'empty' | 'damaged'>, lastWrite, note: saveNote } } : {}),
       };
@@ -1009,7 +971,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      cancelCapture?.();
+      if (capturing !== null) deps.bindings?.cancel();
       (root.removeEventListener as ((t: string, h: (e?: unknown) => void) => void) | undefined)?.call(root, 'mousedown', keepFocus);
       for (const { el, handler } of itemNodes) el.removeEventListener?.('click', handler);
       root.remove();

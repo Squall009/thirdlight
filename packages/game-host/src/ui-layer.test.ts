@@ -211,3 +211,44 @@ describe('the UI layer', () => {
     expect(container.children).toHaveLength(0);
   });
 });
+
+describe('phase 23.14: glyphs in UI texts and rebinding engine actions', () => {
+  it('{action:jump} is a glyph token; it draws the device\'s glyph and redraws when the glyph key changes', () => {
+    expect(parseRichText('Press {action:jump} to jump')).toEqual([
+      { t: 'text', text: 'Press ', style: {} },
+      { t: 'glyph', action: 'jump', style: {} },
+      { t: 'text', text: ' to jump', style: {} },
+    ]);
+    const doc: UiDocument = { uiDocumentId: 'tip', name: 'Tip', root: { type: 'panel', children: [{ id: 'hint', type: 'text', text: 'Press {action:jump}' }, { id: 'rb', type: 'button', text: 'Rebind', onClick: { do: 'engine', action: 'rebind', input: 'jump', device: 'gamepad' } }] } };
+    const container = new El('div');
+    let pad = false;
+    let key = 0;
+    const engine: unknown[] = [];
+    const l = createUiLayer({
+      dom: fakeDom as never,
+      container: container as never,
+      documents: [doc],
+      readArtifact: async () => new ArrayBuffer(0),
+      queueEvent: () => undefined,
+      engineAction: (a) => engine.push(a),
+      viewport: () => ({ width: 1000, height: 500 }),
+      glyph: (action) => (action !== 'jump' ? null : pad ? { label: 'A', icon: 'pad-south', url: 'data:image/svg+xml,a' } : { label: 'Space', icon: 'key', url: 'data:image/svg+xml,s' }),
+      glyphKey: () => String(key),
+    });
+    l.applyOutput({ set: [], commands: [], shown: [{ doc: 'tip', layer: 0, modal: false }] });
+    l.frame();
+    const glyph = (): El => find(container, (e) => e.attrs['data-action'] === 'jump')[0]!;
+    expect(glyph().attrs['data-glyph']).toBe('Space');
+    expect(glyph().attrs['aria-label']).toBe('Space');
+    expect(glyph().style['background'] ?? '').toContain('data:image/svg+xml,s');
+    pad = true;
+    l.frame();
+    expect(glyph().attrs['data-glyph']).toBe('Space'); // nothing said it changed
+    key = 1;
+    l.frame();
+    expect(glyph().attrs['data-glyph']).toBe('A');
+    expect(glyph().attrs['data-glyph-icon']).toBe('pad-south');
+    find(container, (e) => e.attrs['data-widget'] === 'rb')[0]!.fire('click');
+    expect(engine).toEqual([{ do: 'engine', action: 'rebind', input: 'jump', device: 'gamepad' }]);
+  });
+});

@@ -378,6 +378,13 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     uiView: (): UiStateView => ({ model: mirror.uiModel, shown: mirror.uiShown }),
     // Phase 23.3: the worker's cursor request and pointer (the host applies the cursor; observers read the pointer).
     cursorRequest: () => (gone() ? null : mirror.cursor),
+    // Phase 23.14: the scripts' binding requests the worker sent (taken by the page's host).
+    takeBindingRequests: () => {
+      const out = { requests: mirror.bindingRequests, dropped: mirror.bindingDropped };
+      mirror.bindingRequests = [];
+      mirror.bindingDropped = 0;
+      return out;
+    },
     readPointer: () => (gone() ? null : mirror.pointer),
     setCameraViewport: (width: number, height: number): boolean => {
       if (gone()) return false;

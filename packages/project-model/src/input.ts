@@ -16,8 +16,8 @@ export const INPUT_ACTION_TYPES = ['button', 'axis1d', 'axis2d'] as const;
 export const INPUT_MAPS = ['gameplay', 'ui'] as const;
 
 export type InputBinding =
-  | { kind: 'key'; code: string }
-  | { kind: 'gamepadButton'; button: number }
+  | { kind: 'key'; code: string; hold?: number }
+  | { kind: 'gamepadButton'; button: number; hold?: number }
   | { kind: 'gamepadAxis'; axis: number }
   | { kind: 'keys1d'; negative: string; positive: string }
   | { kind: 'keys2d'; up: string; down: string; left: string; right: string }
@@ -26,7 +26,7 @@ export type InputBinding =
   // Phase 23.3: the pointer (mouse, pen or touch). A button, the position in
   // the view (x, y 0–1 from the top left), the movement this step (a 2D axis,
   // up positive like a stick) or one axis of it (x, y up positive, or the wheel).
-  | { kind: 'pointerButton'; button: PointerButtonName }
+  | { kind: 'pointerButton'; button: PointerButtonName; hold?: number }
   | { kind: 'pointerPosition' }
   | { kind: 'pointerDelta' }
   | { kind: 'pointerAxis'; axis: PointerAxisName };
@@ -55,14 +55,38 @@ export interface InputAction {
 export interface InputConfig {
   actions: InputAction[];
   /**
+   * Phase 23.14: the project's own glyph images — a glyph key (an icon id of
+   * the engine's generic set such as `pad-south`, `mouse-left` or `key`,
+   * optionally for one gamepad family `xbox:pad-south` or one key
+   * `key:Space`) → a texture asset shown instead of the generic icon.
+   */
+  glyphs?: Record<string, string>;
+  /**
    * Phase 23.3: the cursor while each map is active (absent: free for both —
    * a pointer-driven game needs a visible cursor; mouse-look opts in to locked).
    */
   cursor?: { gameplay?: CursorMode; ui?: CursorMode };
 }
 
-export const MAX_INPUT_ACTIONS = 32;
+/** Phase 23.14: 64 (was 32) — a game with many abilities or hotbar slots names more actions; the frame bound follows. */
+export const MAX_INPUT_ACTIONS = 64;
 export const MAX_INPUT_BINDINGS = 8;
+
+/**
+ * Phase 23.14: a binding's hold modifier — the binding counts only after it
+ * has been held this long (seconds): a hold instead of a tap. 0.05 s is
+ * about three frames at 60 Hz (shorter is indistinguishable from a tap);
+ * 10 s bounds a deliberate long hold.
+ */
+export const INPUT_HOLD_MIN = 0.05;
+export const INPUT_HOLD_MAX = 10;
+/** Phase 23.14: the binding kinds that take the hold modifier (the single on/off ones). */
+export const HOLD_BINDING_KINDS = ['key', 'gamepadButton', 'pointerButton'] as const;
+/** Phase 23.14: the gamepad families glyphs distinguish (detected from the pad's id). */
+export const GAMEPAD_FAMILIES = ['xbox', 'playstation', 'switch', 'generic'] as const;
+/** Phase 23.14: a glyph key — `[family:]icon[:code]` (see `InputConfig.glyphs`). */
+export const GLYPH_KEY_RE = /^(?:(?:xbox|playstation|switch|generic):)?[a-z][a-z0-9-]{0,31}(?::[A-Za-z0-9]{1,32})?$/;
+export const MAX_INPUT_GLYPHS = 128;
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const CODE_RE = /^[A-Za-z0-9]{1,32}$/;
@@ -133,7 +157,16 @@ const FITS: Record<InputActionType, readonly InputBinding['kind'][]> = {
 
 export function validateInput(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'input is { actions }', value);
-  for (const k of Object.keys(value)) if (k !== 'actions' && k !== 'cursor') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions, cursor');
+  for (const k of Object.keys(value)) if (k !== 'actions' && k !== 'cursor' && k !== 'glyphs') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions, cursor, glyphs');
+  const glyphs = value['glyphs'];
+  if (glyphs !== undefined) {
+    if (!isPlainObject(glyphs) || Object.keys(glyphs).length > MAX_INPUT_GLYPHS) err(errors, 'field_type', `${path}/glyphs`, `glyphs maps at most ${MAX_INPUT_GLYPHS} glyph keys to texture assets`, glyphs);
+    else
+      for (const [k, v] of Object.entries(glyphs)) {
+        if (!GLYPH_KEY_RE.test(k)) err(errors, 'field_value', `${path}/glyphs/${k}`, 'a glyph key is [family:]icon[:key code] (e.g. pad-south, xbox:pad-south, key:Space)', k);
+        else if (typeof v !== 'string' || v.length === 0 || v.length > 128) err(errors, 'field_value', `${path}/glyphs/${k}`, 'a glyph names a texture asset', v);
+      }
+  }
   const cursor = value['cursor'];
   if (cursor !== undefined) {
     if (!isPlainObject(cursor)) err(errors, 'field_type', `${path}/cursor`, 'cursor is { gameplay?, ui? }', cursor);
@@ -169,7 +202,9 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
       const keys = BINDING_KEYS[kind];
       if (keys === undefined) return err(errors, 'field_value', `${bp}/kind`, 'kind is key, gamepadButton, gamepadAxis, keys1d, keys2d, gamepadButtons1d, gamepadStick, pointerButton, pointerPosition, pointerDelta or pointerAxis', kind);
       if (!FITS[type].includes(kind)) return err(errors, 'field_value', `${bp}/kind`, `a ${kind} binding does not fit a ${type} action`, kind);
-      for (const k of Object.keys(b)) if (k !== 'kind' && !keys.includes(k)) err(errors, 'field_unexpected', `${bp}/${k}`, `unknown field "${k}"`, k, ['kind', ...keys].join(', '));
+      const holdable = (HOLD_BINDING_KINDS as readonly string[]).includes(kind);
+      for (const k of Object.keys(b)) if (k !== 'kind' && !keys.includes(k) && !(holdable && k === 'hold')) err(errors, 'field_unexpected', `${bp}/${k}`, `unknown field "${k}"`, k, ['kind', ...keys, ...(holdable ? ['hold'] : [])].join(', '));
+      if (b['hold'] !== undefined && holdable && !(typeof b['hold'] === 'number' && Number.isFinite(b['hold']) && b['hold'] >= INPUT_HOLD_MIN && b['hold'] <= INPUT_HOLD_MAX)) err(errors, 'field_value', `${bp}/hold`, `hold is the seconds to hold, in [${INPUT_HOLD_MIN}, ${INPUT_HOLD_MAX}]`, b['hold']);
       if (kind === 'pointerButton' || kind === 'pointerAxis') {
         const v = b[keys[0]!];
         const allowed: readonly unknown[] = kind === 'pointerButton' ? POINTER_BUTTONS : POINTER_AXES;
@@ -197,5 +232,7 @@ export function canonicalInput(c: InputConfig): InputConfig {
       ...(a.scale !== undefined ? { scale: a.scale } : {}),
     })),
     ...(c.cursor !== undefined ? { cursor: { ...(c.cursor.gameplay !== undefined ? { gameplay: c.cursor.gameplay } : {}), ...(c.cursor.ui !== undefined ? { ui: c.cursor.ui } : {}) } } : {}),
+    // Phase 23.14: glyph images by key (sorted, so the canonical bytes do not depend on insertion order).
+    ...(c.glyphs !== undefined ? { glyphs: Object.fromEntries(Object.keys(c.glyphs).sort().map((k) => [k, c.glyphs![k]!])) } : {}),
   };
 }

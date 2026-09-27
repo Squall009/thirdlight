@@ -71,8 +71,10 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { AudioObservation, AudioSpatialLike, GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, withSavedBindings, type InputConfigLike } from './bindings';
-import { createFlowController, PAD_REBINDABLE, REBINDABLE, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
+import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, type InputConfigLike } from './bindings';
+import { createInputBindings, type InputBindingsController } from './rebind';
+import type { Captured } from './input-bindings';
+import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
 import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
@@ -122,6 +124,12 @@ export interface HostInputOwner {
   applyCursor?(mode: 'free' | 'locked'): void;
   /** Phase 23.3: the cursor as it is (observers). */
   cursorState?(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
+  /** Phase 23.14: listen for the next input for a rebind (a cancel key gives null). */
+  captureInput?(options: { devices?: readonly ('keyboard' | 'mouse' | 'gamepad')[]; cancelKeys?: readonly string[] }, onInput: (input: Captured | null) => void): () => void;
+  /** Phase 23.14: the device used last with the active pad's id. */
+  activeDeviceInfo?(): { device: 'keyboard' | 'gamepad'; gamepadId: string | null };
+  /** Phase 23.14: what the host adds to the next sampled frame (`ActionFrame.input`). */
+  setFrameInput?(source: (() => import('@thirdlight/runtime').InputStatusEntry | undefined) | null): void;
 }
 
 /**
@@ -135,6 +143,12 @@ export interface GameHostInputObservation {
   readonly cursor?: { readonly mode: 'free' | 'locked'; readonly locked: boolean; readonly hidden: boolean };
   /** The ids of the objects scripts hid (`ctx.game.setVisible`), sorted, at most 64. */
   readonly hidden?: readonly string[];
+  /**
+   * Phase 23.14: the player's bindings — the device used last (pad id and
+   * family), the profile, a rebind listening now, the actions the player
+   * changed and each action's glyph for the device used last.
+   */
+  readonly inputBindings?: ReturnType<InputBindingsController['observe']>;
 }
 
 /** The host's structural render-adapter surface (the three-adapter
@@ -207,6 +221,8 @@ export interface GameHostObservation {
   readonly hidden?: readonly string[];
   /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
   readonly saves?: ProjectSavesObservation;
+  /** Phase 23.14, additive: the player's bindings (device, profile, listening, changed actions, glyphs). */
+  readonly inputBindings?: GameHostInputObservation['inputBindings'];
 }
 
 /**
@@ -233,6 +249,8 @@ export interface GameHostSceneObservation {
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
   readonly hidden?: readonly string[];
+  /** Phase 23.14, additive: the player's bindings (device, profile, listening, changed actions, glyphs). */
+  readonly inputBindings?: GameHostInputObservation['inputBindings'];
   /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
   /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
@@ -428,6 +446,12 @@ export interface GameHost {
   readonly startOutcome?: GameStartOutcome | null;
   /** Phase 23.19, additive: the project saves service (null: the project declares no save schema). */
   readonly projectSaves?: ProjectSaveService | null;
+  /**
+   * Phase 23.14, additive: the rebinding API (list, listen, conflicts, reset,
+   * profiles, the device used last, glyphs) — for project UI and tools; null
+   * before mount or without an input config.
+   */
+  readonly bindings?: InputBindingsController | null;
 }
 
 // --- the committed-view → cue mapping (delivery.md §4.1, B13) -------------
@@ -719,6 +743,25 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return promptCache.prompts;
   };
   let flowCtl: FlowController | null = null;
+  /** Phase 23.14: the player's bindings (created at mount when the game has an input config). */
+  let bindings: InputBindingsController | null = null;
+  /** Phase 23.14: the project's glyph images as object URLs (loaded on first use). */
+  const glyphUrls = new Map<string, string | null>();
+  const glyphImageUrl = (assetId: string): string | null => {
+    if (glyphUrls.has(assetId)) return glyphUrls.get(assetId)!;
+    glyphUrls.set(assetId, null);
+    const path = config.assetPaths?.[assetId];
+    const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
+    if (typeof path === 'string' && typeof urls?.createObjectURL === 'function' && typeof Blob === 'function') {
+      void config.readArtifact(path).then(
+        (buffer) => {
+          if (!disposed) glyphUrls.set(assetId, urls.createObjectURL!(new Blob([buffer])));
+        },
+        () => undefined,
+      );
+    }
+    return null;
+  };
   let adapter: HostRenderAdapter | null = null;
   /** Phase 23.8: the debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
@@ -840,7 +883,44 @@ export function createGameHost(config: GameHostConfig): GameHost {
       ...(p !== null ? { pointer: { x: p.x, y: p.y, buttons: p.buttons ?? 0, over: p.over !== false, locked: p.locked === true } } : {}),
       ...(cursor !== undefined ? { cursor: { mode: cursor.mode, locked: cursor.locked, hidden: cursor.hidden } } : {}),
       ...(hidden !== undefined && hidden.size > 0 ? { hidden: [...hidden].sort().slice(0, 64) } : {}),
+      ...(bindings !== null ? { inputBindings: bindings.observe() } : {}),
     };
+  };
+
+  /** Phase 23.14: the bindings as UI documents read them (`$flow.input`), rebuilt when they change. */
+  let inputUi: { key: string; value: Record<string, unknown> } | null = null;
+  const inputUiValues = (): Record<string, unknown> => {
+    const b = bindings!;
+    const l = b.listening();
+    const key = `${b.revision()}|${l === null ? '' : `${l.action}:${l.index}:${l.part ?? ''}`}`;
+    if (inputUi !== null && inputUi.key === key) return inputUi.value;
+    const d = b.device();
+    const value = {
+      device: d.kind,
+      family: d.family ?? null,
+      profile: b.profile(),
+      listening: l === null ? null : { ...l },
+      actions: b.actions().map((a) => ({
+        name: a.name,
+        map: a.map,
+        changed: a.changed === true,
+        keys: b.glyph(a.name, 'keyboardMouse')?.label ?? '',
+        pad: b.glyph(a.name, 'gamepad')?.label ?? '',
+        glyph: b.glyph(a.name)?.label ?? '',
+      })),
+    };
+    inputUi = { key, value };
+    return value;
+  };
+
+  /** Phase 23.14: the rebind timeout, the device used last and the scripts' binding requests (after each frame). */
+  const serviceBindings = (rt: Runtime): void => {
+    const taken = rt.takeBindingRequests?.();
+    if (bindings === null) return;
+    bindings.tick();
+    if (taken === undefined) return;
+    if (taken.requests.length > 0) bindings.handle(taken.requests);
+    if (taken.dropped > 0) console.warn(`[game-host] ${taken.dropped} binding request(s) dropped: at most 8 a step`);
   };
 
   const serviceLetterbox = (rt: Runtime): void => {
@@ -1055,6 +1135,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
     debugConsole?.frame();
+    serviceBindings(runtime);
     serviceUi(runtime);
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
     // tick (delivery.md §4.5). The run commands queue in the runtime and
@@ -1391,6 +1472,18 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
       void projectSaves.start();
     }
+    // Phase 23.14: the player's bindings (saved per profile) — in scene-mode games too.
+    if (config.inputConfig !== undefined) {
+      bindings = createInputBindings({
+        defaults: config.inputConfig,
+        input: config.input,
+        ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { store: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
+        onChange: (c) => {
+          promptInput = c as InputConfigLike;
+        },
+        imageUrl: glyphImageUrl,
+      });
+    }
 
     // Phase 23.9a: the project UI layer (scene-mode games too).
     if (config.ui !== undefined && config.ui.documents.length > 0 && hostDom !== null) {
@@ -1407,13 +1500,36 @@ export function createGameHost(config: GameHostConfig): GameHost {
           if (r !== undefined && r.ok === false) console.warn('[game-host] UI event refused:', r.error.message);
         },
         engineAction: (a) => {
+          // Phase 23.14: rebinding from project UI (the same bindings API as scripts and the settings screen).
+          if (a.action === 'rebind' || a.action === 'cancelRebind' || a.action === 'resetBindings') {
+            if (bindings === null) return;
+            const ex = a as { input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative'; policy?: 'swap' };
+            if (a.action === 'cancelRebind') bindings.cancel();
+            else if (a.action === 'resetBindings') bindings.reset(ex.input);
+            else if (ex.input !== undefined) bindings.listen(ex.input, { ...(ex.device !== undefined ? { device: ex.device } : {}), ...(ex.index !== undefined ? { index: ex.index } : {}), ...(ex.part !== undefined ? { part: ex.part } : {}), ...(ex.policy !== undefined ? { policy: ex.policy } : {}) });
+            return;
+          }
           if (a.action === 'mute' || a.action === 'unmute') {
             void control(a.action);
             return;
           }
           flowCtl?.engine(a);
         },
-        flowValues: () => flowCtl?.uiValues() ?? null,
+        // Phase 23.14: `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
+        flowValues: () => {
+          const f = flowCtl?.uiValues() ?? null;
+          return bindings === null ? f : { ...(f ?? {}), input: inputUiValues() };
+        },
+        // Phase 23.14: {action:name} glyphs in UI texts.
+        ...(bindings !== null
+          ? {
+              glyph: (action: string) => {
+                const g = bindings?.glyph(action) ?? null;
+                return g === null || bindings === null ? null : { label: g.label, icon: g.icon, url: bindings.glyphImage(g) };
+              },
+              glyphKey: () => String(bindings?.revision() ?? 0),
+            }
+          : {}),
         ...(config.input.setActiveMaps !== undefined ? { setActiveMaps: (maps: readonly string[] | null) => config.input.setActiveMaps!(maps) } : {}),
       });
     }
@@ -1426,15 +1542,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
 
     const flow = config.flow !== undefined && typeof res.runtime.startLevel === 'function' && config.flow.levels.length > 0 ? config.flow : undefined;
-    if (flow === undefined && config.inputConfig !== undefined && config.saveStorage !== undefined && config.saveNamespace !== undefined) {
-      // Phase 15.5: the player's saved rebinding holds in a game without a flow too (the flow applies it through its settings).
-      const saved = createSaveStore(config.saveStorage, config.saveNamespace).readSettings();
-      const rebound = withSavedBindings(config.inputConfig, saved, REBINDABLE, PAD_REBINDABLE);
-      if (rebound !== config.inputConfig && config.input.configure !== undefined) {
-        config.input.configure(rebound as { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] });
-        promptInput = rebound;
-      }
-    }
     hud = createHud(dom, {
       ...(flow !== undefined ? { preset: flow.hud?.preset ?? 'classic' } : {}),
       prompts: currentPrompts,
@@ -1472,19 +1579,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
           gameCounters: () => rt.gameCounters?.() ?? { counters: {}, health: null },
         },
         audio: config.audio,
-        input: {
-          ...(config.input.captureKey !== undefined ? { captureKey: (cb: (code: string | null) => void) => config.input.captureKey!(cb) } : {}),
-          ...(config.input.capturePadButton !== undefined ? { capturePadButton: (cb: (button: number | null) => void) => config.input.capturePadButton!(cb) } : {}),
-          ...(config.input.configure !== undefined
-            ? {
-                configure: (c: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }) => {
-                  config.input.configure!(c);
-                  promptInput = c;
-                },
-              }
-            : {}),
-          ...(config.inputConfig !== undefined ? { config: config.inputConfig } : {}),
-        },
+        ...(bindings !== null ? { bindings } : {}),
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
         ...(config.setLevelEnvironment !== undefined ? { setLevelEnvironment: config.setLevelEnvironment } : {}),
         ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
@@ -1713,6 +1808,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     debugConsole?.dispose();
     debugConsole = null;
+    bindings?.dispose();
+    for (const url of glyphUrls.values()) if (url !== null) (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL?.revokeObjectURL?.(url);
+    glyphUrls.clear();
     if (flowCtl !== null) {
       try {
         config.audio.playMusic?.(null, 0);
@@ -1768,6 +1866,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     },
     get projectSaves(): ProjectSaveService | null {
       return projectSaves;
+    },
+    get bindings(): InputBindingsController | null {
+      return bindings;
     },
     get startOutcome(): GameStartOutcome | null {
       return startOutcome;

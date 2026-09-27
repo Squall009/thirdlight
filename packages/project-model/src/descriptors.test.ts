@@ -548,7 +548,8 @@ const FLOW_BASE = {
 };
 
 const BINDINGS: { type: string; binding: Obj }[] = [
-  { type: 'button', binding: { kind: 'key', code: 'Space' } },
+  // Phase 23.14: a hold binding.
+  { type: 'button', binding: { kind: 'key', code: 'Space', hold: 0.5 } },
   { type: 'button', binding: { kind: 'gamepadButton', button: 0 } },
   { type: 'axis1d', binding: { kind: 'gamepadAxis', axis: 0 } },
   { type: 'axis1d', binding: { kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' } },
@@ -561,7 +562,7 @@ const BINDINGS: { type: string; binding: Obj }[] = [
   { type: 'axis2d', binding: { kind: 'pointerPosition' } },
   { type: 'axis2d', binding: { kind: 'pointerDelta' } },
 ];
-const INPUT_BASES: J[] = BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' } } : {}) }));
+const INPUT_BASES: J[] = BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' }, glyphs: { 'xbox:pad-south': 'tex-a' } } : {}) }));
 
 // Phase 20.0: an effect with a parameter of every type and one system.
 const EFFECT_GRAPH = { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] };

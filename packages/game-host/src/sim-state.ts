@@ -291,6 +291,9 @@ export class FrameEncoder {
       out.mat = mat;
       for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
     }
+    // Phase 23.14: the scripts' binding requests (the page's host carries them out).
+    const rb = rt.takeBindingRequests?.();
+    if (rb !== undefined && (rb.requests.length > 0 || rb.dropped > 0)) out.rb = rb;
     // Phase 23.9a: the project UI's diff of the steps since the last frame.
     const ui = rt.takeUiOutput?.() ?? null;
     if (ui !== null) out.ui = ui;
@@ -394,6 +397,9 @@ export class FrameMirror {
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
   /** Phase 23.19: project save requests not carried out yet (the host takes them every frame). */
   saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
+  /** Phase 23.14: binding requests not taken by the host yet (at most 32 wait). */
+  bindingRequests: import('@thirdlight/runtime').InputBindingRequest[] = [];
+  bindingDropped = 0;
   /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
   ui: UiOutput | null = null;
   uiModel: Record<string, unknown> = {};
@@ -480,6 +486,13 @@ export class FrameMirror {
         this.mat.delete(k);
         this.mat.set(k, c);
       }
+    }
+    if (s.rb !== undefined) {
+      for (const r of s.rb.requests) {
+        if (this.bindingRequests.length < 32) this.bindingRequests.push(r);
+        else this.bindingDropped += 1;
+      }
+      this.bindingDropped += s.rb.dropped;
     }
     if (s.ui !== undefined) {
       this.ui = mergeUiOutput(this.ui, s.ui);
