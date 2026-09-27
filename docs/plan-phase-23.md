@@ -280,10 +280,10 @@ for editor items, commit/push/restart, decision log).
 |---|---|
 | 23.0 Dimensional model | done 2026-09-26 — two backends (rapier2d untouched for plane2d, rapier3d 0.20.0 for 3d), `physics_dimension`, box `hz`, PhysicsPort3D; 2D rotated-collider bug fixed (no pinned values moved) |
 | 23.1 3D physics world, colliders, triggers | done 2026-09-26 — sphere/capsule/hull/mesh colliders (3D), `_COL`/model-derived colliders stored as data, 3D triggers, kinematic movers carry, scripts may own colliders in 3D; gameZone/respawn in 3D wait for 23.10 |
-| 23.2 3D character controller | in progress |
+| 23.2 3D character controller | done 2026-09-27 — built-in module `thirdlight.character3d:controller` (walk/run, accel, air control, jump, slope, step-up, optional ledge climb, facing), camera-relative input, `ActionFrame.moveY`, script intents |
 | 23.3 Pointer input and 3D queries | in progress |
 | 23.4 Camera framework | done 2026-09-26 — `virtualCamera` (follow/orbit, orbit-point snapped, top-down, fixed/look-at, rail on `cameraPath`), priority + cut/linear/eased blends, seeded shake, letterbox, `ctx.camera` + VS nodes; brain in the sim step; `depth_buffer` setting; owner look pending |
-| 23.5 Block layers — core | in progress |
+| 23.5 Block layers — core | done 2026-09-27 — block types, schema-driven cell fields, stamps, chunked per-file storage, `editBlocks` bulk ops incl. heightmap, merged chunk meshes with hidden-face removal, per-chunk trimesh colliders, `ctx.grid`; block-layer lightmaps and chunk LOD not done |
 | 23.6 Block layers — editor | planned |
 | 23.7 Scripting conveniences | done 2026-09-26 — `@lib/<id>` shared libraries (recompile dependents atomically), `.json` imports, seeded `ctx.random` + streams, `ctx.world.find/findAll/withComponent`, quaternion/facing on intents |
 | 23.8 Test and debug entry points | done 2026-09-26 — one Play-start path (editor "Play from…" and `tl_play_start`: scene, variables, save/slot, mode noted until 23.10); `ctx.debug.command` on input frames, `tl_game_control debugCommand`, in-game console (exports only with `debug_console`) |
