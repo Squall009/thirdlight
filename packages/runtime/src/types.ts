@@ -115,6 +115,12 @@ export interface RuntimeSnapshot {
    * frame's show/hide entries name them. The host draws the documents.
    */
   uiDocuments?: readonly import('@thirdlight/project-model').RuntimeUiDocumentRow[];
+  /**
+   * Phase 23.16, v4 only, optional: the compiled conversations, the speaker
+   * registry and the dialogue settings (`ctx.dialogue`; built from the
+   * manifest's `dialogue`).
+   */
+  dialogue?: import('@thirdlight/project-model').RuntimeDialogueData;
 }
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
@@ -749,6 +755,8 @@ export interface StepContext {
   readonly saves?: import('./project-saves').BehaviorSaves;
   /** Phase 23.9a: the project UI (`ctx.ui`: the view model, shown documents, UI events). */
   readonly ui?: BehaviorUi;
+  /** Phase 23.16: conversations (`ctx.dialogue`). */
+  readonly dialogue?: BehaviorDialogue;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -1302,6 +1310,164 @@ export interface BehaviorUi {
   event(name: string): BehaviorUiEvent | null;
 }
 
+/** Phase 23.16: a value of a dialogue variable or binding. */
+export type DialogueVariableValue = number | string | boolean | null;
+
+/** Phase 23.16: one dialogue event (seen by scripts in the step after it happened). */
+export interface BehaviorDialogueEvent {
+  /** start, lineStart, lineEnd, choice (options shown), chosen, signal, end. */
+  readonly kind: 'start' | 'lineStart' | 'lineEnd' | 'choice' | 'chosen' | 'signal' | 'end';
+  /** The conversation (the number `start` returned). */
+  readonly conversation: number;
+  readonly dialogueId: string;
+  /** The node (a line, a choice, a signal; '' for start/end). */
+  readonly node: string;
+  /** lineStart: the speaker id ('' for narration). */
+  readonly speaker: string;
+  /** lineStart: the line as shown (rich text); chosen: the option's text. */
+  readonly text: string;
+  /** signal: its name; end: why (end, stopped, loop). */
+  readonly name: string;
+  /** signal: its value. */
+  readonly value: string;
+  /** chosen: the option's index among those shown; else -1. */
+  readonly index: number;
+}
+
+/** Phase 23.16: the conversation now. */
+export interface BehaviorDialogueState {
+  readonly conversation: number;
+  readonly dialogueId: string;
+  readonly node: string;
+  /** line, choice, signal (waiting for resume), wait. */
+  readonly kind: 'line' | 'choice' | 'signal' | 'wait';
+  readonly speaker: string;
+  /** The line as shown (rich text; '' when not on a line). */
+  readonly text: string;
+  /** Visible characters of the line so far, and in all. */
+  readonly revealed: number;
+  readonly total: number;
+  /** The options shown, in order (a choice), as their texts. */
+  readonly options: readonly string[];
+}
+
+/** Phase 23.16: one line (or a chosen option) in the backlog. */
+export interface BehaviorDialogueHistoryEntry {
+  readonly dialogueId: string;
+  readonly node: string;
+  readonly speaker: string;
+  /** The speaker's display name ('' for narration or a chosen option). */
+  readonly name: string;
+  readonly text: string;
+  /** A line, or the option the player picked. */
+  readonly choice: boolean;
+}
+
+/**
+ * Phase 23.16: `ctx.dialogue` — conversations (dialogue graphs of the
+ * project). A script starts one; the engine runs it in the simulation (the
+ * typewriter reveal, voice clips on the voice bus with music and effects
+ * ducked, auto-advance, skip-if-seen, choices, conditions and effects on the
+ * dialogue variables) and shows it in the dialogue UI document. Player input
+ * (advance, choose, skip, auto, backlog) arrives as input-frame entries, so
+ * replays hold. Calls take effect at the end of the step; events are seen in
+ * the next step.
+ */
+export interface BehaviorDialogue {
+  /**
+   * Start a conversation (at its Start, a named entry, or any node); bindings are values its lines and conditions read as $name. Returns the conversation number, or 0 (unknown dialogue, entry or node, or one is running).
+   * @graphNode Start dialogue
+   * @graphLabel dialogueId dialogue
+   */
+  start(dialogueId: string, options?: { entry?: string; node?: string; bindings?: Readonly<Record<string, DialogueVariableValue>> }): number;
+  /**
+   * End the running conversation.
+   * @graphNode Stop dialogue
+   */
+  stop(): boolean;
+  /**
+   * A conversation is running (this one, when given).
+   * @graphPure
+   * @graphNode Dialogue running
+   */
+  isRunning(conversation?: number): boolean;
+  /**
+   * The conversation now (null when none).
+   * @graphPure
+   * @graphNode Dialogue state
+   */
+  current(): BehaviorDialogueState | null;
+  /**
+   * Advance: reveal the rest of the line, or go on after it.
+   * @graphNode Advance dialogue
+   */
+  advance(): boolean;
+  /**
+   * Pick an option of the choice shown (0 = the first shown).
+   * @graphNode Choose option
+   */
+  choose(index: number): boolean;
+  /**
+   * Continue after a Signal node that waits.
+   * @graphNode Resume dialogue
+   */
+  resume(): boolean;
+  /**
+   * Skip lines already seen (until an unseen line or a choice).
+   * @graphNode Set dialogue skip
+   */
+  setSkip(on: boolean): void;
+  /**
+   * The player's auto-advance (null: the project's setting).
+   * @graphNode Set dialogue auto
+   */
+  setAuto(on: boolean | null): void;
+  /**
+   * The player's text speed in characters per second (0: whole lines at once; null: the project's setting).
+   * @graphNode Set text speed
+   */
+  setTextSpeed(charsPerSecond: number | null): void;
+  /**
+   * The dialogue events of the previous step (line starts and ends, choices, picks, signals, starts and ends), in order.
+   * @graphPure
+   * @graphNode Dialogue events
+   */
+  events(): readonly BehaviorDialogueEvent[];
+  /**
+   * The first dialogue event of the previous step of this kind (and signal name), or null.
+   * @graphPure
+   * @graphNode Dialogue event
+   */
+  event(kind: 'start' | 'lineStart' | 'lineEnd' | 'choice' | 'chosen' | 'signal' | 'end', name?: string): BehaviorDialogueEvent | null;
+  /**
+   * A dialogue variable (null when unset).
+   * @graphPure
+   * @graphNode Dialogue variable
+   */
+  get(name: string): DialogueVariableValue;
+  /**
+   * Set a dialogue variable (conditions and effects read and write them); false for a bad name or value.
+   * @graphNode Set dialogue variable
+   */
+  set(name: string, value: DialogueVariableValue): boolean;
+  /**
+   * Every dialogue variable.
+   * @graphNode skip a map of values; use Dialogue variable
+   */
+  variables(): Readonly<Record<string, DialogueVariableValue>>;
+  /**
+   * The line (or option) was seen: "dialogueId/nodeId".
+   * @graphPure
+   * @graphNode Line seen
+   */
+  seen(key: string): boolean;
+  /**
+   * The backlog: the lines shown and options picked, oldest first.
+   * @graphNode skip a list of records; UI documents bind dialogue.backlog
+   */
+  history(): readonly BehaviorDialogueHistoryEntry[];
+}
+
 /**
  * Phase 23.4: `ctx.camera` — the virtual cameras (the `virtualCamera`
  * component): which is live, their rig values, shake and screen↔world
@@ -1713,6 +1879,12 @@ export interface Runtime {
   takeUiOutput?(): import('./ui').UiOutput | null;
   /** Phase 23.9a: the committed view model and shown documents. */
   uiView?(): import('./ui').UiStateView;
+  /** Phase 23.16: queue a dialogue input (advance, choose, skip, auto, backlog) for the next sampled input frame (`ActionFrame.dialogue`). */
+  queueDialogueInput?(input: import('./dialogue').DialogueInputRecord): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 23.16: the dialogue runner's state as digest text (null while nothing used dialogue). */
+  dialogueState?(): string | null;
+  /** Phase 23.16: the conversation now, for observers (null while nothing used dialogue). */
+  dialogueView?(): Record<string, unknown> | null;
   /** Phase 23.3: the cursor a script asked for ('free' | 'locked'), or null — the active input map decides. */
   cursorRequest?(): 'free' | 'locked' | null;
   /** Phase 23.3: the pointer as of the last step (position, held buttons, over/locked; null before the first sample). */

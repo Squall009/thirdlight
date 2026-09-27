@@ -6,6 +6,7 @@
  *   [b]bold[/b]  [i]italic[/i]  [color=#ff8800]colour[/color]
  *   [size=20]bigger[/size]  [icon=coin] (an icon of the document/theme)
  *   {hud.hp} (a view-model value)   [[ (a literal "[")   {{ (a literal "{")
+ *   {action:jump} (phase 23.14: the action's glyph for the device used last)
  *
  * Unknown or unbalanced tags are shown as the text they are. Pure.
  *
@@ -18,7 +19,8 @@ export type RichStyle = { readonly bold?: boolean; readonly italic?: boolean; re
 export type RichToken =
   | { readonly t: 'text'; readonly text: string; readonly style: RichStyle }
   | { readonly t: 'value'; readonly path: string; readonly style: RichStyle }
-  | { readonly t: 'icon'; readonly name: string; readonly style: RichStyle };
+  | { readonly t: 'icon'; readonly name: string; readonly style: RichStyle }
+  | { readonly t: 'glyph'; readonly action: string; readonly style: RichStyle };
 
 const COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,31}$/;
@@ -59,7 +61,10 @@ export function parseRichText(src: string, options?: { readonly values?: boolean
       const end = src.indexOf('}', i + 1);
       if (end > i + 1) {
         flush();
-        out.push({ t: 'value', path: src.slice(i + 1, end), style });
+        const inner = src.slice(i + 1, end);
+        // Phase 23.14: an input action's glyph.
+        if (/^action:[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(inner)) out.push({ t: 'glyph', action: inner.slice(7), style });
+        else out.push({ t: 'value', path: inner, style });
         i = end + 1;
         continue;
       }
@@ -135,7 +140,7 @@ export function richTextVisibleLength(tokens: readonly RichToken[], valueText?: 
   let n = 0;
   for (const t of tokens) {
     if (t.t === 'text') n += codePointLength(t.text);
-    else if (t.t === 'icon') n += 1;
+    else if (t.t === 'icon' || t.t === 'glyph') n += 1;
     else if (valueText !== undefined) n += codePointLength(valueText(t.path));
   }
   return n;

@@ -126,6 +126,8 @@ import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
+import { DialoguePanel, dialogueIdFrom } from './dialogue/DialoguePanel';
+import type { DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
 import { LibrariesPanel } from './script/LibrariesPanel';
 import type { LibraryDraft, LibrarySaveOutcome } from './script/LibraryDocument';
 import { newLibraryFiles } from '../session/script-sources';
@@ -392,6 +394,17 @@ function EditorApp(): JSX.Element {
     setEffectSelection([]);
     setEffectFocus(null);
   }, [activeEffectId]);
+  // Phase 23.16: the conversation of the active centre tab (its selected node shows in the right dock).
+  const [dialogueSelection, setDialogueSelection] = useState<readonly string[]>([]);
+  const [dialogueFocus, setDialogueFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const activeDialogueId = (() => {
+    const d = activeDoc(workspace);
+    return d !== null && d.kind === 'dialogue' ? d.id : null;
+  })();
+  useEffect(() => {
+    setDialogueSelection([]);
+    setDialogueFocus(null);
+  }, [activeDialogueId]);
   // Every graph's problems (the kind's rules), for the Problems tab.
   // Phase 22.1: computed in the editor worker (inline without one).
   const graphIssues = useWorkerJob('graphIssues', () => ({ graphs, kinds: graphKinds }), (i) => graphIssuesOf(i.graphs, i.kinds), NO_GRAPH_ISSUES, [graphs, graphKinds]);
@@ -578,6 +591,19 @@ function EditorApp(): JSX.Element {
   const [effects, setEffects] = useState<readonly EffectDef[]>([]);
   const [effectSystems, setEffectSystems] = useState<Readonly<Record<string, string | null>>>({});
   const [effectError, setEffectError] = useState<string | null>(null);
+  // Phase 23.16: conversations, speakers, the dialogue settings, the project UI (the previewer draws with it) and the last refusal.
+  const [dialogues, setDialogues] = useState<readonly DialogueDoc[]>([]);
+  const [speakers, setSpeakers] = useState<readonly DialogueSpeaker[]>([]);
+  const [dialogueSettings, setDialogueSettings] = useState<DialogueSettings | null>(null);
+  const [projectUiDocs, setProjectUiDocs] = useState<readonly ProjectUiDocument[]>([]);
+  const [projectUiThemes, setProjectUiThemes] = useState<readonly ProjectUiTheme[]>([]);
+  const [dialogueError, setDialogueError] = useState<string | null>(null);
+  // Phase 23.16: a conversation that went away closes its tab (after the first full state).
+  useEffect(() => {
+    if (!graphsLoaded) return;
+    const ids = new Set(dialogues.map((d) => d.dialogueId));
+    for (const d of workspace.docs) if (d.kind === 'dialogue' && !ids.has(d.id)) workspaceDispatch({ type: 'close', key: docKey(d) });
+  }, [graphsLoaded, dialogues, workspace.docs, workspaceDispatch]);
   // Phase 23.7: the shared script libraries and the Libraries list's last refusal.
   const [scriptLibraries, setScriptLibraries] = useState<readonly ScriptLibrary[]>([]);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -851,6 +877,11 @@ function EditorApp(): JSX.Element {
     applyEnvironmentView();
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
+    setDialogues(c.getDialogues());
+    setSpeakers(c.getSpeakers());
+    setDialogueSettings(c.getDialogueSettings());
+    setProjectUiDocs(c.getUiDocuments());
+    setProjectUiThemes(c.getUiThemes());
     setScriptLibraries(c.getScriptLibraries());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
@@ -2887,6 +2918,14 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     if (bottomTab !== 'environment') setEnvLevelId(null);
   }, [bottomTab]);
+  // Phase 23.16: dialogue commands (one undo step each).
+  const dialogueCommand = useCallback(async (op: 'setDialogue' | 'deleteDialogue' | 'setSpeaker' | 'deleteSpeaker' | 'setDialogueSettings', args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const err = refusal(await c.command(op, args, c.projection.revision));
+    setDialogueError(err);
+    return err === null;
+  }, []);
   // Phase 20.0: effect commands (one undo step each).
   const effectCommand = useCallback(async (op: 'setEffect' | 'deleteEffect' | 'renameEffect', args: Record<string, unknown>): Promise<boolean> => {
     const c = clientRef.current;
@@ -3697,6 +3736,25 @@ function EditorApp(): JSX.Element {
         return made !== undefined && made.ok ? made.instance.root : null;
       },
     },
+    dialogue: {
+      dialogues,
+      speakers,
+      settings: dialogueSettings,
+      uiDocuments: projectUiDocs,
+      uiThemes: projectUiThemes,
+      kinds: graphKinds,
+      assets: assets.map((a) => ({ assetId: a.assetId, kind: a.kind, version: a.currentVersion })),
+      readAsset: (assetId, version) => {
+        const c = clientRef.current;
+        return c !== null ? c.assetBytes(assetId, version) : Promise.reject(new Error('not connected'));
+      },
+      onEdit: (dialogueId, ops) => sendGraphEdit({ kind: 'dialogue', id: dialogueId }, ops),
+      onRename: (dialogueId, name) => void dialogueCommand('setDialogue', { dialogue: { dialogueId, name } }),
+      onSelection: setDialogueSelection,
+      selection: dialogueSelection,
+      focus: dialogueFocus,
+      error: dialogueError,
+    },
     visualScript: {
       kind: graphKinds['behavior'],
       graphs,
@@ -4195,6 +4253,32 @@ function EditorApp(): JSX.Element {
               }}
             />
           )}
+          {bottomTab === 'dialogue' && (
+            <DialoguePanel
+              dialogues={dialogues}
+              speakers={speakers}
+              settings={dialogueSettings}
+              uiDocuments={projectUiDocs}
+              uiThemes={projectUiThemes}
+              assets={assets.map((a) => ({ assetId: a.assetId, displayName: a.displayName, kind: a.kind }))}
+              openId={activeDialogueId}
+              error={dialogueError}
+              onOpen={(id) => openDocument('dialogue', id)}
+              onCreate={(name) => {
+                const dialogueId = dialogueIdFrom(name, dialogues.map((d) => d.dialogueId), 'dialogue');
+                void dialogueCommand('setDialogue', { dialogue: { dialogueId, name } }).then((ok) => ok && openDocument('dialogue', dialogueId));
+              }}
+              onRename={(dialogueId, name) => void dialogueCommand('setDialogue', { dialogue: { dialogueId, name } })}
+              onDelete={(dialogueId) => {
+                void dialogueCommand('deleteDialogue', { dialogueId }).then((ok) => {
+                  if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'dialogue', id: dialogueId }) });
+                });
+              }}
+              onSaveSpeaker={(speaker) => void dialogueCommand('setSpeaker', { speaker })}
+              onDeleteSpeaker={(speakerId) => void dialogueCommand('deleteSpeaker', { speakerId })}
+              onSaveSettings={(settings) => void dialogueCommand('setDialogueSettings', { settings })}
+            />
+          )}
           {bottomTab === 'effects' && (
             <EffectsPanel
               effects={effects}
@@ -4549,6 +4633,24 @@ function EditorApp(): JSX.Element {
               portContext={graphsContext}
               assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
             />
+          </div>
+        ) : activeDialogueId !== null && graphKinds['dialogue'] !== undefined && dialogues.some((d) => d.dialogueId === activeDialogueId) ? (
+          <div className="tl-inspector" aria-label="dialogue graph inspector">
+            <div className="tl-panel__title">Inspector</div>
+            {(() => {
+              const d = dialogues.find((x) => x.dialogueId === activeDialogueId)!;
+              return (
+                <GraphInspector
+                  kind={graphKinds['dialogue']!}
+                  graph={d.graph}
+                  ids={dialogueSelection}
+                  onEdit={(ops) => sendGraphEdit({ kind: 'dialogue', id: d.dialogueId }, ops)}
+                  // A voice clip is an audio or music asset (a voice line may be longer than an audio clip's cap).
+                  assetOptions={(k) => assets.filter((a) => (k === 'voice' ? a.kind === 'audio' || a.kind === 'music' : a.kind === k)).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  empty={<div className="tl-inspector__empty">Select a node of “{d.name}”: a line (speaker, expression, text, voice), an option (text, condition, effects), a branch, a set, a signal…</div>}
+                />
+              );
+            })()}
           </div>
         ) : activeEffectId !== null && graphKinds['effect'] !== undefined && effects.some((e) => e.effectId === activeEffectId && e.systems.length > 0) ? (
           <div className="tl-inspector" aria-label="effect graph inspector">
@@ -5013,7 +5115,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'dialogue' | 'libraries' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5033,6 +5135,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'graphs', label: 'Graphs' },
   // Phase 20.0: visual effects.
   { id: 'effects', label: 'Effects' },
+  // Phase 23.16: conversations, speakers, dialogue settings.
+  { id: 'dialogue', label: 'Dialogue' },
   // Phase 23.7: shared script libraries.
   { id: 'libraries', label: 'Libraries' },
   // Phase 23.6: block-layer editing.

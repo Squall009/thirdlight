@@ -832,8 +832,6 @@ export interface RuntimeDialogueData {
   readonly settings: DialogueSettings;
   /** The UI document the runner shows and hides. */
   readonly document: string;
-  /** Voice clip lengths in seconds (auto-advance waits for them; absent: the clip's end is not known). */
-  readonly voiceSeconds: Readonly<Record<string, number>>;
 }
 
 const byPos = (a: GraphNode, b: GraphNode): number => a.position[1] - b.position[1] || a.position[0] - b.position[0] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -904,32 +902,18 @@ export function compileDialogue(d: DialogueDocument): RuntimeDialogue {
 /**
  * The runner's data from the project's dialogue content (null: no
  * conversations — the snapshot has no `dialogue` field and nothing changes
- * for projects without dialogue). `voiceSeconds` maps voice clips to their
- * recorded length.
+ * for projects without dialogue). Voice clip lengths come from the
+ * snapshot's `audioDurations` (phase 23.13), like every script sound's.
  */
-export function dialogueForRuntime(
-  content: { dialogues?: readonly DialogueDocument[]; speakers?: readonly DialogueSpeaker[]; dialogueSettings?: DialogueSettings },
-  voiceSeconds: (assetId: string) => number | null,
-): RuntimeDialogueData | null {
+export function dialogueForRuntime(content: { dialogues?: readonly DialogueDocument[]; speakers?: readonly DialogueSpeaker[]; dialogueSettings?: DialogueSettings }): RuntimeDialogueData | null {
   const dialogues = content.dialogues ?? [];
   if (dialogues.length === 0) return null;
-  const seconds: Record<string, number> = {};
-  for (const d of dialogues) {
-    for (const n of d.graph.nodes) {
-      const v = n.type === 'line' ? n.data?.['voice'] : undefined;
-      if (typeof v === 'string' && v !== '' && seconds[v] === undefined) {
-        const s = voiceSeconds(v);
-        if (s !== null && Number.isFinite(s) && s > 0) seconds[v] = s;
-      }
-    }
-  }
   const settings = content.dialogueSettings ?? {};
   return {
-    dialogues: dialogues.map(compileDialogue),
+    dialogues: canonicalDialogues(dialogues).map(compileDialogue),
     speakers: canonicalSpeakers(content.speakers ?? []),
     settings: canonicalDialogueSettings(settings),
     document: settings.document ?? DIALOGUE_DOCUMENT_ID,
-    voiceSeconds: seconds,
   };
 }
 
@@ -949,8 +933,7 @@ export function runtimeDialogueDataProblem(v: unknown): string | null {
   validateDialogueSettings(v['settings'], '/dialogue/settings', errors);
   if (errors.length > 0) return errors[0]!.message;
   if (typeof v['document'] !== 'string' || !ID_RE.test(v['document'])) return 'dialogue.document is a UI document id';
-  if (!isObj(v['voiceSeconds'])) return 'dialogue.voiceSeconds maps assets to seconds';
-  for (const s of Object.values(v['voiceSeconds'])) if (typeof s !== 'number' || !Number.isFinite(s) || s <= 0) return 'a voice length is a positive number of seconds';
+  for (const k of Object.keys(v)) if (!['dialogues', 'speakers', 'settings', 'document'].includes(k)) return `unknown dialogue field "${k.slice(0, 32)}"`;
   return null;
 }
 

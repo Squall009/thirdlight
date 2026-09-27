@@ -94,8 +94,8 @@ export type AudioCommand =
   | { readonly op: 'set'; readonly stepIndex: number; readonly handle: number; readonly volume?: number; readonly pitch?: number; readonly loop?: boolean }
   /** Music: a track the scripts hold (null: silence), or `release` (back to the game flow's music). */
   | { readonly op: 'music'; readonly stepIndex: number; readonly assetId: string | null; readonly fade: number; readonly release?: true }
-  /** The music duck: the track's level (1 = not ducked), reached over `seconds`. */
-  | { readonly op: 'duck'; readonly stepIndex: number; readonly level: number; readonly seconds: number }
+  /** The music duck: the track's level (1 = not ducked), reached over `seconds`. Phase 23.16: `bus: 'sfx'` ducks the SFX bus instead (dialogue voice). */
+  | { readonly op: 'duck'; readonly stepIndex: number; readonly level: number; readonly seconds: number; readonly bus?: 'sfx' }
   /** A script's mix on one bus (on top of the player's volume), reached over `seconds`. */
   | { readonly op: 'bus'; readonly stepIndex: number; readonly bus: AudioBusName; readonly volume: number; readonly seconds: number }
   /** A new run: every script voice stops, the music goes back to the flow, the duck and the mix to 1. */
@@ -196,6 +196,9 @@ export class AudioMixer {
   /** Duck requests by source (`script`, `stinger:<handle>`, `voice`), each a level 0–1 and its fade. */
   private readonly ducks = new Map<string, { level: number; fade: number }>();
   private duckLevel = 1;
+  /** Phase 23.16: the SFX duck (dialogue voice ducks effects too), like the music's. */
+  private readonly sfxDucks = new Map<string, { level: number; fade: number }>();
+  private sfxDuckLevel = 1;
   private readonly busMix = new Map<AudioBusName, Ramp>();
   /** Something scripts did (the digest and observation include the mixer only then). */
   private used = false;
@@ -367,14 +370,24 @@ export class AudioMixer {
    * request alive; when it changes, one `duck` command moves the music there
    * over the fade of the request that caused the change.
    */
-  setDuck(source: string, level: number, fade: number): void {
-    if (level >= 1) this.ducks.delete(source);
-    else this.ducks.set(source, { level, fade });
+  setDuck(source: string, level: number, fade: number, bus: 'music' | 'sfx' = 'music'): void {
+    const ducks = bus === 'sfx' ? this.sfxDucks : this.ducks;
+    if (level >= 1) ducks.delete(source);
+    else {
+      ducks.set(source, { level, fade });
+      this.used = true;
+    }
     let deepest = 1;
-    for (const d of this.ducks.values()) deepest = Math.min(deepest, d.level);
-    if (deepest === this.duckLevel) return;
-    this.duckLevel = deepest;
-    this.push({ op: 'duck', stepIndex: this.stepOf(), level: deepest, seconds: fade });
+    for (const d of ducks.values()) deepest = Math.min(deepest, d.level);
+    if (deepest === (bus === 'sfx' ? this.sfxDuckLevel : this.duckLevel)) return;
+    if (bus === 'sfx') this.sfxDuckLevel = deepest;
+    else this.duckLevel = deepest;
+    this.push({ op: 'duck', stepIndex: this.stepOf(), level: deepest, seconds: fade, ...(bus === 'sfx' ? { bus: 'sfx' as const } : {}) });
+  }
+
+  /** Phase 23.16: the SFX duck now (1 = not ducked). */
+  sfxDuck(): number {
+    return this.sfxDuckLevel;
   }
 
   setBusVolume(bus: unknown, volume: unknown, seconds?: unknown): void {
@@ -431,6 +444,8 @@ export class AudioMixer {
     this.musicTrack = undefined;
     this.ducks.clear();
     this.duckLevel = 1;
+    this.sfxDucks.clear();
+    this.sfxDuckLevel = 1;
     this.busMix.clear();
     this.push({ op: 'reset', stepIndex: this.stepOf() });
   }
@@ -449,6 +464,8 @@ export class AudioMixer {
       voices: [...this.voices.values()].map((v) => [v.handle, v.assetId, v.bus, v.loop, v.pitch, v.pos, rampValue(v.volume), v.stopping]),
       music: this.musicTrack === undefined ? '<flow>' : this.musicTrack,
       duck: this.duckLevel,
+      // Phase 23.16: only while effects are ducked (the digests of every earlier project stay as they were).
+      ...(this.sfxDuckLevel !== 1 ? { sfxDuck: this.sfxDuckLevel } : {}),
       buses: [...this.busMix.entries()].map(([b, r]) => [b, rampValue(r)]),
     };
   }

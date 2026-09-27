@@ -87,6 +87,7 @@ import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AudioMixer, type AudioCommand } from './audio-mixer';
+import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { SocketSystem } from './sockets';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
@@ -259,6 +260,8 @@ export function sessionTimingSteps(game: GameConfig | null | undefined, hz: numb
 }
 /** runtime.md §8: the error ring keeps the last 32 entries. */
 const MAX_ERROR_ENTRIES = 32;
+/** Phase 23.16: dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
+const DIALOGUE_FRAME_INPUTS = 8;
 /**
  * Floating-point guard for the floor-based step count (§5.3). When the
  * wall-derived `elapsed` is a mathematical multiple of `dt`,
@@ -1295,6 +1298,7 @@ export function instantiateRuntime(
     ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
     ...(projectSettings !== undefined ? { projectSettings } : {}),
     uiDocuments: snap.uiDocuments,
+    ...(snap.dialogue !== undefined ? { dialogue: snap.dialogue } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1384,6 +1388,8 @@ interface RuntimeArgs {
   projectSettings?: Readonly<Record<string, unknown>>;
   /** Phase 23.9a: the project's UI documents (id, layer, modal). */
   uiDocuments: readonly RuntimeUiDocumentRow[];
+  /** Phase 23.16: the compiled conversations, speakers and dialogue settings. */
+  dialogue?: import('@thirdlight/project-model').RuntimeDialogueData;
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1612,6 +1618,9 @@ class RuntimeInstance implements Runtime {
   private readonly ui: UiState;
   /** UI events the host queued for the next sampled frame. */
   private uiQueue: UiEventRecord[] = [];
+  /** Phase 23.16: the dialogue runner (inert without conversations) and dialogue inputs waiting for the next sampled step. */
+  private readonly dialogue: DialogueRunner;
+  private dialogueQueue: DialogueInputRecord[] = [];
   private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
@@ -1896,6 +1905,19 @@ class RuntimeInstance implements Runtime {
     this.cameraControl = this.buildCameraControl();
     // Phase 23.9a: the project UI (inert until a script or a frame uses it).
     this.ui = new UiState(args.uiDocuments);
+    // Phase 23.16: conversations (the view model under `dialogue.`, voice through the audio intent log).
+    const ui = this.ui;
+    const durations = args.audioDurations;
+    this.dialogue = new DialogueRunner(
+      args.dialogue ?? null,
+      { set: (p, v) => ui.set(p, v), clear: (p) => ui.clear(p), show: (d) => ui.show(d), hide: (d) => ui.hide(d), isShown: (d) => ui.isShown(d) },
+      this.audio,
+      this.hz,
+      (id) => {
+        const ms = durations[id];
+        return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
+      },
+    );
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
     const rt = this;
     this.blocks = new GameplayBlocks(
@@ -2264,6 +2286,8 @@ class RuntimeInstance implements Runtime {
             return Object.fromEntries([...rt.saveStore.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
           case 'spawned':
             return rt.spawnedCopies();
+          case 'dialogue':
+            return rt.dialogue.saveState();
         }
       },
       check(section, value) {
@@ -2279,6 +2303,8 @@ class RuntimeInstance implements Runtime {
           }
           case 'spawned':
             return rt.spawnedCopiesProblem(value);
+          case 'dialogue':
+            return rt.dialogue.checkState(value);
         }
       },
       apply(section, value) {
@@ -2294,6 +2320,9 @@ class RuntimeInstance implements Runtime {
             return null;
           case 'spawned':
             rt.restoreSpawnedCopies((value ?? []) as SavedSpawnCopy[]);
+            return null;
+          case 'dialogue':
+            rt.dialogue.restoreState(value);
             return null;
         }
       },
@@ -3174,6 +3203,8 @@ class RuntimeInstance implements Runtime {
     }
     // Phase 23.4: the camera brain resolves the view on the step's transforms.
     this.stepCameras(null);
+    // Phase 23.16: conversations advance (before the audio: a voice started now plays from this step).
+    this.dialogue.endStep();
     // Phase 23.13: fades and clips advance; finished sounds are seen next step.
     this.audio.endStep();
     this.prev = backup; // prev := curr at the end of step n−1
@@ -3226,6 +3257,7 @@ class RuntimeInstance implements Runtime {
       action = actionOverride;
       this.stepDebugCalls = null;
       this.ui.deliver(undefined);
+      this.dialogue.deliver(undefined);
     } else {
       try {
         action = this.sampleAction(stepIndex);
@@ -3296,6 +3328,8 @@ class RuntimeInstance implements Runtime {
     // Phase 23.4: the camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
     this.stepCameras(action);
+    // Phase 23.16: conversations advance: the frame's dialogue inputs and the scripts' calls apply, the view model follows.
+    this.dialogue.endStep();
     // Phase 23.19: saves asked for this step are assembled, loaded ones restored (a step boundary).
     this.saves.endStep();
     // Phase 23.13: fades and clips advance; finished sounds are seen next step.
@@ -3369,6 +3403,32 @@ class RuntimeInstance implements Runtime {
     return { ok: true };
   }
 
+  /**
+   * Phase 23.16: queue a dialogue input (advance, choose, skip, auto,
+   * backlog — the dialogue UI's buttons) for the next sampled step; it rides
+   * on that step's input frame (`ActionFrame.dialogue`), so a recording
+   * replays it and the worker applies it at the same step.
+   */
+  queueDialogueInput(input: DialogueInputRecord): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (!this.dialogue.enabled) return { ok: false, error: fail('game_command_invalid', 'this game has no conversations', { reason: 'dialogue' }) };
+    const checked = validateDialogueInput(input);
+    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `dialogue input: ${checked.message}`, { reason: 'dialogue', path: `/${checked.field}` }) };
+    if (this.dialogueQueue.length >= DIALOGUE_FRAME_INPUTS * 4) return { ok: false, error: fail('game_command_invalid', `at most ${DIALOGUE_FRAME_INPUTS * 4} dialogue inputs may wait for the next step`, { reason: 'pending' }) };
+    this.dialogueQueue.push(checked.input);
+    return { ok: true };
+  }
+
+  /** Phase 23.16: the dialogue runner's state as digest text (null while nothing used dialogue). */
+  dialogueState(): string | null {
+    return this.dialogue.digestText();
+  }
+
+  /** Phase 23.16: the conversation now, for observers (null while nothing used dialogue). */
+  dialogueView(): Record<string, unknown> | null {
+    return this.dialogue.observe();
+  }
+
   /** Phase 23.9a: the UI changes since the host last took them. */
   takeUiOutput(): UiOutput | null {
     return this.ui.takeOutput();
@@ -3404,6 +3464,12 @@ class RuntimeInstance implements Runtime {
       const room = Math.max(0, MAX_FRAME_UI_EVENTS - (Array.isArray(have) ? have.length : 0));
       if (room > 0) raw = { ...(raw as ActionFrame), ui: [...have, ...this.uiQueue.splice(0, room)] };
     }
+    // Phase 23.16: queued dialogue inputs ride on this step's frame (so a recording keeps them).
+    if (this.dialogueQueue.length > 0 && typeof raw === 'object' && raw !== null) {
+      const have = (raw as ActionFrame).dialogue ?? [];
+      const room = Math.max(0, DIALOGUE_FRAME_INPUTS - (Array.isArray(have) ? have.length : 0));
+      if (room > 0) raw = { ...(raw as ActionFrame), dialogue: [...have, ...this.dialogueQueue.splice(0, room)] };
+    }
     // Phase 21.2: equal action values of the last frame are shared (immutable).
     const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
     if (!check.ok) throw new InputFrameError(check.field, check.message);
@@ -3416,6 +3482,8 @@ class RuntimeInstance implements Runtime {
     this.inputStatus.apply(check.frame.input);
     // Phase 23.9a: the frame's show/hide entries apply before any script runs.
     this.ui.deliver(check.frame.ui);
+    // Phase 23.16: the frame's dialogue inputs (applied at the end of the step).
+    this.dialogue.deliver(check.frame.dialogue);
     return this.withHeldPointer(check.frame);
   }
 
@@ -3780,6 +3848,8 @@ class RuntimeInstance implements Runtime {
     }
     // Phase 23.9a: and starts with an empty view model and no document shown.
     if (reset === 'replay' || reset === 'start') this.ui.resetRun();
+    // Phase 23.16: and without a conversation, dialogue variables or seen lines.
+    if (reset === 'replay' || reset === 'start') this.dialogue.resetRun();
     // Phase 9.11: a loaded save's run on top of the fresh one.
     if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
       const r = this.pendingRestore;
@@ -4686,6 +4756,8 @@ class RuntimeInstance implements Runtime {
       fields['saves'] = { value: this.saves.api, enumerable: true };
       // Phase 23.9a: the project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
+      // Phase 23.16: conversations (ctx.dialogue; calls apply at the end of the step).
+      fields['dialogue'] = { value: this.dialogue.api, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };

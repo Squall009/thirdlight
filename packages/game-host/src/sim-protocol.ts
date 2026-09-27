@@ -103,6 +103,8 @@ export type SimCommand =
   | { readonly op: 'saveEvent'; readonly event: import('@thirdlight/runtime').SaveEvent }
   /** Phase 23.9a: a UI event, queued in the worker's runtime for its next sampled frame. */
   | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
+  /** Phase 23.16: a dialogue input, queued in the worker's runtime for its next sampled frame. */
+  | { readonly op: 'dialogueInput'; readonly input: import('@thirdlight/runtime').DialogueInputRecord }
   | { readonly op: 'stop' };
 
 export type SimQuery =

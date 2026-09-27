@@ -434,6 +434,17 @@ const BUNDLE_ENTRY_EDGES = {
   // Same §4.2 play-preview graph as preview-bootstrap.ts plus game-host +
   // platformer-game (the M3 composition). The M2 preview-bootstrap.ts row
   // above stays byte-stable.
+  // Phase 23.16: the dialogue tab's previewer plays a conversation outside
+  // Play with the game host's own UI layer and audio owner
+  // (`createDialoguePreview`), so the preview draws and sounds as the game
+  // does. Only this module of the editor UI imports game-host (the runtime
+  // and project-model edges are the editor row's own); it touches no
+  // backend, workspace or three.js.
+  'packages/editor/src/ui/dialogue/preview-host.ts': {
+    packages: ['runtime', 'project-model', 'game-host'],
+    external: [],
+    node: [],
+  },
   'packages/editor/src/preview/preview-m3.ts': {
     packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'platformer-game', 'physics-rapier', 'game-host'],
     external: ['three'],

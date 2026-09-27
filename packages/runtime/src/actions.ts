@@ -16,6 +16,7 @@ import { clipMessage } from './errors';
 import { validateSaveEvents, type SaveEvent } from './project-saves';
 import { validateInputStatus, type InputStatusEntry } from './input-status';
 import { validateUiEvents, type UiEventRecord } from './ui';
+import { validateDialogueInputs, type DialogueInputRecord } from './dialogue';
 
 /** The four jump phases (input.md §2). */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -79,6 +80,14 @@ export interface ActionFrame {
    * @graphNode skip a script reads its UI events with ctx.ui.events / ctx.ui.event
    */
   ui?: readonly UiEventRecord[];
+  /**
+   * Phase 23.16, optional: the dialogue inputs of this step (advance, choose,
+   * skip, auto, backlog — from the dialogue UI's buttons) — part of the input
+   * so a recording replays them exactly. Absent: none (every older frame and
+   * recording is unchanged).
+   * @graphNode skip scripts drive conversations with ctx.dialogue
+   */
+  dialogue?: readonly DialogueInputRecord[];
 }
 
 /** Phase 23.8: one debug command call carried by an input frame. */
@@ -218,7 +227,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'moveY' || key === 'ui' || key === 'input') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'moveY' || key === 'ui' || key === 'input' || key === 'dialogue') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -300,7 +309,15 @@ export function validateActionFrame(
     if (!u.ok) return u;
     uiEvents = u.events;
   }
-  const withExtras = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
+  // Phase 23.16: the frame's dialogue inputs (validated and frozen; absent keeps the frame as it was).
+  let dialogueInputs: readonly DialogueInputRecord[] | undefined;
+  if (value['dialogue'] !== undefined) {
+    const d = validateDialogueInputs(value['dialogue']);
+    if (!d.ok) return d;
+    dialogueInputs = d.inputs;
+  }
+  const withExtras = <F extends ActionFrame>(f: F): F => (dialogueInputs === undefined ? withExtras0(f) : { ...withExtras0(f), dialogue: dialogueInputs });
+  const withExtras0 = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];
   // Phase 23.2 / 23.8 / 23.3 / 23.9a: moveY, commands, the pointer and UI events only when present (a frame without them stays as it was).
   const withMoveY = moveY !== undefined ? { moveY } : {};

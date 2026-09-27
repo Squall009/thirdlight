@@ -26,6 +26,7 @@ import type { BehaviorPanelProps } from '../BehaviorPanel';
 import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocument';
 import { VisualScriptDocument, type VisualScriptDocumentProps } from '../script/VisualScriptDocument';
 import { LibraryDocument, type LibraryDocumentProps } from '../script/LibraryDocument';
+import { DialogueDocument, type DialogueDocumentProps } from '../dialogue/DialogueDocument';
 import type { ScriptLibrary } from '@thirdlight/project-model';
 
 /** What document views get from the app: the data and actions of the panels they reuse. */
@@ -59,6 +60,8 @@ export interface WorkspaceHost {
   material: Omit<MaterialDocumentProps, 'materialId'>;
   /** Phase 20.0: the props of one effect's tab (all effects share them). */
   effect: Omit<EffectDocumentProps, 'effectId'>;
+  /** Phase 23.16: the props of one conversation's tab (all conversations share them). */
+  dialogue: Omit<DialogueDocumentProps, 'dialogueId'>;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }
@@ -196,8 +199,22 @@ const libraryKind: DocumentKind = {
   },
 };
 
+/** A small speech-bubble glyph for dialogue tabs. */
+const DIALOGUE_ICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 3h12v7H7l-3 3v-3H2z" fill="#8fb4ff"/><rect x="4" y="5" width="8" height="1.2" fill="#1b1f2a"/><rect x="4" y="7.2" width="5" height="1.2" fill="#1b1f2a"/></svg>');
+
+/** Phase 23.16: a conversation's node graph and its previewer ("Dialogue: <name>"). */
+const dialogueKind: DocumentKind = {
+  kind: 'dialogue',
+  label: 'Dialogue',
+  icon: DIALOGUE_ICON,
+  name: (id, host) => host.dialogue.dialogues.find((d) => d.dialogueId === id)?.name ?? id,
+  render: (id, host) => <DialogueDocument key={id} {...host.dialogue} dialogueId={id} />,
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, dialogueKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

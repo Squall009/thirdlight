@@ -18,6 +18,7 @@
 
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
+import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
@@ -315,6 +316,10 @@ export class SessionClient {
   /** Phase 23.9a: the project UI documents and themes (from queryGameConfig, then setUi changes). */
   private uiDocuments: UiDocument[] = [];
   private uiThemes: UiTheme[] = [];
+  /** Phase 23.16: conversations, the speaker registry and the dialogue settings (from queryGameConfig, then setDialogue / graphEdit changes). */
+  private dialogues: DialogueDocument[] = [];
+  private speakers: DialogueSpeaker[] = [];
+  private dialogueSettings: DialogueSettings | null = null;
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   /** Phase 23.3: the project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
@@ -570,6 +575,13 @@ export class SessionClient {
         this.uiDocuments = Array.isArray(uiDocs) ? structuredClone(uiDocs) : [];
         const uiThemes = (g as { uiThemes?: UiTheme[] }).uiThemes;
         this.uiThemes = Array.isArray(uiThemes) ? structuredClone(uiThemes) : [];
+        // Phase 23.16: dialogue content.
+        const dialogues = (g as { dialogues?: DialogueDocument[] }).dialogues;
+        this.dialogues = Array.isArray(dialogues) ? structuredClone(dialogues) : [];
+        const speakers = (g as { speakers?: DialogueSpeaker[] }).speakers;
+        this.speakers = Array.isArray(speakers) ? structuredClone(speakers) : [];
+        const ds = (g as { dialogueSettings?: DialogueSettings | null }).dialogueSettings;
+        this.dialogueSettings = ds !== undefined && ds !== null ? structuredClone(ds) : null;
         const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;
         if (kinds !== undefined) this.graphKinds = structuredClone(kinds);
       }
@@ -798,6 +810,15 @@ export class SessionClient {
           const rest = this.uiThemes.filter((t) => t.uiThemeId !== change.id);
           this.uiThemes = change.next === null ? rest : [...rest, structuredClone(change.next as UiTheme)].sort((a, b) => (a.uiThemeId < b.uiThemeId ? -1 : 1));
         }
+      } else if (change.type === 'setDialogue') {
+        // Phase 23.16: one conversation, speaker or the settings before/after (null = none).
+        if (change.dialogueKind === 'dialogue') {
+          const rest = this.dialogues.filter((d) => d.dialogueId !== change.id);
+          this.dialogues = change.next === null ? rest : [...rest, structuredClone(change.next as DialogueDocument)].sort((a, b) => (a.dialogueId < b.dialogueId ? -1 : 1));
+        } else if (change.dialogueKind === 'speaker') {
+          const rest = this.speakers.filter((x) => x.speakerId !== change.id);
+          this.speakers = change.next === null ? rest : [...rest, structuredClone(change.next as DialogueSpeaker)].sort((a, b) => (a.speakerId < b.speakerId ? -1 : 1));
+        } else this.dialogueSettings = change.next === null ? null : structuredClone(change.next as DialogueSettings);
       } else if (change.type === 'setEffect') {
         // Phase 20.0: one effect before/after (null = none).
         const rest = this.effects.filter((e) => e.effectId !== change.effectId);
@@ -823,6 +844,15 @@ export class SessionClient {
             return;
           }
           this.materials = this.materials.map((x) => (x === m ? { ...x, graph: next } : x));
+        } else if (change.owner.kind === 'dialogue') {
+          // Phase 23.16: a conversation's graph.
+          const d = this.dialogues.find((x) => x.dialogueId === change.owner.id);
+          const next = d !== undefined ? applyGraphOpsLocal(d.graph, change.ops) : null;
+          if (d === undefined || next === null) {
+            void this.fullResync().then(() => this.cb.onSceneChanged());
+            return;
+          }
+          this.dialogues = this.dialogues.map((x) => (x === d ? { ...x, graph: next } : x));
         } else if (change.owner.kind === 'effect') {
           // Phase 20.0: one system's graph (owner id "<effectId>/<systemId>").
           const [effectId, systemId] = change.owner.id.split('/');
@@ -1309,6 +1339,21 @@ export class SessionClient {
   /** Phase 23.9a: the project UI themes. */
   getUiThemes(): readonly UiTheme[] {
     return this.uiThemes;
+  }
+
+  /** Phase 23.16: the conversations (read-only values). */
+  getDialogues(): readonly DialogueDocument[] {
+    return this.dialogues;
+  }
+
+  /** Phase 23.16: the speaker registry. */
+  getSpeakers(): readonly DialogueSpeaker[] {
+    return this.speakers;
+  }
+
+  /** Phase 23.16: the dialogue settings (null: the defaults). */
+  getDialogueSettings(): DialogueSettings | null {
+    return this.dialogueSettings;
   }
 
   /** Phase 23.7: the shared script libraries (the editor treats them as read-only values). */

@@ -14,6 +14,7 @@
  */
 
 import { uiAssetRefs, type UiDocument, type UiTheme } from './ui-documents';
+import { dialogueAssetRefs, type DialogueDocument, type DialogueSpeaker } from './dialogue';
 import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { fail, fieldValue, isPlainObject, withFound } from './validate';
 import { ID_RE_V2 } from './components';

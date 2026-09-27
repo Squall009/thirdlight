@@ -61,7 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { audioDurationsFromAssetRows, uiDocumentsForRuntime, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -137,6 +137,8 @@ export interface PreviewManifestV2 {
   /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
   uiDocuments?: import('@thirdlight/runtime').UiDocument[];
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
+  /** Phase 23.16: the dialogue runner's data (conversations, speakers, settings). */
+  dialogue?: import('@thirdlight/runtime').RuntimeDialogueData;
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
@@ -395,7 +397,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -451,8 +453,11 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // Phase 23.19: the project save schema (ctx.saves; from the verified manifest).
   const withBoundsS = manifest.saveSchema !== undefined ? ({ ...withBoundsM, saveSchema: manifest.saveSchema } as RuntimeSnapshot) : withBoundsM;
   // Phase 23.9a: the UI documents scripts show and hide (id, layer, modal; the host draws them from the manifest).
-  const uiRows = uiDocumentsForRuntime(manifest.uiDocuments);
-  const withBoundsU = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
+  // Phase 23.16: plus the engine's dialogue document when the project has conversations (and the runner's data).
+  const uiDocs = withDialogueUiDocument(manifest.uiDocuments, manifest.dialogue ?? null);
+  const uiRows = uiDocumentsForRuntime(uiDocs);
+  const withBoundsU0 = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
+  const withBoundsU = manifest.dialogue !== undefined ? ({ ...withBoundsU0, dialogue: manifest.dialogue } as RuntimeSnapshot) : withBoundsU0;
   // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
   const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const withBounds = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
@@ -670,7 +675,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       ...(startVariables !== undefined ? { variables: startVariables } : {}),
       ...(startOptions !== undefined ? { start: startOptions } : {}),
       // Phase 23.9a: the project UI documents and themes (the host draws them).
-      ...(manifest.uiDocuments !== undefined && manifest.uiDocuments.length > 0 ? { ui: { documents: manifest.uiDocuments, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
+      ...(uiDocs !== undefined && uiDocs.length > 0 ? { ui: { documents: uiDocs, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
     };
     const host = createGameHost(config);
     // Play has no page gesture wiring of its own: the first key or click in the
@@ -974,6 +979,8 @@ export function bootstrapPreviewM3(): void {
         ...debugCommandsObservation(h),
         ...savesObservationOf(h.host),
         ...uiObservation(h, o.ui),
+        // Phase 23.16: the conversation (line, reveal, choices, backlog, modes).
+        ...(o.dialogue !== undefined ? { dialogue: structuredClone(o.dialogue) } : {}),
       };
     }
     const v = gv.view;
@@ -1041,6 +1048,8 @@ export function bootstrapPreviewM3(): void {
       ...savesObservationOf(h.host),
       // Phase 23.9a: the project UI (shown documents, the flow screen's document, the focus, the view model).
       ...uiObservation(h, obs.observation.ui),
+      // Phase 23.16: the conversation (line, reveal, choices, backlog, modes).
+      ...(obs.observation.dialogue !== undefined ? { dialogue: structuredClone(obs.observation.dialogue) } : {}),
     };
   };
 

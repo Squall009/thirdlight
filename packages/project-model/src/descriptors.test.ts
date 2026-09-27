@@ -738,6 +738,9 @@ function runAllProbes(): void {
   // Phase 23.9a: UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
+  // Phase 23.16: dialogue (json items; the settings a json block).
+  probe('dialogues', contentErrors, contentDoc({ dialogues: [{ dialogueId: 'talk', name: 'Talk', graph: { nodes: [{ id: 'start', type: 'start', position: [0, 0] }], edges: [] } }] }), '/dialogues', block('dialogues'), 'dialogues:');
+  probe('speakers', contentErrors, contentDoc({ speakers: [{ speakerId: 'guide', name: 'Guide', color: '#80c0ff' }] }), '/speakers', block('speakers'), 'speakers:');
   // Phase 23.3: the named collision layers.
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   // Phase 23.19: the project save schema.

@@ -45,7 +45,8 @@ export const SAVE_LIMITS = Object.freeze({
   metaText: 128,
 });
 
-export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage'] as const;
+// Phase 23.16: + dialogue (the dialogue variables and the seen-lines set).
+export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'dialogue'] as const;
 export type SaveSection = (typeof SAVE_SECTIONS)[number];
 
 /** Engine settings a settings field may drive (the host applies them). */

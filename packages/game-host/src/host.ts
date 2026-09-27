@@ -183,6 +183,22 @@ export interface GameHostSound {
 }
 
 /** delivery.md §3.1 `GameHostObservation`. */
+/** Phase 23.16: the conversation in the observation (bounded; from the dialogue view model). */
+export interface DialogueObservation {
+  readonly running: boolean;
+  readonly dialogueId: string;
+  readonly node: string;
+  /** line, choice, signal, wait, or ''. */
+  readonly kind: string;
+  readonly line: { readonly id: string; readonly speaker: string; readonly name: string; readonly expression: string; readonly portrait: string; readonly text: string; readonly reveal: number; readonly total: number; readonly voiced: boolean } | null;
+  readonly choices: readonly string[];
+  readonly backlog: number;
+  readonly backlogTail: readonly { readonly speaker: string; readonly text: string; readonly choice: boolean }[];
+  readonly backlogOpen: boolean;
+  readonly skip: boolean;
+  readonly auto: boolean;
+}
+
 export interface GameHostObservation {
   readonly runId: string;
   readonly snapshotId: string;
@@ -215,6 +231,8 @@ export interface GameHostObservation {
   readonly sockets?: readonly SocketObservation[];
   /** Phase 23.9a, additive: the project UI — the documents shown, the flow screen's document, the focus. */
   readonly ui?: UiLayerObservation;
+  /** Phase 23.16, additive: the conversation (once the project's dialogue ran). */
+  readonly dialogue?: DialogueObservation;
   /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
@@ -245,6 +263,8 @@ export interface GameHostSceneObservation {
   readonly audio?: AudioObservation;
   /** Phase 23.9a, additive: the project UI. */
   readonly ui?: UiLayerObservation;
+  /** Phase 23.16, additive: the conversation (once the project's dialogue ran). */
+  readonly dialogue?: DialogueObservation;
   /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
@@ -1499,6 +1519,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
           const r = rt.queueUiEvent?.(event);
           if (r !== undefined && r.ok === false) console.warn('[game-host] UI event refused:', r.error.message);
         },
+        // Phase 23.16: the dialogue UI's buttons (advance, choose, skip, auto, backlog) ride on the next input frame.
+        dialogueInput: (input) => {
+          const r = rt.queueDialogueInput?.(input);
+          if (r !== undefined && r.ok === false) console.warn('[game-host] dialogue input refused:', r.error.message);
+        },
         engineAction: (a) => {
           // Phase 23.14: rebinding from project UI (the same bindings API as scripts and the settings screen).
           if (a.action === 'rebind' || a.action === 'cancelRebind' || a.action === 'resetBindings') {
@@ -1671,6 +1696,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...socketsObservation(runtime),
         ...savesObservation(),
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
+        ...dialogueObservation(runtime),
         ...inputObservation(runtime),
       },
     };
@@ -1708,6 +1734,37 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return out.length > 0 ? { sockets: out } : {};
   };
 
+  /**
+   * Phase 23.16: the conversation as the dialogue UI shows it (read from the
+   * view model the runner publishes, so threaded Play reports it the same).
+   */
+  const dialogueObservation = (rt: Runtime): { dialogue?: DialogueObservation } => {
+    const d = (rt.uiView?.().model as { dialogue?: Record<string, unknown> } | undefined)?.dialogue;
+    if (d === undefined || d === null || typeof d !== 'object') return {};
+    const line = d['line'] as Record<string, unknown> | null | undefined;
+    const choices = Array.isArray(d['choices']) ? (d['choices'] as { text?: unknown }[]) : [];
+    const backlog = Array.isArray(d['backlog']) ? (d['backlog'] as { text?: unknown; speaker?: unknown; choice?: unknown }[]) : [];
+    const str = (v: unknown, n = 256): string => (typeof v === 'string' ? v.slice(0, n) : '');
+    return {
+      dialogue: {
+        running: d['active'] === true,
+        dialogueId: str(d['dialogueId'], 64),
+        node: str(d['node'], 64),
+        kind: str(d['kind'], 16),
+        line:
+          line !== null && line !== undefined && typeof line === 'object'
+            ? { id: str(line['id'], 64), speaker: str(line['speaker'], 64), name: str(line['plainName'], 64), expression: str(line['expression'], 32), portrait: str(line['portrait'], 64), text: str(line['text']), reveal: typeof line['reveal'] === 'number' ? line['reveal'] : 0, total: typeof line['total'] === 'number' ? line['total'] : 0, voiced: line['voiced'] === true }
+            : null,
+        choices: choices.slice(0, 16).map((c) => str(c.text, 128)),
+        backlog: backlog.length,
+        backlogTail: backlog.slice(-8).map((b) => ({ speaker: str(b.speaker, 64), text: str(b.text, 128), choice: b.choice === true })),
+        backlogOpen: d['backlogOpen'] === true,
+        skip: d['skipMode'] === true,
+        auto: d['autoMode'] === true,
+      },
+    };
+  };
+
   /** Phase 23.4: the resolved camera, while the game has virtual cameras. */
   const cameraObservation = (rt: Runtime): { camera?: CameraViewInfo } => {
     const c = rt.cameraView?.() ?? null;
@@ -1741,6 +1798,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...socketsObservation(runtime),
         ...savesObservation(),
         ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
+        ...dialogueObservation(runtime),
         ...inputObservation(runtime),
       },
     };
