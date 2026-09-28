@@ -730,6 +730,12 @@ export class GameplayBlocks {
     this.counters.set(name, (this.counters.get(name) ?? 0) + delta);
   }
 
+  /** Phase 24.4j: the named counters set from a project save's components section (every other counter is cleared). */
+  setCounters(values: Readonly<Record<string, number>>): void {
+    this.counters.clear();
+    for (const [k, v] of Object.entries(values)) if (/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) && Number.isFinite(v)) this.counters.set(k, v);
+  }
+
   /** Phase 9.11: what a save keeps of the run (collected pickups, defeated enemies, counters, health). */
   snapshotRun(): { counters: Record<string, number>; collected: string[]; defeated: string[]; health: number | null } {
     return {

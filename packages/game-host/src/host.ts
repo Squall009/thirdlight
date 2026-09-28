@@ -67,7 +67,7 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { AudioObservation, AudioSpatialLike, GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { DEFAULT_PROMPT_INPUT, hudPrompts, resolveCursorMode, type InputConfigLike } from './bindings';
+import { DEFAULT_PROMPT_INPUT, actionPrompts, hudPrompts, resolveCursorMode, type InputConfigLike } from './bindings';
 import { createInputBindings, type InputBindingsController } from './rebind';
 import type { Captured } from './input-bindings';
 import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
@@ -76,6 +76,7 @@ import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings
 import { createDebugConsole, type DebugConsole } from './debug-console';
 import { createUiLayer, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
 import { createPausePanel, type PausePanel } from './pause-panel';
+import { createShellController, type ShellConfigLike, type ShellController, type ShellObservation } from './shell';
 
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
@@ -294,6 +295,8 @@ export interface GameHostSceneObservation {
   readonly saves?: ProjectSavesObservation;
   /** Phase 23.17, additive: the timelines (screen fade/letterbox, plays, the last step's events) once one played. */
   readonly timeline?: import('@thirdlight/runtime').TimelineView;
+  /** Phase 24.4j, additive: the game shell (its screen, the listed scene, the HUD shown). */
+  readonly shell?: ShellObservation;
 }
 
 /** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
@@ -397,6 +400,8 @@ export interface GameHostConfig {
   readonly loadScene?: (sceneId: string) => Promise<LoadedSceneBatch['entities']>;
   /** Phase 9.10: the manifest's game flow (levels, lives, menus, music). v4 games only. */
   readonly flow?: FlowConfigLike;
+  /** Phase 24.4j: the manifest's game shell (menus and HUD as UI documents, the scene list) — a game that plays as a scene. */
+  readonly shell?: ShellConfigLike;
   /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
   readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { gameplay?: 'free' | 'locked'; ui?: 'free' | 'locked' } };
   /** Phase 9.10: each declared asset's kind (the host registers every audio cue for scripts and audio sources). */
@@ -801,6 +806,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return promptCache.prompts;
   };
   let flowCtl: FlowController | null = null;
+  /** Phase 24.4j: the game shell (a scene-mode game with `content.shell`). */
+  let shellCtl: ShellController | null = null;
   /** Phase 23.14: the player's bindings (created at mount when the game has an input config). */
   let bindings: InputBindingsController | null = null;
   /** Phase 23.14: the project's glyph images as object URLs (loaded on first use). */
@@ -886,6 +893,72 @@ export function createGameHost(config: GameHostConfig): GameHost {
       pausePanel?.hide();
     }
   };
+  /** Phase 24.4j: the input prompts generated from the declared actions (the active maps; the rebinding's labels for the device used last). */
+  let promptsCache: { key: string; list: ReturnType<typeof actionPrompts> } | null = null;
+  const currentActionPrompts = (): ReturnType<typeof actionPrompts> => {
+    const key = `${bindings?.revision() ?? 0}|${config.input.activeDevice?.() ?? 'keyboard'}|${modeMaps?.join(',') ?? ''}`;
+    if (promptsCache !== null && promptsCache.key === key) return promptsCache.list;
+    const b = bindings;
+    const list = actionPrompts(promptInput, b !== null ? (name) => b.glyph(name)?.label ?? '' : undefined, modeMaps ?? ['gameplay']);
+    promptsCache = { key, list };
+    return list;
+  };
+  const promptsText = (): string => currentActionPrompts().map((p) => p.text).join(' · ');
+
+  /** Phase 24.4j: the game shell over this runtime (its seams: the engine pause, UI events, project saves, the UI layer). */
+  const makeShell = (rt: Runtime): ShellController =>
+    createShellController({
+      shell: config.shell!,
+      showScreen: (docId) => uiLayer?.showScreen(docId),
+      setHud: (ids) => uiLayer?.setHud(ids),
+      setPaused: (on) => {
+        scenePaused = on;
+        rt.setPaused?.(on);
+      },
+      restart: () => {
+        const r = rt.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: '' });
+        if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
+      },
+      goToScene: (index) => {
+        const r = rt.queueUiEvent?.({ kind: 'scene', doc: '', widget: '', name: '', value: index });
+        if (r !== undefined && r.ok === false) console.warn('[game-host] scene move refused:', r.error.message);
+      },
+      listedScene: () => rt.listedSceneIndex?.() ?? -1,
+      saves:
+        projectSaves !== null && saveSchema !== undefined
+          ? {
+              slotCount: saveSchema.slots,
+              slots: () => projectSaves?.slots() ?? [],
+              save: (slot, meta) => {
+                const r = rt.requestSave?.(slot, meta);
+                return r === undefined ? 'this runtime cannot save' : r.ok ? null : r.error.message;
+              },
+              load: (slot) => void projectSaves?.loadSlot(slot),
+            }
+          : null,
+      pauseAllowed: () => {
+        const mv = rt.modeView?.() ?? null;
+        return mv === null || mv.pause;
+      },
+      modePauseScreen: () => rt.modeView?.()?.pauseScreen,
+      pausePanel: () => {
+        if (hostDom === null) return null;
+        pausePanel ??= createPausePanel(hostDom, config.container, {
+          resume: () => shellCtl?.engine({ do: 'engine', action: 'resume' }),
+          restart: () => shellCtl?.engine({ do: 'engine', action: 'restartLevel' }),
+        });
+        return pausePanel;
+      },
+      setVolume: (bus, value) => config.audio.setVolume?.(bus, value),
+      setQuality: (q) => config.setQuality?.(q),
+      ...(config.saveStorage !== undefined ? { storage: config.saveStorage } : {}),
+      namespace: saveNamespace,
+      prompts: promptsText,
+      ...(hostDom !== null ? { dom: hostDom } : {}),
+      container: config.container,
+      log: (message) => console.warn(`[game-host] ${message}`),
+    });
+
   /** A project UI document's engine action in a game without a flow (with modes: pause, resume, restart). */
   const sceneEngineAction = (a: { readonly action: string }): void => {
     switch (a.action) {
@@ -1311,7 +1384,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const uiFocus = uiLayer !== null && uiLayer.hasFocus() && (flowCtl === null || flowCtl.screen === 'playing' || uiLayer.observe().screen !== null);
     // Phase 23.10: the game modes (their input maps); a game with modes and no flow has the engine pause.
     const modeView = serviceModes(runtime);
-    if (flowCtl === null && modeView !== null) {
+    if (shellCtl !== null) {
+      // Phase 24.4j: the game shell takes what the focused document left (pause, cancel, the pause panel's navigation).
+      const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: menu.confirm, cancel: false, pause: false };
+      const rest = uiFocus ? uiLayer!.handleEdges(raw) : raw;
+      shellCtl.handleEdges(rest);
+    } else if (flowCtl === null && modeView !== null) {
       const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: menu.confirm, cancel: false, pause: false };
       const rest = uiFocus ? uiLayer!.handleEdges(raw) : raw;
       if (rest.pause) setScenePause(!scenePaused);
@@ -1702,12 +1780,23 @@ export function createGameHost(config: GameHostConfig): GameHost {
           }
           // Phase 23.10: a game without a flow has the engine pause (with modes) and the restart.
           if (flowCtl !== null) flowCtl.engine(a);
+          else if (shellCtl !== null) shellCtl.engine(a);
           else sceneEngineAction(a);
         },
         // Phase 23.14: `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
+        // Phase 24.4j: + the game shell, the named counters, every object's health and the generated input prompts.
         flowValues: () => {
           const f = flowCtl?.uiValues() ?? null;
-          return bindings === null ? f : { ...(f ?? {}), input: inputUiValues() };
+          const rtNow = runtime;
+          return {
+            ...(f ?? {}),
+            ...(bindings !== null ? { input: inputUiValues() } : {}),
+            ...(shellCtl !== null ? { shell: shellCtl.values() } : {}),
+            counters: rtNow?.gameCounters?.().counters ?? {},
+            health: rtNow?.healthsView?.() ?? {},
+            prompts: promptsText(),
+            promptList: currentActionPrompts(),
+          };
         },
         // Phase 23.14: {action:name} glyphs in UI texts.
         ...(bindings !== null
@@ -1731,10 +1820,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
     if (sceneMode) {
+      // Phase 24.4j: the game shell (a title, pause, settings, controls, save/load screens and the HUD as UI documents).
+      if (config.shell !== undefined) shellCtl = makeShell(res.runtime);
       mounted = true;
       // Phase 23.13: a scene plays script sounds and audio sources too.
       registerSounds();
       if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start, null);
+      // A start given by a test or the debugger begins in play (no title).
+      shellCtl?.start(config.start !== undefined);
       return { ok: true };
     }
 
@@ -1994,6 +2087,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...inputObservation(runtime),
         ...modeObservation(runtime),
         ...timelineObservation(runtime),
+        ...(shellCtl !== null ? { shell: shellCtl.observe(), paused: scenePaused } : {}),
       },
     };
   };
@@ -2084,6 +2178,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       uiLayer.dispose();
       uiLayer = null;
     }
+    shellCtl?.dispose();
+    shellCtl = null;
     pausePanel?.dispose();
     pausePanel = null;
     // Phase 23.10: the input's maps back to every map (the owner outlives this host).

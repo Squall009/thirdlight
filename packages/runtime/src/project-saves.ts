@@ -455,6 +455,21 @@ export class RuntimeSaves {
     return out;
   }
 
+  /**
+   * Phase 24.4j: a save the player asked for through the game shell, made now
+   * (between steps: the state the last step left) and handed to the host with
+   * the next requests. Null when it was made, else why not.
+   */
+  saveNow(slot: number, meta: SaveMeta): string | null {
+    if (!this.slotOk(slot)) return `the game has no save slot ${String(slot)}`;
+    for (const k of ['title', 'chapter', 'location'] as const) if (meta[k] !== undefined && !text(meta[k], SAVE_LIMITS.metaText)) return `the save's ${k} is at most ${SAVE_LIMITS.metaText} characters`;
+    this.active = true;
+    const built = this.assemble({ slot, meta: { title: String(meta.title ?? ''), chapter: String(meta.chapter ?? ''), location: String(meta.location ?? ''), thumbnail: meta.thumbnail === true } });
+    if (typeof built === 'string') return built;
+    this.ready.push(built);
+    return null;
+  }
+
   /** A new run (start, replay): no document, no play time, no pending work; the slot list and settings stay. */
   reset(): void {
     this.doc = null;

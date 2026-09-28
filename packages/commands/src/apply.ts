@@ -59,7 +59,7 @@ import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetB
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
 import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
 import { applyDeleteDialogueValue, applySetDialogue, applySetDialogueSettings, applySetSpeaker } from './dialogue-ops';
-import { applySetBehaviorGroups, applySetEventCues, applySetModes } from './mode-ops';
+import { applySetBehaviorGroups, applySetEventCues, applySetModes, applySetShell } from './mode-ops';
 import { applyDeleteTimeline, applySetTimeline } from './timeline-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
@@ -344,6 +344,12 @@ export function applyMutation<S extends SceneDocument>(
       const r = applySetBehaviorGroups(input, va.validated.args as { groups: string[] });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setBehaviorGroups', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
+    case 'setShell': {
+      // Phase 24.4j: the game shell (the whole block; null removes it).
+      const r = applySetShell(input, va.validated.args as { shell: import('@thirdlight/project-model').GameShell | null });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'setShell', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'setEventCues': {
       // Phase 24.4i: the event → cue table (the whole list).
@@ -639,7 +645,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
         }),
       };
     }

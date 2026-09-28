@@ -113,14 +113,17 @@ export type UiEngineAction =
   // Phase 23.14: rebinding (the host's bindings API): listen for an action's input, stop listening, reset one action or all.
   | 'rebind'
   | 'cancelRebind'
-  | 'resetBindings';
+  | 'resetBindings'
+  // Phase 24.4j: the game shell — open one of its screens (`screen`), move on to the next listed scene.
+  | 'open'
+  | 'nextScene';
 
 /** What a button click (or an input submit, a cancel, a focus) does. */
 export type UiAction =
   /** Raise a UI event to scripts (on the next input frame). */
   | { do: 'event'; name: string; value?: UiScalar | UiBinding }
   /** An engine action of the game flow (resume, quit to title, save, load, set a setting, …). */
-  | { do: 'engine'; action: UiEngineAction; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
+  | { do: 'engine'; action: UiEngineAction; screen?: 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load'; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
   /** Show / hide / toggle a UI document (through the input frame, so replays hold). */
   | { do: 'show' | 'hide' | 'toggle'; doc: string }
   /** Play a tween of this document (presentation only). */
@@ -280,13 +283,15 @@ export const UI_LIMITS = Object.freeze({
 });
 
 export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid', 'text', 'image', 'bar', 'button', 'list', 'input'];
-export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings'];
+export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene'];
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];
 export const UI_GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
 /** The flow screens a project may replace with its own document. */
 export const UI_FLOW_SCREENS = ['title', 'paused', 'settings', 'levelComplete', 'gameOver', 'finished', 'load', 'save'] as const;
 export type UiFlowScreen = (typeof UI_FLOW_SCREENS)[number];
+/** Phase 24.4j: the shell screens an engine `open` action names (project-model `SHELL_SCREENS`). */
+export const UI_SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 /** The save slots an engine load/save action names (the game host's). */
 export const UI_SAVE_SLOTS = ['auto', '1', '2', '3'] as const;
 
@@ -458,7 +463,10 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         }
         break;
       case 'engine': {
-        only(a, ['do', 'action', 'slot', 'setting', 'value', 'step', 'input', 'device', 'index', 'part', 'policy'], p, errors, 'engine action');
+        only(a, ['do', 'action', 'screen', 'slot', 'setting', 'value', 'step', 'input', 'device', 'index', 'part', 'policy'], p, errors, 'engine action');
+        // Phase 24.4j: open names the shell screen it opens.
+        oneOf(errors, a['screen'], `${p}/screen`, UI_SHELL_SCREENS, 'screen');
+        if (a['action'] === 'open' && a['screen'] === undefined) err(errors, 'field_missing', `${p}/screen`, 'open names the shell screen it opens', undefined, UI_SHELL_SCREENS.join(' | '));
         // Phase 23.14: rebind names the input action (and optionally the device, binding index, composite part and conflict policy).
         if (a['input'] !== undefined && !(typeof a['input'] === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(a['input']))) err(errors, 'field_value', `${p}/input`, 'input names an input action', a['input'], 'an action name');
         if (a['action'] === 'rebind' && a['input'] === undefined) err(errors, 'field_missing', `${p}/input`, 'rebind names its input action', undefined, 'an action name');

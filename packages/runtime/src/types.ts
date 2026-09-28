@@ -133,6 +133,8 @@ export interface RuntimeSnapshot {
   timelines?: readonly import('@thirdlight/project-model').TimelineAsset[];
   /** Phase 24.4i, v4 only, optional: the event → cue table (`content.eventCues`); absent: no event sounds. */
   eventCues?: readonly RuntimeEventCue[];
+  /** Phase 24.4j, optional: the shell's ordered scene list (`content.shell.scenes`) the `scene` UI event walks. */
+  sceneList?: readonly { readonly scene: string; readonly spawn?: string }[];
 }
 
 /** Phase 24.4i: one row of the event → cue table (project-model `EventCue`). */
@@ -1328,8 +1330,8 @@ export interface BehaviorCameraState {
 
 /** Phase 23.9a: one UI event of this step (from the input frame). */
 export interface BehaviorUiEvent {
-  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart). */
-  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart';
+  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart), scene (the game shell's move along its scene list: `value` is the entry). */
+  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene';
   /** The UI document it happened in. */
   readonly doc: string;
   /** The widget ('' for none). */
@@ -2486,6 +2488,16 @@ export interface Runtime {
   // ---- Phase 23.19 project saves --------------------------------------------
   /** The save/load/delete/settings requests scripts made since the last call (the host owns storage). */
   takeSaveRequests?(): import('./project-saves').SaveRequest[];
+  /**
+   * Phase 24.4j: the player's save from the game shell — the save is made now,
+   * between steps (the state of the last step), and handed to the host with
+   * the next requests; the outcome arrives as a storage answer.
+   */
+  requestSave?(slot: number, meta?: import('./project-saves').SaveMeta): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 24.4j: every object's health now (object id → current and max; the HUD's `$flow.health`). */
+  healthsView?(): Readonly<Record<string, { readonly current: number; readonly max: number }>>;
+  /** Phase 24.4j: the shell's scene list entry the run is at (-1: none). */
+  listedSceneIndex?(): number;
   /** Queue one storage answer for the next executed step (it rides on that step's input frame). */
   queueSaveEvent?(event: import('./project-saves').SaveEvent): { ok: true } | { ok: false; error: RuntimeError };
   /** The project saves state as digest text (null without a save schema or before any save activity). */

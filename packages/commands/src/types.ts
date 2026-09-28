@@ -155,6 +155,8 @@ export type V3MutationOp =
   | 'setBehaviorGroups'
   // phase 24.4i: the event → cue table
   | 'setEventCues'
+  // phase 24.4j: the game shell
+  | 'setShell'
   | 'deleteUiTheme'
   // phase 23.17: timelines
   | 'setTimeline'
@@ -593,6 +595,17 @@ export interface SetEventCuesChange {
   previous: import('@thirdlight/project-model').EventCue[];
   next: import('@thirdlight/project-model').EventCue[];
 }
+/** Phase 24.4j: `setShell` change data (null = no shell). */
+export interface SetShellChange {
+  type: 'setShell';
+  previous: import('@thirdlight/project-model').GameShell | null;
+  next: import('@thirdlight/project-model').GameShell | null;
+}
+/** Phase 24.4j: undo of `setShell`: restore the previous shell (null = none). */
+export interface SetShellInverse {
+  kind: 'setShell';
+  restore: import('@thirdlight/project-model').GameShell | null;
+}
 /** Phase 24.4i: undo of `setEventCues`: restore the previous table. */
 export interface SetEventCuesInverse {
   kind: 'setEventCues';
@@ -977,6 +990,7 @@ export type ChangeData =
   | SetModesChange
   | SetBehaviorGroupsChange
   | SetEventCuesChange
+  | SetShellChange
   | SetUiChange
   | SetTimelineChange;
 
@@ -1022,6 +1036,7 @@ export type ForwardChange =
   | SetModesChange
   | SetBehaviorGroupsChange
   | SetEventCuesChange
+  | SetShellChange
   | SetUiChange
   | SetTimelineChange;
 
@@ -1216,6 +1231,7 @@ export type InverseSpec =
   | SetModesInverse
   | SetBehaviorGroupsInverse
   | SetEventCuesInverse
+  | SetShellInverse
   | SetTimelineInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
@@ -1678,6 +1694,10 @@ export interface SetModesArgs {
 export interface SetBehaviorGroupsArgs {
   groups: string[];
 }
+/** Phase 24.4j: `setShell` replaces the game shell (null: none). */
+export interface SetShellArgs {
+  shell: import('@thirdlight/project-model').GameShell | null;
+}
 /** Phase 24.4i: `setEventCues` replaces the event → cue table. */
 export interface SetEventCuesArgs {
   cues: import('@thirdlight/project-model').EventCue[];
@@ -1778,6 +1798,7 @@ export type MutationArgs =
   | SetModesArgs
   | SetBehaviorGroupsArgs
   | SetEventCuesArgs
+  | SetShellArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
   | SetEffectArgs

@@ -48,6 +48,7 @@ import { fail, isPlainObject, withFound } from './validate';
 import { runtimeDialogueDataProblem, type RuntimeDialogueData } from './dialogue';
 import { canonicalTimelines, validateTimelines, type TimelineAsset } from './timelines';
 import { canonicalEventCues, validateEventCues, type EventCue } from './event-cues';
+import { canonicalShell, validateShell, type GameShell } from './shell';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
@@ -87,7 +88,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'modes', 'dialogue', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -134,6 +135,8 @@ export const MANIFEST_KEYS_V2 = [
   'timelines',
   // Phase 24.4i: the event → cue table (sounds the host plays for signals and events; only when the project has one).
   'eventCues',
+  // Phase 24.4j: the game shell (menus and HUD documents, the ordered scene list; only when the project has one).
+  'shell',
   // Phase 23.16: the compiled conversations, speakers and dialogue settings (only when the project has conversations).
   'dialogue',
   'scenes',
@@ -305,6 +308,8 @@ export interface RuntimeContentManifestV2 {
   timelines?: TimelineAsset[];
   /** Phase 24.4i: the event → cue table (present only when the project has one). */
   eventCues?: EventCue[];
+  /** Phase 24.4j: the game shell (present only when the project has one). */
+  shell?: GameShell;
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
@@ -631,6 +636,8 @@ export interface CaptureManifestV2Input {
   timelines?: readonly TimelineAsset[];
   /** Phase 24.4i: the event → cue table (only when the project has one). */
   eventCues?: readonly EventCue[];
+  /** Phase 24.4j: the game shell (only when the project has one). */
+  shell?: GameShell;
   environment?: EnvironmentConfig;
   /** Phase 9.6: the scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
@@ -780,6 +787,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.modes !== undefined && input.modes.length > 0 ? { modes: canonicalModes(input.modes) } : {}),
     ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
     ...(input.eventCues !== undefined && input.eventCues.length > 0 ? { eventCues: canonicalEventCues(input.eventCues) } : {}),
+    ...(input.shell !== undefined ? { shell: canonicalShell(input.shell) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -898,6 +906,12 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     const ecErrors: ModelErrorV2[] = [];
     validateEventCues(d['eventCues'], '/eventCues', ecErrors);
     if (ecErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'eventCues are not valid', 'field_value') };
+  }
+  // Phase 24.4j: the game shell validates as content.shell does.
+  if (d['shell'] !== undefined) {
+    const shErrors: ModelErrorV2[] = [];
+    validateShell(d['shell'], '/shell', shErrors);
+    if (shErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'shell is not valid', 'field_value') };
   }
   if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined || d['modes'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];

@@ -29,6 +29,7 @@ import { scatterProblem, scatterTransforms } from '../session/instances';
 import { TagsPanel } from './TagsPanel';
 import { CollisionLayersPanel } from './CollisionLayersPanel';
 import { ModesPanel } from './ModesPanel';
+import { ShellPanel } from './ShellPanel';
 import { SavesPanel } from './SavesPanel';
 import type { AssetView } from '../session/content-projection';
 import {
@@ -91,7 +92,7 @@ import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtim
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { TimelineAsset } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -577,6 +578,9 @@ function EditorApp(): JSX.Element {
   const [modes, setModes] = useState<GameMode[]>([]);
   const [behaviorGroups, setBehaviorGroups] = useState<string[]>([]);
   const [modesError, setModesError] = useState<string | null>(null);
+  /** Phase 24.4j: the game shell and the last setShell error. */
+  const [shell, setShell] = useState<GameShell | null>(null);
+  const [shellError, setShellError] = useState<string | null>(null);
   /** Phase 24.4i: the event → cue table and the last setEventCues error. */
   const [eventCues, setEventCues] = useState<EventCue[]>([]);
   const [eventCuesError, setEventCuesError] = useState<string | null>(null);
@@ -902,6 +906,7 @@ function EditorApp(): JSX.Element {
     setModes(stable('modes', c.getModes()));
     setBehaviorGroups(stable('behaviorGroups', c.getBehaviorGroups()));
     setEventCues(stable('eventCues', c.getEventCues()));
+    setShell(stable('shell', c.getShell()));
     setSaveSchema(stable('saveSchema', c.getSaveSchema()));
     const mats = stable('materials', c.getMaterials());
     const env = stable('environment', c.getEnvironment());
@@ -2020,6 +2025,14 @@ function EditorApp(): JSX.Element {
     const res = await c.command('setBehaviorGroups', { groups: next }, c.projection.revision);
     if (res.ok) setModesError(null);
     else setModesError((res.response as { message?: string }).message ?? 'the behavior groups could not be saved');
+  }, []);
+  /** Phase 24.4j: replace the game shell (one setShell command; null removes it). */
+  const saveShell = useCallback(async (next: GameShell | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setShell', { shell: next }, c.projection.revision);
+    if (res.ok) setShellError(null);
+    else setShellError((res.response as { message?: string }).message ?? 'the game shell could not be saved');
   }, []);
   /** Phase 24.4i: replace the event → cue table (one setEventCues command). */
   const saveEventCues = useCallback(async (next: EventCue[]) => {
@@ -4795,6 +4808,7 @@ function EditorApp(): JSX.Element {
               />
             )
           )}
+          {bottomTab === 'shell' && <ShellPanel registry={registry} shell={shell} fieldContext={fieldContextMemo} error={shellError} onSetShell={(next) => void saveShell(next)} />}
           {bottomTab === 'modes' && (
             <ModesPanel
               registry={registry}
@@ -5396,7 +5410,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'dialogue' | 'libraries' | 'modes' | 'ui' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'dialogue' | 'libraries' | 'modes' | 'shell' | 'ui' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5426,6 +5440,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'ui', label: 'UI' },
   // Phase 23.10: game modes and behavior groups.
   { id: 'modes', label: 'Game modes' },
+  // Phase 24.4j: the game shell (menus and HUD as UI documents, the scene list).
+  { id: 'shell', label: 'Game shell' },
   // Phase 23.6: block-layer editing.
   { id: 'blocks', label: 'Blocks' },
   { id: 'problems', label: 'Problems' },

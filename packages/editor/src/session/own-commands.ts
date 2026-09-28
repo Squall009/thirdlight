@@ -44,6 +44,8 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setBehaviorGroups',
   // Phase 24.4i: the event → cue table (whole list).
   'setEventCues',
+  // Phase 24.4j: the game shell (the whole block).
+  'setShell',
   'setSaveSchema',
   'setFlow',
   'setStartScenes',

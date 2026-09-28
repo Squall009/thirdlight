@@ -163,6 +163,8 @@ export interface PreviewManifestV2 {
   timelines?: import('@thirdlight/runtime').TimelineAsset[];
   /** Phase 24.4i: the event → cue table. */
   eventCues?: import('@thirdlight/runtime').RuntimeEventCue[];
+  /** Phase 24.4j: the game shell (menus and HUD documents, the scene list). */
+  shell?: import('@thirdlight/game-host').ShellConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -404,7 +406,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -468,7 +470,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // Phase 23.17: the timelines (ctx.timeline, play-on-start / play-on-signal).
   const withBoundsU2 = manifest.timelines !== undefined && manifest.timelines.length > 0 ? ({ ...withBoundsU1, timelines: manifest.timelines } as RuntimeSnapshot) : withBoundsU1;
   // Phase 24.4i: the event → cue table (the runtime plays its sounds through the audio intent log).
-  const withBoundsU = manifest.eventCues !== undefined && manifest.eventCues.length > 0 ? ({ ...withBoundsU2, eventCues: manifest.eventCues } as RuntimeSnapshot) : withBoundsU2;
+  const withBoundsU3 = manifest.eventCues !== undefined && manifest.eventCues.length > 0 ? ({ ...withBoundsU2, eventCues: manifest.eventCues } as RuntimeSnapshot) : withBoundsU2;
+  // Phase 24.4j: the game shell's scene list (the `scene` UI event walks it).
+  const withBoundsU = manifest.shell?.scenes !== undefined ? ({ ...withBoundsU3, sceneList: manifest.shell.scenes } as RuntimeSnapshot) : withBoundsU3;
   // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
   const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const withBoundsA = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
@@ -675,6 +679,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       assetPaths: assetPathsById,
       // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
       ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
+      // Phase 24.4j: the game shell (menus and HUD as UI documents, the scene list).
+      ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
       inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
       setQuality: (level) => adapterRef.current?.setQuality?.(level),
       setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
@@ -1010,6 +1016,8 @@ export function bootstrapPreviewM3(): void {
         // Phase 23.10: the game modes, the engine pause and its panel.
         ...(o.mode !== undefined ? { mode: structuredClone(o.mode), paused: o.paused === true } : {}),
         ...(o.pausePanel !== undefined ? { pausePanel: { ...o.pausePanel } } : {}),
+        // Phase 24.4j: the game shell (its screen, the listed scene, the HUD shown) and the engine pause it holds.
+        ...(o.shell !== undefined ? { shell: structuredClone(o.shell), paused: o.paused === true } : {}),
       };
     }
     const v = gv.view;

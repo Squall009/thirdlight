@@ -351,6 +351,14 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return { ok: true };
     },
     gameCounters: () => mirror.counters,
+    // Phase 24.4j: the objects' health and the listed scene (mirrored); the shell's save is made in the worker.
+    healthsView: () => mirror.healths,
+    listedSceneIndex: () => mirror.listed,
+    requestSave: (slot: number, meta?: import('@thirdlight/runtime').SaveMeta) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      command({ op: 'requestSave', slot, ...(meta !== undefined ? { meta } : {}) });
+      return { ok: true };
+    },
     // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).
     readCameraView: (p: number[], r: number[]) => {
       const c = mirror.cam;

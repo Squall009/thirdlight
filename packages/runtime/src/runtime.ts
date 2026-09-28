@@ -1323,6 +1323,7 @@ export function instantiateRuntime(
     ...(startMode !== undefined ? { startMode } : {}),
     ...(snap.timelines !== undefined ? { timelines: snap.timelines } : {}),
     ...(snap.eventCues !== undefined ? { eventCues: snap.eventCues } : {}),
+    ...(snap.sceneList !== undefined ? { sceneList: snap.sceneList } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1421,6 +1422,8 @@ interface RuntimeArgs {
   timelines?: readonly TimelineAsset[];
   /** Phase 24.4i: the event → cue table. */
   eventCues?: readonly import('./types').RuntimeEventCue[];
+  /** Phase 24.4j: the shell's ordered scene list. */
+  sceneList?: readonly { readonly scene: string; readonly spawn?: string }[];
   /** Phase 23.18: the environment preset ids (ctx.environment). */
   environmentPresets: readonly string[];
 }
@@ -1679,6 +1682,10 @@ class RuntimeInstance implements Runtime {
   private impulseAcc: [number, number, number] | null = null;
   /** Phase 24.4e: a trigger's scene transition waiting for its scene (then the character moves to the spawn). */
   private pendingArrival: { spawnId: string; waitFor: string } | null = null;
+  /** Phase 24.4j: the shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
+  private readonly sceneList: readonly { readonly scene: string; readonly spawn?: string }[];
+  private listedScene: number | null = null;
+  private pendingListedScene: number | null = null;
   /** Phase 24.4i: the event → cue table (empty: no event sounds). */
   private readonly eventCues: readonly import('./types').RuntimeEventCue[];
   private readonly lifecycleControl: import('./types').BehaviorLifecycle;
@@ -2042,6 +2049,7 @@ class RuntimeInstance implements Runtime {
     this.noteBehaviorGroups(args.initialEntities);
     this.lifecycleControl = this.buildLifecycleControl();
     this.eventCues = args.eventCues ?? [];
+    this.sceneList = args.sceneList ?? [];
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
     const rt = this;
     this.blocks = new GameplayBlocks(
@@ -2388,6 +2396,19 @@ class RuntimeInstance implements Runtime {
     return this.environment.digestText();
   }
 
+  /** Phase 24.4j: the player's save from the game shell, made now (between steps) and handed to the host with the next requests. */
+  requestSave(slot: number, meta?: import('./project-saves').SaveMeta): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.saves.schema === null) return { ok: false, error: fail('game_command_invalid', 'this game has no project save schema', { reason: 'saves' }) };
+    const problem = this.saves.saveNow(slot, meta ?? {});
+    return problem === null ? { ok: true } : { ok: false, error: fail('game_command_invalid', problem, { reason: 'saves' }) };
+  }
+
+  /** Phase 24.4j: every object's health now (the HUD's bindings). */
+  healthsView(): Readonly<Record<string, { readonly current: number; readonly max: number }>> {
+    return this.blocks?.primitives.healthsView() ?? {};
+  }
+
   /** Phase 23.19: the save/load/delete/settings requests since the last call; the host (the storage owner) carries them out. */
   takeSaveRequests(): SaveRequest[] {
     return this.saves.takeRequests();
@@ -2439,8 +2460,12 @@ class RuntimeInstance implements Runtime {
             return rt.dialogue.saveState();
           case 'environment':
             return rt.environment.saveState();
-          case 'components':
-            return rt.blocks?.primitives.saveState() ?? {};
+          case 'components': {
+            // Phase 24.4j: the named counters travel with the objects' state (a collectible's total with it being collected).
+            const state = rt.blocks?.primitives.saveState() ?? {};
+            const counters = rt.blocks?.countersView() ?? {};
+            return Object.keys(counters).length > 0 ? { ...state, counters } : state;
+          }
         }
       },
       check(section, value) {
@@ -2460,8 +2485,15 @@ class RuntimeInstance implements Runtime {
             return rt.dialogue.checkState(value);
           case 'environment':
             return rt.environment.checkState(value);
-          case 'components':
+          case 'components': {
+            if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'counters' in value) {
+              const { counters, ...rest } = value as Record<string, unknown>;
+              if (typeof counters !== 'object' || counters === null || Array.isArray(counters) || Object.keys(counters).length > 256) return 'the components section\'s counters map at most 256 names to numbers';
+              for (const [k, v] of Object.entries(counters)) if (!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) || typeof v !== 'number' || !Number.isFinite(v)) return `counter "${k.slice(0, 40)}" is not a counter name with a number`;
+              return rt.blocks?.primitives.checkState(rest) ?? null;
+            }
             return rt.blocks?.primitives.checkState(value) ?? null;
+          }
         }
       },
       apply(section, value) {
@@ -2485,9 +2517,12 @@ class RuntimeInstance implements Runtime {
           case 'environment':
             rt.environment.restoreState(value as EnvironmentSaveState | undefined);
             return null;
-          case 'components':
-            rt.blocks?.primitives.restoreState(value as import('./primitives').PrimitivesSaveState | undefined);
+          case 'components': {
+            const { counters, ...rest } = (value ?? {}) as Record<string, unknown>;
+            rt.blocks?.primitives.restoreState(rest as import('./primitives').PrimitivesSaveState);
+            rt.blocks?.setCounters((counters ?? {}) as Record<string, number>);
             return null;
+          }
         }
       },
     };
@@ -3310,6 +3345,7 @@ class RuntimeInstance implements Runtime {
     if (this.pendingArrival !== null && !this.runArrival(this.stepIndex + 1)) return false;
     // Phase 23.10: a restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
+    if (this.pendingListedScene !== null) this.goToListedScene();
     this.modes.beginStep(this.stepIndex + 1);
     this.grid.beginStep(this.stepIndex + 1);
     this.materials.beginStep(this.stepIndex + 1);
@@ -3447,6 +3483,7 @@ class RuntimeInstance implements Runtime {
     // Phase 23.10: a restart asked for last step (a game without the platformer session), then
     // the game mode's step start (last step's events end; a script's switch applies now).
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
+    if (this.pendingListedScene !== null) this.goToListedScene();
     this.modes.beginStep(ordinal);
     if (this.isM3 && this.executedSteps >= this.timing.settleSteps) {
       if (!this.runLevelSwitch()) return false;
@@ -3789,6 +3826,7 @@ class RuntimeInstance implements Runtime {
    */
   private restartRun(ordinal: number): boolean {
     this.pendingRestart = false;
+    this.listedScene = null;
     // Phase 24.4f: scripts' impulses and a spawn facing do not outlive the run.
     this.impulseAcc = null;
     this.pendingFacing = null;
@@ -3838,6 +3876,14 @@ class RuntimeInstance implements Runtime {
         return false;
       }
       this.pendingRespawn = [p[0], p[1], p[2]];
+    } else if (player !== undefined && this.resetPort() !== null) {
+      // D37: the 2D-plane character too (its port kept the old place; the next controller step failed its check).
+      try {
+        this.placeCharacter2D(start.x, start.y, ordinal);
+      } catch (e) {
+        this.failStopFromError(e, this.stepIndex);
+        return false;
+      }
     }
     // No render streak: prev := curr for the restarted state.
     const prevMirror = this.stepMirrors[this.stepMirrors[1].map === this.prev ? 1 : 0];
@@ -3870,6 +3916,42 @@ class RuntimeInstance implements Runtime {
     if (t.spawn === null || !loads) return;
     if (this.session !== null) this.pendingTransfer = { spawnId: t.spawn, waitFor: [t.scene] };
     else this.pendingArrival = { spawnId: t.spawn, waitFor: t.scene };
+  }
+
+  /**
+   * Phase 24.4j: move to an entry of the shell's scene list (a `scene` UI
+   * event, at a step boundary): the previous listed scene is unloaded unless
+   * it is a start scene or the same scene; the entry's scene is loaded when
+   * it is not; the character moves to the entry's spawn once it is (as a
+   * trigger's scene transition). At a new run the run is at the first entry
+   * whose scene is a start scene (else none).
+   */
+  private goToListedScene(): void {
+    const index = this.pendingListedScene!;
+    this.pendingListedScene = null;
+    const entry = Number.isInteger(index) ? this.sceneList[index] : undefined;
+    if (entry === undefined) {
+      this.recordError({ code: 'scene_invalid', message: clipMessage(`the scene list has no entry ${String(index)}`), stepIndex: this.stepIndex, reason: 'load' });
+      return;
+    }
+    if (this.listedScene === null) this.listedScene = this.sceneList.findIndex((x) => this.startBatchSource.has(x.scene));
+    const prev = this.listedScene >= 0 ? this.sceneList[this.listedScene] : undefined;
+    this.listedScene = index;
+    const unload = prev !== undefined && prev.scene !== entry.scene && !this.startBatchSource.has(prev.scene) && this.batches.has(prev.scene) ? [prev.scene] : [];
+    if (!this.batches.has(entry.scene) && this.sceneStatus.get(entry.scene) !== 'loading') {
+      this.beginSceneTransition(`scene list ${index}`, { scene: entry.scene, spawn: entry.spawn ?? null, unload });
+      return;
+    }
+    for (const sceneId of unload) {
+      const problem = this.sceneOpProblem('unload', sceneId);
+      if (problem === null) this.enqueueSceneOp({ op: 'unload', sceneId });
+    }
+    if (entry.spawn !== undefined) this.pendingArrival = { spawnId: entry.spawn, waitFor: entry.scene };
+  }
+
+  /** Phase 24.4j: the shell's scene list entry the run is at (-1: none). */
+  listedSceneIndex(): number {
+    return this.listedScene ?? this.sceneList.findIndex((x) => this.startBatchSource.has(x.scene));
   }
 
   /** The arrival of a scene transition, at a step boundary once its scene is loaded. Returns false after a fail-stop. */
@@ -4120,6 +4202,8 @@ class RuntimeInstance implements Runtime {
     if (check.frame.ui !== undefined) {
       this.modes.deliver(check.frame.ui, stepIndex + 1);
       if (!this.isM3 && check.frame.ui.some((e) => e.kind === 'restart')) this.pendingRestart = true;
+      // Phase 24.4j: a move along the shell's scene list applies at the next boundary (after a restart of the same frame).
+      for (const e of check.frame.ui) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;
     }
     return this.withHeldPointer(check.frame);
   }

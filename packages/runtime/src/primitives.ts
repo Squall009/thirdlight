@@ -599,6 +599,16 @@ export class Primitives {
     return h === undefined ? null : { current: h.current, max: h.max };
   }
 
+  /** Phase 24.4j: every object's health (id order; the HUD's bindings). */
+  healthsView(): Record<string, { current: number; max: number }> {
+    const out: Record<string, { current: number; max: number }> = {};
+    for (const id of [...this.healths.keys()].sort()) {
+      const h = this.healths.get(id)!;
+      out[id] = { current: h.current, max: h.max };
+    }
+    return out;
+  }
+
   /** Take `amount` from an object's health (not below 0); false without health, at 0 already, or for a bad amount. */
   damage(id: string, amount: number, source = ''): boolean {
     const h = this.healths.get(id);

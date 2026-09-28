@@ -117,6 +117,14 @@ describe('project v4', () => {
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', unload: ['scene-gone'] })]))).toContain('a scene transition unloads no scene');
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-core', spawn: 'spawn-0002' })]))).toContain('a scene transition\'s spawn must be');
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', spawn: 'box-0001' })]))).toContain('a scene transition\'s spawn must be');
+    // Phase 24.4j: the shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
+    const hudDoc = { uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } };
+    const shell = (scenes: unknown[]) => content({ uiDocuments: [hudDoc], shell: { hud: ['hud'], scenes } });
+    const good = validateProjectV4(MANIFEST, shell([{ scene: 'scene-core' }, { scene: 'scene-level', spawn: 'spawn-0002' }]), [core, level, scene('scene-exit', [])]);
+    expect(good.ok, JSON.stringify(!good.ok && good.errors)).toBe(true);
+    expect(JSON.stringify(validateProjectV4(MANIFEST, shell([{ scene: 'scene-gone' }]), [core, level]))).toContain('a listed scene names an unknown scene');
+    expect(JSON.stringify(validateProjectV4(MANIFEST, shell([{ scene: 'scene-core', spawn: 'spawn-0002' }]), [core, level]))).toContain('a listed scene starts at a player spawn in that scene');
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content({ shell: { hud: ['hud'] } }), [core, level]))).toContain('no UI document');
     const inst = scene('scene-level', [{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: 'asset-none' }, buffer: DIGEST, count: 2 } } }]);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, inst]))).toContain('asset_reference_missing');
   });

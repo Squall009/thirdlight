@@ -19,7 +19,7 @@
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -331,6 +331,8 @@ export class SessionClient {
   private behaviorGroups: string[] = [];
   /** Phase 24.4i: the event → cue table (from `queryGameConfig`, then `setEventCues` changes). */
   private eventCues: EventCue[] = [];
+  /** Phase 24.4j: the game shell (from `queryGameConfig`, then `setShell` changes; null: none). */
+  private shell: GameShell | null = null;
   /** Phase 23.19: the project save schema (from `queryGameConfig`, then `setSaveSchema` changes). */
   private saveSchema: SaveSchema | null = null;
   private inputDefaults: InputConfig = { actions: [] };
@@ -562,6 +564,8 @@ export class SessionClient {
         this.behaviorGroups = Array.isArray(groups) ? [...groups] : [];
         const cues = (g as { eventCues?: EventCue[] }).eventCues;
         this.eventCues = Array.isArray(cues) ? structuredClone(cues) : [];
+        const shell = (g as { shell?: GameShell | null }).shell;
+        this.shell = shell !== undefined && shell !== null ? structuredClone(shell) : null;
         const saveSchema = (g as { saveSchema?: SaveSchema | null }).saveSchema;
         this.saveSchema = saveSchema !== undefined && saveSchema !== null ? structuredClone(saveSchema) : null;
         const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
@@ -811,6 +815,8 @@ export class SessionClient {
         this.behaviorGroups = [...change.next];
       } else if (change.type === 'setEventCues') {
         this.eventCues = structuredClone(change.next);
+      } else if (change.type === 'setShell') {
+        this.shell = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setSaveSchema') {
         this.saveSchema = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setAnimators') {
@@ -1339,6 +1345,11 @@ export class SessionClient {
   /** Phase 24.4i: the event → cue table. */
   getEventCues(): EventCue[] {
     return structuredClone(this.eventCues);
+  }
+
+  /** Phase 24.4j: the game shell (null: none). */
+  getShell(): GameShell | null {
+    return this.shell === null ? null : structuredClone(this.shell);
   }
 
   /** Phase 9.8: the project's input actions (null = the defaults). */

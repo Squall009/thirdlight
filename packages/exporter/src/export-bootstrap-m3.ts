@@ -107,6 +107,8 @@ interface ExportManifestV2 {
   timelines?: import('@thirdlight/runtime').TimelineAsset[];
   /** Phase 24.4i: the event → cue table. */
   eventCues?: import('@thirdlight/runtime').RuntimeEventCue[];
+  /** Phase 24.4j: the game shell (menus and HUD documents, the scene list). */
+  shell?: import('@thirdlight/game-host').ShellConfigLike;
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
   /** Phase 23.16: the dialogue runner's data (conversations, speakers, settings). */
   dialogue?: import('@thirdlight/runtime').RuntimeDialogueData;
@@ -164,7 +166,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -306,6 +308,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.timelines !== undefined && manifest.timelines.length > 0 ? { timelines: manifest.timelines } : {}),
     // Phase 24.4i: the event → cue table.
     ...(manifest.eventCues !== undefined && manifest.eventCues.length > 0 ? { eventCues: manifest.eventCues } : {}),
+    // Phase 24.4j: the game shell's scene list.
+    ...(manifest.shell?.scenes !== undefined ? { sceneList: manifest.shell.scenes } : {}),
   } as unknown as RuntimeSnapshot);
   // Phase 9.11 / 23.19: this game's saves in the player's browser (Play uses its own namespace).
   const saveNamespace = `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
@@ -530,6 +534,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     assetPaths: assetPathsById,
     // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
     ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
+    // Phase 24.4j: the game shell (menus and HUD as UI documents, the scene list).
+    ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
     inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
     setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),

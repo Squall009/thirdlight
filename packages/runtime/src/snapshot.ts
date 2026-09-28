@@ -25,7 +25,7 @@ import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thir
 import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'environmentPresets', 'dialogue']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -84,6 +84,7 @@ export function validateRuntimeSnapshot(
       modes?: RuntimeModes;
       timelines?: readonly TimelineAsset[];
       eventCues?: readonly EventCue[];
+      sceneList?: readonly { readonly scene: string; readonly spawn?: string }[];
       environmentPresets?: readonly string[];
     }
   | { error: RuntimeError } {
@@ -368,6 +369,14 @@ export function validateRuntimeSnapshot(
     if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
     eventCues = canonicalEventCues((snap as { eventCues: EventCue[] }).eventCues);
   }
+  // Phase 24.4j: the shell's ordered scene list (the `scene` UI event walks it).
+  let sceneList: readonly { readonly scene: string; readonly spawn?: string }[] | undefined;
+  if ((snap as { sceneList?: unknown }).sceneList !== undefined) {
+    const list = (snap as { sceneList?: unknown }).sceneList;
+    const ok = Array.isArray(list) && list.length >= 1 && list.length <= 32 && list.every((x) => typeof x === 'object' && x !== null && !Array.isArray(x) && Object.keys(x).every((k) => k === 'scene' || k === 'spawn') && typeof (x as { scene?: unknown }).scene === 'string' && SCENE_ID_RE.test((x as { scene: string }).scene) && ((x as { spawn?: unknown }).spawn === undefined || (typeof (x as { spawn?: unknown }).spawn === 'string' && ((x as { spawn: string }).spawn.length > 0 && (x as { spawn: string }).spawn.length <= 128))));
+    if (!ok) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/sceneList', message: 'sceneList is 1–32 entries { scene, spawn? }' } };
+    sceneList = (list as { scene: string; spawn?: string }[]).map((x) => Object.freeze({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}) }));
+  }
   // Phase 23.18: the optional environment preset ids (ctx.environment).
   let environmentPresets: readonly string[] | undefined;
   if ((snap as { environmentPresets?: unknown }).environmentPresets !== undefined) {
@@ -451,7 +460,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(sceneList !== undefined ? { sceneList } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

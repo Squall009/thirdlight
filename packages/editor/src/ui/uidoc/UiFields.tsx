@@ -319,7 +319,9 @@ export function StyleMapEditor(p: {
 // Actions
 // ---------------------------------------------------------------------------
 
-const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute'];
+// Phase 24.4j: + open (a game shell screen) and nextScene (the shell's scene list).
+const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
+const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 // Phase 23.16: + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
 const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play', 'dialogue'] as const;
 const DIALOGUE_INPUTS = ['advance', 'choose', 'skip', 'auto', 'backlog'] as const;
@@ -382,13 +384,22 @@ export function ActionsField(p: {
           )}
           {a.do === 'engine' && (
             <>
-              <select className="tl-input" aria-label={`${p.aria} ${i + 1} engine action`} value={a.action} onChange={(e) => setAtI(i, { do: 'engine', action: e.target.value as UiEngineAction, ...(e.target.value === 'setSetting' ? { setting: 'music', step: 1 } : {}) })}>
+              <select className="tl-input" aria-label={`${p.aria} ${i + 1} engine action`} value={a.action} onChange={(e) => setAtI(i, { do: 'engine', action: e.target.value as UiEngineAction, ...(e.target.value === 'setSetting' ? { setting: 'music', step: 1 } : {}), ...(e.target.value === 'open' ? { screen: 'settings' } : {}) })}>
                 {ENGINE_ACTIONS.map((x) => (
                   <option key={x} value={x}>
                     {x}
                   </option>
                 ))}
               </select>
+              {a.action === 'open' && (
+                <select className="tl-input" aria-label={`${p.aria} ${i + 1} screen`} value={a.screen ?? 'settings'} onChange={(e) => setAtI(i, { ...a, screen: e.target.value as (typeof SHELL_SCREENS)[number] })}>
+                  {SHELL_SCREENS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              )}
               {(a.action === 'load' || a.action === 'save') && (
                 <select className="tl-input" aria-label={`${p.aria} ${i + 1} slot`} value={a.slot ?? ''} onChange={(e) => setAtI(i, e.target.value === '' ? (({ slot: _s, ...r }) => r)(a) : { ...a, slot: e.target.value })}>
                   <option value="">default slot</option>

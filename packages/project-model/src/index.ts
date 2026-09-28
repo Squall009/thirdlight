@@ -489,6 +489,7 @@ export {
   UI_GENERIC_FONTS,
   UI_LIMITS,
   UI_SAVE_SLOTS,
+  UI_SHELL_SCREENS,
   UI_TWEEN_KINDS,
   UI_WIDGET_TYPES,
   canonicalUiDocument,
@@ -657,6 +658,7 @@ export {
 export type { BehaviorGroupComponent, GameMode, ModeBlend, ModePhysics, ModeTransition, ModeUngrouped, RuntimeModes } from './modes';
 // Phase 24.4i: the event → cue table.
 export { ENGINE_EVENT_TYPES, EVENT_CUE_BUSES, EVENT_CUE_FIELDS, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES, canonicalEventCue, canonicalEventCues, validateEventCue, validateEventCueReferences, validateEventCues, type EventCue } from './event-cues';
+export { SHELL_FIELDS, SHELL_LIMITS, SHELL_SCREENS, canonicalShell, validateShell, validateShellReferences, type GameShell, type ShellScene, type ShellScreen } from './shell';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
 // Phase 9.7: animator controllers.

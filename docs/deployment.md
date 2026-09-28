@@ -1556,6 +1556,36 @@ Generic again: both dimensions, with or without a game session.
   their sounds. MCP: `setEventCues {cues}`. They replace the game block's
   fixed cue slots, which stay until phase 24.7.
 
+### The game shell: menus and HUD as UI documents (phase 24.4j)
+
+For a game that plays as a scene (no game block and no flow — a project from
+the starter template), the **Game shell** tab (MCP: `setShell {shell}`) draws
+the menus and HUD with the project's own UI documents (make them in the UI
+tab):
+
+- **Screens**: **Title** (shown before play; the game waits behind it),
+  **Pause** (Escape / pad Start; absent: the engine's Resume / Restart panel),
+  **Settings**, **Controls** (rebinding), **Save** and **Load**. Their buttons
+  use engine actions: `newGame`, `continue` (the newest save), `resume`,
+  `back`, `open` (a screen), `save` / `load` (slot 1–3, the project saves of
+  the Saves tab), `setSetting`, `rebind`, `nextScene`, `quitToTitle`.
+- **HUD**: documents shown while the game plays. Bindings read
+  `$flow.counters.<name>` (named counters: collectibles, scripts),
+  `$flow.health.<objectId>.current|max`, `$flow.prompts` (made from the
+  project's input actions, e.g. "A/D move x · E interact"), `$flow.shell`
+  (screen, scene, `canContinue`, `saves.<n>.label`, `note`) and script values
+  (`ctx.ui.set`).
+- **Scene list**: the game's scenes in order, each with the spawn it starts
+  at. New game begins a fresh run at the first; **Next scene** loads the next
+  and moves the character to its spawn.
+- **Pause allowed**, and a debug **Status line** (screen, scene, prompts).
+
+A save from the shell includes the named counters in the `components`
+section. It does not yet carry which scenes are loaded or where the character
+stands. `tl_game_observe` reports `shell {screen, scene, hud, note}`. The
+flow's levels, lives and score and the classic HUD keep working until phase
+24.7.
+
 ### Timers and trigger events in scripts
 
 - `ctx.timers.after(name, seconds)` fires once, `ctx.timers.every(name,

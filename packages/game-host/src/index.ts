@@ -52,6 +52,8 @@ export {
 export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveRecords, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
 export { counterPoints, levelScore, timeBonus, type ScoreRulesLike } from './score';
 export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges, type LevelEnvironmentLike, type MenuSoundKind, type TitlePanLike, type TitleView } from './flow';
+// Phase 24.4j: the game shell (menus and HUD as UI documents) and the prompts generated from the input actions.
+export { createShellController, type ShellConfigLike, type ShellController, type ShellObservation, type ShellScreenKey, type ShellState } from './shell';
 export {
   GAME_HOST_API_VERSION,
   GAME_CONTROL_ACTIONS,
@@ -131,7 +133,7 @@ export { stepDigest } from './step-digest';
 export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, type DebugConsole, type DebugConsoleDeps } from './debug-console';
 export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
 export { RelayActionSource } from './relay-input';
-export { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type HudPromptState } from './bindings';
+export { DEFAULT_PROMPT_INPUT, actionPrompts, actionWords, hudPrompts, keyBindingLabel, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type ActionPrompt, type HudPromptState } from './bindings';
 // Phase 23.19: project save documents (the page owns the slots: IndexedDB; the settings document: localStorage).
 export { browserProjectSaveBackend, createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type SaveThumbnailInfo, type ThumbnailCapture } from './project-saves';
 export type { ProjectSavesObservation } from './host';

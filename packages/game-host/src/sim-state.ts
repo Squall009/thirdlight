@@ -44,6 +44,9 @@ export class FrameEncoder {
   private looksKey = '';
   private posesKey = '';
   private countersKey = '';
+  /** Phase 24.4j: the objects' health and the listed scene last sent. */
+  private healthsKey = '';
+  private listedSent = -2;
   /** Phase 23.4: the camera pose scratch and whether a camera went out last frame. */
   private readonly camPos: number[] = [0, 0, 0];
   private readonly camRot: number[] = [0, 0, 0, 1];
@@ -250,6 +253,19 @@ export class FrameEncoder {
         out.counters = counters;
       }
     }
+    const healths = rt.healthsView?.();
+    if (healths !== undefined) {
+      const key = JSON.stringify(healths);
+      if (key !== this.healthsKey) {
+        this.healthsKey = key;
+        out.healths = healths;
+      }
+    }
+    const listed = rt.listedSceneIndex?.();
+    if (listed !== undefined && listed !== this.listedSent) {
+      this.listedSent = listed;
+      out.listed = listed;
+    }
     if (rt.runState !== undefined && out.stepIndex !== this.runSaveStep) {
       this.runSaveStep = out.stepIndex;
       const save = rt.runState();
@@ -424,6 +440,9 @@ export class FrameMirror {
   looks: ReadonlyMap<string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }> = new Map();
   poses: ReadonlyMap<string, AnimatorPose> = new Map();
   counters: { counters: Record<string, number>; health: { current: number; max: number } | null } = { counters: {}, health: null };
+  /** Phase 24.4j: every object's health; the listed scene entry. */
+  healths: Readonly<Record<string, { readonly current: number; readonly max: number }>> = {};
+  listed = -1;
   runSave: unknown = null;
   sceneSet: SceneSetView | null = null;
   readonly batchEntities = new Map<string, SceneEntities>();
@@ -495,6 +514,8 @@ export class FrameMirror {
     if (s.looks !== undefined) this.looks = new Map(s.looks);
     if (s.poses !== undefined) this.poses = new Map(s.poses);
     if (s.counters !== undefined) this.counters = s.counters;
+    if (s.healths !== undefined) this.healths = s.healths;
+    if (s.listed !== undefined) this.listed = s.listed;
     if (s.runSave !== undefined) this.runSave = s.runSave;
     if (s.sceneSet !== undefined) {
       const w = s.sceneSet;

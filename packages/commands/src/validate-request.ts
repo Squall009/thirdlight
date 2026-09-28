@@ -176,6 +176,8 @@ const OPS: readonly MutationOp[] = [
   'setBehaviorGroups',
   // phase 24.4i: the event → cue table
   'setEventCues',
+  // phase 24.4j: the game shell
+  'setShell',
   // phase 23.17: timelines
   'setTimeline',
   'deleteTimeline',
@@ -230,7 +232,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1247,6 +1249,7 @@ export type ValidatedOpArgs =
   | { op: 'setModes'; args: { modes: import('@thirdlight/project-model').GameMode[] } }
   | { op: 'setBehaviorGroups'; args: { groups: string[] } }
   | { op: 'setEventCues'; args: { cues: import('@thirdlight/project-model').EventCue[] } }
+  | { op: 'setShell'; args: { shell: import('@thirdlight/project-model').GameShell | null } }
   | { op: 'deleteUiTheme'; args: { uiThemeId: string } }
   | { op: 'setTimeline'; args: { timeline: import('@thirdlight/project-model').TimelineAsset } }
   | { op: 'deleteTimeline'; args: { timelineId: string } };
@@ -1406,6 +1409,13 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== 'schema') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'schema') };
       if (args['schema'] === undefined) return { ok: false, error: fieldMissing('/args/schema', 'schema') };
       if (args['schema'] !== null && !isPlainObject(args['schema'])) return { ok: false, error: fieldType('/args/schema', args['schema'], 'object ({ version, slots, migrations?, sections?, thumbnail?, settings? }) or null (no project saves)') };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setShell': {
+      // Phase 24.4j: setShell {shell} (the whole shell; null = none).
+      for (const k of Object.keys(args)) if (k !== 'shell') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'shell') };
+      if (args['shell'] === undefined) return { ok: false, error: fieldMissing('/args/shell', 'shell') };
+      if (args['shell'] !== null && !isPlainObject(args['shell'])) return { ok: false, error: fieldType('/args/shell', args['shell'], 'object ({ screens?, hud?, scenes?, pause?, status? }) or null (no shell)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setFlow': {

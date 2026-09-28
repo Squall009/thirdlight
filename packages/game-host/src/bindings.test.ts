@@ -4,7 +4,7 @@
  * is in use — instead of a fixed "A/D … Space".
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type InputConfigLike } from './bindings';
+import { DEFAULT_PROMPT_INPUT, actionPrompts, actionWords, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type InputConfigLike } from './bindings';
 import { createHud, type HostDom, type HostDomNode, type HudState } from './hud';
 
 const PROJECT: InputConfigLike = {
@@ -83,5 +83,25 @@ describe('the classic HUD reads its prompts on every update', () => {
     device = 'gamepad';
     hud.update(state);
     expect(texts()).toContain('D-pad left/D-pad right or the left stick to move, A to jump');
+  });
+});
+
+describe('phase 24.4j: prompts generated from the declared input actions', () => {
+  const config = {
+    actions: [
+      { name: 'moveX', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' }] },
+      { name: 'walk', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'gamepadStick', x: 0, y: 1 }, { kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }] },
+      { name: 'open_door', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyE' }] },
+      { name: 'unbound', type: 'button', map: 'gameplay', bindings: [] },
+      { name: 'confirm', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'Enter' }] },
+    ],
+  };
+  it('names every action of the maps in declaration order, with no action special', () => {
+    expect(actionWords('moveX')).toBe('move x');
+    expect(actionWords('open_door')).toBe('open door');
+    expect(actionPrompts(config).map((p) => p.text)).toEqual(['A/D move x', 'WASD walk', 'E open door']);
+    expect(actionPrompts(config, undefined, ['ui']).map((p) => p.text)).toEqual(['Enter confirm']);
+    // The label the input in use shows (a rebinding's glyph) wins over the first keyboard binding.
+    expect(actionPrompts(config, (n) => (n === 'open_door' ? 'Y' : '')).map((p) => p.keys)).toEqual(['A/D', 'WASD', 'Y']);
   });
 });

@@ -421,7 +421,8 @@ function ListWidget(p: RowProps & { aria: string }): JSX.Element {
   const items = Array.isArray(p.value) ? (p.value as unknown[]) : Array.isArray(f.default) ? (f.default as unknown[]) : [];
   const max = f.length ?? f.maxItems ?? Infinity;
   const min = f.length ?? f.minItems ?? 0;
-  const fresh = (): unknown => startValue(f.item) ?? (items.length > 0 ? JSON.parse(JSON.stringify(items[items.length - 1])) : undefined);
+  // Phase 24.4j: a list of references (a HUD's documents) starts a new item at the first choice; a listed scene at the first scene.
+  const fresh = (): unknown => startValue(f.item, undefined, { scene: p.ctx.scenes[0]?.sceneId }) ?? (f.item.type === 'ref' ? p.ctx.refs[f.item.target as 'material']?.[0]?.id : undefined) ?? (items.length > 0 ? JSON.parse(JSON.stringify(items[items.length - 1])) : undefined);
   return (
     <div className="tl-desc__list" aria-label={p.aria} title={f.tooltip} data-field={f.key}>
       <div className="tl-field__label">

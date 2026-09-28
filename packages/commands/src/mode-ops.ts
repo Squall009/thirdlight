@@ -11,12 +11,12 @@
  * refused there. An empty list removes the field (the content bytes stay as
  * before modes existed).
  */
-import { canonicalEventCues, canonicalModes, validateBehaviorGroups, validateEventCues, validateModes, type EventCue, type GameMode, type ModelErrorV2 } from '@thirdlight/project-model';
+import { canonicalEventCues, canonicalModes, canonicalShell, validateBehaviorGroups, validateEventCues, validateModes, validateShell, type EventCue, type GameMode, type GameShell, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import type { CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, SetBehaviorGroupsChange, SetEventCuesChange, SetModesChange } from './types';
+import type { ContentDocument, SetBehaviorGroupsChange, SetEventCuesChange, SetModesChange, SetShellChange } from './types';
 
 type WithModes = ContentDocument & { modes?: GameMode[]; behaviorGroups?: string[] };
 
@@ -99,4 +99,35 @@ export function applySetEventCues(input: OpInput, args: { cues: EventCue[] }): O
   if (!gate.ok) return gate;
   const change: SetEventCuesChange = { type: 'setEventCues', previous, next: deepClone(next) };
   return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setEventCues', restore: previous } } };
+}
+
+// ---- phase 24.4j: the game shell ------------------------------------------------
+
+export const shellOf = (content: ContentDocument): GameShell | null => (content as ContentDocument & { shell?: GameShell }).shell ?? null;
+
+/** The content with the shell replaced (canonical; null removes the field). */
+export function withShell(content: ContentDocument, shell: GameShell | null): ContentDocument {
+  const c = { ...(content as ContentDocument & { shell?: GameShell }) };
+  if (shell !== null) c.shell = canonicalShell(shell);
+  else delete c.shell;
+  return c as ContentDocument;
+}
+
+/** `setShell {shell}`: the whole shell (null: none; one undo step; its documents, scenes and spawns are checked by the resulting-state gate). */
+export function applySetShell(input: OpInput, args: { shell: GameShell | null }): OpOutcome {
+  const catalog = contentOf(input.content);
+  if (args.shell !== null) {
+    const errors: ModelErrorV2[] = [];
+    validateShell(args.shell, '', errors);
+    if (errors.length > 0) return { ok: false, error: modelError(errors[0]!, '/args/shell') };
+  }
+  const before = shellOf(catalog);
+  const previous = before === null ? null : deepClone(before);
+  const next = args.shell === null ? null : canonicalShell(args.shell);
+  const content = withShell(catalog, next);
+  const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
+  const gate = gateResultState({ scene: input.scene, content: catalog, manifest: input.manifest }, resultScene, content);
+  if (!gate.ok) return gate;
+  const change: SetShellChange = { type: 'setShell', previous, next: next === null ? null : deepClone(next) };
+  return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setShell', restore: previous } } };
 }

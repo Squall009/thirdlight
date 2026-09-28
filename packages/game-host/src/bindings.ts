@@ -160,3 +160,55 @@ export function hudPrompts(config: InputConfigLike, device: 'keyboard' | 'gamepa
     failed: 'The run failed — reload to try again',
   };
 }
+
+/**
+ * Phase 24.4j: an input action's name as words for a prompt — camelCase and
+ * `_` split (`moveX` → "move x", `open_door` → "open door").
+ */
+export function actionWords(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/** Phase 24.4j: a keyboard binding's keys as a player reads them ('' for a binding of another device). */
+export function keyBindingLabel(binding: unknown): string {
+  const o = binding as Record<string, unknown>;
+  switch (kindOf(binding)) {
+    case 'key':
+      return keyLabel(String(o['code']));
+    case 'keys1d':
+      return `${keyLabel(String(o['negative']))}/${keyLabel(String(o['positive']))}`;
+    case 'keys2d':
+      return `${keyLabel(String(o['up']))}${keyLabel(String(o['left']))}${keyLabel(String(o['down']))}${keyLabel(String(o['right']))}`;
+    default:
+      return '';
+  }
+}
+
+/** Phase 24.4j: one generated prompt — the action, its keys (or pad button) and "<keys> <action words>". */
+export interface ActionPrompt {
+  readonly action: string;
+  readonly keys: string;
+  readonly text: string;
+}
+
+/**
+ * Phase 24.4j: the input prompts generated from the project's declared
+ * actions (no action is special): one per action of the given maps (absent:
+ * the gameplay map), in declaration order, with the label the input in use
+ * shows for it (`label`: the rebinding's glyph for the device used last, else
+ * the first keyboard binding). Actions with nothing bound are left out.
+ */
+export function actionPrompts(config: InputConfigLike, label?: (action: string) => string, maps: readonly string[] = ['gameplay']): ActionPrompt[] {
+  const out: ActionPrompt[] = [];
+  for (const a of config.actions) {
+    if (!maps.includes(a.map)) continue;
+    const keys = label?.(a.name) || (a.bindings.map(keyBindingLabel).find((t) => t !== '') ?? '');
+    if (keys === '') continue;
+    out.push({ action: a.name, keys, text: `${keys} ${actionWords(a.name)}` });
+  }
+  return out;
+}

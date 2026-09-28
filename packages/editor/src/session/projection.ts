@@ -660,6 +660,8 @@ export class Projection {
       case 'setBehaviorGroups':
       // Phase 24.4i: the event → cue table (tracked by the client from the change data).
       case 'setEventCues':
+      // Phase 24.4j: the game shell (tracked by the client from the change data).
+      case 'setShell':
       case 'setSaveSchema':
       case 'setFlow':
       // Phase 16.1: graphs are tracked by the client from the change data.

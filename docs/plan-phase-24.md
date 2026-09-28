@@ -104,7 +104,7 @@ keeps the gate green.
 | 24.1 | done 2026-09-27: Sprout tests deleted; `animator-skinned`, `lightmaps-kit` on generated GLBs (browser bake always, Blender bake when Blender is there) |
 | 24.2 | done 2026-09-28: `templates/starter` (no game block, plays as a scene); 35 e2e files, the template unit test and 5 project-model tests off `beacon-reach`; the rest listed below for 24.7 |
 | 24.3 | done 2026-09-28: modules resolve from component/block references only; the platformer is unpinned; the host has no default set and no module import (specs injected by the composition entries); an export links only the specs its manifest names |
-| 24.4 | a–i done 2026-09-28 (fast gate; the full gate runs when 24.4 is complete); j open |
+| 24.4 | a–j done 2026-09-28 (fast gate; the full gate runs when 24.4 is complete) |
 | 24.4a | done 2026-09-28: `collectible {counter, amount?, size?, onCollect?, respawn?}`; `ctx.collectible.collected/restore`; `collected`/`restored` events |
 | 24.4b | done 2026-09-28: `health` on any object; `ctx.health.get/damage/heal/events`; `damaged`/`healed`/`died` events |
 | 24.4c | done 2026-09-28: `patrol {mode: waypoints or edges, …}` (the mover's path code; wall/ledge probes); `ctx.patrol.get/setActive/turn`; `turned` events |
@@ -114,6 +114,7 @@ keeps the gate green.
 | 24.4g | done 2026-09-28: `virtualCamera` rig `track {target, trackOffset?, deadZone?, damping?, boundsMin?, boundsMax?}` |
 | 24.4h | done 2026-09-28: `ctx.look.set/clear/get` (emissive, intensity, tint), both renderers |
 | 24.4i | done 2026-09-28: `content.eventCues` (`setEventCues`; signal or event name → sound), Media tab |
+| 24.4j | done 2026-09-28: `content.shell {screens?: {title, pause, settings, controls, save, load}, hud?, scenes?: [{scene, spawn?}], pause?, status?}` (`setShell`, Game shell tab); engine actions `open`, `nextScene`; `$flow.counters/health/prompts/shell`; counters in the `components` save section |
 | 24.5 | — |
 | 24.6 | — |
 | 24.7 | — |
@@ -295,3 +296,44 @@ keeps the gate green.
   expectation since the gates moved to the GPU, as `effects-runtime` in
   24.2; not a product bug). The inspector test's Face movement option is now
   its preset "Two sides" (the component has presets).
+- 2026-09-28 (24.4j): the shell is a new content block (`content.shell`),
+  not the flow with its levels removed: it drives a game that plays as a
+  scene, and the model refuses it beside the flow or the game session (one
+  thing owns the menus; the flow goes in 24.7). The host's
+  `game-host/src/shell.ts` holds the engine pause while a menu shows (as the
+  23.10 scene pause; the engine's settle pre-roll still runs first), draws a
+  screen with the UI layer's screen slot and the HUD documents in a new
+  host-shown layer under the scripts' documents (never focused). Without a
+  pause document the 23.10 pause panel is used; a game mode's `pause: false`
+  and `pauseScreen` still win. Settings, controls, save and load exist only
+  as documents (a missing one is logged, nothing opens).
+- 2026-09-28 (24.4j): new game, restart and next scene ride on the input
+  frame as UI events (`restart`, and a new `scene` kind whose value is the
+  scene list entry), applied at the next step boundary. The runtime keeps the
+  entry it is at (`listedSceneIndex`, mirrored from the worker); a move
+  unloads the previous listed scene unless it is a start scene, loads the
+  entry's scene when needed and places the character at its spawn with the
+  24.4e arrival. The snapshot carries the list as `sceneList`.
+- 2026-09-28 (24.4j): a shell save is made by the simulation between steps
+  (`Runtime.requestSave`, worker op `requestSave`), because a paused game
+  takes no steps; a load uses the 23.19 save service's `loadSlot` and resumes
+  play (it restores at the next step). Slots come from the UI action's
+  `slot` ("1"–"3"; `auto` is the flow's and is ignored). Continue loads the
+  newest slot by `savedAt`. The `components` section now carries the named
+  counters (restoring collected collectibles without their totals would
+  disagree). Open: a save does not carry the loaded scenes or the
+  character's place (a later save section).
+- 2026-09-28 (24.4j): HUD values come from the host as `$flow.*` (the
+  existing host root, now also in scene mode): `counters`, `health` (every
+  object's, `Runtime.healthsView`, mirrored), `prompts` / `promptList` and
+  `shell`. Prompts are generated from the declared actions of the active
+  maps (gameplay by default), "<keys> <action words>", labelled by the
+  rebinding's glyph for the device used last; no action name is special
+  (`bindings.ts` `actionPrompts`; `hudPrompts` stays for the classic HUD
+  until 24.7). The generic status overlay is the shell's opt-in debug line.
+- 2026-09-28 (24.4j): the editor's descriptor list widget starts a new item
+  of references at the first choice and a listed scene at the first scene
+  (a list of refs had no "+ add" before). D37 (a 2D scene restart without
+  the session fail-stopped) was found and fixed on the way. In the shell
+  integration test the two threading modes are compared by outcome: the
+  menus are live input there, so each mode sees them at its own step.

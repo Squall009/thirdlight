@@ -526,6 +526,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   behaviorGroups?: string[];
   /** Phase 24.4i: the event → cue table (sounds the host plays for signals and events; absent = none). */
   eventCues?: import('./event-cues').EventCue[];
+  /** Phase 24.4j: the game shell (menus and HUD as UI documents, the ordered scene list). */
+  shell?: import('./shell').GameShell;
   /** Phase 23.17: timelines (sequencer assets; absent = none). */
   timelines?: import('./timelines').TimelineAsset[];
   /**

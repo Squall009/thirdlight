@@ -224,6 +224,22 @@ export function composeV4(
     });
   }
 
+  // Phase 24.4j: the shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
+  const shell = (content as { shell?: { scenes?: { scene: string; spawn?: string }[] } }).shell;
+  if (shell?.scenes !== undefined) {
+    const sceneIds = new Set(scenes.map((sc) => sc.sceneId));
+    shell.scenes.forEach((entry, i) => {
+      const p = `/shell/scenes/${i}`;
+      if (!sceneIds.has(entry.scene)) errors.push(projectError(`${p}/scene`, 'reference_missing', 'a listed scene names an unknown scene', 'a sceneId of this project', { document: 'content' } as never, entry.scene));
+      if (entry.spawn !== undefined) {
+        const spawn = entityById.get(entry.spawn);
+        if (spawn === undefined || spawn.entity.components.playerSpawn === undefined || spawn.sceneId !== entry.scene) {
+          errors.push(projectError(`${p}/spawn`, 'reference_missing', 'a listed scene starts at a player spawn in that scene', 'a playerSpawn entity id in the scene', { document: 'content' } as never, entry.spawn));
+        }
+      }
+    });
+  }
+
   // Phase 9.10: an audio source plays an audio or music asset of this project.
   const soundKinds = new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, a.kind]));
   for (const s of scenes) {

@@ -31,7 +31,7 @@ import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { uiOf, withUi } from './ui-ops';
 import { dialogueValueOf, withDialogueValue } from './dialogue-ops';
-import { behaviorGroupsOf, eventCuesOf, modesOf, withBehaviorGroups, withEventCues, withModes } from './mode-ops';
+import { behaviorGroupsOf, eventCuesOf, modesOf, shellOf, withBehaviorGroups, withEventCues, withModes, withShell } from './mode-ops';
 import { timelineOf, withTimeline } from './timeline-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
@@ -542,6 +542,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withBehaviorGroups(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setShell') {
+    // Phase 24.4j: the game shell back to what it was.
+    const before = shellOf(content);
+    const change: ChangeData = { type: 'setShell', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withShell(content, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setEventCues') {
     // Phase 24.4i: the event → cue table back to what it was.
     const before = eventCuesOf(content);
@@ -1027,6 +1034,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = behaviorGroupsOf(content);
     const change: ChangeData = { type: 'setBehaviorGroups', previous: [...before], next: [...f.next] };
     return finish(state, bumped(scene), withBehaviorGroups(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setShell') {
+    const before = shellOf(content);
+    const change: ChangeData = { type: 'setShell', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withShell(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setEventCues') {

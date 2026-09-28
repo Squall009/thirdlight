@@ -83,6 +83,8 @@ export interface UiLayerObservation {
   readonly shown: readonly string[];
   /** The document drawn for the current flow screen (null: none or the built-in one). */
   readonly screen: string | null;
+  /** Phase 24.4j: the HUD documents the host shows (the game shell's). */
+  readonly hud?: readonly string[];
   readonly focus: { readonly doc: string; readonly widget: string; readonly index?: number } | null;
   /** The input action map made active by the focused document (null: every map). */
   readonly actionMap: string | null;
@@ -93,6 +95,8 @@ export interface UiLayer {
   applyOutput(out: UiOutput): void;
   /** Draw this document for the current flow screen (null: none). */
   showScreen(docId: string | null): void;
+  /** Phase 24.4j: the HUD documents the host shows while the game plays (under the simulation's; never focused). */
+  setHud(docIds: readonly string[]): void;
   /** Once per frame: $flow values and the view size. */
   frame(): void;
   /** Keyboard/gamepad edges: the focused document takes what it uses; the rest is returned. */
@@ -194,7 +198,7 @@ class DocView {
     private readonly layer: LayerImpl,
     readonly doc: UiDocument,
     readonly theme: UiTheme | undefined,
-    readonly source: 'sim' | 'screen',
+    readonly source: 'sim' | 'screen' | 'hud',
     readonly modal: boolean,
   ) {
     const dom = layer.dom;
@@ -216,7 +220,7 @@ class DocView {
 
   /** Focus is wanted: a modal, a document that asks for it, a flow screen. */
   get wantsFocus(): boolean {
-    return this.source === 'screen' || (this.doc.focus ?? this.modal);
+    return this.source === 'screen' || (this.source === 'sim' && (this.doc.focus ?? this.modal));
   }
 
   // --- styles ---------------------------------------------------------------
@@ -720,6 +724,9 @@ class LayerImpl implements UiLayer {
   private sim: DocView[] = [];
   private screen: DocView | null = null;
   private screenId: string | null = null;
+  /** Phase 24.4j: the HUD documents the host shows (the game shell's), under the simulation's. */
+  private hud: DocView[] = [];
+  private hudKey = '';
   private idSerial = 0;
   private dirty = true;
   private flowKey = '';
@@ -898,10 +905,10 @@ class LayerImpl implements UiLayer {
   // --- documents --------------------------------------------------------------
 
   private views(): DocView[] {
-    return this.screen !== null ? [...this.sim, this.screen] : [...this.sim];
+    return this.screen !== null ? [...this.hud, ...this.sim, this.screen] : [...this.hud, ...this.sim];
   }
 
-  private makeView(docId: string, source: 'sim' | 'screen', modal: boolean): DocView | null {
+  private makeView(docId: string, source: 'sim' | 'screen' | 'hud', modal: boolean): DocView | null {
     const doc = this.docs.get(docId);
     if (doc === undefined) return null;
     const theme = doc.theme !== undefined ? this.themes.get(doc.theme) : undefined;
@@ -933,7 +940,7 @@ class LayerImpl implements UiLayer {
     }
     if (out.shown !== undefined) this.syncShown(out.shown);
     for (const c of out.commands) {
-      const v = this.sim.find((x) => x.doc.uiDocumentId === c.doc) ?? (this.screen?.doc.uiDocumentId === c.doc ? this.screen : undefined);
+      const v = this.sim.find((x) => x.doc.uiDocumentId === c.doc) ?? this.hud.find((x) => x.doc.uiDocumentId === c.doc) ?? (this.screen?.doc.uiDocumentId === c.doc ? this.screen : undefined);
       if (v === undefined) continue;
       if (c.op === 'play') v.play(c.tween, c.widget);
       else {
@@ -961,8 +968,27 @@ class LayerImpl implements UiLayer {
   }
 
   private restack(): void {
-    this.sim.forEach((v, i) => setProp(v.root, 'z-index', String(i + 1)));
-    if (this.screen !== null) setProp(this.screen.root, 'z-index', String(this.sim.length + 100));
+    this.hud.forEach((v, i) => setProp(v.root, 'z-index', String(i + 1)));
+    this.sim.forEach((v, i) => setProp(v.root, 'z-index', String(this.hud.length + i + 1)));
+    if (this.screen !== null) setProp(this.screen.root, 'z-index', String(this.hud.length + this.sim.length + 100));
+  }
+
+  setHud(docIds: readonly string[]): void {
+    const key = docIds.join(',');
+    if (this.disposed || key === this.hudKey) return;
+    this.hudKey = key;
+    const next: DocView[] = [];
+    for (const id of docIds) {
+      const have = this.hud.find((v) => v.doc.uiDocumentId === id && !v.leaving);
+      if (have !== undefined) next.push(have);
+      else {
+        const made = this.makeView(id, 'hud', false);
+        if (made !== null) next.push(made);
+      }
+    }
+    for (const v of this.hud) if (!next.includes(v)) this.retire(v);
+    this.hud = next;
+    this.restack();
   }
 
   showScreen(docId: string | null): void {
@@ -1212,6 +1238,7 @@ class LayerImpl implements UiLayer {
     return {
       shown: this.sim.filter((x) => !x.leaving).map((x) => x.doc.uiDocumentId),
       screen: this.screenId,
+      ...(this.hud.length > 0 ? { hud: this.hud.filter((x) => !x.leaving).map((x) => x.doc.uiDocumentId) } : {}),
       focus: v !== null && f !== null ? { doc: v.doc.uiDocumentId, widget: f.w.id ?? '', ...(f.scope.index !== undefined ? { index: f.scope.index } : {}) } : null,
       actionMap: this.activeMap ?? null,
     };
@@ -1222,6 +1249,7 @@ class LayerImpl implements UiLayer {
     this.disposed = true;
     for (const v of this.views()) v.dispose();
     this.sim = [];
+    this.hud = [];
     this.screen = null;
     this.root.remove();
     const docLike = this.dom as unknown as { adoptedStyleSheets?: unknown[]; fonts?: { delete(f: unknown): void } };

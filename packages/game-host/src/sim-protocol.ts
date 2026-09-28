@@ -104,6 +104,8 @@ export type SimCommand =
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   // Phase 23.19: a storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
   | { readonly op: 'saveEvent'; readonly event: import('@thirdlight/runtime').SaveEvent }
+  // Phase 24.4j: the player's save from the game shell (made in the worker now, between steps).
+  | { readonly op: 'requestSave'; readonly slot: number; readonly meta?: import('@thirdlight/runtime').SaveMeta }
   /** Phase 23.9a: a UI event, queued in the worker's runtime for its next sampled frame. */
   | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
   /** Phase 23.16: a dialogue input, queued in the worker's runtime for its next sampled frame. */
@@ -168,6 +170,10 @@ export interface FrameState {
   readonly looks?: readonly (readonly [string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }])[];
   readonly poses?: readonly (readonly [string, AnimatorPose])[];
   readonly counters?: { counters: Record<string, number>; health: { current: number; max: number } | null };
+  /** Phase 24.4j: every object's health (when it changed; the HUD's `$flow.health`). */
+  readonly healths?: Readonly<Record<string, { readonly current: number; readonly max: number }>>;
+  /** Phase 24.4j: the shell's scene list entry the run is at (when it changed). */
+  readonly listed?: number;
   readonly runSave?: RunSaveState;
   readonly sceneSet?: SceneSetWire;
   /** Phase 23.13: the audio intent log's commands (phase 9.10: script sound requests). */

@@ -616,6 +616,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         behaviorGroups: [...((state.content as { behaviorGroups?: string[] }).behaviorGroups ?? [])],
         // Phase 24.4i: the event → cue table.
         eventCues: JSON.parse(JSON.stringify((state.content as { eventCues?: unknown[] }).eventCues ?? [])) as unknown,
+        // Phase 24.4j: the game shell (null: none).
+        shell: (state.content as { shell?: unknown }).shell !== undefined ? (JSON.parse(JSON.stringify((state.content as { shell?: unknown }).shell)) as unknown) : null,
         // Phase 23.19: the project save schema (null: no project saves).
         saveSchema: (state.content as { saveSchema?: unknown }).saveSchema !== undefined ? (JSON.parse(JSON.stringify((state.content as { saveSchema?: unknown }).saveSchema)) as unknown) : null,
         // Phase 23.16: conversations, the speaker registry and the dialogue settings (null: the defaults).

@@ -37,6 +37,7 @@
  */
 
 import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cues';
+import { SHELL_LIMITS } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
@@ -2025,6 +2026,31 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   // Phase 23.10: game modes (the first is the start mode) and the behavior groups modes tick.
   { key: 'modes', label: 'Game modes', tooltip: 'Named states of the running game: the input maps, camera, UI documents and ticking behavior groups of each, switched in one transition without a scene load (explore and tactical, on foot and driving, build and play…). The first mode is the one a run starts in.', required: false, value: list('modes', 'Game modes', `Up to ${MODE_LIMITS.modes} modes; the first is the start mode.`, MODE_ITEM, { maxItems: MODE_LIMITS.modes, default: [] }), ops: ['setModes'] },
   { key: 'behaviorGroups', label: 'Behavior groups', tooltip: 'Names an object\'s behavior can belong to (its Behavior group component); a game mode lists the groups that tick while it is active.', required: false, value: list('behaviorGroups', 'Behavior groups', `Up to ${MODE_LIMITS.behaviorGroups} names.`, str('*', 'Group', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MODE_LIMITS.behaviorGroups, unique: true, default: [] }), ops: ['setBehaviorGroups'] },
+  // Phase 24.4j: the game shell — menus and HUD as UI documents, the ordered scene list (a game that plays as a scene).
+  {
+    key: 'shell',
+    label: 'Game shell',
+    tooltip: 'The menus around the game and its HUD, drawn with the project\'s UI documents: a title before play, pause, settings, controls (rebinding) and the save and load screens (project saves), the HUD shown while playing, and the game\'s scenes in order for New game and Next scene.',
+    required: false,
+    value: obj('shell', 'Game shell', 'Menus, HUD and the scene list of a game without the game session.', [
+      obj('screens', 'Screens', 'The UI document drawn for each shell screen. Its buttons use the engine actions: new game, continue, resume, back, open a screen, save or load a slot, set a volume, rebind, next scene.', [
+        ref('title', 'Title', 'Shown before play (the game waits behind it); absent: the game starts at once.', 'uiDocument'),
+        ref('pause', 'Pause', 'Shown while paused (absent: the engine\'s pause panel with Resume and Restart).', 'uiDocument'),
+        ref('settings', 'Settings', 'Opened by the settings or open action (volumes, quality).', 'uiDocument'),
+        ref('controls', 'Controls', 'The rebinding screen (rebind actions; $flow.input lists the actions and their keys).', 'uiDocument'),
+        ref('save', 'Save', 'Save slots (project saves; $flow.saves lists them).', 'uiDocument'),
+        ref('load', 'Load', 'Load slots (project saves).', 'uiDocument'),
+      ]),
+      list('hud', 'HUD', `UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. Up to ${SHELL_LIMITS.hud}.`, ref('*', 'Document', 'A UI document.', 'uiDocument'), { maxItems: SHELL_LIMITS.hud, unique: true }),
+      list('scenes', 'Scene list', `The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next (up to ${SHELL_LIMITS.scenes}).`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
+        scene('scene', 'Scene', 'A scene of the project.', { required: true }),
+        entity('spawn', 'Spawn', 'The player spawn the character starts at (in that scene; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
+      ]), { maxItems: SHELL_LIMITS.scenes }),
+      bool('pause', 'Pause allowed', 'The pause input opens the pause screen.', { default: true }),
+      bool('status', 'Status line', 'A small debug line: the shell screen, the listed scene and the input prompts.', { default: false }),
+    ]),
+    ops: ['setShell'],
+  },
   // Phase 24.4i: the event → cue table (the generic replacement for fixed cue slots).
   {
     key: 'eventCues',
