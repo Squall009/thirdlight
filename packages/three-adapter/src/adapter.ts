@@ -33,6 +33,7 @@ import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node
 import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { compileIntoTarget } from './environment-nodes';
+import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
@@ -229,6 +230,12 @@ export interface SceneAdapterDiagnostics {
    * Phase 25.24d: `programs` — the node programs the batches are drawn with (every pass; groups of one material and vertex layout share one).
    */
   batching?: AutoBatcherDiagnostics & { programs?: number };
+  /**
+   * Phase 25.24d: every mesh drawn through instance-matrix columns (automatic
+   * batches and instance-set chunks) and the node programs they are drawn
+   * with (every pass); ABSENT before the first drawn frame.
+   */
+  instanced?: { meshes: number; programs: number };
   /** Phase 23.5: the block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
   /**
@@ -1758,6 +1765,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
     if (effects !== null && !disposed) d.effects = effects.diagnostics();
+    if (!disposed && lastFrameDrawn) {
+      const ros = (liveRenderer as unknown as { _objects?: { _renderObjects?: Iterable<{ object?: THREE.Object3D; geometry?: THREE.BufferGeometry; _nodeBuilderState?: unknown }> } } | null)?._objects?._renderObjects;
+      if (ros !== undefined) {
+        const meshes = new Set<unknown>();
+        const states = new Set<unknown>();
+        for (const ro of ros) {
+          if (ro.geometry?.getAttribute?.(`${INSTANCE_MATRIX_ATTRIBUTE}0`) === undefined) continue;
+          meshes.add(ro.object);
+          if (ro._nodeBuilderState != null) states.add(ro._nodeBuilderState);
+        }
+        d.instanced = { meshes: meshes.size, programs: states.size };
+      }
+    }
     if (batcher !== null && !disposed && lastFrameDrawn) {
       d.batching = batcher.diagnostics();
       // Phase 25.24d: distinct node programs of the batch meshes' render objects (three 0.186 internals, guarded).

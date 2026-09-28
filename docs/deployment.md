@@ -537,7 +537,8 @@ picture and before it shows a scene loaded later (phase 25.24d): the
 `precompile` stage above, and `renderer.precompile` in the diagnostics
 (runs, failed, gave up, the last one's ms). Meanwhile the previous picture
 stays. Repeated objects of one material are drawn with one shader however
-many batches they form (`renderer.batching.programs`).
+many batches or instance-set chunks they form (`renderer.batching.programs`;
+`renderer.instanced` counts both).
 
 From the second Play on, the browser takes the game's scripts and the
 project's files from its cache (phase 25.24c): the preview origin serves the

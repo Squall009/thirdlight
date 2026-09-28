@@ -328,7 +328,7 @@ export class ModelInstances {
   }
 
   /** Phase 15.2: the drawn copies of an instance set (picking one copy). */
-  instanceSetMeshes(entityId: string): readonly THREE.InstancedMesh[] {
+  instanceSetMeshes(entityId: string): readonly THREE.Mesh[] {
     return this.sets.get(entityId)?.built.meshes ?? [];
   }
 

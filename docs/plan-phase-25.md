@@ -161,6 +161,7 @@ boundary it changes (Playwright for any editor surface).
 | 25.24b, g | done 2026-09-28: Play and the export read only the start scenes' assets before the start (at most 8 at a time, each checked once), the rest when asked for (a later scene, a texture, a sound); the game bundle is read and hashed once per build, not per Play; the preview no longer re-serializes and hashes the scene; after split in §6 |
 | 25.24d | done 2026-09-28: pipelines built ahead of a present (`compileAsync` into the pass the frame draws, before the first present and after each scene attach, both backends; `precompile` stage and counters in diagnostics); automatic batches drawn through instance-matrix columns so batches of one material share one node program (three r186 built one per instanced mesh: 573 on the large bench); the shadow probe is the first frame, not an extra render; large first frame 7.1 → 3.7–3.9 s; after split in §6 |
 | 25.24c | done 2026-09-28: the bundle, worker and physics scripts at `/play-build/<digest>/`, a project's declared artifacts by digest under a stable per-project cache root (`immutable`, `ETag`, 304; the page still checks the bytes); blobs held once by digest; compiled behaviors cached by source, declaration, library and compiler digests; the closure's derivation of an unchanged capture reused, scene files hashed natively; large second Play 7.1 → 2.7 s (backend 1 s → 40–60 ms, bundle from the browser's caches); after split in §6 |
+| 25.24d (instance sets) | done 2026-09-28: instance-set chunks drawn through the same columns (one program per mesh of the model, not per chunk; picked per copy as before); the editor's first frame on the large bench 1.6 → 0.4 s of programs, so its first Play answers after 1.3 s (was 2.5–5 s); large second Play 2.4–2.5 s |
 | 25.7–25.23, 25.24e, f, h | — |
 
 ## 6. Decision log
@@ -524,4 +525,29 @@ boundary it changes (Playwright for any editor surface).
   above answered its start after 2.5 s (backend 0.5 s): the editor's Scene
   view was still building its first frame's programs for the instance sets
   (chunked instanced meshes, one program each) — see the next entry.
+- 2026-09-28 (25.24d, instance sets): the editor page's own first frame
+  after it opened the large bench still built a program per chunk of each
+  instance set (chunked `InstancedMesh`es: 1.4 s of node builds in a 1.6 s
+  render, profiled), and a click on Play waited for it. Instance-set chunks
+  now draw through the same instance-matrix columns: their geometry shares
+  the model mesh's attributes, each copy is placed once and offset per mesh
+  of the model, and a chunk mesh answers a ray per copy like an instanced
+  mesh (`instanceId` = its slot; `copyOf`, `copyBox`, the editor's copy
+  picking and gizmo unchanged). Diagnostics: `renderer.instanced {meshes,
+  programs}` for every mesh drawn through columns. Measured (same command;
+  Plays 2–3, Play 1 in brackets):
+
+  | Stage | small | large | asset-heavy |
+  |---|---|---|---|
+  | Play-start response | 73–75 [116] | 202–250 [1 294] (Play 1 was 2 526; backend 536) | 111–112 [536] |
+  | precompile | 108–124 | 386–393 [435] (was 657–666) | 231–237 |
+  | first frame | 454–470 [763] | **2 414–2 546** [4 252] | 677–680 [1 363] |
+  | frames > 50 ms in the 10 s after (worst) | 0 | 18–25 of 219–228 (62–67; 0 > 250 ms) | 0 |
+
+  Overall for the large bench from 25.24a's before split: first frame from
+  the second Play on 7.1–7.2 s → 2.4–2.5 s, no frame over 250 ms after it
+  (was one of ~370 ms). What is left before its first frame: the
+  simulation worker composing 16 000 entities (~0.5 s), the model
+  realization (~0.3 s), the precompile and the first draw with its shadow
+  map (~0.8 s).
 

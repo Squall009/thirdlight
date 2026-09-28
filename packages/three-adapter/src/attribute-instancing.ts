@@ -88,6 +88,8 @@ export interface AttributeInstancedMesh {
   count: number;
   /** Upload the matrices, draw `count` instances and refit the bounds (for culling). */
   markChanged(): void;
+  /** Instance `i`'s matrix (mesh space). */
+  getMatrixAt(i: number, out: THREE.Matrix4): THREE.Matrix4;
   /**
    * Free what this group made (its instance buffer, its geometry record, its
    * render objects); the source geometry's attributes stay with their owner.
@@ -103,7 +105,7 @@ const tmpSphere = new THREE.Sphere();
  * instance-matrix columns. The source geometry's attributes, index, groups
  * and draw range are shared, not copied.
  */
-export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number): AttributeInstancedMesh {
+export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: { readonly raycast?: boolean } = {}): AttributeInstancedMesh {
   installAttributeInstancing();
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.name = source.name;
@@ -147,6 +149,9 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       if (sphere.isEmpty()) geometry.boundingBox!.makeEmpty();
       else sphere.getBoundingBox(geometry.boundingBox!);
     },
+    getMatrixAt(i, out) {
+      return out.fromArray(array, i * 16);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -159,5 +164,29 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       geometry.dispose();
     },
   };
+  if (options.raycast === true) {
+    // Like `InstancedMesh.raycast`: each drawn instance is hit as the source geometry at its matrix
+    // (the hit names the instance: `instanceId`, and this mesh as its object).
+    const probe = new THREE.Mesh(source, material);
+    const hits: THREE.Intersection[] = [];
+    const world = new THREE.Matrix4();
+    const bound = new THREE.Sphere();
+    mesh.raycast = (raycaster, intersects) => {
+      const n = Math.min(capacity, handle.count);
+      if (n === 0 || geometry.boundingSphere === null || geometry.boundingSphere.isEmpty()) return;
+      if (!raycaster.ray.intersectsSphere(bound.copy(geometry.boundingSphere).applyMatrix4(mesh.matrixWorld))) return;
+      probe.material = mesh.material;
+      for (let i = 0; i < n; i += 1) {
+        probe.matrixWorld = world.multiplyMatrices(mesh.matrixWorld, tmpMatrix.fromArray(array, i * 16));
+        probe.raycast(raycaster, hits);
+        for (const h of hits) {
+          h.instanceId = i;
+          h.object = mesh;
+          intersects.push(h);
+        }
+        hits.length = 0;
+      }
+    };
+  }
   return handle;
 }

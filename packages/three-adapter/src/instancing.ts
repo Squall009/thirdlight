@@ -18,10 +18,16 @@
  *
  * The meshes own only their instance matrices; geometry, materials and
  * textures stay owned by the prepared model resource (released with it).
+ *
+ * Phase 25.24d: each chunk's mesh draws through instance-matrix columns of
+ * its own geometry (`attribute-instancing.ts`), not a `THREE.InstancedMesh`
+ * — three builds a node program per instanced mesh, so a set of many chunks
+ * built as many programs; now the chunks of a mesh share one. A chunk mesh
+ * is picked per copy like an instanced mesh (the hit's `instanceId`).
  */
 import * as THREE from 'three';
 
-import { instanceCapacity } from './batching';
+import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
 
@@ -39,7 +45,8 @@ export const INSTANCE_MAX_CHUNKS = 64;
 export interface BuiltInstanceSet {
   /** Holds the instanced meshes; attach it under the entity's node. */
   readonly group: THREE.Group;
-  readonly meshes: readonly THREE.InstancedMesh[];
+  /** The chunk meshes (phase 25.24d: plain meshes drawing instance-matrix columns; a ray hit names the copy's slot as `instanceId`). */
+  readonly meshes: readonly THREE.Mesh[];
   /** Phase 15.2 (editor preview): redraw copy `index` at a transform (position xyz, quaternion xyzw, scale xyz). */
   setCopy(index: number, transform: readonly number[]): void;
   /** Phase 21.3: the copy an instance of one of the set's meshes draws (a picked `instanceId`), or null. */
@@ -132,23 +139,25 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   const chunkOf = chunkCopies(positions, n);
   let chunkCount = 0;
   for (let i = 0; i < n; i += 1) if (chunkOf[i]! + 1 > chunkCount) chunkCount = chunkOf[i]! + 1;
-  interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: THREE.InstancedMesh[] }
+  interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: AttributeInstancedMesh[] }
   const chunks: Chunk[] = [];
   for (let c = 0; c < chunkCount; c += 1) chunks.push({ copies: [], center: new THREE.Vector3(), node: new THREE.Group(), meshes: [] });
   for (let i = 0; i < n; i += 1) chunks[chunkOf[i]!]!.copies.push(i);
   /** Copy → its chunk and slot. */
   const slotOf = new Int32Array(n);
-  const meshes: THREE.InstancedMesh[] = [];
-  /** An instanced mesh → its chunk, part and the copy index of each slot. */
-  const meta = new Map<THREE.Object3D, { chunk: Chunk; part: Part; copies: readonly number[] }>();
-  const relative = new THREE.Matrix4();
-  const writeCopy = (inst: THREE.InstancedMesh, slot: number, part: Part, center: THREE.Vector3, t: ArrayLike<number>, offset: number): void => {
-    pos.set(t[offset]!, t[offset + 1]!, t[offset + 2]!);
+  const meshes: THREE.Mesh[] = [];
+  /** A chunk mesh → its chunk, part, the copy index of each slot, and its instances. */
+  const meta = new Map<THREE.Object3D, { chunk: Chunk; part: Part; copies: readonly number[]; inst: AttributeInstancedMesh }>();
+  /** A copy's placement relative to its chunk's centre (the translation less the centre; affine, so that is all). */
+  const placeCopy = (center: THREE.Vector3, t: ArrayLike<number>, offset: number): void => {
+    pos.set(t[offset]! - center.x, t[offset + 1]! - center.y, t[offset + 2]! - center.z);
     rot.set(t[offset + 3]!, t[offset + 4]!, t[offset + 5]!, t[offset + 6]!).normalize();
     scl.set(t[offset + 7]!, t[offset + 8]!, t[offset + 9]!);
-    place.compose(pos, rot, scl).multiply(part.local);
-    relative.makeTranslation(-center.x, -center.y, -center.z).multiply(place);
-    inst.setMatrixAt(slot, relative);
+    place.compose(pos, rot, scl);
+  };
+  const relative = new THREE.Matrix4();
+  const writeCopy = (inst: AttributeInstancedMesh, slot: number, part: Part): void => {
+    relative.multiplyMatrices(place, part.local).toArray(inst.array, slot * 16);
   };
   for (const chunk of chunks.filter((c) => c.copies.length > 0)) {
     for (const i of chunk.copies) chunk.center.add(pos.set(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!));
@@ -169,23 +178,28 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       chunk.node.add(lod);
       return lod;
     });
-    for (const part of parts) {
-      // A chunked set's meshes take instanceCapacity's slots (matrices as vertex attributes: its chunks
-      // share one shader program); a one-chunk set keeps its exact count as before.
-      const inst = new THREE.InstancedMesh(part.mesh.geometry, part.mesh.material, chunks.length > 1 ? instanceCapacity(chunk.copies.length) : chunk.copies.length);
+    const made = parts.map((part) => {
+      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, chunk.copies.length, { raycast: true });
       inst.count = chunk.copies.length;
-      inst.name = part.mesh.name;
-      inst.castShadow = true;
-      inst.receiveShadow = true;
-      chunk.copies.forEach((copy, slot) => writeCopy(inst, slot, part, chunk.center, floats, copy * INSTANCE_BUFFER_FLOATS));
-      inst.instanceMatrix.needsUpdate = true;
-      inst.computeBoundingSphere();
+      inst.mesh.name = part.mesh.name;
+      inst.mesh.castShadow = true;
+      inst.mesh.receiveShadow = true;
+      return inst;
+    });
+    // Each copy placed once, then offset per mesh of the model.
+    chunk.copies.forEach((copy, slot) => {
+      placeCopy(chunk.center, floats, copy * INSTANCE_BUFFER_FLOATS);
+      for (let k = 0; k < parts.length; k += 1) writeCopy(made[k]!, slot, parts[k]!);
+    });
+    parts.forEach((part, k) => {
+      const inst = made[k]!;
+      inst.markChanged();
       const parent = part.lod >= 0 ? chunkLods[part.lod]!.levels[part.level]!.object : chunk.node;
-      parent.add(inst);
+      parent.add(inst.mesh);
       chunk.meshes.push(inst);
-      meshes.push(inst);
-      meta.set(inst, { chunk, part, copies: chunk.copies });
-    }
+      meshes.push(inst.mesh);
+      meta.set(inst.mesh, { chunk, part, copies: chunk.copies, inst });
+    });
     group.add(chunk.node);
   }
   const box = new THREE.Box3();
@@ -197,11 +211,11 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     setCopy(index: number, t: readonly number[]): void {
       if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) return;
       const chunk = chunks[chunkOf[index]!]!;
+      placeCopy(chunk.center, t, 0);
       for (const inst of chunk.meshes) {
-        const info = meta.get(inst)!;
-        writeCopy(inst, slotOf[index]!, info.part, chunk.center, t, 0);
-        inst.instanceMatrix.needsUpdate = true;
-        inst.computeBoundingSphere();
+        const info = meta.get(inst.mesh)!;
+        writeCopy(inst, slotOf[index]!, info.part);
+        inst.markChanged();
       }
     },
     copyOf(mesh: THREE.Object3D, instanceId: number): number | null {
@@ -213,20 +227,23 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       const chunk = chunks[chunkOf[index]!]!;
       const out = new THREE.Box3();
       for (const inst of chunk.meshes) {
-        const info = meta.get(inst)!;
+        const info = meta.get(inst.mesh)!;
         // The most detailed level only (what the copy is at its closest).
         if (info.part.lod >= 0 && info.part.level !== 0) continue;
-        inst.updateWorldMatrix(true, false);
-        if (inst.geometry.boundingBox === null) inst.geometry.computeBoundingBox();
+        inst.mesh.updateWorldMatrix(true, false);
+        const source = info.part.mesh.geometry;
+        if (source.boundingBox === null) source.computeBoundingBox();
         inst.getMatrixAt(slotOf[index]!, m);
-        box.copy(inst.geometry.boundingBox!).applyMatrix4(m.premultiply(inst.matrixWorld));
+        box.copy(source.boundingBox!).applyMatrix4(m.premultiply(inst.mesh.matrixWorld));
         out.union(box);
       }
       return out.isEmpty() ? null : out;
     },
     dispose(): void {
       group.removeFromParent();
-      // Phase 21.5: every chunk mesh and LOD node: render objects and the node-made instance buffers.
+      // Phase 21.5: every chunk mesh and LOD node: render objects; phase 25.24d: each chunk mesh's own geometry
+      // and instance buffer (never the model's geometry).
+      for (const c of chunks) for (const inst of c.meshes) inst.dispose();
       disposeObjectTree(group);
     },
   };

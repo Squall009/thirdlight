@@ -38,7 +38,7 @@ type Diag = {
   diagnostics?: {
     startTimings?: { stages: { name: string; startMs: number; endMs: number | null }[]; sceneLoads: { sceneId: string; attachedMs: number | null; precompileMs?: number | null }[] };
     assetReads?: { reads: number; bytes: number };
-    renderer?: { renderBackend?: string | null; batching?: { groups: number; batched: number; programs?: number }; precompile?: { runs: number; failed: number; gaveUp: number; running: boolean }; models?: { instances: number } };
+    renderer?: { renderBackend?: string | null; instanced?: { meshes: number; programs: number }; batching?: { groups: number; batched: number; programs?: number }; precompile?: { runs: number; failed: number; gaveUp: number; running: boolean }; models?: { instances: number } };
   };
 };
 
@@ -132,6 +132,41 @@ for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): batches of o
   expect(after.renderer!.precompile!.runs).toBeGreaterThan(runs);
   expect(after.startTimings!.sceneLoads.find((l) => l.sceneId === 'scene-more')!.precompileMs).not.toBeNull();
   await stop(page, 'shared', psid);
+});
+
+for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): the chunks of an instance set share their node programs and are drawn`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(300_000);
+  await sphereProject('chunks', 0, 0);
+  // 8 000 copies of the sphere on a 100 × 80 grid facing the camera: a few chunks of about 2 048.
+  const transforms: number[] = [];
+  for (let i = 0; i < 8000; i += 1) transforms.push((i % 100) * 4 - 198, Math.floor(i / 100) * 3 - 118, 0, 0, 0, 0, 1, 2.5, 2.5, 2.5);
+  const floats = new Float32Array(transforms);
+  const stageId = await be.stage('chunks', new Uint8Array(floats.buffer));
+  const published = await be.post('/api/v1/projects/chunks/content/buffers', { stageId });
+  expect(published.status, JSON.stringify(published.json).slice(0, 300)).toBe(200);
+  await be.project('chunks').command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Field', components: { instances: { asset: { assetId: 'sphere' }, buffer: published.json['digest'], count: 8000 } } });
+  await openEditor(page, 'chunks', (u) => editorUrlFor(u, variant));
+  const { psid } = await play(page, 'chunks');
+  const relay = (path: string, body: unknown = {}) => be.post(`/api/v1/projects/chunks/play/${psid}/${path}`, body);
+  const diag = async (): Promise<NonNullable<Diag['diagnostics']>> => ((await relay('diagnostics')).json as Diag).diagnostics ?? {};
+  await expect.poll(async () => (await diag()).renderer?.instanced?.meshes ?? 0, { timeout: 60_000 }).toBeGreaterThanOrEqual(3);
+  const d = await diag();
+  expect(d.renderer!.renderBackend).toBe(backendOf(variant));
+  // Before 25.24d every chunk was an instanced mesh with a program (per pass) of its own; now one per pass (the main pass, the shadow pass).
+  expect(d.renderer!.instanced!.programs, JSON.stringify(d.renderer!.instanced)).toBeGreaterThanOrEqual(1);
+  expect(d.renderer!.instanced!.programs).toBeLessThanOrEqual(2);
+  const r = await relay('screenshot', { maxWidth: 320 });
+  expect(r.status, JSON.stringify(r.json).slice(0, 200)).toBe(200);
+  const img = decodePng(Buffer.from(String(r.json['dataUrl']).replace(/^data:image\/png;base64,/, ''), 'base64'));
+  const bg = img.pixel(1, 1);
+  let differ = 0;
+  for (let y = 0; y < img.height; y += 1) for (let x = 0; x < img.width; x += 1) {
+    const px = img.pixel(x, y);
+    if (Math.abs(px[0] - bg[0]) + Math.abs(px[1] - bg[1]) + Math.abs(px[2] - bg[2]) > 60) differ += 1;
+  }
+  expect(differ).toBeGreaterThan(2000);
+  await stop(page, 'chunks', psid);
 });
 
 test('25.24c: the second Play takes its bundle and its model file from the browser cache (stable URLs); the model is still checked', async ({ page }) => {
