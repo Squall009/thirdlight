@@ -41,6 +41,10 @@ export {
 export { prepareBehavior, preparedSourceFrom } from './prepare';
 // Phase 23.7: script libraries (`@lib/<id>` imports) and `.json` data modules.
 export { createLibraryCache } from './libraries';
+// Phase 25.9: shared library modules and compiled positions back to sources.
+export { LINK_NAMESPACE, SHARED_LIBRARY_DIR, SHARED_LIBRARY_OPTIONS, linkStubText, sharedLibraryPath } from './shared-libraries';
+export { originalPosition, sourceFileOf } from './source-map';
+export type { OriginalPosition } from './source-map';
 export { LIBRARY_SPECIFIER_RE } from './scan';
 // Phase 15.4: properties declared in code (`export const properties = { … }`).
 export { labelOfKey, readCodeDeclaration } from './declare';
@@ -66,6 +70,7 @@ export type {
   ScriptLibraryCheckInput,
   ScriptLibraryCheckResult,
   ScriptLibraryInput,
+  SharedLibraryModule,
   SourceGraphAnalysis,
   SourceGraphContainer,
   SourceGraphFile,

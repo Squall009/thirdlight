@@ -130,6 +130,8 @@ export type LocatorPath =
   | { kind: 'asset'; contentId: string; assetId: string; version: number }
   | { kind: 'asset-digest'; contentId: string; digest: string }
   | { kind: 'behavior'; contentId: string; outputDigest: string }
+  /** Phase 25.9: one shared script library module (`libraries/<outputDigest>.js`), imported by behaviors. */
+  | { kind: 'library'; contentId: string; outputDigest: string }
   /** Phase 12 (c): one scene of a v4 build (`scenes/<sceneId>.json`). */
   | { kind: 'scene'; contentId: string; sceneId: string }
   | { kind: 'invalid' };
@@ -179,6 +181,13 @@ export function classifyLocatorPath(pathname: string): LocatorPath {
     const digest = outputDigest.slice(0, -3);
     if (!DIGEST_RE.test(digest)) return { kind: 'invalid' };
     return { kind: 'behavior', contentId, outputDigest: digest };
+  }
+  if (parts.length === 4 && parts[2] === 'libraries') {
+    const file = parts[3] as string;
+    if (!file.endsWith('.js')) return { kind: 'invalid' };
+    const digest = file.slice(0, -3);
+    if (!DIGEST_RE.test(digest)) return { kind: 'invalid' };
+    return { kind: 'library', contentId, outputDigest: digest };
   }
   return { kind: 'invalid' };
 }

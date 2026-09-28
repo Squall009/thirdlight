@@ -175,6 +175,22 @@ export interface ProjectSession {
    * `publishBehavior{mode:"source"}` request.
    */
   preparedSources: Map<string, import('@thirdlight/behavior-build').PreparedBehaviorSource>;
+  /**
+   * Phase 25.9: staged script library edits (several patches, one commit) by
+   * stageId, oldest first; never authoritative and never persisted (a
+   * restart drops them). `commitScriptLibraryStage` reads only these.
+   */
+  libraryStages?: Map<string, LibraryStage>;
+  /** Phase 25.9: the last stage number handed out for this project. */
+  libraryStageSeq?: number;
+}
+
+/** Phase 25.9: one staged set of script library edits. */
+export interface LibraryStage {
+  readonly stageId: string;
+  /** Each staged library's whole value and the digest of the stored one it was staged on (null: new). */
+  readonly libraries: Map<string, { base: string | null; library: import('@thirdlight/project-model').ScriptLibrary }>;
+  patches: number;
 }
 
 /** The core the service shares with the session layer. */

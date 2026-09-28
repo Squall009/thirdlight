@@ -648,6 +648,7 @@ export class Projection {
       case 'setEffect':
       // Phase 23.7: script libraries too (their dependents' records by the prefab projection).
       case 'setScriptLibrary':
+      case 'setScriptLibraries':
       // Phase 23.5: block content and cells are tracked by the client (it reads the chunks a change names).
       case 'editBlocks':
       case 'setBlockType':

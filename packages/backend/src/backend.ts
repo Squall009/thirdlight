@@ -1099,6 +1099,96 @@ export function createBackend(
   };
 
   /**
+   * Phase 25.9: `POST …/content/libraries/stage` — staged library edits.
+   * `{stageId?, libraryId, name?, files?}` adds one patch (`setScriptLibrary`'s
+   * shape, each under the request cap; a file's text may come in pieces,
+   * `{path, text, append: true}`) to a stage (a new one without
+   * stageId) and answers the stage (its libraries, their digests, the patch
+   * count); `{stageId, discard: true}` drops one. Nothing authoritative
+   * changes: `commitScriptLibraryStage {stageId}` commits the stage as one
+   * change (one revision, one undo, the dependents compiled once).
+   */
+  const libraryStageRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const value = strict.value as Record<string, unknown>;
+    const stageId = value['stageId'];
+    if (stageId !== undefined && (typeof stageId !== 'string' || !/^lstage-[0-9]{1,12}$/.test(stageId))) {
+      sendError(res, sessionError('field_value', 'validation', 'stageId must be a stage id this route answered (lstage-<n>)', { path: '/stageId' }));
+      return;
+    }
+    if (value['discard'] !== undefined) {
+      if (value['discard'] !== true || typeof stageId !== 'string' || Object.keys(value).length !== 2) {
+        sendError(res, sessionError('field_value', 'validation', 'discard a stage with exactly { stageId, discard: true }', { path: '/discard' }));
+        return;
+      }
+      const d = service.discardScriptLibraryStage(projectId, stageId);
+      if (!d.ok) {
+        sendError(res, workspaceError(d.error));
+        return;
+      }
+      sendJson(res, 200, { ok: true, stageId, discarded: true });
+      return;
+    }
+    for (const key of Object.keys(value)) {
+      if (!['stageId', 'libraryId', 'name', 'files'].includes(key)) {
+        sendError(res, sessionError('field_unexpected', 'validation', `a library stage patch takes stageId, libraryId, name and files ("${key}")`, { path: `/${key}` }));
+        return;
+      }
+    }
+    const libraryId = value['libraryId'];
+    if (typeof libraryId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(libraryId)) {
+      sendError(res, sessionError('field_value', 'validation', 'libraryId must use the id syntax', { path: '/libraryId' }));
+      return;
+    }
+    const name = value['name'];
+    if (name !== undefined && typeof name !== 'string') {
+      sendError(res, sessionError('field_value', 'validation', 'name must be a string', { path: '/name' }));
+      return;
+    }
+    const files = value['files'];
+    if (name === undefined && files === undefined) {
+      sendError(res, sessionError('field_missing', 'validation', 'a patch names files (or a name)', { path: '/files' }));
+      return;
+    }
+    const fileOk = (f: unknown): boolean => {
+      if (typeof f !== 'object' || f === null || Array.isArray(f)) return false;
+      const o = f as { path?: unknown; text?: unknown; append?: unknown };
+      if (typeof o.path !== 'string' || Object.keys(o).some((k) => k !== 'path' && k !== 'text' && k !== 'append')) return false;
+      if (o.append !== undefined) return o.append === true && typeof o.text === 'string';
+      return typeof o.text === 'string' || o.text === null;
+    };
+    if (files !== undefined && (!Array.isArray(files) || files.length > 32 || !files.every(fileOk))) {
+      sendError(res, sessionError('field_value', 'validation', 'files must be a list of up to 32 { path, text: string | null, append?: true } (append adds a piece to the staged file)', { path: '/files' }));
+      return;
+    }
+    const patch = {
+      libraryId,
+      ...(typeof name === 'string' ? { name } : {}),
+      ...(files !== undefined ? { files: (files as { path: string; text: string | null; append?: true }[]).map((f) => ({ path: f.path, text: f.text, ...(f.append === true ? { append: true } : {}) })) } : {}),
+    };
+    const r = service.stageScriptLibraryPatch(projectId, { ...(typeof stageId === 'string' ? { stageId } : {}), patch: patch as never });
+    if (!r.ok) {
+      sendError(res, workspaceError(r.error));
+      return;
+    }
+    sendJson(res, 200, { ok: true, ...r.stage });
+  };
+
+  /**
    * Phase 16.3: `GET …/content/behaviors/:behaviorId/source` — the published
    * source-graph container of one behavior (the script editor loads it). The
    * digest comes from the behavior record; the bytes are the verified
@@ -1170,6 +1260,15 @@ export function createBackend(
             return;
           }
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+          return;
+        }
+        // Phase 25.9: staged library edits (several patches; committed by commitScriptLibraryStage).
+        if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'libraries' && parts[6] === 'stage') {
+          if (method === 'POST') {
+            await libraryStageRoute(req, res, parts[3]!);
+            return;
+          }
+          sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
         // Phase 23.7: the script library check (compile only; nothing is written).

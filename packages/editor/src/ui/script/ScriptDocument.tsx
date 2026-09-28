@@ -40,6 +40,7 @@ import {
 import { DeclarationEditor, type DeclarationSave } from '../DeclarationEditor';
 import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
+import type { SourceFocus } from '../../session/source-location';
 
 /** The read-only typings entry of the file list. */
 export const API_TYPINGS_PATH = 'behavior-api.d.ts';
@@ -76,6 +77,37 @@ export interface ScriptDocumentProps {
   loadSource: (behaviorId: string) => Promise<{ ok: true; source: string | null; sourceDigest: string | null } | { ok: false; error: { code: string; message: string } }>;
   check: (behaviorId: string, bytes: Uint8Array, declaration: PropertyDeclaration | null) => Promise<ScriptCheckResult>;
   publish: (behaviorId: string, bytes: Uint8Array, acknowledge: boolean) => Promise<ScriptPublishOutcome>;
+  /** Phase 25.9: a position to show (the Console's source locations; for this script when its id matches). */
+  focus?: SourceFocus | null;
+}
+
+/**
+ * Phase 25.9: show a requested source position (the Console's locations):
+ * once the document's files are loaded, open the file and put the cursor on
+ * the line. Each request (nonce) is shown once.
+ */
+export function useSourceFocus(
+  id: string,
+  focus: SourceFocus | null,
+  files: { openPath: string; has: (path: string) => boolean; open: (path: string) => void } | null,
+  codeRef: { current: HTMLDivElement | null },
+): void {
+  const seen = useRef(0);
+  const pending = useRef<SourceFocus | null>(null);
+  useEffect(() => {
+    if (focus !== null && focus.id === id && focus.nonce !== seen.current) {
+      seen.current = focus.nonce;
+      pending.current = focus;
+    }
+    const f = pending.current;
+    if (f === null || files === null) return;
+    if (files.openPath !== f.path && files.has(f.path)) {
+      files.open(f.path);
+      return;
+    }
+    pending.current = null;
+    window.setTimeout(() => revealPosition(codeRef.current, f.line, f.column), 0);
+  });
 }
 
 type CheckState =
@@ -190,6 +222,9 @@ export function ScriptDocument(p: ScriptDocumentProps): JSX.Element {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
+
+  // Phase 25.9: a Console location opens its file and puts the cursor on the line.
+  useSourceFocus(behaviorId, p.focus ?? null, draft === null ? null : { openPath: draft.openPath, has: (path) => draft.container.files.some((f) => f.path === path), open: (path) => setDraft({ ...draft, openPath: path }) }, codeRef);
 
   if (behavior === null) {
     return <p className="tl-hint">This behavior no longer exists (deleted or undone). Close the tab.</p>;

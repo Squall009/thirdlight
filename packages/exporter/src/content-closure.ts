@@ -42,8 +42,18 @@ export interface ContentClosureCompilerPort {
     pinnedModules: unknown;
     /** Phase 23.7: the script libraries the source's `@lib/<id>` imports link. */
     libraries?: readonly { libraryId: string; containerBytes: Uint8Array }[];
+    /** Phase 25.9: `bundle` re-derives the 23.7 form (checking a record published before shared libraries). */
+    libraryLinking?: 'shared' | 'bundle';
   }): Promise<
-    | { ok: true; outputBytes: Uint8Array; outputDigest: string }
+    | {
+        ok: true;
+        outputBytes: Uint8Array;
+        outputDigest: string;
+        /** Phase 25.9: the output's source map (JSON text). */
+        sourceMap?: string;
+        /** Phase 25.9: the shared library modules the output imports. */
+        libraryModules?: readonly ClosureLibraryModule[];
+      }
     | { ok: false; reason: string; diagnostics?: readonly unknown[] }
   >;
   /**
@@ -54,6 +64,27 @@ export interface ContentClosureCompilerPort {
    * a visual script, or its graph no longer generates the published source).
    */
   debugVariant?(input: { behaviorId: string; sourceDigest: string; row: Readonly<Record<string, unknown>> }): Promise<{ outputBytes: Uint8Array; outputDigest: string } | null>;
+}
+
+/** Phase 25.9: one shared script library module a compiled behavior imports. */
+export interface ClosureLibraryModule {
+  libraryId: string;
+  sourceDigest: string;
+  outputBytes: Uint8Array;
+  outputDigest: string;
+  sourceMap: string;
+}
+
+/**
+ * Phase 25.9: what a compiled output's positions map back to (Play only uses
+ * it; nothing of it is served or exported): a behavior's or a library's
+ * source map, by the output's digest.
+ */
+export interface ClosureSourceMap {
+  outputDigest: string;
+  behaviorId?: string;
+  libraryId?: string;
+  sourceMap: string;
 }
 
 /** One declared artifact of the closure (path relative to the artifact root). */
@@ -189,6 +220,10 @@ export interface ContentClosureM3 {
    * table), in `contentFiles` order.
    */
   contentFileArtifacts: readonly ClosureArtifact[];
+  /** Phase 25.9: the shared script library modules (`libraries/<outputDigest>.js`), by library id. */
+  libraryArtifacts: readonly ClosureArtifact[];
+  /** Phase 25.9: the compiled outputs' source maps (Play maps error and log locations with them; never served). */
+  sourceMaps: readonly ClosureSourceMap[];
   behaviors: readonly ClosureBehavior[];
   /** Every manifest-declared artifact path, sorted and deduplicated. */
   declaredPaths: readonly string[];
@@ -205,7 +240,7 @@ async function compileReachableBehaviors(
   projectId: string,
   scriptLibraries: readonly ScriptLibrary[] = [],
 ): Promise<
-  | { ok: true; behaviorArtifacts: ClosureArtifact[]; behaviorInputs: ManifestBehaviorInput[]; behaviors: ClosureBehavior[] }
+  | { ok: true; behaviorArtifacts: ClosureArtifact[]; behaviorInputs: ManifestBehaviorInput[]; behaviors: ClosureBehavior[]; libraryArtifacts: ClosureArtifact[]; libraryRows: ManifestLibraryInput[]; sourceMaps: ClosureSourceMap[] }
   | { ok: false; error: ContentClosureError }
 > {
   const behaviorQuery = service.query({ op: 'queryBehaviors', projectId, args: { includeDeclaration: true, limit: 128, offset: 0 } });
@@ -214,6 +249,9 @@ async function compileReachableBehaviors(
   const behaviorArtifacts: ClosureArtifact[] = [];
   const behaviorInputs: ManifestBehaviorInput[] = [];
   const behaviors: ClosureBehavior[] = [];
+  // Phase 25.9: the shared library modules the compiled behaviors import (one each, by output digest).
+  const libraryModules = new Map<string, ClosureLibraryModule>();
+  const sourceMaps: ClosureSourceMap[] = [];
   // Phase 23.7: the script libraries (canonical containers), built once for every behavior of the build.
   const libraryInputs = scriptLibraries.map((l) => ({ libraryId: l.libraryId, containerBytes: new TextEncoder().encode(scriptLibraryContainerText(l)) }));
   const libraryDigests = new Map(scriptLibraries.map((l) => [l.libraryId, scriptLibraryDigest(l)] as const));
@@ -273,7 +311,16 @@ async function compileReachableBehaviors(
         },
       };
     }
-    if (compiled.outputDigest !== source['outputDigest']) {
+    // Phase 25.9: a record published before shared libraries recorded the bundled output. It is
+    // still an assertion: the bundled form must re-derive to it; the build then ships the shared form.
+    let bundledRecord = false;
+    if (compiled.outputDigest !== source['outputDigest'] && pins.length > 0) {
+      const legacy = await compiler
+        .compile({ behaviorId, declaration: row['declaration'], containerBytes: sourceRead.bytes, pinnedModules: compiler.pinnedModules, libraries: libraryInputs, libraryLinking: 'bundle' })
+        .catch(() => null);
+      bundledRecord = legacy !== null && legacy.ok && legacy.outputDigest === source['outputDigest'];
+    }
+    if (compiled.outputDigest !== source['outputDigest'] && !bundledRecord) {
       return {
         ok: false,
         error: {
@@ -297,6 +344,13 @@ async function compileReachableBehaviors(
         outputDigest = variant.outputDigest;
       }
     }
+    for (const m of compiled.libraryModules ?? []) {
+      if (!libraryModules.has(m.outputDigest)) {
+        libraryModules.set(m.outputDigest, m);
+        sourceMaps.push({ outputDigest: m.outputDigest, libraryId: m.libraryId, sourceMap: m.sourceMap });
+      }
+    }
+    if (compiled.sourceMap !== undefined && outputDigest === compiled.outputDigest) sourceMaps.push({ outputDigest, behaviorId, sourceMap: compiled.sourceMap });
     const ownedTransforms = (source['ownedTransforms'] as string[] | undefined) ?? [];
     const requiredModules = (source['requiredModules'] as string[] | undefined) ?? [];
     behaviorArtifacts.push({
@@ -332,8 +386,14 @@ async function compileReachableBehaviors(
     });
   }
 
-  return { ok: true, behaviorArtifacts, behaviorInputs, behaviors };
+  const shared = [...libraryModules.values()].sort((a, b) => (a.libraryId < b.libraryId ? -1 : a.libraryId > b.libraryId ? 1 : a.outputDigest < b.outputDigest ? -1 : 1));
+  const libraryArtifacts: ClosureArtifact[] = shared.map((m) => ({ path: `libraries/${m.outputDigest}.js`, bytes: m.outputBytes, digest: m.outputDigest, contentType: 'text/javascript; charset=utf-8' }));
+  const libraryRows: ManifestLibraryInput[] = shared.map((m) => ({ libraryId: m.libraryId, sourceDigest: m.sourceDigest, outputDigest: m.outputDigest, outputByteLength: m.outputBytes.length }));
+  return { ok: true, behaviorArtifacts, behaviorInputs, behaviors, libraryArtifacts, libraryRows, sourceMaps };
 }
+
+/** Phase 25.9: one manifest `libraries` row input. */
+type ManifestLibraryInput = { libraryId: string; sourceDigest: string; outputDigest: string; outputByteLength: number };
 
 /**
  * Phase 25.24c: what a closure derives from the captured project alone — the
@@ -492,7 +552,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   //    the game host links them as runtime modules.
   const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId, ((input.content as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries ?? []) as ScriptLibrary[]);
   if (!compiledBehaviors.ok) return compiledBehaviors;
-  const { behaviorArtifacts, behaviorInputs, behaviors } = compiledBehaviors;
+  const { behaviorArtifacts, behaviorInputs, behaviors, libraryArtifacts, libraryRows, sourceMaps } = compiledBehaviors;
   stage('behaviors');
 
   // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
@@ -586,7 +646,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   stage('scenes');
   // 5c. Phase 23.11: the model rigs, only when the project uses sockets (a socketAttach component in a scene
   //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
-  const rigs = usesSockets(input.scenes, prefabDefs, behaviorArtifacts) ? modelRigs(view.assets, modelBytes) : undefined;
+  const rigs = usesSockets(input.scenes, prefabDefs, [...behaviorArtifacts, ...libraryArtifacts]) ? modelRigs(view.assets, modelBytes) : undefined;
 
   stage('rigs');
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
@@ -624,6 +684,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     contentDigest: view.contentDigest,
     assets,
     behaviors: behaviorInputs,
+    // Phase 25.9: the shared script library modules the behaviors import.
+    ...(libraryRows.length > 0 ? { libraries: libraryRows } : {}),
     settings: view.settings,
     // Phase 12 (b): the tag registry rides in the manifest (scripts query by tag).
     tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
@@ -683,7 +745,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviors.sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path), ...contentFileArtifacts.map((a) => a.path)])].sort();
+  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...libraryArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path), ...contentFileArtifacts.map((a) => a.path)])].sort();
   return {
     ok: true,
     closure: {
@@ -702,6 +764,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       sceneArtifacts,
       bufferArtifacts,
       contentFileArtifacts,
+      libraryArtifacts,
+      sourceMaps,
       behaviors,
       declaredPaths,
     },

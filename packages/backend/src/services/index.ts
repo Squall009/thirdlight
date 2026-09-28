@@ -39,4 +39,5 @@ export {
   type PlayStopReason,
   type RelayOutcome,
   PlayManager,
-} from '../play';
+} from '../play';// Phase 25.9: script error and log locations mapped back to the project's sources.
+export { mapCompiledLocation, withSourceLocations, type CompiledLocation, type SourceLocation, type SourceMapTable } from '../source-locations';

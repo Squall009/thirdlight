@@ -173,7 +173,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.7d | done 2026-09-28: instance sets also chunked by extent: project setting `instance_chunk_m` (default 32 m), per-set `instances.chunkSize` (Inspector field); no chunk wider than it (≤ 256 chunks, cells grow past that), finer of the count and extent grids per axis; each chunk culled and LOD'd at its own centre, drawn through the shared instance-matrix columns (25.24d); Scene view, Play and export alike; `instances.e2e.ts` (the Inspector's chunk count follows the default, the per-set field and the setting), unit tests |
 | 25.7 | done 2026-09-28: (a)–(e) hold |
 | 25.8 | done 2026-09-28: lights belong to scenes: any kind in any scene (model and runtime; per scene one directional, ambient, hemisphere, 16 point/spot); the most recently loaded scene's directional, ambient and hemisphere light on (each kind on its own), the previous back on unload; point/spot of all loaded scenes share the budget of 16 (most recent scenes first); the key light's own shadow settings follow the switch; spot cookies (`light.cookie`, a texture; `SpotLight.map`) in the Scene view, Play and export on both backends, Inspector field; `renderer.lights` in Play diagnostics; `scene-lights.e2e.ts` (pixels: 12 point lights, sun colours on load/unload, cookie; Play and export, auto/webgl2/webgpu), `lights.e2e.ts` (Inspector cookie, Scene view pixels); D49 fixed |
-| 25.9–25.23 | — |
+| 25.9 | done 2026-09-28: each script library compiled once into its own minified, tree-shaken module (`libraries/<digest>.js`, manifest `libraries` rows under the buildId) that scripts import by digest instead of bundling (Play worker and page, export with the backend stopped; one module instance per realm, tested); records published before it still build (bundled digest re-derived, shared form shipped); staged library edits (`stageScriptLibrary` route/MCP op, files in pieces, `commitScriptLibraryStage`: one revision, one undo, each dependent compiled once; the Libraries panel's Save all, large saves staged); source maps for every compiled output, runtime errors and `ctx.log` record compiled frames, Play diagnostics map them to `{behaviorId|libraryId, path, line, column}`, the Console tab opens the line; `script-libraries-shared.e2e.ts`, `m25-libraries` integration, unit tests |
+| 25.10–25.23 | — |
 
 ## 6. Decision log
 
@@ -799,3 +800,61 @@ boundary it changes (Playwright for any editor surface).
 - 2026-09-28 (25.8): the pixel test found D49 (spot lights shone from 1 m
   above their object and aimed wrongly unless pointing straight down;
   hemisphere lights tilted by their object's position). Fixed in the item.
+- 2026-09-28 (25.9): **shared modules are linked by digest, through a stub.**
+  A library is built on its own (esbuild bundle of its files, tree shaking
+  and minify on, every export kept, external source map); a behavior's
+  (or another library's) `@lib/<id>` resolves to a stub that re-exports the
+  module's export names from `../libraries/<digest>.js` (`./<digest>.js`
+  between libraries). So esbuild still refuses an import of a name the
+  library does not export (the 23.7 check), the importer's own output digest
+  covers the library's exact bytes (the recorded output digests and the
+  buildId pin the linked output), and relative imports work unchanged in the
+  page, the worker and a static export (no import map). Tree shaking is per
+  library, not per project: a module does not depend on which scripts use
+  it, which is what lets it be compiled once and cached by digest (the
+  compiler's library cache, keyed by source, dependencies' output digests,
+  pins, limits and forbidden strings; the 25.24c compile cache key gains the
+  linking mode). A library change still recompiles its importers (their
+  import paths name the new digest) — once per commit.
+- 2026-09-28 (25.9): **library state is per realm.** A library's top-level
+  variables are shared by every script that imports it (one module instance
+  in the page, one in the worker), as a script's own module state already
+  was; bundled copies used to give each script its own. Documented; game
+  state belongs in the script's state or `ctx`. Replays restart scripts, not
+  module state, as before.
+- 2026-09-28 (25.9): **records published before 25.9** recorded the bundled
+  output. The closure still treats the recorded digest as an assertion: when
+  the shared compile differs and the record pins libraries, the bundled form
+  is compiled and must equal it; the build then ships the shared form. No
+  record, fixture or template changes; a library change or republish moves a
+  record to the shared digest. The M2 path never has libraries.
+- 2026-09-28 (25.9): **source maps without changing outputs.** Every compile
+  now names an output file only for esbuild's external map (`outfile`,
+  `sourcemap: 'external'`, no sources content); the JavaScript bytes are
+  identical (tested; every recorded digest and fixture still matches), so
+  `COMPILER_OPTIONS` and the recipe digest are unchanged. Maps stay on the
+  backend's Play record (never served, released when the Play ends); exports
+  ship none (they would disclose the sources).
+- 2026-09-28 (25.9): **locations are recorded by the runtime, mapped by the
+  backend.** A step, prepare, instantiate or dispose error keeps up to 4
+  frames of the digest-named compiled modules from its stack
+  (`behaviors|libraries/<digest>.js:line:col`, every browser's format), a
+  `ctx.log` the first such frame of a fresh stack (accepted logs only;
+  bounded per step). They live in the diagnostics error ring only, never in
+  the simulation state or step digest. The Play diagnostics route maps them
+  (`source`, `sources`) with the Play's maps, so the editor and
+  `tl_diagnostics` read the same. Start-time failures (a throw while the
+  game composes) are still reported by message only.
+- 2026-09-28 (25.9): **staged edits are workspace state, the commit is a
+  command.** A stage (`lstage-<n>`, at most 8 per project, 2 MiB of staged
+  text, dropped on restart) holds whole staged libraries and the digest each
+  was staged on; `commitScriptLibraryStage {stageId}` reads only that fact
+  (never caller args), refuses a library that changed since it was staged,
+  and makes one `setScriptLibraries` change (all libraries and the
+  dependents' records; one undo). The backend compiles the dependents of
+  every changed library once, against the committed set, before the command
+  (as `setScriptLibrary` does for one). Patches may send a file in pieces
+  (`append: true`). The stage route is not a command (like the content
+  upload stages): it changes no revision. The editor stages only when a save
+  does not fit one request, and for the panel's Save all.
+

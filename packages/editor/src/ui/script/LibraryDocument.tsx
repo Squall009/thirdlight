@@ -11,7 +11,11 @@
  *   (nothing is written); diagnostics are marked in the code and listed.
  * - Save sends one `setScriptLibrary` command with only the changed files;
  *   the backend recompiles every published script that imports the library
- *   in the same command (one undo step). A new library digest those scripts
+ *   in the same command (one undo step). Phase 25.9: changes larger than one
+ *   request are staged in several patches (a large file in pieces) and
+ *   committed once (`commitScriptLibraryStage`: one revision, one undo, each
+ *   dependent compiled once); the Libraries panel's "Save all" commits every
+ *   library with unsaved edits the same way. A new library digest those scripts
  *   will link asks for the trust acknowledgment first; a script that no
  *   longer compiles refuses the save and says which one and why.
  *
@@ -25,7 +29,8 @@ import { BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL, BEHAVIOR_TRUST_NOTICE, type CompileDi
 import { ENTRY_PATH, libraryFilePatch, pathProblem, type ScriptContainer, type ScriptFile } from '../../session/script-sources';
 import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
-import { API_TYPINGS_PATH, CHECK_IDLE_MS } from './ScriptDocument';
+import { API_TYPINGS_PATH, CHECK_IDLE_MS, useSourceFocus } from './ScriptDocument';
+import type { SourceFocus } from '../../session/source-location';
 
 /** A library's unsaved edits (kept by the app while the session exists). */
 export interface LibraryDraft {
@@ -42,7 +47,8 @@ export type LibraryCheckResult =
   | { ok: false; error: { code: string; message: string } };
 
 export type LibrarySaveOutcome =
-  | { kind: 'saved'; revision: number; recompiled: string[] }
+  /** Phase 25.9: `patches` when the save was staged (several patches, one commit). */
+  | { kind: 'saved'; revision: number; recompiled: string[]; patches?: number }
   | { kind: 'needs-ack'; digest: string }
   | { kind: 'failed'; message: string; diagnostics?: CompileDiagnosticView[] };
 
@@ -53,6 +59,12 @@ export interface LibraryDocumentProps {
   activePlay: { snapshotId: string; revision: number } | null;
   check: (libraryId: string, files: readonly ScriptFile[]) => Promise<LibraryCheckResult>;
   save: (libraryId: string, files: { path: string; text: string | null }[], acknowledge: boolean) => Promise<LibrarySaveOutcome>;
+  /** Phase 25.9: a draft changed (the Libraries panel lists the libraries with unsaved edits). */
+  onDraftChange?: () => void;
+  /** Phase 25.9: bumped when drafts change outside this tab (the panel's "Save all" marks them saved). */
+  draftsVersion?: number;
+  /** Phase 25.9: a position to show (the Console's source locations; for this library when its id matches). */
+  focus?: SourceFocus | null;
 }
 
 type CheckState =
@@ -64,6 +76,11 @@ type CheckState =
 
 const byPath = (a: ScriptFile, b: ScriptFile): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 const filesText = (files: readonly ScriptFile[]): string => JSON.stringify([...files].sort(byPath).map((f) => [f.path, f.text]));
+
+/** Phase 25.9: a draft whose files were saved elsewhere (the Libraries panel's "Save all"). */
+export function savedDraft(draft: LibraryDraft): LibraryDraft {
+  return { ...draft, base: filesText(draft.files), dirty: false };
+}
 /** The file-name rules of a script container, applied to a library's file list. */
 const asContainer = (files: readonly ScriptFile[]): ScriptContainer => ({ graphVersion: 1, entryPath: ENTRY_PATH, requiredModules: [], ownedTransforms: [], files: [...files] });
 
@@ -81,21 +98,27 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
 
   const setDraft = useCallback(
     (next: LibraryDraft) => {
+      const was = drafts.get(libraryId)?.dirty;
       drafts.set(libraryId, next);
       setDraftState(next);
+      if (was !== next.dirty) p.onDraftChange?.();
     },
-    [drafts, libraryId],
+    [drafts, libraryId, p],
   );
 
   // Start from the stored files, and follow a newer stored version while nothing is edited.
   useEffect(() => {
     if (library === null || storedText === null) return;
     const existing = drafts.get(libraryId);
-    if (existing !== undefined && (existing.dirty || existing.base === storedText)) return;
+    if (existing !== undefined && (existing.dirty || existing.base === storedText)) {
+      // Phase 25.9: a draft saved from the Libraries panel ("Save all") is shown as saved here too.
+      setDraftState(existing);
+      return;
+    }
     const keepOpen = existing !== undefined && library.files.some((f) => f.path === existing.openPath) ? existing.openPath : ENTRY_PATH;
     setDraft({ files: library.files.map((f) => ({ path: f.path, text: f.text })), base: storedText, dirty: false, openPath: keepOpen });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [libraryId, storedText]);
+  }, [libraryId, storedText, p.draftsVersion]);
 
   const runCheck = useCallback(
     async (files: readonly ScriptFile[]) => {
@@ -129,6 +152,9 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftText]);
+
+  // Phase 25.9: a Console location opens its file and puts the cursor on the line.
+  useSourceFocus(libraryId, p.focus ?? null, draft === null ? null : { openPath: draft.openPath, has: (path) => draft.files.some((f) => f.path === path), open: (path) => setDraft({ ...draft, openPath: path }) }, codeRef);
 
   if (library === null) return <p className="tl-hint">This script library no longer exists (deleted or undone). Close the tab.</p>;
   if (draft === null) return <div className="tl-script tl-script--loading" aria-label="library editor" data-library={libraryId}><p className="tl-hint">Loading…</p></div>;
@@ -286,7 +312,7 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
               const cur = drafts.get(libraryId) ?? draft;
               if (cur.files.find((f) => f.path === path)?.text === t) return;
               const files = cur.files.map((f) => (f.path === path ? { path, text: t } : f));
-              setDraft({ ...cur, files, dirty: filesText(files) !== storedText });
+              setDraft({ ...cur, files, dirty: filesText(files) !== storedText, base: cur.base });
               setSaving(null);
             }}
             onSave={() => void runCheck((drafts.get(libraryId) ?? draft).files)}
@@ -345,7 +371,7 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
         )}
         {saving?.kind === 'saved' && (
           <div className="tl-script__published" aria-label="save result">
-            Saved (r{saving.revision}).{saving.recompiled.length > 0 ? ` Recompiled ${saving.recompiled.join(', ')}.` : ''} {p.activePlay !== null ? 'Restart Play to run it.' : ''}
+            Saved (r{saving.revision}){saving.patches !== undefined ? ` in ${saving.patches} patches, one commit` : ''}.{saving.recompiled.length > 0 ? ` Recompiled ${saving.recompiled.join(', ')}${saving.patches !== undefined ? ' (each once)' : ''}.` : ''} {p.activePlay !== null ? 'Restart Play to run it.' : ''}
           </div>
         )}
         {saving?.kind === 'failed' && (

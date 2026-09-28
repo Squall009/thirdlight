@@ -26,6 +26,8 @@ export {
   buildContentClosureM3,
   closureCacheStats,
   type ClosureArtifact,
+  type ClosureLibraryModule,
+  type ClosureSourceMap,
   type ClosureBehavior,
   type ContentClosureCompilerPort,
   type ContentClosureError,

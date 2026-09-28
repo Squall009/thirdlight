@@ -10,7 +10,7 @@ import { canonicalContainerText } from './container';
 import { checkScriptLibrary, compileBehavior, createBehaviorCompiler } from './compile';
 import { createLibraryCache } from './libraries';
 import { M2_PINNED_MODULES } from './limits';
-import type { BehaviorCompileOptions, ScriptLibraryInput } from './types';
+import type { BehaviorCompileOptions, ScriptLibraryInput, SharedLibraryModule } from './types';
 
 const NO_PROPS = { properties: [] };
 
@@ -24,12 +24,26 @@ function lib(libraryId: string, files: { path: string; text: string }[]): Script
   return { libraryId, containerBytes: new TextEncoder().encode(scriptLibraryContainerText({ files })) };
 }
 
-/** Evaluate a compiled output here only as a test of the output (the compiler never runs source): as CommonJS. */
-async function evaluate(bytes: Uint8Array): Promise<Record<string, unknown>> {
-  const cjs = transformSync(new TextDecoder().decode(bytes), { format: 'cjs' }).code;
-  const holder: { exports: Record<string, unknown> } = { exports: {} };
-  new Function('module', 'exports', cjs)(holder, holder.exports);
-  return (holder.exports as { default: Record<string, unknown> }).default;
+/**
+ * Evaluate a compiled output here only as a test of the output (the compiler never runs source): as
+ * CommonJS, with its shared library modules (phase 25.9) linked by the digest in their import paths.
+ */
+async function evaluate(bytes: Uint8Array, modules: readonly SharedLibraryModule[] = []): Promise<Record<string, unknown>> {
+  const loaded = new Map<string, Record<string, unknown>>();
+  const load = (text: string): Record<string, unknown> => {
+    const cjs = transformSync(text, { format: 'cjs' }).code;
+    const holder: { exports: Record<string, unknown> } = { exports: {} };
+    const req = (spec: string): Record<string, unknown> => {
+      const digest = /([0-9a-f]{64})\.js$/.exec(spec)?.[1];
+      const m = modules.find((x) => x.outputDigest === digest);
+      if (m === undefined) throw new Error(`no linked module for ${spec}`);
+      if (!loaded.has(m.outputDigest)) loaded.set(m.outputDigest, load(new TextDecoder().decode(m.outputBytes)));
+      return loaded.get(m.outputDigest) as Record<string, unknown>;
+    };
+    new Function('module', 'exports', 'require', cjs)(holder, holder.exports, req);
+    return holder.exports;
+  };
+  return (load(new TextDecoder().decode(bytes)) as { default: Record<string, unknown> }).default;
 }
 
 const RULES = lib('rules', [
@@ -38,7 +52,7 @@ const RULES = lib('rules', [
 ]);
 
 describe('script libraries', () => {
-  it('links an imported library into the behavior and pins its digest', async () => {
+  it('links an imported library as a shared module and pins its digest', async () => {
     const r = await compileBehavior({
       behaviorId: 'user',
       declaration: NO_PROPS,
@@ -49,7 +63,7 @@ describe('script libraries', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.manifest.libraries).toEqual([{ libraryId: 'rules', sourceDigest: scriptLibraryDigest({ files: [{ path: 'src/index.ts', text: "import table from './table.json';\nexport const bonus = (n: number): number => n * table.factor;\nexport const NAME = 'rules';\n" }, { path: 'src/table.json', text: '{ "factor": 3 }\n' }] }) }]);
-    expect((await evaluate(r.outputBytes))['value']).toBe(6);
+    expect((await evaluate(r.outputBytes, r.libraryModules))['value']).toBe(6);
   });
 
   it('a library importing another library pins both; the same inputs give the same bytes', async () => {
@@ -69,7 +83,7 @@ describe('script libraries', () => {
     expect(a.manifest.libraries?.map((p) => p.libraryId)).toEqual(['base', 'mid']);
     expect(new TextDecoder().decode(a.outputBytes)).toBe(new TextDecoder().decode(b.outputBytes));
     expect(a.manifestDigest).toBe(b.manifestDigest);
-    expect((await evaluate(a.outputBytes))['value']).toBe(20);
+    expect((await evaluate(a.outputBytes, a.libraryModules))['value']).toBe(20);
   });
 
   it('a behavior without library imports compiles to exactly the same bytes whatever libraries exist', async () => {
@@ -172,7 +186,8 @@ describe('script libraries', () => {
       expect(r.ok).toBe(true);
       transforms = opts.libraryCache?.entries.size ?? 0;
     }
-    expect(transforms).toBe(1);
+    // Phase 25.9: one transpiled library and one shared module, whatever the number of dependents.
+    expect(transforms).toBe(2);
     expect(typeof compiler.checkLibrary).toBe('function');
   });
 

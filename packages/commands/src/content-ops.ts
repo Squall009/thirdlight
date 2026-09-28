@@ -109,6 +109,8 @@ export interface OpInput {
   reservedIds?: ReadonlySet<string>;
   /** The digest-bound prepared facts the preparer derived (never caller input). */
   preparedBehaviorSources?: ReadonlyMap<string, import('./types').PreparedBehaviorSourceFact>;
+  /** Phase 25.9: the host's staged library edit sets (never caller input). */
+  scriptLibraryStages?: ReadonlyMap<string, import('./types').ScriptLibraryStageFact>;
 }
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;

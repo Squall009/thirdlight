@@ -168,7 +168,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         // Phase 25.24c: a project's cache root serves its declared artifacts by digest (the same URL every Play).
         const cacheProject = playContent.cacheProject(locator.contentId);
         if (cacheProject !== undefined) {
-          const digest = locator.kind === 'asset-digest' ? locator.digest : locator.kind === 'behavior' ? locator.outputDigest : null;
+          const digest = locator.kind === 'asset-digest' ? locator.digest : locator.kind === 'behavior' || locator.kind === 'library' ? locator.outputDigest : null;
           const artifact: PlayArtifact | undefined = digest === null ? undefined : playContent.artifactByDigest(cacheProject, digest);
           if (artifact === undefined) {
             locatorError(res, sessionError('path_rejected', 'not_found', 'no play of this project declares this artifact'), 404);

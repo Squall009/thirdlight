@@ -128,6 +128,8 @@ export type V3MutationOp =
   // phase 23.7: shared script libraries
   | 'setScriptLibrary'
   | 'deleteScriptLibrary'
+  // phase 25.9: staged library edits (several patches, one commit)
+  | 'commitScriptLibraryStage'
   // phase 23.5: block layers
   | 'editBlocks'
   | 'setBlockType'
@@ -483,6 +485,17 @@ export interface SetScriptLibraryChange {
 }
 
 /**
+ * Phase 25.9: `commitScriptLibraryStage` change data: every staged library
+ * before and after (null = none) and the published behaviors recompiled
+ * against the committed set (once each, whatever the number of patches).
+ */
+export interface SetScriptLibrariesChange {
+  type: 'setScriptLibraries';
+  libraries: { libraryId: string; previous: import('@thirdlight/project-model').ScriptLibrary | null; next: import('@thirdlight/project-model').ScriptLibrary | null }[];
+  behaviors: { behaviorId: string; previous: BehaviorRecord; next: BehaviorRecord }[];
+}
+
+/**
  * Phase 23.5: `editBlocks` change data — the layer, the chunks [cx, cz] and
  * regions whose contents changed, and how many cells changed. Compact on
  * purpose (a large fill stays small in events and retry records); clients
@@ -546,6 +559,13 @@ export interface SetScriptLibraryInverse {
   kind: 'setScriptLibrary';
   libraryId: string;
   restore: import('@thirdlight/project-model').ScriptLibrary | null;
+  behaviors: { behaviorId: string; restore: BehaviorRecord }[];
+}
+
+/** Phase 25.9: undo of a staged commit: restore every library and the dependents' records. */
+export interface SetScriptLibrariesInverse {
+  kind: 'setScriptLibraries';
+  libraries: { libraryId: string; restore: import('@thirdlight/project-model').ScriptLibrary | null }[];
   behaviors: { behaviorId: string; restore: BehaviorRecord }[];
 }
 
@@ -969,6 +989,7 @@ export type ChangeData =
   | SetGraphChange
   | SetEffectChange
   | SetScriptLibraryChange
+  | SetScriptLibrariesChange
   | EditBlocksChange
   | SetBlockTypeChange
   | SetCellFieldsChange
@@ -1015,6 +1036,7 @@ export type ForwardChange =
   | SetGraphChange
   | SetEffectChange
   | SetScriptLibraryChange
+  | SetScriptLibrariesChange
   | EditBlocksChange
   | SetBlockTypeChange
   | SetCellFieldsChange
@@ -1211,6 +1233,7 @@ export type InverseSpec =
   | SetGraphInverse
   | SetEffectInverse
   | SetScriptLibraryInverse
+  | SetScriptLibrariesInverse
   | SetUiInverse
   | SetDialogueInverse
   | SetModesInverse
@@ -1336,6 +1359,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
    * field — so no unchecked write path exists.
    */
   preparedBehaviorSources?: ReadonlyMap<string, PreparedBehaviorSourceFact>;
+  /** Phase 25.9: the host's staged library edit sets by stageId (`commitScriptLibraryStage` reads only these). */
+  scriptLibraryStages?: ReadonlyMap<string, ScriptLibraryStageFact>;
 }
 
 /**
@@ -1652,6 +1677,26 @@ export interface DeleteScriptLibraryArgs {
   libraryId: string;
 }
 
+/**
+ * Phase 25.9: `commitScriptLibraryStage` commits a staged set of library
+ * edits (built from several patches held by the host, see
+ * `ScriptLibraryStageFact`) as one change: one revision, one undo, the
+ * dependents recompiled once against the committed set.
+ */
+export interface CommitScriptLibraryStageArgs {
+  stageId: string;
+}
+
+/**
+ * Phase 25.9: one staged edit set as the host holds it (never caller input
+ * to the command): each library's whole staged value and the digest of the
+ * stored library it was staged on (null: a new library). A library changed
+ * since it was staged refuses the commit.
+ */
+export interface ScriptLibraryStageFact {
+  readonly libraries: readonly { readonly libraryId: string; readonly base: string | null; readonly library: import('@thirdlight/project-model').ScriptLibrary }[];
+}
+
 /** Phase 23.9a: `setUiDocument` creates or replaces one UI document (by uiDocumentId). */
 export interface SetUiDocumentArgs {
   document: UiDocument;
@@ -1801,6 +1846,7 @@ export type MutationArgs =
   | SetShellArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
+  | CommitScriptLibraryStageArgs
   | SetEffectArgs
   | DeleteEffectArgs
   | RenameEffectArgs

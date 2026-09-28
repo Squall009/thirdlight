@@ -234,6 +234,15 @@ function mergeAssets(existing: readonly AssetView[], page: readonly AssetView[])
   return [...byId.values()].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
 }
 
+/** A command's answer (phase 25.9: a staged library commit also says which scripts it recompiled). */
+export interface CommandResultOk {
+  ok: true;
+  revision: number;
+  createdId?: string;
+  libraryStage?: { dependents: { behaviorId: string; outputDigest: string }[]; compiled: number };
+}
+export type CommandResult = CommandResultOk | { ok: false; response: MutationResponse };
+
 export class SessionClient {
   readonly projection = new Projection();
   /** The additive M2 content projection (asset summaries; sessions.md §8/§19.4). */
@@ -807,6 +816,14 @@ export class SessionClient {
         // Phase 23.7: one library before/after (null = none); its dependents' records travel in the same change.
         const rest = this.scriptLibraries.filter((l) => l.libraryId !== change.libraryId);
         this.scriptLibraries = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1));
+      } else if (change.type === 'setScriptLibraries') {
+        // Phase 25.9: a staged commit - several libraries before/after at once.
+        let list = this.scriptLibraries;
+        for (const l of change.libraries) {
+          const rest = list.filter((x) => x.libraryId !== l.libraryId);
+          list = l.next === null ? rest : [...rest, structuredClone(l.next)];
+        }
+        this.scriptLibraries = [...list].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1));
       } else if (change.type === 'setTimeline') {
         // Phase 23.17: one timeline before/after (null = none).
         const rest = this.timelines.filter((t) => t.timelineId !== change.timelineId);
@@ -969,7 +986,7 @@ export class SessionClient {
     expectedRevision: number,
     requestId?: string,
     origin: Origin = { kind: 'browser', clientId: this.sessionId },
-  ): Promise<{ ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse }> {
+  ): Promise<CommandResult> {
     const lazy = typeof args === 'function';
     return this.ownCommands.enqueue(() => {
       // A whole-document op with args built at call time keeps its revision (stale args conflict instead of undoing an edit).
@@ -986,7 +1003,7 @@ export class SessionClient {
     expectedRevision: number,
     requestId: string | undefined,
     origin: Origin,
-  ): Promise<{ ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse }> {
+  ): Promise<CommandResult> {
     const rid = requestId ?? makeRequestId();
     // Phase 12 (c): a new root entity goes into the active scene (with a
     // parent, the parent's scene decides).
@@ -1028,7 +1045,7 @@ export class SessionClient {
   private finishCommand(
     outcome: CommandOutcome,
     expectedRevision: number,
-  ): { ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse } {
+  ): CommandResult {
     if (outcome.status === 'response') {
       const r = outcome.response;
       if (r.ok) {
@@ -1039,7 +1056,9 @@ export class SessionClient {
         this.conflict = null;
         this.emit();
         const createdId = (r as { createdId?: unknown }).createdId;
-        return { ok: true, revision: r.revision, ...(typeof createdId === 'string' ? { createdId } : {}) };
+        // Phase 25.9: a staged library commit says which scripts it recompiled (once each).
+        const libraryStage = (r as { libraryStage?: CommandResultOk['libraryStage'] }).libraryStage;
+        return { ok: true, revision: r.revision, ...(typeof createdId === 'string' ? { createdId } : {}), ...(libraryStage !== undefined ? { libraryStage } : {}) };
       }
       if (r.code === 'revision_conflict') {
         const current = r.currentRevision ?? -1;
@@ -1419,6 +1438,45 @@ export class SessionClient {
       return { ok: true, compiled: false, code: r.code ?? 'behavior_compile_failed', reason: r.reason ?? '', diagnostics: r.diagnostics ?? [], dependents: r.dependents ?? [] };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * Phase 25.9: add one patch to a staged library edit set (`POST
+   * content/libraries/stage`; a new stage without stageId). Nothing changes
+   * in the project until `commitScriptLibraryStage` commits the stage.
+   */
+  async stageScriptLibrary(body: { stageId?: string; libraryId: string; name?: string; files?: { path: string; text: string | null; append?: true }[] } | { stageId: string; discard: true }): Promise<
+    | { ok: true; stageId: string; patches: number; libraries: { libraryId: string; sourceDigest: string; changed: boolean }[] }
+    | { ok: false; error: { code: string; message: string } }
+  > {
+    try {
+      const r = await this.request<{ ok: true; stageId: string; patches?: number; libraries?: { libraryId: string; sourceDigest: string; changed: boolean }[] }>(`/projects/${this.cfg.projectId}/content/libraries/stage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { ok: true, stageId: r.stageId, patches: r.patches ?? 0, libraries: r.libraries ?? [] };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * Phase 25.9: a running Play's diagnostics (the backend relays the request to
+   * the preview and maps script error and log locations back to the sources).
+   */
+  async playDiagnostics(playSessionId: string): Promise<{ ok: true; diagnostics: unknown } | { ok: false; message: string }> {
+    try {
+      const r = await this.request<{ ok: true; diagnostics: unknown }>(`/projects/${this.cfg.projectId}/play/${playSessionId}/diagnostics`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      return { ok: true, diagnostics: r.diagnostics };
+    } catch (e) {
+      const d = this.describeError(e);
+      return { ok: false, message: `${d.code}: ${d.message}` };
     }
   }
 

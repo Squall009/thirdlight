@@ -554,6 +554,19 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, inv.libraryId, inv.restore), inv.behaviors.map((b) => b.restore)), change, entry.requestId);
   }
 
+  if (inv.kind === 'setScriptLibraries') {
+    // Phase 25.9: every library of a staged commit and the dependents recompiled with them move back together.
+    let next = content;
+    const libraries = inv.libraries.map((l) => {
+      const before = scriptLibrariesOf(content).find((x) => x.libraryId === l.libraryId) ?? null;
+      next = withScriptLibrary(next, l.libraryId, l.restore);
+      return { libraryId: l.libraryId, previous: before === null ? null : deepClone(before), next: l.restore === null ? null : deepClone(l.restore) };
+    });
+    const behaviors = inv.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.restore), next: deepClone(b.restore) }));
+    const change: ChangeData = { type: 'setScriptLibraries', libraries, behaviors };
+    return finish(state, bumped(scene), withBehaviorRecords(next, inv.behaviors.map((b) => b.restore)), change, entry.requestId);
+  }
+
   if (inv.kind === 'setTimeline') {
     // Phase 23.17: one timeline back to what it was.
     const before = timelineOf(content, inv.timelineId);
@@ -1041,6 +1054,18 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const behaviors = f.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.previous), next: deepClone(b.next) }));
     const change: ChangeData = { type: 'setScriptLibrary', libraryId: f.libraryId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next), behaviors };
     return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, f.libraryId, f.next), f.behaviors.map((b) => b.next)), change, entry.requestId);
+  }
+
+  if (f.type === 'setScriptLibraries') {
+    let next = content;
+    const libraries = f.libraries.map((l) => {
+      const before = scriptLibrariesOf(content).find((x) => x.libraryId === l.libraryId) ?? null;
+      next = withScriptLibrary(next, l.libraryId, l.next);
+      return { libraryId: l.libraryId, previous: before === null ? null : deepClone(before), next: l.next === null ? null : deepClone(l.next) };
+    });
+    const behaviors = f.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.previous), next: deepClone(b.next) }));
+    const change: ChangeData = { type: 'setScriptLibraries', libraries, behaviors };
+    return finish(state, bumped(scene), withBehaviorRecords(next, f.behaviors.map((b) => b.next)), change, entry.requestId);
   }
 
   if (f.type === 'setTimeline') {

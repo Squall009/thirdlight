@@ -444,7 +444,8 @@ export interface ModuleConfig {
    * (runtime.md §14.8.1). Additive M2 host seam (packet 34): the runtime owns
    * the 32-entry ring, the module owns its per-instance ring and counters.
    */
-  behaviorLog?: (level: BehaviorLogLevel, message: string) => void;
+  /** Phase 25.9: `at` is where in the project's compiled script the log was called (when found). */
+  behaviorLog?: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void;
   /** Phase 12 (c): the runtime's live tag index (follows scene loads/unloads). */
   tags?: BehaviorTagQuery;
   /** Phase 23.1: 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
@@ -2348,6 +2349,14 @@ export interface DiagnosticErrorEntry {
   detail?: string;
   /** Phase 19.0: the visual-script node the error came from (graph behaviors only). */
   nodeId?: string;
+  /**
+   * Phase 25.9: where in the project's compiled scripts (`behaviors/<digest>.js`,
+   * `libraries/<digest>.js`; 1-based line and column) a log was called or an
+   * error thrown; the Play backend maps it back to the source file.
+   */
+  at?: { file: string; line: number; column: number };
+  /** Phase 25.9: an error's project frames, innermost first (at most 4; `at` is the first). */
+  frames?: { file: string; line: number; column: number }[];
 }
 
 /**

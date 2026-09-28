@@ -979,3 +979,16 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-uitheme__main { flex: 1; display: flex; gap: 12px; min-height: 0; overflow-y: auto; }
 .tl-uitheme__main > .tl-uidoc__panel { width: 360px; }
 .tl-uitheme__users { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+
+/* Phase 25.9: the Console (Play script logs and errors with source locations). */
+.tl-console__list { list-style: none; margin: 0; padding: 0; font-size: 11px; overflow: auto; }
+.tl-console__entry { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 2px 4px; border-bottom: 1px solid var(--surface-2); }
+.tl-console__entry--error .tl-console__level { color: var(--err); }
+.tl-console__entry--warn .tl-console__level { color: var(--warn); }
+.tl-console__level { text-transform: uppercase; font-weight: 600; min-width: 40px; }
+.tl-console__step { opacity: 0.7; }
+.tl-console__message { flex: 1 1 auto; white-space: pre-wrap; }
+.tl-console__where { background: none; border: none; color: var(--accent, #7ab8ff); cursor: pointer; padding: 0; font-size: 11px; font-family: monospace; }
+.tl-console__where:hover { text-decoration: underline; }
+.tl-console__compiled { font-family: monospace; opacity: 0.7; }
+.tl-console__frames { list-style: none; margin: 0 0 0 46px; padding: 0; width: 100%; opacity: 0.85; }

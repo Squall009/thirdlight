@@ -117,6 +117,19 @@ export interface ManifestContentFile extends ManifestContentFileRow {
  */
 export const MANIFEST_CONTENT_FILE_MAX_BYTES = 33_554_432;
 
+/**
+ * Phase 25.9: one shared script library module (`libraries/<outputDigest>.js`)
+ * the behaviors import by that path; listed so the buildId covers its bytes
+ * and hosts serve and ship it.
+ */
+export interface ManifestLibraryRow {
+  libraryId: string;
+  sourceDigest: string;
+  outputDigest: string;
+  outputByteLength: number;
+  path: string;
+}
+
 /** Phase 12 (c): one scene artifact of a v4 project. */
 export interface ManifestSceneRow {
   sceneId: string;
@@ -128,7 +141,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles', 'libraries']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -178,6 +191,8 @@ export const MANIFEST_KEYS_V2 = [
   'assets',
   'media',
   'behaviors',
+  // Phase 25.9: the script libraries as shared modules (`libraries/<outputDigest>.js`) the behaviors import.
+  'libraries',
   'modules',
   'enginePins',
   'recipes',
@@ -332,6 +347,8 @@ export interface RuntimeContentManifestV2 {
   assets: ReadonlyArray<Record<string, unknown>>;
   media: MediaBlock;
   behaviors: ReadonlyArray<Record<string, unknown>>;
+  /** Phase 25.9: the shared script library modules (present only when a behavior imports a library). */
+  libraries?: ManifestLibraryRow[];
   modules: ReadonlyArray<Record<string, unknown>>;
   enginePins: ReadonlyArray<Record<string, unknown>>;
   recipes: Record<string, number>;
@@ -606,6 +623,8 @@ export interface CaptureManifestV2Input {
   assets: readonly ManifestAssetInputV2[];
   /** The reachable source-bearing behaviors (M2 row shape). */
   behaviors: readonly ManifestBehaviorInput[];
+  /** Phase 25.9: the shared library modules the behaviors import (only when there are some). */
+  libraries?: readonly Omit<ManifestLibraryRow, 'path'>[];
   /** The resolved six-key settings, in registry order. */
   settings: GameplaySettings;
   /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
@@ -793,6 +812,13 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     assets,
     media: input.media,
     behaviors,
+    ...(input.libraries !== undefined && input.libraries.length > 0
+      ? {
+          libraries: [...input.libraries]
+            .map((l) => ({ libraryId: l.libraryId, sourceDigest: l.sourceDigest, outputDigest: l.outputDigest, outputByteLength: l.outputByteLength, path: `libraries/${l.outputDigest}.js` }))
+            .sort((a, b) => (a.libraryId < b.libraryId ? -1 : a.libraryId > b.libraryId ? 1 : 0)),
+        }
+      : {}),
     modules,
     enginePins,
     recipes,
@@ -1032,6 +1058,12 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     }
   }
 
+  // Phase 25.9: the shared library rows (ascending ids, digest-named paths).
+  if (d['libraries'] !== undefined) {
+    const why = libraryRowsProblem(d['libraries']);
+    if (why !== null) return { ok: false, error: manifestError('manifest_invalid', `libraries: ${why}`.slice(0, 256), 'field_value') };
+  }
+
   // buildId — re-derived over the document without buildId.
   const withoutBuildId = { ...d, buildId: undefined };
   const preimage = manifestBuildIdInputV2(withoutBuildId);
@@ -1067,6 +1099,25 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   }
 
   return { ok: true, manifest: doc as unknown as RuntimeContentManifestV2 };
+}
+
+/** Phase 25.9: why a `libraries` value is not a list of shared library rows (null: it is). */
+function libraryRowsProblem(v: unknown): string | null {
+  if (!Array.isArray(v) || v.length === 0) return 'a non-empty list of rows';
+  let last = '';
+  for (const [i, raw] of v.entries()) {
+    if (!isPlainObject(raw)) return `row ${i} is not an object`;
+    const r = raw as Record<string, unknown>;
+    const keys = Object.keys(r).join(',');
+    if (keys !== 'libraryId,sourceDigest,outputDigest,outputByteLength,path') return `row ${i} must carry libraryId, sourceDigest, outputDigest, outputByteLength, path`;
+    if (typeof r['libraryId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(r['libraryId'])) return `row ${i} has no valid libraryId`;
+    if (!isDigest(r['sourceDigest']) || !isDigest(r['outputDigest'])) return `row ${i} digests must be 64 lowercase hex`;
+    if (typeof r['outputByteLength'] !== 'number' || !Number.isInteger(r['outputByteLength']) || r['outputByteLength'] < 1) return `row ${i} outputByteLength must be a positive integer`;
+    if (r['path'] !== `libraries/${r['outputDigest']}.js`) return `row ${i} path must be libraries/<outputDigest>.js`;
+    if (i > 0 && !(last < r['libraryId'])) return 'rows are not in ascending libraryId order';
+    last = r['libraryId'];
+  }
+  return null;
 }
 
 /** Phase 25.7b: why a `contentFiles` value is not a list of rows in key order (null: it is). */

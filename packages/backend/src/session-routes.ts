@@ -204,7 +204,32 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
           }
         }
       }
+      // Phase 25.9: a staged commit compiles the dependents of every changed library once, against the committed set.
+      let stagePrep: { dependents: { behaviorId: string; outputDigest: string }[]; compiled: number } | null = null;
+      if (envelope.op === 'commitScriptLibraryStage' && typeof env.args === 'object' && env.args !== null && !Array.isArray(env.args) && typeof (env.args as Record<string, unknown>)['stageId'] === 'string') {
+        const prep = await service.prepareScriptLibraryStage(projectId, (env.args as Record<string, string>)['stageId']!);
+        if (!prep.ok && prep.kind === 'compile') {
+          const first = prep.failure.diagnostics[0]?.message ?? prep.failure.reason;
+          const message = `script ${prep.behaviorId} does not compile against the staged libraries: ${first}`.slice(0, 256);
+          recordProblem(projectId, 'compile', prep.failure.code, message);
+          sendJson(res, 400, { ok: false, error: { code: prep.failure.code, cls: 'validation', message, behaviorId: prep.behaviorId, diagnostics: prep.failure.diagnostics.slice(0, 32) } });
+          return;
+        }
+        // A missing stage is the command's refusal (reference_missing), with its revision checks first.
+        if (!prep.ok && prep.error.code !== 'reference_missing') {
+          recordProblem(projectId, 'command', prep.error.code, `commitScriptLibraryStage: ${prep.error.message ?? prep.error.code}`);
+          sendJson(res, statusFor(prep.error.cls), { ok: false, error: prep.error });
+          return;
+        }
+        if (prep.ok) stagePrep = { dependents: prep.dependents, compiled: prep.compiled };
+      }
       const result = service.runCommand(env);
+      if (result.ok && stagePrep !== null && result.duplicated === false) {
+        if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
+        notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
+        sendJson(res, 200, { ...result, libraryStage: stagePrep });
+        return;
+      }
       if (result.ok) {
         if (result.duplicated === false) {
           notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);

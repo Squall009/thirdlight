@@ -67,3 +67,29 @@ describe('script sources (phase 16.3)', () => {
     expect(memberCompletion('info.', 'instantiate(p: unknown, info: BehaviorInstanceInfo) {}', BEHAVIOR_API_TYPES)?.members.map((m) => m.name)).toContain('entityId');
   });
 });
+
+describe('staged library patches (phase 25.9)', () => {
+  it('cuts a change into patches under the request budget; a large file comes in pieces that rebuild it exactly', async () => {
+    const { fitsOneRequest, libraryStagePatches } = await import('./script-sources');
+    const big = `"quoted" ${'x'.repeat(30_000)} é 🙂 ${'"y"'.repeat(8000)}\n`;
+    const files = [
+      { path: 'src/a.ts', text: 'export const a = 1;\n' },
+      { path: 'src/big.json', text: big },
+      { path: 'src/gone.ts', text: null },
+    ];
+    expect(fitsOneRequest(files)).toBe(false);
+    const patches = libraryStagePatches('lib', files, 20_000);
+    expect(patches.length).toBeGreaterThan(2);
+    for (const p of patches) {
+      expect(p.libraryId).toBe('lib');
+      expect(new TextEncoder().encode(JSON.stringify(p.files)).length).toBeLessThanOrEqual(20_000);
+    }
+    // Replaying the patches in order (append adds to the file) gives exactly the change.
+    const state = new Map<string, string | null>();
+    for (const p of patches) for (const f of p.files) state.set(f.path, f.append === true ? `${state.get(f.path) ?? ''}${f.text}` : f.text);
+    expect(state.get('src/big.json')).toBe(big);
+    expect(state.get('src/a.ts')).toBe('export const a = 1;\n');
+    expect(state.get('src/gone.ts')).toBeNull();
+    expect(fitsOneRequest([{ path: 'src/a.ts', text: 'x' }])).toBe(true);
+  });
+});

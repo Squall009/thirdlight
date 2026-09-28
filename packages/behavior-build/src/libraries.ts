@@ -43,6 +43,8 @@ export interface CompiledLibrary {
   modules: Map<string, { contents: string; loader: 'js' | 'json' }>;
   /** Its own `@lib/` imports (ascending). */
   imports: string[];
+  /** Phase 25.9: stored path → source text (the shared module is built from the sources, so its map points at them). */
+  sources: Map<string, string>;
 }
 
 export type LibraryResolution =
@@ -50,7 +52,7 @@ export type LibraryResolution =
   | { ok: false; failure: BehaviorCompileFailure };
 
 /** A bounded compiled-library cache (share one per compiler instance). */
-export function createLibraryCache(max = 64): LibraryCache {
+export function createLibraryCache(max = 128): LibraryCache {
   return { entries: new Map<string, unknown>(), max };
 }
 
@@ -82,6 +84,7 @@ async function compileLibrary(
   const analyzed = analyzeSourceGraph(parsed.container, pinnedModules, limits, { library: true });
   if (!analyzed.ok) return { ok: false, failure: tagLibrary(analyzed.failure, input.libraryId) };
   const modules = new Map<string, { contents: string; loader: 'js' | 'json' }>();
+  const sources = new Map<string, string>(parsed.container.files.map((f) => [f.path, f.text] as const));
   for (const f of parsed.container.files) {
     if (f.path.endsWith('.json')) {
       modules.set(f.path, { contents: f.text, loader: 'json' });
@@ -93,7 +96,7 @@ async function compileLibrary(
       return { ok: false, failure: transformFailure(e, input.libraryId, f.path, limits) };
     }
   }
-  const library: CompiledLibrary = { libraryId: input.libraryId, sourceDigest, modules, imports: analyzed.analysis.libraryImports ?? [] };
+  const library: CompiledLibrary = { libraryId: input.libraryId, sourceDigest, modules, imports: analyzed.analysis.libraryImports ?? [], sources };
   if (cache !== undefined) {
     if (cache.entries.size >= cache.max) {
       const oldest = cache.entries.keys().next().value;

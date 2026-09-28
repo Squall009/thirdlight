@@ -22,7 +22,7 @@
  * buffered and bounded so a locator read can never reach a project directory.
  */
 import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, type SessionError } from '@thirdlight/protocol';
-import { buildContentClosureM3, type ContentClosureM3 } from '@thirdlight/exporter';
+import { buildContentClosureM3, type ClosureSourceMap, type ContentClosureM3 } from '@thirdlight/exporter';
 import type { RuntimeContentManifestV2 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
@@ -86,6 +86,8 @@ export interface BuiltPlayContentM3 {
   moduleIds: readonly string[];
   /** The immutable play artifact set (locator-relative paths). */
   artifacts: readonly PlayArtifact[];
+  /** Phase 25.9: the compiled outputs' source maps (error and log locations map back to sources; never served). */
+  sourceMaps: readonly ClosureSourceMap[];
 }
 
 export type BuildPlayContentM3Result = { ok: true; built: BuiltPlayContentM3 } | { ok: false; error: SessionError };
@@ -174,7 +176,8 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
   // The declared assets (at their manifest-declared digest-addressed path).
   // Phase 12 (c): a v4 project's scene files and instance buffers (loaded by the game on demand).
   // Phase 25.7b: and the manifest's content files (materials, UI documents, dialogue, the buffer table).
-  for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts]) {
+  // Phase 25.9: and the shared script library modules the behaviors import (`libraries/<digest>.js`).
+  for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts]) {
     artifacts.push({ path: a.path, bytes: a.bytes, digest: a.digest, contentType: a.contentType });
   }
   // The M3 play entry: the prebuilt bundle served as game.js (the page
@@ -191,6 +194,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
       snapshotId: closure.snapshotId,
       moduleIds: closure.moduleIds,
       artifacts,
+      sourceMaps: closure.sourceMaps,
     },
   };
 }

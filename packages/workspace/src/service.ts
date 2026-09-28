@@ -105,7 +105,7 @@ import {
   type StageRequest,
   type StageResult,
 } from './content-store';
-import { checkScriptLibraryDraft, prepareBehaviorSource, prepareScriptLibraryDependents, preparedFactsOf, projectScriptLibraryInputs, type PrepareBehaviorSourceRequest } from './behavior';
+import { checkScriptLibraryDraft, discardScriptLibraryStage, libraryStageFacts, prepareBehaviorSource, prepareScriptLibraryDependents, prepareScriptLibraryStage, preparedFactsOf, projectScriptLibraryInputs, stageScriptLibraryPatch, type PrepareBehaviorSourceRequest } from './behavior';
 import {
   externalChangeUnreadable,
   externalChangeUnresolved,
@@ -486,6 +486,9 @@ function buildService(core: Core): WorkspaceService {
     };
     if (core.content.behaviorCompiler !== undefined) commandState.behaviorPreparerRegistered = true;
     if (s.preparedSources.size > 0) commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
+    // Phase 25.9: the staged library edit sets (a commit reads only these).
+    const stages = libraryStageFacts(s);
+    if (stages !== undefined) commandState.scriptLibraryStages = stages;
     const outcome = applyMutation(commandState, pureRequest);
     if (!outcome.ok) return outcome.result;
     // Remember which scene the new history entry edited (undo/redo route by it).
@@ -569,6 +572,8 @@ function buildService(core: Core): WorkspaceService {
     }
     publishV4(s, nextState);
     s.history = outcome.state.history;
+    // Phase 25.9: a committed stage is done (committing it again is refused).
+    if (op === 'commitScriptLibraryStage' && typeof args['stageId'] === 'string') s.libraryStages?.delete(args['stageId']);
     return ack;
   }
 
@@ -1326,6 +1331,10 @@ function buildService(core: Core): WorkspaceService {
     prepareBehaviorSource: prepareBehaviorSourceOp,
     prepareScriptLibraryDependents: prepareScriptLibraryDependentsOp,
     checkScriptLibraryDraft: (projectId: string, draft: { libraryId: string; files: { path: string; text: string }[] }) => checkScriptLibraryDraft(core, projectId, draft),
+    // Phase 25.9: staged library edits.
+    stageScriptLibraryPatch: (projectId: string, request: { stageId?: string; patch: import('./behavior').StagedLibraryPatch }) => stageScriptLibraryPatch(core, projectId, request),
+    discardScriptLibraryStage: (projectId: string, stageId: string) => discardScriptLibraryStage(core, projectId, stageId),
+    prepareScriptLibraryStage: (projectId: string, stageId: string) => prepareScriptLibraryStage(core, projectId, stageId),
     scriptLibraryInputs: (projectId: string) => projectScriptLibraryInputs(core, projectId),
     scan,
     dispose,

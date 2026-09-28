@@ -382,6 +382,8 @@ export class BehaviorHostError extends Error {
   readonly detail?: string;
   /** Phase 19.0: the visual-script node that was running (see `graphNodeIdOf`). */
   nodeId?: string;
+  /** Phase 25.9: where in the project's compiled modules the error came from (see `compiledFramesOf`). */
+  frames?: CompiledFrame[];
   constructor(
     code: BehaviorHostError['code'],
     reason: string,
@@ -410,6 +412,51 @@ export function graphNodeIdOf(e: unknown): string | undefined {
   if (typeof e !== 'object' || e === null) return undefined;
   const id = (e as { nodeId?: unknown }).nodeId;
   return typeof id === 'string' && GRAPH_NODE_ID_RE.test(id) ? id : undefined;
+}
+
+/** Phase 25.9: one position in a project's compiled script module (`behaviors/<digest>.js` or `libraries/<digest>.js`). */
+export interface CompiledFrame {
+  file: string;
+  /** 1-based. */
+  line: number;
+  /** 1-based. */
+  column: number;
+}
+
+const COMPILED_FRAME_RE = /((?:behaviors|libraries)\/[0-9a-f]{64}\.js):(\d+):(\d+)/g;
+
+/**
+ * Phase 25.9: the project-module positions in an error's stack, innermost
+ * first (at most `max`; engine frames skipped). The browsers' stack formats
+ * all end a frame with `<url>:<line>:<column>`, and a compiled script is
+ * always loaded from a digest-named file, so only those frames match. The
+ * Play backend maps them to the source files with the build's source maps.
+ * Never part of the simulation state (diagnostics only).
+ */
+export function compiledFramesOf(e: unknown, max = 4): CompiledFrame[] {
+  if (typeof e !== 'object' || e === null) return [];
+  const carried = (e as { frames?: unknown }).frames;
+  if (Array.isArray(carried)) return (carried as CompiledFrame[]).slice(0, max);
+  let stack: unknown;
+  try {
+    stack = (e as { stack?: unknown }).stack;
+  } catch {
+    return [];
+  }
+  if (typeof stack !== 'string') return [];
+  const out: CompiledFrame[] = [];
+  for (const m of stack.matchAll(COMPILED_FRAME_RE)) {
+    out.push({ file: m[1] as string, line: Number(m[2]), column: Number(m[3]) });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** Phase 25.9: a host error that keeps the script frames of the error it wraps. */
+function withFrames(err: BehaviorHostError, cause: unknown): BehaviorHostError {
+  const frames = compiledFramesOf(cause);
+  if (frames.length > 0) err.frames = frames;
+  return err;
 }
 
 /** A write to the frozen `prepare` result (§14.3.1 `behavior_state_shared`). */
@@ -741,7 +788,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       try {
         prepared = spec.prepare === undefined ? undefined : spec.prepare(prepareConfig);
       } catch (e) {
-        throw new BehaviorHostError('config_invalid', 'behavior_prepare_failed', `behavior "${behaviorId}" prepare() threw: ${messageOf(e)}`);
+        throw withFrames(new BehaviorHostError('config_invalid', 'behavior_prepare_failed', `behavior "${behaviorId}" prepare() threw: ${messageOf(e)}`), e);
       }
       const readonlyResult = readonlyPrepared(prepared, new WeakMap());
 
@@ -764,7 +811,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         try {
           state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId, properties, tags }));
         } catch (e) {
-          throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`);
+          throw withFrames(new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`), e);
         }
         return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null };
       };
@@ -889,7 +936,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         const clipped = clipLogMessage(typeof message === 'string' ? message : String(message));
         instance.logs.push({ level, message: clipped });
         if (instance.logs.length > INTENT_LIMITS.logsRetainedPerInstance) instance.logs.shift();
-        cfg.behaviorLog?.(level, clipped);
+        // Phase 25.9: where the script called ctx.log (the first project frame of the call's stack).
+        if (cfg.behaviorLog !== undefined) cfg.behaviorLog(level, clipped, compiledFramesOf(new Error(), 1)[0]);
       };
 
       /** Phase 19.1: `ctx.messages` of one instance (it sends as, and receives for, its entity). */
@@ -1033,9 +1081,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             throw e;
           }
           // Phase 19.0: a visual script's error keeps the node it came from.
+          // Phase 25.9: and every error where in the compiled script it was thrown.
           const withNode = (err: BehaviorHostError): BehaviorHostError => {
             const nodeId = graphNodeIdOf(e);
             if (nodeId !== undefined) err.nodeId = nodeId;
+            const frames = compiledFramesOf(e);
+            if (frames.length > 0) err.frames = frames;
             return err;
           };
           if (e instanceof TimerCallError || e instanceof RandomCallError || e instanceof DebugCallError) {
@@ -1081,7 +1132,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             try {
               spec.dispose?.(readonlyResult, instance.state);
             } catch (e) {
-              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`);
+              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
             }
             try {
               instance.state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId: instance.entityId, properties: instance.properties, tags }));
@@ -1135,7 +1186,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             try {
               spec.dispose?.(readonlyResult, instance.state);
             } catch (e) {
-              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`);
+              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
             }
             instances.splice(i, 1);
           }
@@ -1154,7 +1205,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             try {
               spec.dispose?.(readonlyResult, instance.state);
             } catch (e) {
-              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`);
+              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
             }
           }
           instances.length = 0;

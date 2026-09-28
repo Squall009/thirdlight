@@ -55,6 +55,10 @@ export type {
   PrepareBehaviorSourceResult,
   PrepareLibraryDependentsOk,
   PrepareLibraryDependentsResult,
+  LibraryStageResult,
+  LibraryStageSummary,
+  PrepareLibraryStageResult,
+  StagedLibraryPatch,
   ScriptLibraryDraftCheckResult,
 } from './behavior';
 export type { AssetRecord, AssetVersion, ContentCatalog, ImportRecipe } from '@thirdlight/project-model';

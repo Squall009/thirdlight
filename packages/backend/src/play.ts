@@ -138,6 +138,12 @@ export interface PlayRecord {
   snapshot: RuntimeSnapshotDoc | null;
   /** Phase 25.24a: the backend's part of the start (ms per stage: session, state, capture, bundle, closure.*, publish, total). */
   buildTimings?: Record<string, number>;
+  /**
+   * Phase 25.9: the play's compiled outputs' source maps by output digest
+   * (the diagnostics route maps script error and log locations back to the
+   * source files with them; released when the play ends).
+   */
+  sourceMaps?: ReadonlyMap<string, { behaviorId?: string; libraryId?: string; sourceMap: string }>;
   /** Phase 21.4: the snapshot as JSON bytes, serialized once for the snapshot route (released with the snapshot). */
   snapshotBytes?: Uint8Array;
   demo: boolean;
@@ -788,6 +794,7 @@ export class PlayManager {
     // Phase 25.24 (D48): an ended play keeps its end record, not its scene; the oldest ended records go.
     rec.snapshot = null;
     rec.snapshotBytes = undefined;
+    delete rec.sourceMaps;
     this.ended.push(rec.playSessionId);
     this.pruneEnded();
   }

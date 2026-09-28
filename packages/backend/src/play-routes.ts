@@ -11,6 +11,7 @@ import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
 import type { HeadlessEditors } from './headless';
 import { resolvePlayStart } from './play-start';
+import { withSourceLocations } from './source-locations';
 import type { PlayBuildCache } from './play-build';
 
 // ---- ID / token allocation (sessions.md §3: hex, CSPRNG) ----------------------
@@ -214,6 +215,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayArtifact[] };
+    // Phase 25.9: the compiled outputs' source maps (kept on the play record, never served).
+    let playSourceMaps: ReadonlyMap<string, { behaviorId?: string; libraryId?: string; sourceMap: string }> | undefined;
     let startNotes: string[] = [];
     {
       mark('state');
@@ -302,6 +305,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         manifestBytes: builtM3.built.manifestBytes,
         artifacts: builtM3.built.artifacts,
       };
+      playSourceMaps = new Map(builtM3.built.sourceMaps.map((m) => [m.outputDigest, m] as const));
     }
     const published = playContent.publish({
       playSessionId,
@@ -321,6 +325,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     buildTimings['total'] = Math.round(performance.now() - tStart);
     const rec = plays.add(playSessionId, projectId, session.sessionId, snapshot, parsedReq.request.demo, builtCore.buildId, now);
     rec.buildTimings = buildTimings;
+    if (playSourceMaps !== undefined && playSourceMaps.size > 0) rec.sourceMaps = playSourceMaps;
     session.playSessionId = playSessionId;
     // `startedBy` = who started the play. The one owner token is used by the
     // browser and by tools alike; a browser request carries an Origin
@@ -489,7 +494,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         playSessionId,
         snapshotId: rec.snapshotId,
         revision: rec.revision,
-        diagnostics: outcome.diagnostics,
+        // Phase 25.9: script error and log locations mapped back to the project's source files.
+        diagnostics: withSourceLocations(outcome.diagnostics, rec.sourceMaps),
         // Phase 25.24a: the backend's part of this play's start (the preview's is diagnostics.startTimings).
         ...(rec.buildTimings !== undefined ? { buildTimings: rec.buildTimings } : {}),
       });

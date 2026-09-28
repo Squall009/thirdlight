@@ -413,6 +413,16 @@ export interface WorkspaceService {
   /** Phase 23.7: the compiler inputs of the project's script libraries as stored now. */
   scriptLibraryInputs(projectId: string): import('@thirdlight/behavior-build').ScriptLibraryInput[];
   /**
+   * Phase 25.9: add one `setScriptLibrary`-shaped patch to a staged edit set
+   * (a new stage without stageId). Nothing authoritative changes until
+   * `commitScriptLibraryStage` commits the stage as one change.
+   */
+  stageScriptLibraryPatch(projectId: string, request: { stageId?: string; patch: import('./behavior').StagedLibraryPatch }): import('./behavior').LibraryStageResult;
+  /** Phase 25.9: drop a staged edit set. */
+  discardScriptLibraryStage(projectId: string, stageId: string): { ok: true } | { ok: false; error: CommandError };
+  /** Phase 25.9: compile a stage's dependents once against the committed set (before `commitScriptLibraryStage`). */
+  prepareScriptLibraryStage(projectId: string, stageId: string): Promise<import('./behavior').PrepareLibraryStageResult>;
+  /**
    * The startup scan (workspace.md §10) — re-runs it. The initial scan ran
    * at `openWorkspaceService` (the report is also in `lastScan`).
    */

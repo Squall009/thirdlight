@@ -123,10 +123,12 @@ import type { DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker
 import { TimelinesPanel } from './timeline/TimelinesPanel';
 import { newTimeline, type TimelinePreviewValue } from './timeline/TimelineDocument';
 import { LibrariesPanel } from './script/LibrariesPanel';
+import { ConsolePanel } from './ConsolePanel';
+import type { SourceFocus, SourceLocation } from '../session/source-location';
 import { UiPanel } from './uidoc/UiPanel';
 import { newUiDocument, newUiTheme, uniqueDocId } from '../session/ui-edit';
-import type { LibraryDraft, LibrarySaveOutcome } from './script/LibraryDocument';
-import { newLibraryFiles } from '../session/script-sources';
+import { savedDraft, type LibraryDraft, type LibrarySaveOutcome } from './script/LibraryDocument';
+import { fitsOneRequest, libraryFilePatch, libraryStagePatches, newLibraryFiles, type LibraryStagePatch } from '../session/script-sources';
 import { effectPortContext, shownSystem, type EffectDocumentProps } from './effect/EffectDocument';
 import { newEffect, uniqueId } from '../session/effect-edit';
 import type { VisualScriptCheckResult, VisualScriptProblem } from './script/VisualScriptDocument';
@@ -3228,10 +3230,63 @@ function EditorApp(): JSX.Element {
    * (`needs-ack`) or is acknowledged (the ordinary acknowledgeBehaviorTrust
    * command) and the save retried.
    */
+  /**
+   * Phase 25.9: stage these patches (several requests, nothing changes yet)
+   * and commit them as one change: one revision, one undo, each script that
+   * imports a changed library compiled once. A digest those scripts will
+   * link that is not acknowledged yet asks first (the stage is dropped and
+   * made again on the acknowledged retry).
+   */
+  const commitLibraryPatches = useCallback(
+    async (patches: readonly LibraryStagePatch[], acknowledge: boolean): Promise<LibrarySaveOutcome> => {
+      const c = clientRef.current;
+      if (!c) return { kind: 'failed', message: 'not connected' };
+      let stageId: string | undefined;
+      for (const patch of patches) {
+        const r = await c.stageScriptLibrary({ ...(stageId !== undefined ? { stageId } : {}), libraryId: patch.libraryId, files: patch.files });
+        if (!r.ok) {
+          if (stageId !== undefined) await c.stageScriptLibrary({ stageId, discard: true });
+          return { kind: 'failed', message: `${r.error.code}: ${r.error.message}` };
+        }
+        stageId = r.stageId;
+      }
+      if (stageId === undefined) return { kind: 'failed', message: 'nothing to save' };
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const res = await c.command('commitScriptLibraryStage', { stageId }, c.projection.revision);
+        if (res.ok) {
+          refreshEntities();
+          return { kind: 'saved', revision: res.revision, recompiled: (res.libraryStage?.dependents ?? []).map((d) => d.behaviorId), patches: patches.length };
+        }
+        const r = res.response;
+        if (!r.ok && r.code === 'behavior_trust_unacknowledged' && r.sourceDigest !== undefined) {
+          if (!acknowledge) {
+            await c.stageScriptLibrary({ stageId, discard: true });
+            return { kind: 'needs-ack', digest: r.sourceDigest };
+          }
+          const digest = r.sourceDigest;
+          const ack = await c.acknowledgeBehaviorTrust(digest, c.projection.revision);
+          if (!ack.ok) {
+            const a = ack.response;
+            return { kind: 'failed', message: a.ok ? 'the acknowledgment was not recorded' : `${a.code}: ${a.message ?? a.code}` };
+          }
+          setPublication((st) => trustObserved(st, [...c.prefabs.listTrust(), { sourceDigest: digest, acknowledgedRevision: ack.revision }]));
+          continue;
+        }
+        await c.stageScriptLibrary({ stageId, discard: true });
+        return r.ok ? { kind: 'failed', message: 'the libraries were not saved' } : { kind: 'failed', message: `${r.code}: ${r.message ?? r.code}`, ...(r.diagnostics !== undefined ? { diagnostics: r.diagnostics } : {}) };
+      }
+      await c.stageScriptLibrary({ stageId, discard: true });
+      return { kind: 'failed', message: 'the libraries were not saved (trust acknowledgments kept changing)' };
+    },
+    [refreshEntities],
+  );
+
   const saveLibrary = useCallback(
     async (libraryId: string, files: { path: string; text: string | null }[], acknowledge: boolean): Promise<LibrarySaveOutcome> => {
       const c = clientRef.current;
       if (!c) return { kind: 'failed', message: 'not connected' };
+      // Phase 25.9: a change larger than one request goes in several staged patches, committed once.
+      if (!fitsOneRequest(files)) return commitLibraryPatches(libraryStagePatches(libraryId, files), acknowledge);
       const recompiled = libraryDependents(libraryId);
       for (let attempt = 0; attempt < 3; attempt++) {
         const res = await c.command('setScriptLibrary', { libraryId, files }, c.projection.revision);
@@ -3256,7 +3311,48 @@ function EditorApp(): JSX.Element {
       }
       return { kind: 'failed', message: 'the library was not saved (trust acknowledgments kept changing)' };
     },
-    [libraryDependents, refreshEntities],
+    [libraryDependents, refreshEntities, commitLibraryPatches],
+  );
+
+  /** Phase 25.9: a source position to show in a script or library tab (the Console's locations). */
+  const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
+  /** Phase 25.9: bumped when a library draft becomes dirty or clean (the Libraries panel's "Save all"). */
+  const [libraryDraftsVersion, setLibraryDraftsVersion] = useState(0);
+  const onLibraryDraftChange = useCallback(() => setLibraryDraftsVersion((v) => v + 1), []);
+  const [saveAllOutcome, setSaveAllOutcome] = useState<LibrarySaveOutcome | { kind: 'working' } | null>(null);
+  /** The libraries with unsaved edits (their drafts differ from the stored files). */
+  const dirtyLibraries = useMemo(
+    () => scriptLibraries.filter((l) => libraryDrafts.get(l.libraryId)?.dirty === true).map((l) => l.libraryId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scriptLibraries, libraryDraftsVersion],
+  );
+  /**
+   * Phase 25.9: "Save all" — every library with unsaved edits staged in one
+   * stage (several patches) and committed once: one revision, one undo, the
+   * scripts that import any of them compiled once each.
+   */
+  const saveAllLibraries = useCallback(
+    async (acknowledge: boolean): Promise<void> => {
+      const patches: LibraryStagePatch[] = [];
+      const saved: { libraryId: string; draft: LibraryDraft }[] = [];
+      for (const lib of scriptLibraries) {
+        const draft = libraryDrafts.get(lib.libraryId);
+        if (draft?.dirty !== true) continue;
+        const files = libraryFilePatch(lib.files, draft.files);
+        if (files.length === 0) continue;
+        patches.push(...libraryStagePatches(lib.libraryId, files));
+        saved.push({ libraryId: lib.libraryId, draft });
+      }
+      if (patches.length === 0) return;
+      setSaveAllOutcome({ kind: 'working' });
+      const r = await commitLibraryPatches(patches, acknowledge);
+      if (r.kind === 'saved') {
+        for (const x of saved) libraryDrafts.set(x.libraryId, savedDraft(x.draft));
+        setLibraryDraftsVersion((v) => v + 1);
+      }
+      setSaveAllOutcome(r);
+    },
+    [scriptLibraries, libraryDrafts, commitLibraryPatches],
   );
 
   /** Phase 15.4: the declaration editor's save — one ordinary publishBehavior command. */
@@ -3409,6 +3505,13 @@ function EditorApp(): JSX.Element {
 
   // The Animator and Behaviors panels: the bottom dock and the centre document tabs share these.
   const openDocument = (kind: string, id: string): void => workspaceDispatch({ type: 'open', doc: { kind, id } });
+  /** Phase 25.9: a script or library position (from the Console) opened in its code editor tab at the line. */
+  const openSource = (loc: SourceLocation): void => {
+    const id = loc.libraryId ?? loc.behaviorId;
+    if (id === undefined) return;
+    openDocument(loc.libraryId !== undefined ? 'script-library' : 'script', id);
+    setSourceFocus({ id, path: loc.path, line: loc.line, column: loc.column, nonce: Date.now() });
+  };
   const animatorModels = assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) }));
   const animatorProps: AnimatorPanelProps = {
     controllers: animators,
@@ -3475,6 +3578,7 @@ function EditorApp(): JSX.Element {
       loadSource: async (behaviorId) => clientRef.current?.behaviorSource(behaviorId) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
       check: checkScript,
       publish: publishScript,
+      focus: sourceFocus,
     },
     library: {
       libraries: scriptLibraries,
@@ -3482,6 +3586,9 @@ function EditorApp(): JSX.Element {
       activePlay: behaviorProps.activePlay,
       check: async (libraryId, files) => clientRef.current?.checkScriptLibrary(libraryId, files) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
       save: saveLibrary,
+      onDraftChange: onLibraryDraftChange,
+      draftsVersion: libraryDraftsVersion,
+      focus: sourceFocus,
     },
     graph: {
       graphs,
@@ -4199,6 +4306,13 @@ function EditorApp(): JSX.Element {
               }}
             />
           )}
+          {bottomTab === 'console' && (
+            <ConsolePanel
+              playSessionId={playing && playInfo !== null ? playInfo.playSessionId : null}
+              fetchDiagnostics={async (psid) => clientRef.current?.playDiagnostics(psid) ?? { ok: false, message: 'not connected' }}
+              onOpenSource={openSource}
+            />
+          )}
           {bottomTab === 'libraries' && (
             <LibrariesPanel
               libraries={scriptLibraries}
@@ -4208,6 +4322,9 @@ function EditorApp(): JSX.Element {
                 return d !== null && d.kind === 'script-library' ? d.id : null;
               })()}
               error={libraryError}
+              dirty={dirtyLibraries}
+              saveAll={saveAllOutcome}
+              onSaveAll={(acknowledge) => void saveAllLibraries(acknowledge)}
               onOpen={(id) => openDocument('script-library', id)}
               onCreate={(name) => {
                 const libraryId = uniqueId(name, scriptLibraries.map((l) => l.libraryId), 'library');
@@ -5025,7 +5142,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'dialogue' | 'libraries' | 'modes' | 'shell' | 'ui' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'dialogue' | 'libraries' | 'modes' | 'shell' | 'ui' | 'problems' | 'console';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5050,6 +5167,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'timelines', label: 'Timelines' },
   // Phase 23.7: shared script libraries.
   { id: 'libraries', label: 'Libraries' },
+  // Phase 25.9: Play script logs and errors at their source locations.
+  { id: 'console', label: 'Console' },
   // Phase 23.9b: project UI documents and themes.
   { id: 'ui', label: 'UI' },
   // Phase 23.10: game modes and behavior groups.

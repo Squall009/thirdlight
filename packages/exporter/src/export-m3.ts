@@ -297,7 +297,7 @@ export async function exportProjectM3(
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
-  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts].map((a) => a.path));
+  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts].map((a) => a.path));
   if (declaredManifestPaths.size !== closure.declaredPaths.length) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
@@ -321,8 +321,9 @@ export async function exportProjectM3(
       return fail('scan_forbidden_content', 'internal', `the emitted asset artifact bytes do not match its digest (${asset.path})`);
     }
   }
-  // Behavior modules are shipped as separate files: same forbidden-content rule as the bundle.
-  for (const b of closure.behaviorArtifacts) {
+  // Behavior modules (and, phase 25.9, the shared library modules they import) are shipped as
+  // separate files: same forbidden-content rule as the bundle.
+  for (const b of [...closure.behaviorArtifacts, ...closure.libraryArtifacts]) {
     const bc = textPatternCounts(new TextDecoder().decode(b.bytes), patterns);
     if (bc.a + bc.b + bc.c + bc.e + bc.g + bc.i !== 0 || digestBytes(b.bytes) !== b.digest) {
       return fail('export_bundle_forbidden_content', 'internal', `forbidden content in behavior module ${b.path}`);
@@ -405,7 +406,7 @@ export async function exportProjectM3(
   const indexBytes = new TextEncoder().encode(INDEX_HTML);
   const assetBytes = closure.assetArtifacts.reduce((n, a) => n + a.bytes.length, 0);
   const behaviorBytes = closure.behaviorArtifacts.reduce((n, a) => n + a.bytes.length, 0);
-  const extraArtifacts = [...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts];
+  const extraArtifacts = [...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts];
   const closureEntries = [
     { path: 'index.html', digest: digestBytes(indexBytes), byteLength: indexBytes.length },
     { path: BUNDLE_NAME, digest: digestBytes(built.bytes), byteLength: built.bytes.length },

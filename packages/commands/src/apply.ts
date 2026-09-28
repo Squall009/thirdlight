@@ -55,7 +55,7 @@ import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, Lig
 import { applySceneIndexOp } from './scene-ops';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
 import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-ops';
-import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-library-ops';
+import { applyCommitScriptLibraryStage, applyDeleteScriptLibrary, applySetScriptLibrary } from './script-library-ops';
 import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
 import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
@@ -264,6 +264,7 @@ export function applyMutation<S extends SceneDocument>(
     input.preparedBehaviorSources = state.preparedBehaviorSources;
   }
   if (state.reservedIds !== undefined) input.reservedIds = state.reservedIds;
+  if (state.scriptLibraryStages !== undefined) input.scriptLibraryStages = state.scriptLibraryStages;
 
   switch (va.validated.op) {
     case 'createEntities': {
@@ -470,6 +471,12 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'commitScriptLibraryStage': {
+      // Phase 25.9: a staged set of library edits, one change (the dependents from facts prepared once).
+      const r = applyCommitScriptLibraryStage(input, va.validated.args as { stageId: string });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'editBlocks':
     case 'setBlockType':
     case 'deleteBlockType':
@@ -642,7 +649,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, createEntities',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, createEntities, commitScriptLibraryStage',
         }),
       };
     }

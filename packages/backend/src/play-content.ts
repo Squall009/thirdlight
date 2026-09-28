@@ -215,7 +215,7 @@ export class PlayContentStore {
    * id (43 base64url characters, the contentId shape), the same for every
    * Play of the project while this backend runs, unguessable without the
    * store's secret. Under it the project's declared artifacts are served by
-   * digest (`content/sha256/<digest>`, `behaviors/<digest>.js`) at URLs that
+   * digest (`content/sha256/<digest>`, `behaviors/<digest>.js`, phase 25.9 `libraries/<digest>.js`) at URLs that
    * stay the same from Play to Play, so the browser's cache hits.
    */
   cacheIdFor(projectId: string): string {
@@ -291,6 +291,8 @@ export class PlayContentStore {
         return set.artifacts.get(`content/sha256/${locator.digest}`);
       case 'behavior':
         return set.artifacts.get(`behaviors/${locator.outputDigest}.js`);
+      case 'library':
+        return set.artifacts.get(`libraries/${locator.outputDigest}.js`);
       case 'scene':
         return set.artifacts.get(`scenes/${locator.sceneId}.json`);
       default:

@@ -3,12 +3,17 @@
  * libraries: create (a name → an id, imported as `@lib/<id>`), rename, delete
  * and open (the "Library: <name>" centre tab). Each action is one command
  * (setScriptLibrary, deleteScriptLibrary — refused while a published script
- * imports the library).
+ * imports the library). Phase 25.9: "Save all" commits every library with
+ * unsaved edits at once (staged in several patches, one commit: one
+ * revision, one undo, each importing script compiled once).
  *
  * Browser-only (React).
  */
 import { useState, type JSX } from 'react';
 import type { ScriptLibrary } from '@thirdlight/project-model';
+
+import { BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL, BEHAVIOR_TRUST_NOTICE } from '../../session/behavior-publication';
+import type { LibrarySaveOutcome } from './LibraryDocument';
 
 interface Props {
   libraries: readonly ScriptLibrary[];
@@ -16,13 +21,18 @@ interface Props {
   dependents: (libraryId: string) => readonly string[];
   openId: string | null;
   error: string | null;
+  /** Phase 25.9: the libraries with unsaved edits in their tabs. */
+  dirty: readonly string[];
+  /** Phase 25.9: the last "Save all" outcome. */
+  saveAll: LibrarySaveOutcome | { kind: 'working' } | null;
+  onSaveAll: (acknowledge: boolean) => void;
   onOpen: (libraryId: string) => void;
   onCreate: (name: string) => void;
   onRename: (libraryId: string, name: string) => void;
   onDelete: (libraryId: string) => void;
 }
 
-export function LibrariesPanel({ libraries, dependents, openId, error, onOpen, onCreate, onRename, onDelete }: Props): JSX.Element {
+export function LibrariesPanel({ libraries, dependents, openId, error, dirty, saveAll, onSaveAll, onOpen, onCreate, onRename, onDelete }: Props): JSX.Element {
   const [name, setName] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   return (
@@ -43,6 +53,37 @@ export function LibrariesPanel({ libraries, dependents, openId, error, onOpen, o
         </button>
       </form>
       <p className="tl-hint">Shared TypeScript and JSON every script can import: import {'{ … }'} from '@lib/&lt;id&gt;'. Saving a library recompiles the scripts that import it.</p>
+      <div className="tl-script__row" aria-label="unsaved libraries">
+        <span className="tl-prop__caption">{dirty.length === 0 ? 'No unsaved library edits.' : `Unsaved edits: ${dirty.map((id) => `@lib/${id}`).join(', ')}`}</span>
+        <button className="tl-btn tl-btn--small tl-btn--primary" disabled={dirty.length === 0 || saveAll?.kind === 'working'} onClick={() => onSaveAll(false)} title="Save every library with unsaved edits in one commit (one undo step); each script that imports them is recompiled once">
+          Save all
+        </button>
+      </div>
+      {saveAll?.kind === 'needs-ack' && (
+        <div className="tl-script__trust" role="group" aria-label="save all trust acknowledgment">
+          {BEHAVIOR_TRUST_NOTICE.map((line) => (
+            <p key={line.slice(0, 24)} className="tl-behaviors__notice-line">
+              {line}
+            </p>
+          ))}
+          <div className="tl-prop__caption" title={saveAll.digest}>
+            library digest {saveAll.digest.slice(0, 16)}…
+          </div>
+          <button className="tl-btn tl-btn--small" onClick={() => onSaveAll(true)}>
+            {BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL} and save all
+          </button>
+        </div>
+      )}
+      {saveAll?.kind === 'saved' && (
+        <p className="tl-hint" aria-label="save all result">
+          Saved (r{saveAll.revision}) in {saveAll.patches ?? 1} patch{saveAll.patches === 1 ? '' : 'es'}, one commit.{saveAll.recompiled.length > 0 ? ` Recompiled ${saveAll.recompiled.join(', ')} (each once).` : ''}
+        </p>
+      )}
+      {saveAll?.kind === 'failed' && (
+        <p className="tl-error" role="alert" aria-label="save all result">
+          {saveAll.message}
+        </p>
+      )}
       {error !== null && (
         <p className="tl-error" role="alert">
           {error}

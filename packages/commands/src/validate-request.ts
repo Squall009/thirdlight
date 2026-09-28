@@ -184,6 +184,8 @@ const OPS: readonly MutationOp[] = [
   'deletePrefab',
   // phase 25.7e: bulk creation
   'createEntities',
+  // phase 25.9: staged library edits (several patches, one commit)
+  'commitScriptLibraryStage',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -233,7 +235,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, createEntities',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, createEntities, commitScriptLibraryStage',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1256,6 +1258,7 @@ export type ValidatedOpArgs =
   | { op: 'renameEffect'; args: { effectId: string; name: string } }
   | { op: 'setScriptLibrary'; args: import('@thirdlight/project-model').ScriptLibraryPatch }
   | { op: 'deleteScriptLibrary'; args: { libraryId: string } }
+  | { op: 'commitScriptLibraryStage'; args: { stageId: string } }
   | { op: 'editBlocks'; args: { entityId: string; edits: import('@thirdlight/project-model').BlockEdit[] } }
   | { op: 'setBlockType'; args: { block: import('@thirdlight/project-model').BlockType } }
   | { op: 'deleteBlockType'; args: { blockId: string } }
@@ -1588,6 +1591,13 @@ export function validateOpArgs(
           }
         }
       }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'commitScriptLibraryStage': {
+      // Phase 25.9: commitScriptLibraryStage {stageId} (the staged libraries are host facts, never args).
+      for (const k of Object.keys(args)) if (k !== 'stageId') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'stageId') };
+      if (args['stageId'] === undefined) return { ok: false, error: fieldMissing('/args/stageId', 'stageId') };
+      if (typeof args['stageId'] !== 'string' || !/^lstage-[0-9]{1,12}$/.test(args['stageId'])) return { ok: false, error: fieldType('/args/stageId', args['stageId'], 'string (a stage id from the library stage route: lstage-<n>)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'graphEdit': {

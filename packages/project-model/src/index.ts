@@ -230,6 +230,7 @@ export {
   M3_SETTINGS_KEYS,
   MANIFEST_KEYS_V2,
   type ManifestSceneRow,
+  type ManifestLibraryRow,
   manifestBuildIdInputV2,
   manifestVersionCompat,
   mediaProfileDigest,

@@ -65,7 +65,7 @@ import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { ModeState, type ModeView } from './modes';
-import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
+import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
 import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
@@ -264,7 +264,7 @@ const DEFAULT_MODULES = ['thirdlight.demo:box-motion'];
 const PHYSICS_PORT_REASON = 'physics_port';
 
 interface BehaviorLogSink {
-  handler: ((moduleId: string, level: BehaviorLogLevel, message: string) => void) | null;
+  handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
 }
 
 /** The runtime-owned mutable per-step intent set (runtime.md §14.5). */
@@ -886,7 +886,7 @@ export function instantiateRuntime(
     fixedStepHz: hz,
     settings: resolvedSettings,
     sceneVersion,
-    behaviorLog: (level: BehaviorLogLevel, message: string) => logSink.handler?.(specId, level, message),
+    behaviorLog: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => logSink.handler?.(specId, level, message, at),
     ...(liveTags !== null ? { tags: liveTags } : {}),
     // Phase 23.1: a 3D project (scripts may drive colliders through intents there).
     ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
@@ -1317,6 +1317,8 @@ class RuntimeInstance implements Runtime {
   private errorRing: DiagnosticErrorEntry[] = [];
   /** Phase 19.0: the visual-script node of the error being fail-stopped (consumed by `failStop`). */
   private failNodeId: string | undefined = undefined;
+  /** Phase 25.9: the failing error's compiled script frames (consumed by the fail-stop entry). */
+  private failFrames: CompiledFrame[] = [];
   private errorCount = 0;
   private rafId: number | null = null;
   /** The settle pre-roll is initialization: cancellable before the first frame. */
@@ -1715,8 +1717,8 @@ class RuntimeInstance implements Runtime {
     this.committedMirror.copyFrom(args.curr, this.currShape);
     this.committed = this.committedMirror.map;
     this.logSink = args.logSink;
-    args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string): void =>
-      this.recordBehaviorLog(moduleId, level, message);
+    args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
+      this.recordBehaviorLog(moduleId, level, message, at);
     this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
@@ -4941,13 +4943,14 @@ class RuntimeInstance implements Runtime {
    * (runtime.md §14.8.1). A log flood cannot grow a diagnostics frame beyond
    * the 32-entry ring; the per-instance ring and counters live in the host.
    */
-  private recordBehaviorLog(moduleId: string, level: BehaviorLogLevel, message: string): void {
+  private recordBehaviorLog(moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void {
     this.recordError({
       code: 'behavior_log',
       reason: level,
       moduleId,
       message: clipMessage(message),
       stepIndex: this.stepIndex,
+      ...(at !== undefined ? { at } : {}),
     });
   }
 
@@ -5396,6 +5399,8 @@ class RuntimeInstance implements Runtime {
     const phase = this.currentPhase;
     // Phase 19.0: a visual script's error names the node it came from.
     this.failNodeId = graphNodeIdOf(e);
+    // Phase 25.9: and where in the compiled scripts it was thrown.
+    this.failFrames = compiledFramesOf(e);
     if (e instanceof PhaseViolationError) {
       this.failStop('module_error', 'phase_violation', messageOf(e), stepIndex, moduleId, phase);
       return;
@@ -5457,6 +5462,11 @@ class RuntimeInstance implements Runtime {
     if (detail !== undefined) entry.detail = detail;
     if (this.failNodeId !== undefined) entry.nodeId = this.failNodeId;
     this.failNodeId = undefined;
+    if (this.failFrames.length > 0) {
+      entry.at = this.failFrames[0];
+      entry.frames = this.failFrames;
+      this.failFrames = [];
+    }
     this.recordError(entry);
   }
 

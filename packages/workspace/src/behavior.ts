@@ -41,7 +41,7 @@ import {
   projectUnavailable,
   workspaceClosed,
 } from './errors';
-import { ensureSession, type Core } from './session';
+import { ensureSession, type Core, type LibraryStage } from './session';
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -376,4 +376,205 @@ export async function checkScriptLibraryDraft(core: Core, projectId: string, dra
   }
   if (r.ok) return { ok: true, compiled: true, libraryId: draft.libraryId, sourceDigest: r.sourceDigest, imports: r.imports, outputByteLength: r.outputByteLength, dependents, diagnostics: [] };
   return { ok: true, compiled: false, libraryId: draft.libraryId, code: r.code, reason: String(r.reason).slice(0, 256), dependents, diagnostics: r.diagnostics.slice(0, 32) };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 25.9: staged library edits (several patches, one commit)
+// ---------------------------------------------------------------------------
+
+/** At most this many open stages per project (the oldest goes first). */
+export const LIBRARY_STAGES_PER_PROJECT = 8;
+/** A stage holds at most this much staged library text (twice the project's 1 MiB library budget). */
+export const LIBRARY_STAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Phase 25.9: a stage patch — `setScriptLibrary`'s patch, and a file may be
+ * sent in pieces: `append: true` adds the text to the file as staged so far
+ * (a file larger than one request).
+ */
+export interface StagedLibraryPatch {
+  libraryId: string;
+  name?: string;
+  files?: { path: string; text: string | null; append?: boolean }[];
+}
+
+export interface LibraryStageSummary {
+  stageId: string;
+  patches: number;
+  libraries: { libraryId: string; name: string; sourceDigest: string; files: number; bytes: number; isNew: boolean; changed: boolean }[];
+}
+
+export type LibraryStageResult = { ok: true; stage: LibraryStageSummary } | { ok: false; error: CommandError };
+
+type OpenSession = Extract<ReturnType<typeof ensureSession>, { kind: 'open' }>['session'];
+
+function openSession(core: Core, projectId: string): { ok: true; s: OpenSession } | { ok: false; error: CommandError } {
+  if (typeof projectId !== 'string' || !ID_RE.test(projectId)) return { ok: false, error: projectNotFound(String(projectId)) };
+  const o = ensureSession(core, projectId);
+  if (o.kind === 'not-found') return { ok: false, error: projectNotFound(projectId) };
+  if (o.kind === 'unavailable') return { ok: false, error: projectUnavailable(o.reason, o.holder, o.errors ?? []) };
+  if (o.kind === 'released') return { ok: false, error: workspaceClosed() };
+  const s = o.session;
+  if (s.mode !== 'open' || s.scene === null || s.content === null) return { ok: false, error: projectUnavailable(s.blocked?.reason ?? 'envelope_invalid', null, s.blocked?.errors ?? []) };
+  return { ok: true, s };
+}
+
+const textBytes = (l: ScriptLibrary): number => l.files.reduce((n, f) => n + new TextEncoder().encode(f.text).length, 0);
+
+function stageSummary(stage: { stageId: string; patches: number; libraries: Map<string, { base: string | null; library: ScriptLibrary }> }): LibraryStageSummary {
+  return {
+    stageId: stage.stageId,
+    patches: stage.patches,
+    libraries: [...stage.libraries.values()]
+      .map(({ base, library }) => {
+        const sourceDigest = scriptLibraryDigest(library);
+        return { libraryId: library.libraryId, name: library.name, sourceDigest, files: library.files.length, bytes: textBytes(library), isNew: base === null, changed: base !== sourceDigest };
+      })
+      .sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1)),
+  };
+}
+
+/**
+ * Phase 25.9: add one patch (`setScriptLibrary`'s shape: files added or
+ * replaced, `text: null` removes one, `name`) to a stage, opening one when no
+ * stageId is given. The patch applies to the stage's value of that library
+ * (the stored library when the stage first touches it). Nothing
+ * authoritative changes; the stage is committed by `commitScriptLibraryStage`
+ * (one revision, one undo) or dropped with `discardScriptLibraryStage`.
+ */
+export function stageScriptLibraryPatch(core: Core, projectId: string, request: { stageId?: string; patch: StagedLibraryPatch }): LibraryStageResult {
+  const opened = openSession(core, projectId);
+  if (!opened.ok) return opened;
+  const s = opened.s;
+  const stages: Map<string, LibraryStage> = (s.libraryStages ??= new Map<string, LibraryStage>());
+  let stage = request.stageId !== undefined ? stages.get(request.stageId) : undefined;
+  if (request.stageId !== undefined && stage === undefined) {
+    return { ok: false, error: { ...fieldValueType('/stageId', request.stageId, 'an open library stage of this project', 'no open library stage with this id (it was committed, discarded, or the backend restarted)'), code: 'reference_missing' } };
+  }
+  const current = scriptLibrariesOfContent(s.content);
+  const held = stage?.libraries.get(request.patch.libraryId);
+  const stored = current.find((l) => l.libraryId === request.patch.libraryId) ?? null;
+  // A file sent in pieces: `append: true` adds its text to the file the stage already holds.
+  const startingFrom = held?.library ?? stored;
+  const pieces: { path: string; text: string | null }[] = [];
+  for (const f of request.patch.files ?? []) {
+    if (f.append !== true) {
+      pieces.push({ path: f.path, text: f.text });
+      continue;
+    }
+    const prior = pieces.find((x) => x.path === f.path)?.text ?? startingFrom?.files.find((x) => x.path === f.path)?.text;
+    if (typeof prior !== 'string' || typeof f.text !== 'string') {
+      return { ok: false, error: fieldValueType('/patch/files', f.path, 'an append to a file the stage holds', `nothing to append to: the stage holds no file ${f.path} (send its first piece without append)`) };
+    }
+    const at = pieces.findIndex((x) => x.path === f.path);
+    if (at >= 0) pieces[at] = { path: f.path, text: prior + f.text };
+    else pieces.push({ path: f.path, text: prior + f.text });
+  }
+  const plain: ScriptLibraryPatch = { libraryId: request.patch.libraryId, ...(request.patch.name !== undefined ? { name: request.patch.name } : {}), ...(request.patch.files !== undefined ? { files: pieces } : {}) };
+  const patched = applyScriptLibraryPatch(startingFrom, plain);
+  if (!patched.ok) return { ok: false, error: fieldValueType(`/patch${patched.path}`, request.patch.libraryId, 'a valid script library patch', patched.message) };
+  if (stage === undefined) {
+    if (stages.size >= LIBRARY_STAGES_PER_PROJECT) stages.delete(stages.keys().next().value as string);
+    s.libraryStageSeq = (s.libraryStageSeq ?? 0) + 1;
+    stage = { stageId: `lstage-${s.libraryStageSeq}`, libraries: new Map(), patches: 0 };
+    stages.set(stage.stageId, stage);
+  }
+  const libraries = new Map<string, { base: string | null; library: ScriptLibrary }>(stage.libraries);
+  libraries.set(request.patch.libraryId, { base: held?.base ?? (stored === null ? null : scriptLibraryDigest(stored)), library: patched.library });
+  if (libraries.size > 32) return { ok: false, error: fieldValueType('/patch/libraryId', request.patch.libraryId, 'at most 32 libraries in a stage', 'a stage holds at most 32 libraries (a project has at most 32)') };
+  const bytes = [...libraries.values()].reduce((n, e) => n + textBytes(e.library), 0);
+  if (bytes > LIBRARY_STAGE_MAX_BYTES) return { ok: false, error: fieldValueType('/patch/files', bytes, `at most ${LIBRARY_STAGE_MAX_BYTES} bytes of staged library text`, 'the stage would hold more library text than a project may') };
+  stage.libraries.clear();
+  for (const [k, v] of libraries) stage.libraries.set(k, v);
+  stage.patches += 1;
+  return { ok: true, stage: stageSummary(stage) };
+}
+
+/** Phase 25.9: drop a stage (nothing else changes). */
+export function discardScriptLibraryStage(core: Core, projectId: string, stageId: string): { ok: true } | { ok: false; error: CommandError } {
+  const opened = openSession(core, projectId);
+  if (!opened.ok) return opened;
+  if (opened.s.libraryStages?.delete(stageId) !== true) {
+    return { ok: false, error: { ...fieldValueType('/stageId', stageId, 'an open library stage of this project', 'no open library stage with this id'), code: 'reference_missing' } };
+  }
+  return { ok: true };
+}
+
+/** Phase 25.9: the stages as the command layer reads them (whole staged values and their bases). */
+export function libraryStageFacts(s: { libraryStages?: Map<string, { libraries: Map<string, { base: string | null; library: ScriptLibrary }> }> }): ReadonlyMap<string, import('@thirdlight/commands').ScriptLibraryStageFact> | undefined {
+  if (s.libraryStages === undefined || s.libraryStages.size === 0) return undefined;
+  const out = new Map<string, import('@thirdlight/commands').ScriptLibraryStageFact>();
+  for (const [id, stage] of s.libraryStages) {
+    out.set(id, { libraries: [...stage.libraries.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([libraryId, e]) => ({ libraryId, base: e.base, library: e.library })) });
+  }
+  return out;
+}
+
+export type PrepareLibraryStageResult =
+  | { ok: true; stage: LibraryStageSummary; dependents: { behaviorId: string; outputDigest: string }[]; compiled: number }
+  | { ok: false; kind: 'error'; error: CommandError }
+  | { ok: false; kind: 'compile'; behaviorId: string; failure: BehaviorCompileFailure };
+
+/**
+ * Phase 25.9: before `commitScriptLibraryStage`, compile each published
+ * script that imports any changed library of the stage — once, against the
+ * whole committed set — and file the facts the command reads (as
+ * `prepareScriptLibraryDependents` does for one patch). The changed
+ * libraries' digests a dependent will link must be acknowledged first.
+ */
+export async function prepareScriptLibraryStage(core: Core, projectId: string, stageId: string): Promise<PrepareLibraryStageResult> {
+  const opened = openSession(core, projectId);
+  if (!opened.ok) return { ok: false, kind: 'error', error: opened.error };
+  const s = opened.s;
+  const stage = s.libraryStages?.get(stageId);
+  if (stage === undefined) return { ok: false, kind: 'error', error: { ...fieldValueType('/args/stageId', stageId, 'an open library stage of this project', 'no open library stage with this id'), code: 'reference_missing' } };
+  const content = s.content!;
+  const current = scriptLibrariesOfContent(content);
+  const staged = [...stage.libraries.values()].map((e) => e.library);
+  const next = [...current.filter((l) => !stage.libraries.has(l.libraryId)), ...staged];
+  // Invalid staged values and stale bases are the command's refusals; nothing to compile for them.
+  for (const l of staged) {
+    const errors: ModelErrorV2[] = [];
+    validateScriptLibrary(l, '', errors);
+    if (errors.length > 0) return { ok: true, stage: stageSummary(stage), dependents: [], compiled: 0 };
+  }
+  const changed = staged.filter((l) => {
+    const stored = current.find((c) => c.libraryId === l.libraryId);
+    return stored === undefined || scriptLibraryDigest(stored) !== scriptLibraryDigest(l);
+  });
+  const dependents = [...new Set(changed.flatMap((l) => scriptLibraryDependents(content.behaviors, l.libraryId)))].sort();
+  if (dependents.length === 0) return { ok: true, stage: stageSummary(stage), dependents: [], compiled: 0 };
+  const trusted = (digest: string): boolean => content.behaviorTrust.entries.some((e) => e.sourceDigest === digest);
+  for (const l of changed) {
+    const digest = scriptLibraryDigest(l);
+    if (scriptLibraryDependents(content.behaviors, l.libraryId).length > 0 && !trusted(digest)) return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(digest) };
+  }
+  const compiler: BehaviorCompiler | undefined = core.content.behaviorCompiler;
+  if (compiler === undefined) return { ok: false, kind: 'error', error: behaviorPublicationUnavailable(dependents[0] as string, 'source', 'preparer_unavailable') };
+  const setKey = scriptLibrarySetKey(next);
+  const inputs = libraryInputs(next);
+  const out: { behaviorId: string; outputDigest: string }[] = [];
+  let compiled = 0;
+  for (const behaviorId of dependents) {
+    const record = content.behaviors.find((b) => b.behaviorId === behaviorId);
+    const source = record?.source;
+    if (record === undefined || source === null || source === undefined) continue;
+    const read = readSourceBlob(core, s as never, { digest: source.sourceDigest });
+    if (!read.ok) return { ok: false, kind: 'error', error: read.error };
+    let result;
+    try {
+      compiled += 1;
+      result = await compiler.compile({ behaviorId, declaration: record.declaration, containerBytes: read.bytes, pinnedModules: compiler.pinnedModules, libraries: inputs });
+    } catch (e) {
+      return { ok: false, kind: 'compile', behaviorId, failure: { ok: false, code: 'behavior_compile_failed', reason: 'the injected compiler threw', diagnostics: [{ code: 'behavior_compile_failed', reason: 'throw', message: (e instanceof Error ? e.message : String(e)).slice(0, 256) }] } };
+    }
+    if (!result.ok) return { ok: false, kind: 'compile', behaviorId, failure: result };
+    const prepared = preparedSourceFromCompile(result);
+    for (const pin of prepared.libraries ?? []) {
+      if (!trusted(pin.sourceDigest)) return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(pin.sourceDigest) };
+    }
+    s.preparedSources.set(`${source.sourceDigest}|${setKey}`, prepared);
+    out.push({ behaviorId, outputDigest: prepared.outputDigest });
+  }
+  return { ok: true, stage: stageSummary(stage), dependents: out, compiled };
 }

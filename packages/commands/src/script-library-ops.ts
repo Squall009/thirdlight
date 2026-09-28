@@ -34,7 +34,7 @@ import {
 import { behaviorPublicationUnavailable, behaviorTrustUnacknowledged, fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, SetScriptLibraryChange } from './types';
+import type { ContentDocument, SetScriptLibrariesChange, SetScriptLibraryChange } from './types';
 
 type WithLibraries = ContentDocument & { scriptLibraries?: ScriptLibrary[] };
 
@@ -91,14 +91,20 @@ function commit(
   };
 }
 
-/** The dependents' records recompiled against `nextLibraries` (from the prepared facts only). */
+/**
+ * The dependents' records recompiled against `nextLibraries` (from the
+ * prepared facts only). Phase 25.9: the scripts that import any of the
+ * changed libraries, each once.
+ */
 function republishDependents(
   input: OpInput,
   catalog: ContentDocument,
-  libraryId: string,
+  libraryIds: string | readonly string[],
   nextLibraries: readonly ScriptLibrary[],
 ): { ok: true; behaviors: { behaviorId: string; previous: BehaviorRecord; next: BehaviorRecord }[] } | { ok: false; error: CommandError } {
-  const dependents = scriptLibraryDependents(catalog.behaviors, libraryId);
+  const ids = typeof libraryIds === 'string' ? [libraryIds] : libraryIds;
+  const dependents = [...new Set(ids.flatMap((id) => scriptLibraryDependents(catalog.behaviors, id)))].sort();
+  const libraryId = ids.join(', @lib/');
   if (dependents.length === 0) return { ok: true, behaviors: [] };
   const setKey = scriptLibrarySetKey(nextLibraries);
   const out: { behaviorId: string; previous: BehaviorRecord; next: BehaviorRecord }[] = [];
@@ -160,4 +166,68 @@ export function applyDeleteScriptLibrary(input: OpInput, args: { libraryId: stri
     return { ok: false, error: { ...fieldValue('/args/libraryId', args.libraryId, 'a library no published script imports', `the script library is imported by ${users.slice(0, 8).join(', ')}${users.length > 8 ? ', …' : ''} (remove the import and republish first)`), code: 'reference_in_use' } };
   }
   return commit(input, withScriptLibrary(catalog, args.libraryId, null), args.libraryId, previous, []);
+}
+
+/**
+ * Phase 25.9: `commitScriptLibraryStage {stageId}` — the libraries a host
+ * staged over several patches (each under the request cap), committed as one
+ * change: every staged library replaced at once, the published scripts that
+ * import any of them republished once from the facts compiled against the
+ * committed set, one revision and one undo. A library changed since it was
+ * staged (its digest no longer the stage's base) refuses the commit.
+ */
+export function applyCommitScriptLibraryStage(input: OpInput, args: { stageId: string }): OpOutcome {
+  const stage = input.scriptLibraryStages?.get(args.stageId);
+  if (stage === undefined) {
+    return { ok: false, error: { ...fieldValue('/args/stageId', args.stageId, 'a staged library edit set of this project', 'no staged library edits with this id (stages are kept while the backend runs; commit or discard it once)'), code: 'reference_missing' } };
+  }
+  if (stage.libraries.length === 0) {
+    return { ok: false, error: fieldValue('/args/stageId', args.stageId, 'a stage holding at least one library', 'the stage holds no library edits') };
+  }
+  const catalog = contentOf(input.content);
+  const current = scriptLibrariesOf(catalog);
+  const entries: { libraryId: string; previous: ScriptLibrary | null; next: ScriptLibrary }[] = [];
+  for (const staged of stage.libraries) {
+    const previous = current.find((l) => l.libraryId === staged.libraryId) ?? null;
+    const base = previous === null ? null : scriptLibraryDigest(previous);
+    if (base !== staged.base) {
+      return { ok: false, error: fieldValue('/args/stageId', args.stageId, 'a stage made on the current libraries', `the script library @lib/${staged.libraryId} changed since it was staged (stage it again on the current library)`) };
+    }
+    const errors: ModelErrorV2[] = [];
+    validateScriptLibrary(staged.library, '', errors);
+    if (errors.length > 0) {
+      const e = modelError(errors[0]!, `/stage/${staged.libraryId}`);
+      return { ok: false, error: { ...e, message: `@lib/${staged.libraryId}: ${e.message}`.slice(0, 256) } as CommandError };
+    }
+    entries.push({ libraryId: staged.libraryId, previous, next: staged.library });
+  }
+  let next = catalog;
+  for (const e of entries) next = withScriptLibrary(next, e.libraryId, e.next);
+  // Only libraries whose files changed need their dependents recompiled (a rename does not).
+  const changed = entries.filter((e) => e.previous === null || scriptLibraryDigest(e.previous) !== scriptLibraryDigest(e.next)).map((e) => e.libraryId);
+  const deps = changed.length > 0 ? republishDependents(input, catalog, changed, scriptLibrariesOf(next)) : { ok: true as const, behaviors: [] };
+  if (!deps.ok) return deps;
+  const withDeps = withBehaviorRecords(next, deps.behaviors.map((b) => b.next));
+  const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
+  const gate = gateResultState({ scene: input.scene, content: catalog, manifest: input.manifest }, resultScene, withDeps);
+  if (!gate.ok) return gate;
+  const stored = scriptLibrariesOf((gate.content ?? withDeps) as ContentDocument);
+  const change: SetScriptLibrariesChange = {
+    type: 'setScriptLibraries',
+    libraries: entries.map((e) => ({ libraryId: e.libraryId, previous: e.previous === null ? null : deepClone(e.previous), next: deepClone(stored.find((l) => l.libraryId === e.libraryId) ?? e.next) })),
+    behaviors: deps.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(b.previous), next: deepClone(b.next) })),
+  };
+  return {
+    ok: true,
+    op: {
+      scene: gate.scene,
+      content: gate.content,
+      change,
+      inverse: {
+        kind: 'setScriptLibraries',
+        libraries: entries.map((e) => ({ libraryId: e.libraryId, restore: e.previous === null ? null : deepClone(e.previous) })),
+        behaviors: deps.behaviors.map((b) => ({ behaviorId: b.behaviorId, restore: deepClone(b.previous) })),
+      },
+    },
+  };
 }

@@ -36,6 +36,7 @@ import { canonicalJsonText, sha256Hex, sha256HexOfText, utf8Encode } from './can
 import { canonicalContainerText, containerFailure, parseSourceGraphContainer } from './container';
 import { analyzeSourceGraph, LIBRARY_SPECIFIER_RE, resolveRelativeTarget, withLimits } from './scan';
 import { createLibraryCache, resolveLibraries, type CompiledLibrary } from './libraries';
+import { compileSharedLibraries, LINK_NAMESPACE, linkNamesInText, linkStubText } from './shared-libraries';
 import { readCodeDeclaration, rewriteCodeDeclaration } from './declare';
 import { GRAPH_SOURCE_BANNER } from './graph-banner';
 import type {
@@ -52,6 +53,7 @@ import type {
   PinnedModuleRef,
   ScriptLibraryCheckInput,
   ScriptLibraryCheckResult,
+  SharedLibraryModule,
 } from './types';
 
 /** The canonical manifest bytes: 2-space JSON in the §5.2 field order + `\n`. */
@@ -70,6 +72,7 @@ export function compileRecipe(
   pinnedModules: readonly PinnedModuleRef[],
   limits: BehaviorCompilerLimits,
   libraries: readonly LibraryPin[] = [],
+  linking: 'shared' | 'bundle' = 'bundle',
 ): Record<string, unknown> {
   return {
     compilerId: COMPILER_ID,
@@ -82,6 +85,8 @@ export function compileRecipe(
     declarationDigest: declarationDigestOf(declaration),
     // Phase 23.7: the linked library versions (only when there are any: older recipes keep their digest).
     ...(libraries.length > 0 ? { libraries } : {}),
+    // Phase 25.9: libraries linked as shared modules (absent for the bundled form and when there are none).
+    ...(libraries.length > 0 && linking === 'shared' ? { libraryLinking: 'shared' } : {}),
   };
 }
 
@@ -91,8 +96,9 @@ export function compileRecipeDigest(
   pinnedModules: readonly PinnedModuleRef[],
   limits: BehaviorCompilerLimits,
   libraries: readonly LibraryPin[] = [],
+  linking: 'shared' | 'bundle' = 'bundle',
 ): string {
-  return sha256HexOfText(canonicalJsonText(compileRecipe(declaration, pinnedModules, limits, libraries)));
+  return sha256HexOfText(canonicalJsonText(compileRecipe(declaration, pinnedModules, limits, libraries, linking)));
 }
 
 function diag(d: CompileDiagnostic, limits: BehaviorCompilerLimits): CompileDiagnostic[] {
@@ -140,12 +146,15 @@ function memoryPlugin(
   files: ReadonlyMap<string, string>,
   overDeadline: () => boolean,
   libraries: ReadonlyMap<string, CompiledLibrary> = new Map(),
+  links: ReadonlyMap<string, SharedLibraryModule> | null = null,
 ): Plugin {
   return {
     name: 'thirdlight-behavior-graph',
     setup(api) {
       api.onResolve({ filter: /^\.{1,2}\// }, (args) => {
         if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
+        // Phase 25.9: a link stub's import of the shared module stays an import (loaded by digest at run time).
+        if (args.namespace === LINK_NAMESPACE) return { path: args.path, external: true };
         // Phase 23.7: a relative import inside a library resolves in that library.
         if (args.namespace === LIBRARY_NAMESPACE) {
           const slash = args.importer.indexOf('/');
@@ -170,6 +179,11 @@ function memoryPlugin(
         if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
         const m = LIBRARY_SPECIFIER_RE.exec(args.path);
         const id = m?.[1];
+        // Phase 25.9: shared linking - the stub re-exporting the module's names.
+        if (links !== null) {
+          if (id === undefined || !links.has(id)) return { errors: [{ text: `internal: esbuild resolved a forbidden specifier "${args.path}"` }] };
+          return { path: id, namespace: LINK_NAMESPACE };
+        }
         if (id === undefined || !libraries.has(id)) {
           return { errors: [{ text: `internal: esbuild resolved a forbidden specifier "${args.path}"` }] };
         }
@@ -181,6 +195,11 @@ function memoryPlugin(
         const mod = libraries.get(args.path.slice(0, slash))?.modules.get(args.path.slice(slash + 1));
         if (mod === undefined) throw new Error(`internal: missing library module "${args.path}"`);
         return { contents: mod.contents, loader: mod.loader };
+      });
+      api.onLoad({ filter: /.*/, namespace: LINK_NAMESPACE }, (args) => {
+        const mod = links?.get(args.path);
+        if (mod === undefined) throw new Error(`internal: missing library module "${args.path}"`);
+        return { contents: linkStubText(mod, 'behavior'), loader: 'js' };
       });
       // No other specifier form can reach the bundler: the static scan
       // rejected every non-relative, non-type-only specifier before this call.
@@ -209,8 +228,15 @@ function memoryPlugin(
  * C33-1 (behaviors.md §5.1 states a synchronous signature while §5.4 mandates
  * the in-memory plugin mechanism).
  */
-const defaultBuild = (options: unknown): Promise<{ outputFiles?: { contents: Uint8Array }[] }> =>
-  esbuildBuild(options as BuildOptions) as unknown as Promise<{ outputFiles?: { contents: Uint8Array }[] }>;
+const defaultBuild = (options: unknown): Promise<{ outputFiles?: { path?: string; contents: Uint8Array }[] }> =>
+  esbuildBuild(options as BuildOptions) as unknown as Promise<{ outputFiles?: { path?: string; contents: Uint8Array }[] }>;
+
+/**
+ * Phase 25.9: the source map rides along the build (an external map names an
+ * output file; nothing is written). The JavaScript bytes are the same as
+ * without a map, so every recorded output digest stays valid.
+ */
+const SOURCE_MAP_OPTIONS = Object.freeze({ outfile: '/out.js', sourcemap: 'external', sourcesContent: false } as const);
 
 /**
  * Compile one behavior graph (behaviors.md §5.1). Pure and total: every
@@ -302,6 +328,9 @@ export async function compileBehavior(
   // Phase 23.7: the script libraries the source reaches (checked, transpiled once, pinned).
   let linked: ReadonlyMap<string, CompiledLibrary> = new Map();
   let pins: LibraryPin[] = [];
+  // Phase 25.9: shared linking (the default) - each library its own module, compiled once.
+  const linking = input.libraryLinking ?? 'shared';
+  let links: Map<string, SharedLibraryModule> | null = null;
   const libraryImports = analyzed.analysis.libraryImports ?? [];
   if (libraryImports.length > 0) {
     const resolved = await resolveLibraries(libraryImports, `behavior ${input.behaviorId}`, input.libraries ?? [], input.pinnedModules, limits, options.libraryCache);
@@ -310,6 +339,18 @@ export async function compileBehavior(
     }
     linked = resolved.libraries;
     pins = resolved.pins;
+    if (linking === 'shared') {
+      const shared = await compileSharedLibraries(resolved.libraries, {
+        pinnedModules: input.pinnedModules,
+        limits,
+        forbiddenStrings: input.forbiddenStrings ?? [],
+        cache: options.libraryCache,
+        overDeadline,
+        scan: scanOutput,
+      });
+      if (!shared.ok) return { ...shared.failure, diagnostics: shared.failure.diagnostics.slice(0, limits.diagnostics) };
+      links = shared.modules;
+    }
   }
   // Step 13: parse/transform by the pinned compiler.
   if (overDeadline()) {
@@ -321,16 +362,21 @@ export async function compileBehavior(
   }
   const entryFile = files.get(container.entryPath) as string;
   let outputBytes: Uint8Array | null = null;
+  let sourceMap: string | undefined;
   let buildError: unknown = null;
   try {
     const result = await buildImpl({
       stdin: { contents: entryFile, resolveDir: '/', sourcefile: container.entryPath, loader: 'ts' },
       ...COMPILER_OPTIONS,
-      plugins: [memoryPlugin(files, overDeadline, linked)],
+      ...SOURCE_MAP_OPTIONS,
+      plugins: [memoryPlugin(files, overDeadline, linked, links)],
     });
-    const out = result.outputFiles?.[0]?.contents;
+    const outFiles = (result.outputFiles ?? []) as { path?: string; contents: Uint8Array }[];
+    const out = (outFiles.find((f) => f.path !== undefined && f.path.endsWith('.js')) ?? outFiles.find((f) => f.path === undefined || !f.path.endsWith('.map')))?.contents;
     if (out === undefined) throw new Error('the pinned compiler produced no output');
     outputBytes = out;
+    const map = outFiles.find((f) => f.path !== undefined && f.path.endsWith('.js.map'));
+    if (map !== undefined) sourceMap = new TextDecoder().decode(map.contents);
   } catch (e) {
     buildError = e;
   }
@@ -414,6 +460,8 @@ export async function compileBehavior(
     ...(entryText !== undefined && entryText.startsWith(`${GRAPH_SOURCE_BANNER}\n`) ? { sourceKind: 'graph' as const } : {}),
     // Phase 23.7: the linked script library versions (absent when none: older manifests stay byte-identical).
     ...(pins.length > 0 ? { libraries: pins.map((p) => ({ ...p })) } : {}),
+    // Phase 25.9: the shared modules the output imports (their digests are in its import paths too).
+    ...(links !== null && links.size > 0 ? { libraryModules: [...links.values()].map((m) => ({ libraryId: m.libraryId, outputDigest: m.outputDigest })).sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1)) } : {}),
     apiVersion: BEHAVIOR_API_VERSION,
     compiler: { id: toolchain.id, version: toolchain.version, esbuild: toolchain.esbuild, typescript: toolchain.typescript },
     outputDigest,
@@ -427,9 +475,11 @@ export async function compileBehavior(
     manifestDigest: sha256Hex(manifestBytes),
     outputBytes: out,
     outputDigest,
-    recipeDigest: compileRecipeDigest(declaration, input.pinnedModules, limits, pins),
+    recipeDigest: compileRecipeDigest(declaration, input.pinnedModules, limits, pins, linking),
     declarationDigest: declarationDigestOf(declaration),
     diagnostics: [],
+    ...(sourceMap !== undefined ? { sourceMap } : {}),
+    ...(links !== null && links.size > 0 ? { libraryModules: [...links.values()].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1)) } : {}),
   };
 }
 
@@ -443,7 +493,7 @@ function syntaxDiagnostics(errors: unknown[], limits: BehaviorCompilerLimits): C
   for (const raw of errors) {
     if (out.length >= limits.diagnostics) break;
     const e = raw as { text?: unknown; location?: { file?: unknown; line?: unknown; column?: unknown } | null };
-    const text = typeof e.text === 'string' ? e.text : 'compiler error';
+    const text = typeof e.text === 'string' ? linkNamesInText(e.text) : 'compiler error';
     const d: CompileDiagnostic = { code: 'behavior_source_invalid', reason: 'syntax', message: text.slice(0, 256) };
     const loc = e.location;
     if (loc !== null && loc !== undefined) {
@@ -474,7 +524,7 @@ function boundedMessage(e: unknown): string {
   if (first !== undefined) {
     const loc = first.location;
     const where = loc?.file !== undefined ? `${loc.file}:${loc.line ?? 0}:${loc.column ?? 0}: ` : '';
-    return `${where}${first.text ?? 'compiler error'}`.slice(0, 256);
+    return linkNamesInText(`${where}${first.text ?? 'compiler error'}`).slice(0, 256);
   }
   if (typeof anyE.message === 'string') return anyE.message.replace(/\/[^\s:]*\//g, '').slice(0, 256);
   return 'the pinned compiler failed';
@@ -514,6 +564,7 @@ export function createBehaviorCompiler(
         source: sha256Hex(input.containerBytes),
         libraries: (input.libraries ?? []).map((l) => ({ libraryId: l.libraryId, digest: sha256Hex(l.containerBytes) })),
         forbidden: input.forbiddenStrings ?? [],
+        linking: input.libraryLinking ?? 'shared',
         recipe: compileRecipe({ properties: [] }, pinnedModules, withLimits(COMPILER_LIMITS, input.limits)),
       }),
     );
@@ -567,12 +618,14 @@ export async function checkScriptLibrary(input: ScriptLibraryCheckInput, options
   );
   if (!result.ok) return result;
   const pins = result.manifest.libraries ?? [];
+  // Phase 25.9: the size of the library's own shared module (what it adds to a build).
+  const module = result.libraryModules?.find((m) => m.libraryId === input.libraryId);
   return {
     ok: true,
     libraryId: input.libraryId,
     sourceDigest: sha256Hex(own.containerBytes),
     imports: pins.map((p) => p.libraryId).filter((id) => id !== input.libraryId),
-    outputByteLength: result.manifest.outputByteLength,
+    outputByteLength: module?.outputBytes.length ?? result.manifest.outputByteLength,
     diagnostics: [],
   };
 }

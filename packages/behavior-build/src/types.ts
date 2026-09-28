@@ -106,6 +106,33 @@ export interface BehaviorCompileInput {
    * and pinned.
    */
   readonly libraries?: readonly ScriptLibraryInput[];
+  /**
+   * Phase 25.9: how the libraries are linked. `shared` (the default): each
+   * library is its own compiled module (`libraries/<outputDigest>.js`,
+   * minified and tree-shaken, compiled once) that the behavior imports;
+   * `bundle`: the phase 23.7 form, the libraries' code inside the behavior's
+   * own output (kept to check records published before 25.9).
+   */
+  readonly libraryLinking?: 'shared' | 'bundle';
+}
+
+/**
+ * Phase 25.9: one script library compiled as a shared runtime module
+ * (`libraries/<outputDigest>.js`): minified and tree-shaken ESM that other
+ * libraries import as `./<outputDigest>.js` and behaviors as
+ * `../libraries/<outputDigest>.js`.
+ */
+export interface SharedLibraryModule {
+  libraryId: string;
+  sourceDigest: string;
+  outputBytes: Uint8Array;
+  outputDigest: string;
+  /** The module's export names, ascending (what an importer may name). */
+  exports: string[];
+  /** Its own `@lib/` imports, ascending (their modules are imported by digest). */
+  imports: string[];
+  /** The source map (JSON text, no sources content): generated positions back to the library's files. */
+  sourceMap: string;
 }
 
 /** The canonical, digest-bound compile result (behaviors.md §5.2). */
@@ -126,6 +153,8 @@ export interface BehaviorManifest {
   sourceKind?: 'graph';
   /** Phase 23.7: the script libraries linked in, ascending by id (absent when none). */
   libraries?: LibraryPin[];
+  /** Phase 25.9: the shared library modules the output imports (directly or through each other), ascending by id (absent when none or bundled). */
+  libraryModules?: { libraryId: string; outputDigest: string }[];
   apiVersion: number;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
   outputDigest: string;
@@ -146,6 +175,10 @@ export interface BehaviorCompileSuccess {
   /** Digest of the canonical declaration bytes. */
   declarationDigest: string;
   diagnostics: readonly CompileDiagnostic[];
+  /** Phase 25.9: the output's source map (JSON text, no sources content; absent from an injected build). */
+  sourceMap?: string;
+  /** Phase 25.9: the shared library modules the output links (absent when none). */
+  libraryModules?: readonly SharedLibraryModule[];
 }
 
 export interface BehaviorCompileFailure {

@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities', 'commitScriptLibraryStage'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -246,6 +246,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'paths end in .ts or .json; up to 16 files, 64 KiB each); a changed library recompiles every published script that imports it in the same command (refused with the compile error ' +
       'naming the script if one no longer compiles, or behavior_trust_unacknowledged {sourceDigest} until acknowledgeBehaviorTrust acknowledges the library\'s new digest); ' +
       'deleteScriptLibrary {libraryId} (refused while a published script imports it). A script may also import .json files of its own source (import data from "./data.json"). ' +
+      'Edits larger than one request (the 64 KiB cap) or across several libraries are staged: op stageScriptLibrary {stageId?, libraryId, name?, files?} (no expectedRevision; ' +
+      'the setScriptLibrary patch shape, and a file larger than one request comes in pieces: {path, text, append: true} adds to the staged file; without stageId it opens a stage and answers its stageId, the libraries staged and their digests; {stageId, discard: true} drops it) adds ' +
+      'one patch at a time without changing the project, then commitScriptLibraryStage {stageId} commits every staged library in one revision and one undo step, recompiling each ' +
+      'published script that imports a changed library once (the answer\'s libraryStage.compiled); acknowledge the staged digests first as for setScriptLibrary. ' +
+      'Each library is its own shared module in Play and exports (compiled once, minified and tree-shaken; scripts import it instead of carrying a copy). ' +
       'The libraries are in tl_content_query target="game" (scriptLibraries). ' +
       'Block layers (grid levels built from blocks): setBlockType {block: {blockId, name, variants: [{model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, weight?], ' +
       'shape: full|half|ramp|stairs|custom|none (collision; ramps/stairs rise toward +Z), boxes? (custom: [x0,y0,z0,x1,y1,z1] in 0-1), solid?, footprint? [x,y,z] cells, ' +
@@ -301,12 +306,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        op: { type: 'string', enum: [...MUTATION_OPS] },
+        op: { type: 'string', enum: [...MUTATION_OPS, 'stageScriptLibrary'] },
         args: { type: 'object' },
-        expectedRevision: { type: 'integer', minimum: 0 },
+        expectedRevision: { type: 'integer', minimum: 0, description: 'required for every op but stageScriptLibrary (which changes no revision)' },
         requestId: { type: 'string', pattern: '^req-[0-9a-f]{32}$' },
       },
-      required: ['op', 'expectedRevision'],
+      required: ['op'],
       additionalProperties: false,
     },
   },
@@ -579,6 +584,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason); renderer.effects is the ' +
       'visual-effect player: executor webgpu|cpu with its caps, what plays, refused plays, unknown effect ids, per-effect executor and why an effect runs on the CPU on WebGPU. ' +
       'startTimings is where the start went (stages in ms from the page\'s time origin, the first frame, slow frames after it, each scene loaded since) and buildTimings the backend\'s part. ' +
+      'runtime.errors holds the last script logs (code behavior_log) and errors; an entry with a compiled position (at, frames) also has source (and sources) ' +
+      '{behaviorId | libraryId, path, line, column}: the place in the project\'s own script or library file. ' +
       'A play that ended answers play_not_found with ended {reason, presented, at, detail?} and why in the message; one that ended before it was presented is also in the problems.',
     inputSchema: {
       type: 'object',
@@ -715,6 +722,12 @@ async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
 
 async function command(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const op = a.op;
+  // Phase 25.9: a staged library patch goes to the library stage route (it changes no revision).
+  if (op === 'stageScriptLibrary') {
+    if (!isObj(a.args)) return toolError('args is required for stageScriptLibrary ({stageId?, libraryId, name?, files?} or {stageId, discard: true})');
+    const res = await ctx.client.stageScriptLibrary(ctx.projectId, a.args);
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
   if (typeof op !== 'string' || !MUTATION_SET.has(op)) {
     return toolError(`op must be one of ${MUTATION_OPS.join(', ')}`);
   }

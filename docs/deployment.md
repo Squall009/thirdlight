@@ -1832,13 +1832,48 @@ and the export carry the project's prefabs with the game.
 - A library may import other libraries (`@lib/<id>`); a cycle between
   libraries or an import of a library that does not exist is a compile
   error. Bounds: 32 libraries, 16 files and 256 KiB per library, 64 KiB per
-  file (one save sends at most ~64 KiB of changed text).
+  file (a save of more than ~64 KiB of changed text goes in several
+  patches, below).
 - Scripts may also keep `.json` files in their own source and import them
   the same way.
 - MCP: `tl_command` `setScriptLibrary {libraryId, name?, files?: [{path,
   text|null}]}` (text null removes a file; other files are kept) and
   `deleteScriptLibrary {libraryId}`; the libraries are in
   `tl_content_query target="game"` (`scriptLibraries`).
+- **Shared modules (phase 25.9).** Each library is compiled once into its
+  own minified, tree-shaken module (`libraries/<digest>.js`; code no export
+  reaches is dropped) that scripts import instead of carrying a copy. Play
+  (worker and page) and exports load each library once, so a library's
+  top-level variables are shared by every script that imports it (keep
+  per-object state in the script's state, not in library variables). An
+  import of a name the library does not export is a compile error, as
+  before. Exports ship the modules next to the scripts; scripts published
+  before 25.9 need no republish.
+- **Several libraries or large edits at once (phase 25.9).** The Libraries
+  tab lists the libraries with unsaved edits; **Save all** commits them in
+  one step (one undo), recompiling each script that imports any of them
+  once. A library save larger than one request (the 64 KiB command cap) is
+  sent in several patches and committed once the same way. MCP:
+  `tl_command` op `stageScriptLibrary {stageId?, libraryId, name?, files?}`
+  (a file may come in pieces: `{path, text, append: true}`; no revision)
+  answers a `stageId`; `commitScriptLibraryStage {stageId}` commits the
+  stage (its answer's `libraryStage` names the scripts compiled);
+  `{stageId, discard: true}` drops one. Stages live until the backend
+  restarts (at most 8 per project).
+
+### The Console: script logs and errors at their source lines (phase 25.9)
+
+- The **Console** tab (bottom dock) lists the running Play's `ctx.log`
+  lines and script errors with the file, line and column in the project's
+  own sources — the script's or the library's (`@lib/tally ·
+  src/index.ts:15:9`), and for an error the script frames it came through.
+  A location opens the Script or Library tab with the cursor on that line.
+  It refreshes about once a second while shown and keeps the last Play's
+  entries after it stops.
+- `tl_diagnostics` carries the same: each entry of `runtime.errors` with a
+  compiled position (`at`, `frames`) also has `source` (and `sources`)
+  `{behaviorId | libraryId, path, line, column}`. Exports carry no source
+  maps or sources; an exported game's errors keep their compiled positions.
 
 ### Random numbers, finding objects and facing (phase 23.7)
 

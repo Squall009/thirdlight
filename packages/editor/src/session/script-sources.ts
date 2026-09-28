@@ -243,3 +243,65 @@ export function libraryFilePatch(stored: readonly ScriptFile[], draft: readonly 
   for (const f of [...stored].sort(byPath)) if (!kept.has(f.path)) out.push({ path: f.path, text: null });
   return out;
 }
+
+/** Phase 25.9: one staged library patch (a file may come in pieces: `append`). */
+export interface LibraryStagePatch {
+  libraryId: string;
+  files: { path: string; text: string | null; append?: true }[];
+}
+
+/**
+ * Phase 25.9: the request budget of one patch's files (JSON bytes). A
+ * command or stage request is capped at 64 KiB; this leaves room for the
+ * envelope.
+ */
+export const LIBRARY_PATCH_BUDGET = 40 * 1024;
+
+const jsonBytes = (v: unknown): number => new TextEncoder().encode(JSON.stringify(v)).length;
+
+/** True when a library patch fits one ordinary `setScriptLibrary` request. */
+export function fitsOneRequest(files: readonly { path: string; text: string | null }[]): boolean {
+  return jsonBytes(files) <= LIBRARY_PATCH_BUDGET;
+}
+
+/**
+ * Phase 25.9: a library patch cut into stage patches that each fit one
+ * request: files are packed in order; a file too large for one request is
+ * split into pieces (its first piece replaces the file, the rest append).
+ * Staged in this order and committed once, they give exactly `files`.
+ */
+export function libraryStagePatches(libraryId: string, files: readonly { path: string; text: string | null }[], budget = LIBRARY_PATCH_BUDGET): LibraryStagePatch[] {
+  const out: LibraryStagePatch[] = [];
+  let current: LibraryStagePatch['files'] = [];
+  const flush = (): void => {
+    if (current.length > 0) out.push({ libraryId, files: current });
+    current = [];
+  };
+  const add = (entry: LibraryStagePatch['files'][number]): void => {
+    if (current.length > 0 && jsonBytes([...current, entry]) > budget) flush();
+    current.push(entry);
+  };
+  for (const f of files) {
+    if (f.text === null || jsonBytes([f]) <= budget) {
+      add(f);
+      continue;
+    }
+    // Split by characters so that each piece's JSON stays under the budget (escapes counted).
+    let rest = f.text;
+    let first = true;
+    while (rest.length > 0) {
+      let n = Math.min(rest.length, Math.floor(budget / 2));
+      while (n > 1 && jsonBytes([{ path: f.path, text: rest.slice(0, n), append: true }]) > budget) n = Math.floor(n * 0.8);
+      // Never cut a surrogate pair in two.
+      const code = rest.charCodeAt(n - 1);
+      if (n < rest.length && code >= 0xd800 && code <= 0xdbff) n -= 1;
+      const piece = rest.slice(0, n);
+      rest = rest.slice(n);
+      flush();
+      current.push(first ? { path: f.path, text: piece } : { path: f.path, text: piece, append: true });
+      first = false;
+    }
+  }
+  flush();
+  return out;
+}
