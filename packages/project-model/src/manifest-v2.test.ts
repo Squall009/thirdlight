@@ -189,6 +189,67 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
   });
 });
 
+/**
+ * Phase 25.1: every optional key at once (TL-15). Each value is the smallest
+ * block its canonical form accepts; the point is the key set and order, the
+ * buildId the preview and both export paths re-derive, and the strict reader.
+ */
+function everyOptionalKey(): Record<string, unknown> {
+  return {
+    tags: [{ bit: 3, name: 'walker' }],
+    materials: [{ materialId: 'mat-a', name: 'A', shader: 'standard', params: {}, textures: {} }],
+    materialFunctions: [{ graphId: 'fn-a', kind: 'material-function', name: 'Fn', graph: { nodes: [], edges: [] } }],
+    effects: [{ effectId: 'fx-a', name: 'Fx', duration: 1, loop: false, seed: 1, bounds: { center: [0, 0, 0], size: [1, 1, 1] }, systems: [{ systemId: 'sys-a', name: 'Sys', maxParticles: 8, space: 'world', graph: { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] } }] }],
+    environment: { sky: { mode: 'color', color: '#7ec8ff' } },
+    lighting: { 'scene-a': { bakeId: 'bake-a', createdAt: '2026-09-19T10:00:00Z', source: 'browser', range: 1, texelsPerMeter: 4, samples: 16, bounces: 1, atlases: ['tex-a'], entries: [], bakedLights: [], lightsHash: '0'.repeat(16), staticsHash: '1'.repeat(16) } },
+    animators: [{ controllerId: 'anim-a', name: 'Anim', parameters: [], states: [{ id: 'idle', name: 'Idle', motion: { kind: 'clip', clip: { assetId: 'asset-1', clip: 'Idle', duration: 1 } }, speed: 1, loop: true }], transitions: [], entry: 'idle', events: [] }],
+    rigs: { 'asset-1': { nodes: [{ name: 'root', parent: -1, t: [0, 0, 0], r: [0, 0, 0, 1], s: [1, 1, 1] }], clips: [] } },
+    prefabs: [{ prefabId: 'pf-a', displayName: 'Pf', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } } }] }],
+    blockTypes: [{ blockId: 'bt-a', name: 'Bt', shape: 'full', variants: [{ color: '#808080' }] }],
+    cellFields: [{ key: 'depth', type: 'int' }],
+    input: { actions: [{ name: 'use', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyE' }] }] },
+    collisionLayers: ['world'],
+    saveSchema: { version: 1, slots: 1 },
+    uiThemes: [{ uiThemeId: 'theme-a', name: 'Theme', styles: {} }],
+    uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'text', text: 'hi' } }],
+    dialogue: { dialogues: [], speakers: [], settings: {}, document: 'dialogue' },
+    modes: [{ modeId: 'main', name: 'Main' }],
+    timelines: [{ timelineId: 'tl-a', name: 'Tl', duration: 1, tracks: [] }],
+    eventCues: [{ on: 'signal', name: 'tick', assetId: 'asset-1' }],
+    shell: { hud: ['hud'] },
+    scenes: [{ sceneId: 'scene-a', path: 'scenes/scene-a.json', digest: 'e'.repeat(64), byteLength: 10, start: true }],
+    buffers: [{ digest: 'f'.repeat(64), byteLength: 48 }],
+  };
+}
+
+describe('manifest-v2: phase 25.1 every optional key present', () => {
+  it('the fixture names every optional key (a key added to MANIFEST_KEYS_V2 must be added here)', () => {
+    const required = Object.keys(captureManifestOrThrow(v2Input()));
+    const optional = MANIFEST_KEYS_V2.filter((k) => !required.includes(k));
+    expect(Object.keys(everyOptionalKey()).sort()).toEqual([...optional].sort());
+  });
+
+  it('the document carries every key in MANIFEST_KEYS_V2 order; the buildId re-derives and the strict reader accepts it', () => {
+    const manifest = captureManifestOrThrow({ ...v2Input(), ...everyOptionalKey() });
+    expect(Object.keys(manifest)).toEqual([...MANIFEST_KEYS_V2]);
+    // The preview's and both exporters' re-derivation: every key but buildId, in MANIFEST_KEYS_V2 order.
+    const preimage: Record<string, unknown> = {};
+    for (const k of MANIFEST_KEYS_V2) if (k !== 'buildId') preimage[k] = manifest[k];
+    expect(sha256Hex(new TextEncoder().encode(`${JSON.stringify(preimage, null, 2)}\n`))).toBe(manifest['buildId']);
+    // The document bytes are the canonical serialization: the preimage bytes are its prefix up to buildId.
+    const { buildId: _b, ...without } = manifest;
+    expect(new TextDecoder().decode(manifestBuildIdInputV2(without)!)).toBe(`${JSON.stringify(without, null, 2)}\n`);
+    const checked = validateManifestV2(JSON.parse(JSON.stringify(manifest)));
+    expect(checked.ok, JSON.stringify(checked)).toBe(true);
+  });
+});
+
+function captureManifestOrThrow(input: Record<string, unknown>): Record<string, unknown> {
+  const res = captureManifestV2(input as never);
+  if (!res.ok) throw new Error(JSON.stringify(res.error));
+  return res.manifest as unknown as Record<string, unknown>;
+}
+
 describe('manifest-v2: validateManifestV2 (strict reader)', () => {
   function aValidDoc(): Record<string, unknown> {
     const res = captureManifestV2(v2Input() as never);

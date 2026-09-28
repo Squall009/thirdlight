@@ -151,7 +151,8 @@ boundary it changes (Playwright for any editor surface).
 |---|---|
 | 25.0 | done 2026-09-28 |
 | Step 0 (reconcile with phase 24) | done 2026-09-28 |
-| 25.1–25.24 | — |
+| 25.1 | done 2026-09-28: every-optional-key unit test (all 23 keys, strict reader) and `manifest-keys.e2e.ts` (Play and static export); found and fixed D45 |
+| 25.2–25.24 | — |
 
 ## 6. Decision log
 
@@ -189,3 +190,11 @@ boundary it changes (Playwright for any editor surface).
   25.14 builds on the 24.4g `track` rig; 25.15 on input frame version 2.
   §2 wording is past tense for what 24.7 deleted (flow, HUD presets, level
   start). The progress table now covers 25.23 and 25.24.
+- 2026-09-28 (25.1): the every-key check is split by what each layer can
+  hold. The unit test gives the pure builder all 23 optional keys at once
+  and fails when a key is added to `MANIFEST_KEYS_V2` without it. The e2e
+  test builds a real project with the keys that travel together (modes,
+  timelines, eventCues, shell, dialogue, and also saveSchema, tags,
+  collisionLayers, input and uiDocuments) and plays and exports it. Keys
+  that need imported models or bakes (rigs, lighting, buffers) stay in the
+  unit test. The test found D45 (document key order), which is fixed.

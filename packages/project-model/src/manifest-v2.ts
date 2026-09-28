@@ -749,7 +749,10 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     return { ok: false, error: manifestError('internal', 'the v2 manifest document could not be serialized') };
   }
   const buildId = sha256Hex(preimage);
-  const manifest = { ...withoutBuildId, buildId } as unknown as RuntimeContentManifestV2;
+  // Phase 25.1 (D45): the document itself follows MANIFEST_KEYS_V2 (the literal above had dialogue before modes).
+  const ordered: Record<string, unknown> = {};
+  for (const key of MANIFEST_KEYS_V2) if (key !== 'buildId' && key in withoutBuildId) ordered[key] = withoutBuildId[key];
+  const manifest = { ...ordered, buildId } as unknown as RuntimeContentManifestV2;
   const bytes = new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
   if (bytes.length > RUNTIME_CONTENT_MANIFEST_MAX_BYTES) {
     return {
