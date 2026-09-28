@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 import { utcStamp } from './ownership';
 import { sha256Hex } from './digest';
-import { defaultOps, writeAtomic, type WriteOps } from './write';
+import { defaultOps, errnoOf, writeAtomic, type WriteOps } from './write';
 
 /** At most 16 recovery snapshots are kept; the oldest are pruned. */
 export const RECOVERY_MAX = 16;
@@ -27,7 +27,7 @@ function ensureDir(dir: string, ops: WriteOps): void {
     } catch (e) {
       // EEXIST (concurrent creation) is fine; anything else re-raises so
       // the caller's bounded-retry logic sees a real I/O error.
-      if ((e as { errno?: unknown })?.errno !== 'EEXIST') throw e;
+      if (errnoOf(e) !== 'EEXIST') throw e;
     }
     try {
       chmodSync(dir, 0o755);

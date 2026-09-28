@@ -49,6 +49,7 @@ import {
 import {
   EMPTY_BYTES,
   cleanLeftoverTemps,
+  errnoOf,
   type WriteOps,
 } from './write';
 import {
@@ -280,7 +281,7 @@ export function refreshRegistration(core: Core, projectId: string): RegisteredPr
   return fresh;
 }
 
-/** The directory a project id lives in (registered folder or `<root>/projects/<id>`). */
+/** The directory a project id is in (registered folder or `<root>/projects/<id>`). */
 export function projectBaseDir(core: Core, projectId: string): string {
   const reg = core.registry.get(projectId);
   return reg !== undefined ? reg.projectDir : join(core.projectsRoot, projectId);
@@ -818,7 +819,7 @@ function ensureThirdlightDir(p: string, ops: WriteOps): void {
       // best effort
     }
   } catch (e) {
-    if ((e as { errno?: unknown })?.errno === 'EEXIST') return;
+    if (errnoOf(e) === 'EEXIST') return;
     throw e;
   }
 }

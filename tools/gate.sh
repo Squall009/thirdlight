@@ -36,7 +36,8 @@ build_and_unit() {
   if ! grep -qE 'Test Files .*passed' "$L/vitest.log" || grep -qE 'Test Files .*failed' "$L/vitest.log"; then
     # Like the e2e step: rerun the failed files once alone (timeouts and CPU budgets on a loaded host).
     local failed
-    failed=$(grep -oE '^ FAIL  [^ ]+\.(test|spec)\.[cm]?[jt]s' "$L/vitest.log" | awk '{print $2}' | sort -u | tr '\n' ' ')
+    # vitest colours its FAIL lines (D44): strip the escapes before matching.
+    failed=$(sed 's/\x1b\[[0-9;]*m//g' "$L/vitest.log" | grep -oE '^ *FAIL +[^ ]+\.(test|spec)\.[cm]?[jt]s' | awk '{print $2}' | sort -u | tr '\n' ' ')
     if [ -n "$failed" ]; then
       say "vitest: rerunning failed files alone: $failed"
       # shellcheck disable=SC2086
