@@ -232,6 +232,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'requestScene':
         r = rt.requestScene?.(c.sceneOp, c.sceneId) ?? { ok: false, error: { code: 'scene_invalid', message: 'this runtime has no scene set' } };
         break;
+      case 'requestArrival':
+        r = rt.requestArrival?.(c.sceneId, c.spawnId) ?? { ok: false, error: { code: 'scene_invalid', message: 'this runtime has no scene set' } };
+        break;
       case 'setViewport':
         r = rt.setViewport(c.width, c.height);
         break;

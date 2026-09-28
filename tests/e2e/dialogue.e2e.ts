@@ -219,7 +219,11 @@ function loopSampler(observe: () => Promise<Obs | null>, voice: string): AudioSa
     start: async () => {
       running = true;
       loop = (async () => {
-        while (running) {
+        // Paced and bounded: a failed test never stops it, and an unpaced loop against a stopped backend
+        // kept the worker busy past its timeouts (the whole run hung).
+        const until = Date.now() + 120_000;
+        while (running && Date.now() < until) {
+          await new Promise((ok) => setTimeout(ok, 30));
           const o = await observe().catch(() => null);
           if (o?.dialogue?.line) r.portraits[o.dialogue.line.id] = o.dialogue.line.portrait;
           const a = o?.audio;
@@ -423,7 +427,7 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
     const r = await api(`play/${psid}/observe`, {});
     return r.status === 200 ? (r.json as Obs) : null;
   };
-  await expect.poll(async () => ((await observe()) as { state?: string } | null)?.state ?? null, { timeout: 60_000 }).toBe('scene');
+  await expect.poll(async () => ((await observe()) as { state?: string } | null)?.state ?? null, { timeout: 60_000 }).toBe('running');
   const fb = (await iframe.boundingBox())!;
   await page.mouse.click(fb.x + fb.width / 2, fb.y + 20);
   await expect.poll(async () => (await observe())?.sound?.unlocked ?? false, { timeout: 30_000 }).toBe(true);
@@ -449,7 +453,7 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
   try {
     await game.goto(site.url);
     const read = (): Promise<Obs | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Obs | null);
-    await expect.poll(async () => ((await read()) as { state?: string } | null)?.state ?? null, { timeout: 60_000 }).toBe('scene');
+    await expect.poll(async () => ((await read()) as { state?: string } | null)?.state ?? null, { timeout: 60_000 }).toBe('running');
     await game.mouse.click(400, 40);
     await expect.poll(async () => (await read())?.sound?.unlocked ?? false, { timeout: 30_000 }).toBe(true);
     const clickGame = async (l: Locator): Promise<void> => {

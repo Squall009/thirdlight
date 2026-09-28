@@ -2219,36 +2219,70 @@ class RuntimeInstance implements Runtime {
     this.addAnimators(entities);
     this.animatorEvents = Object.freeze([]);
     this.animatorWasGrounded = true;
+    this.animatorLastPos = null;
+  }
+
+  /** The character the locomotion parameters describe: the game session's player, else the controller's object (phase 24.6). */
+  private animatedCharacter(): string {
+    return this.playerEntityId !== '' ? this.playerEntityId : (this.controllerEntityId ?? '');
   }
 
   private isPlayerOrChild(id: string): boolean {
-    if (this.playerEntityId === '') return false;
+    const character = this.animatedCharacter();
+    if (character === '') return false;
     let cur: string | undefined = id;
     for (let depth = 0; cur !== undefined && depth < 64; depth++) {
-      if (cur === this.playerEntityId) return true;
+      if (cur === character) return true;
       cur = this.parentOf.get(cur);
     }
     return false;
   }
 
   /**
-   * Advance every animator by one fixed step. The player's animators get
+   * Phase 24.6: the character's motion over the last step without the game
+   * session (its position a step ago; null after a reset): horizontal speed
+   * (x and z), vertical velocity and the controller's grounding.
+   */
+  private animatorLastPos: [number, number, number] | null = null;
+  private characterMotion(): { speed: number; vy: number; grounded: boolean } {
+    const id = this.animatedCharacter();
+    const t = id !== '' ? this.curr.get(id) : undefined;
+    const grounded = this.physics3d !== undefined ? this.lastCharacterResult3D?.grounded ?? true : this.lastCharacterResult?.grounded ?? true;
+    if (t === undefined) return { speed: 0, vy: 0, grounded };
+    const p = t.position;
+    const last = this.animatorLastPos;
+    this.animatorLastPos = [p[0], p[1], p[2]];
+    if (last === null) return { speed: 0, vy: 0, grounded };
+    return { speed: Math.hypot(p[0] - last[0], p[2] - last[2]) * this.hz, vy: (p[1] - last[1]) * this.hz, grounded };
+  }
+
+  /**
+   * Advance every animator by one fixed step. The character's animators get
    * `speed` (horizontal, m/s), `grounded`, `velocityY` and the `landed`
-   * trigger from the committed motion, when their controller has them.
+   * trigger from the committed motion, when their controller has them — the
+   * game session's player, or (phase 24.6) the controller's object in a game
+   * without the session.
    */
   private stepAnimators(): void {
     if (this.animatorMachines.size === 0) return;
-    const seg = this.lastSegments.raw(this.playerEntityId);
-    const vx = seg !== undefined ? (seg[2]! - seg[0]!) * this.hz : 0;
-    const vy = seg !== undefined ? (seg[3]! - seg[1]!) * this.hz : 0;
-    const grounded = this.playerMotion.grounded;
+    let speed: number;
+    let vy: number;
+    let grounded: boolean;
+    if (this.playerEntityId !== '') {
+      const seg = this.lastSegments.raw(this.playerEntityId);
+      speed = seg !== undefined ? Math.abs((seg[2]! - seg[0]!) * this.hz) : 0;
+      vy = seg !== undefined ? (seg[3]! - seg[1]!) * this.hz : 0;
+      grounded = this.playerMotion.grounded;
+    } else {
+      ({ speed, vy, grounded } = this.characterMotion());
+    }
     const landed = grounded && !this.animatorWasGrounded;
     this.animatorWasGrounded = grounded;
     const fired: AnimatorEventRecord[] = [];
     const dt = 1 / this.hz;
     for (const [id, { machine }] of this.animatorMachines) {
       if (this.isPlayerOrChild(id)) {
-        machine.set('speed', Math.abs(vx));
+        machine.set('speed', speed);
         machine.set('grounded', grounded);
         machine.set('velocityY', vy);
         if (landed) machine.trigger('landed');
@@ -3161,6 +3195,21 @@ class RuntimeInstance implements Runtime {
     const problem = this.sceneOpProblem(op, sceneId, options);
     if (problem !== null) return { ok: false, error: fail('scene_invalid', problem, { reason: op }) };
     this.enqueueSceneOp(op === 'load' ? { op, sceneId, ...(options?.at !== undefined ? { at: options.at } : {}) } : { op, sceneId });
+    return { ok: true };
+  }
+
+  /**
+   * Phase 24.6: a test or debug start's spawn in a game without the game
+   * session (Play from a scene, `tl_play_start sceneId`): the character
+   * arrives at `spawnId` once `sceneId` is loaded, as a scene transition's
+   * arrival (the spawn becomes the active one). A game with the session
+   * starts a level instead (`startLevel`).
+   */
+  requestArrival(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.session !== null) return { ok: false, error: fail('scene_invalid', 'a game with the game session starts a level', { reason: 'transfer' }) };
+    if (!this.sceneStatus.has(sceneId)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId).slice(0, 64))}`, { reason: 'transfer' }) };
+    this.pendingArrival = { spawnId, waitFor: sceneId };
     return { ok: true };
   }
 

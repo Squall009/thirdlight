@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Frame, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, legacyObservation } from './backend';
 import { decodePng, type Image } from './png';
 
 let be: E2EBackend;
@@ -135,7 +135,7 @@ test('pad rebinding, menu sounds, ambience and the title background in Play', as
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<Observation> => {
     const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/play/${psid}/observe`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json' }, body: '{}' });
-    return (await r.json()) as Observation;
+    return legacyObservation<Observation>(await r.json());
   };
   await expect.poll(async () => (await observe()).ok, { timeout: 30_000 }).toBe(true);
   const frame = await playFrame(page);

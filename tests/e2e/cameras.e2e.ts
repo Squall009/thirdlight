@@ -230,7 +230,7 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
   expect(f.position[0]).toBeCloseTo(0, 3);
   expect(f.position[1]).toBeCloseTo(0.91 + 8 * Math.sin((25 * Math.PI) / 180), 1);
   expect(f.position[2]).toBeCloseTo(8 * Math.cos((25 * Math.PI) / 180), 1);
-  expect((await observe())!.state).toBe('scene');
+  expect((await observe())!.state).toBe('running');
   await page.waitForTimeout(500);
   const followShot = await shot(frame, 'test-results/cameras-follow.png');
 

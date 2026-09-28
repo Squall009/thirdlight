@@ -271,7 +271,7 @@ test('game modes in Play: one switch changes input map, camera, UI and ticking g
   await expect(page.locator('[data-play-mode]')).toHaveAttribute('data-play-mode', 'explore', { timeout: 15_000 });
   await expect(page.locator('[data-play-mode]')).toContainText('mode: Explore');
   const o0 = (await observe())!;
-  expect(o0.state).toBe('scene');
+  expect(o0.state).toBe('running');
   expect(o0.ui?.shown).toEqual(['hud']);
   expect(o0.mode?.inputMaps).toEqual(['gameplay', 'ui']);
   await expect(frame.locator('[data-tl-ui-doc="hud"]')).toHaveCount(1);

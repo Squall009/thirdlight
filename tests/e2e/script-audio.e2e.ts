@@ -235,7 +235,7 @@ test('script audio in Play and the export: a loop with pitch, fade and stop, a f
     const r = await api(`play/${psid}/observe`, {});
     return r.status === 200 ? r.json : null;
   };
-  await expect.poll(async () => (await observe())?.['state'] ?? null, { timeout: 60_000 }).toBe('scene');
+  await expect.poll(async () => (await observe())?.['state'] ?? null, { timeout: 60_000 }).toBe('running');
   // A click in the game focuses it and unlocks sound.
   const box = (await frame.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -256,7 +256,7 @@ test('script audio in Play and the export: a loop with pitch, fade and stop, a f
   try {
     await game.goto(site.url);
     const read = (): Promise<Audio | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { audio?: unknown } | null }).__thirdlightObserve?.()?.audio ?? null) as Audio | null);
-    await expect.poll(async () => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null), { timeout: 60_000 }).toBe('scene');
+    await expect.poll(async () => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null), { timeout: 60_000 }).toBe('running');
     await game.mouse.click(400, 300);
     await expect.poll(async () => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { sound?: { unlocked?: boolean } } | null }).__thirdlightObserve?.()?.sound?.unlocked ?? false)), { timeout: 30_000 }).toBe(true);
     await drive(game, read, ids);

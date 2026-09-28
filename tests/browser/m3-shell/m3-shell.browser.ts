@@ -221,7 +221,7 @@ async function main(): Promise<void> {
 
   const soundStatus = (): string => JSON.stringify(host.observe().ok ? host.observe().observation.sound : null);
   const before = host.observe();
-  note(`title: state=${before.ok ? before.observation.state : '?'} sound=${soundStatus()}`);
+  note(`title: state=${before.ok ? before.observation.legacy.runState : '?'} sound=${soundStatus()}`);
   note(`HUD text: ${hudContainer.textContent?.slice(0, 160)}`);
 
   // 3. The local unlock (the wrapper's one-shot gesture wiring).
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
     const res = host.observe();
     if (!res.ok) return;
     const obs = res.observation;
-    const line = `${obs.state} run=${obs.runId} step=${obs.stepIndex} deaths=${obs.deathCount} sound=${JSON.stringify(obs.sound)}`;
+    const line = `${obs.legacy.runState} run=${obs.runId} step=${obs.stepIndex} deaths=${obs.legacy.deathCount} sound=${JSON.stringify(obs.sound)}`;
     if (line !== lastState) {
       lastState = line;
       note(`observed: ${line}`);

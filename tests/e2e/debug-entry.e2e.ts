@@ -27,7 +27,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, startBackend, type E2EBackend } from './backend';
+import { STARTER, startBackend, type E2EBackend } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config
 import { browserLibs } from './browser-env.mjs';
 
@@ -82,16 +82,13 @@ const SCRIPT = [
   '',
 ].join('\n');
 
-/** The starter + the game session + the Cave scene + the script on the player. */
+/** The starter + the Cave scene + the script on the player. */
 async function setUp(projectId: string, env: Record<string, string> = {}): Promise<void> {
   be = await startBackend(projectId, 'starter', env);
   await cmd('createScene', { sceneId: 'scene-cave', name: 'Cave' });
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'box', name: 'Cave floor', transform: { position: [65, -0.2, 0] }, box: { size: [10, 0.4, 2], material: { color: '#4a3f5c' } }, components: { collider: { shape: { type: 'box', hx: 5, hy: 0.2 } } } });
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'box', name: 'Cave marker', transform: { position: [67, 1.2, 0] }, box: { size: [1.4, 1.4, 1.4], material: { color: '#ff00ff' } } });
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'group', name: 'Cave spawn', transform: { position: [65, 0.91, 0] }, components: { playerSpawn: {} } });
-  // The run states (playing, the export's start prompt) come from the game session.
-  await addGameSession(be);
-  const game = (await query('queryGameConfig')).game as { cameraId: string; playerId: string };
 
   const behaviorId = 'behavior-debug-entry';
   const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: SCRIPT }] }, null, 2)}\n`);
@@ -108,7 +105,7 @@ async function setUp(projectId: string, env: Record<string, string> = {}): Promi
   await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
   const published = await api('content/behaviors/source', { stageId, behaviorId, displayName: 'Debug entry', declaration, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${'d'.repeat(32)}` });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
-  await cmd('setBehaviorProperties', { entityId: game.playerId, behaviorId, values: {} });
+  await cmd('setBehaviorProperties', { entityId: STARTER.playerId, behaviorId, values: {} });
 }
 
 type Obs = {
@@ -143,8 +140,8 @@ test('the editor plays from a scene with variables; the in-game console and the 
   await expect(dialog).toHaveCount(0);
   const observe = observer(startedBody.playSessionId);
 
-  // The game started at the cave's spawn (no title, no Start press), the cave loaded, the bonus counted.
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('playing');
+  // The game plays from the cave's spawn, the cave loaded, the bonus counted.
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-cave']);
   await expect.poll(async () => (await observe()).player?.x ?? 0, { timeout: 10_000 }).toBeCloseTo(65, 0);
   await expect.poll(async () => (await observe()).counters?.['bonus']).toBe(7);
@@ -215,7 +212,7 @@ test('with no editor open (the headless editor), tl_play_start takes a scene and
     expect(started.isError, JSON.stringify(started.body)).toBe(false);
     const playSessionId = String(started.body.playSessionId);
     const observe = async (): Promise<Obs> => (await call('tl_game_observe', { playSessionId })).body as Obs;
-    await expect.poll(async () => (await observe()).state, { timeout: 45_000 }).toBe('playing');
+    await expect.poll(async () => (await observe()).state, { timeout: 45_000 }).toBe('running');
     await expect.poll(async () => (await observe()).player?.x ?? 0, { timeout: 10_000 }).toBeCloseTo(65, 0);
     await expect.poll(async () => (await observe()).counters?.['bonus']).toBe(2);
     expect((await call('tl_game_control', { playSessionId, command: 'debugCommand', name: 'grant', args: { amount: 6 } })).isError).toBe(false);
@@ -255,7 +252,7 @@ test('MCP tl_play_start takes a scene and variables; tl_game_control runs a debu
     expect(started.body.start).toMatchObject({ sceneId: 'scene-cave', variables: { bonus: 3 }, notes: ['mode "battle" ignored: the project defines no game modes'] });
     const playSessionId = String(started.body.playSessionId);
     const observe = async (): Promise<Obs> => (await call('tl_game_observe', { playSessionId })).body as Obs;
-    await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('playing');
+    await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
     await expect.poll(async () => (await observe()).player?.x ?? 0, { timeout: 10_000 }).toBeCloseTo(65, 0);
     await expect.poll(async () => (await observe()).counters?.['bonus']).toBe(3);
 
@@ -297,11 +294,10 @@ function serve(dir: string): Promise<{ server: Server; url: string }> {
 async function startExport(game: Page, url: string): Promise<void> {
   await game.bringToFront();
   await game.goto(url);
-  await expect(game.locator('#hud-root')).toContainText('to start', { timeout: 30_000 });
-  await game.locator('canvas#game').click();
-  await game.keyboard.press('Enter');
+  // Phase 24.6: a scene plays at once (no run to start); the click gives the page the keyboard.
   const state = (): Promise<unknown> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.() ?? null)?.state ?? null);
-  await expect.poll(state, { timeout: 30_000 }).toBe('playing');
+  await expect.poll(state, { timeout: 30_000 }).toBe('running');
+  await game.locator('canvas#game').click();
 }
 
 test('an export has no debug console unless the project turns debug_console on', async ({ page }) => {

@@ -164,7 +164,7 @@ test('a trigger\'s scene transition, a track camera and event sounds from the ed
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; player?: { x: number; y: number }; scenes?: { loaded: string[] }; camera?: { live: string | null; position: number[] }; sound?: { unlocked?: boolean; played?: { sfx: number; ui: number } } };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('scene');
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   // e: the far scene loaded and the character stands at the spawn.
   await expect.poll(async () => (await observe()).scenes?.loaded ?? [], { timeout: 20_000 }).toContain('scene-far');
   await expect.poll(async () => (await observe()).player?.x ?? 0, { timeout: 20_000 }).toBeGreaterThan(39);

@@ -15,7 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -23,7 +23,6 @@ let be: E2EBackend;
 let mcp: Client;
 test.beforeEach(async () => {
   be = await startBackend('mcp-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
   mcp = new Client({ name: 'thirdlight-e2e', version: '0.0.0' });
   await mcp.connect(
     new StdioClientTransport({
@@ -65,14 +64,14 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   const started = await call('tl_play_start', { demo: false, sessionId });
   expect(started.isError, JSON.stringify(started.body)).toBe(false);
   const playSessionId = String(started.body.playSessionId);
-  await expect.poll(async () => (await call('tl_game_observe', { playSessionId })).body.state, { timeout: 15_000 }).toBe('awaitingStart');
+  await expect.poll(async () => (await call('tl_game_observe', { playSessionId })).body.state, { timeout: 15_000 }).toBe('running');
 
-  expect((await call('tl_game_control', { playSessionId, command: 'start' })).isError).toBe(false);
+  expect((await call('tl_game_control', { playSessionId, command: 'mute' })).isError).toBe(false);
   const frames = Array.from({ length: 90 }, (_, i) => ({ stepOffset: i, moveX: 1, jump: 'none' }));
   const input = await call('tl_input_exercise', { playSessionId, frames });
   expect(input.isError, JSON.stringify(input.body)).toBe(false);
   const observed = (await call('tl_game_observe', { playSessionId })).body as { state: string; player: { x: number } };
-  expect(observed.state).toBe('playing');
+  expect(observed.state).toBe('running');
   expect(observed.player.x).toBeGreaterThan(4);
 
   const shot = await call('tl_screenshot', { playSessionId, maxWidth: 512 });
@@ -186,8 +185,7 @@ test('an MCP agent builds a visual script with graphEdit, publishes it through t
   const started = await call('tl_play_start', { demo: false, sessionId });
   expect(started.isError, JSON.stringify(started.body)).toBe(false);
   const playSessionId = String(started.body.playSessionId);
-  await expect.poll(async () => (await call('tl_game_observe', { playSessionId })).body.state, { timeout: 30_000 }).toBe('awaitingStart');
-  expect((await call('tl_game_control', { playSessionId, command: 'start' })).isError).toBe(false);
+  await expect.poll(async () => (await call('tl_game_observe', { playSessionId })).body.state, { timeout: 30_000 }).toBe('running');
   await expect.poll(async () => ((await call('tl_game_observe', { playSessionId })).body.counters as Record<string, number> | undefined)?.['gifts'], { timeout: 30_000 }).toBe(4);
   expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);
 });

@@ -9,13 +9,13 @@ const scene = (sceneId: string, entities: { id: string; components?: Record<stri
 const scenes = [scene('scene-hub', [{ id: 'spawn-0001', components: { playerSpawn: {} } }]), scene('scene-arena', [{ id: 'rock-0001', components: {} }, { id: 'spawn-0009', components: { playerSpawn: {} } }]), scene('scene-extra')];
 
 describe('resolvePlayStart', () => {
-  it('without levels: the scene loads with the start scenes; a game starts at its first player spawn', () => {
+  it('without levels: the scene loads with the start scenes; the game starts at its first player spawn', () => {
     const r = resolvePlayStart({ sceneId: 'scene-arena', variables: { gold: 3 } }, { content: { game: { spawnId: 'spawn-0001' } }, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' });
     expect(r).toEqual({ ok: true, start: { sceneId: 'scene-arena', scenes: ['scene-hub', 'scene-arena'], spawnId: 'spawn-0009', variables: { gold: 3 } }, notes: [] });
-    // A start scene stays the start set; a scene without a spawn keeps the game's; scene mode has no spawn.
+    // A start scene stays the start set; a scene without a spawn keeps the game's; phase 24.6: a scene-mode game starts at the scene's spawn too.
     expect(resolvePlayStart({ sceneId: 'scene-hub' }, { content: { game: {} }, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toMatchObject({ ok: true, start: { scenes: ['scene-hub'], spawnId: 'spawn-0001' } });
     expect(resolvePlayStart({ sceneId: 'scene-extra' }, { content: { game: {} }, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toEqual({ ok: true, start: { sceneId: 'scene-extra', scenes: ['scene-hub', 'scene-extra'] }, notes: [] });
-    expect(resolvePlayStart({ sceneId: 'scene-arena' }, { content: { game: null }, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toEqual({ ok: true, start: { sceneId: 'scene-arena', scenes: ['scene-hub', 'scene-arena'] }, notes: [] });
+    expect(resolvePlayStart({ sceneId: 'scene-arena' }, { content: { game: null }, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toEqual({ ok: true, start: { sceneId: 'scene-arena', scenes: ['scene-hub', 'scene-arena'], spawnId: 'spawn-0009' }, notes: [] });
   });
 
   it('with levels: the first level that loads the scene; a save continues a level; others are refused', () => {

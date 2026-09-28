@@ -17,12 +17,11 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('script-editor-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -170,8 +169,7 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('awaitingStart');
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   await expect.poll(async () => (await observe()).counters?.['ticks'], { timeout: 30_000 }).toBe(3);
   await page.getByTitle('Stop the play preview').click();
 

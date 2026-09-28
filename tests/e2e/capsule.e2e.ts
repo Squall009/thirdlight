@@ -145,7 +145,7 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   const observe = async (): Promise<{ state: string; player?: { x: number; y: number } }> => (await relay(`${psid}/observe`, {})).json as never;
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(200);
   // The starter has no game block: the scene plays at once.
-  await expect.poll(async () => (await observe()).state).toBe('scene');
+  await expect.poll(async () => (await observe()).state).toBe('running');
   await page.waitForTimeout(400);
   for (let i = 0; i < 40 && ((await observe()).player?.x ?? 0) < 5.3; i++) {
     const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: Array.from({ length: 12 }, (_, k) => ({ stepOffset: k, moveX: 1, jump: 'none' })) });

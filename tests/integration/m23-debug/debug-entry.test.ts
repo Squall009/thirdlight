@@ -263,16 +263,16 @@ describe('phase 23.8: a start at a level or from a save (a game with levels)', (
       const empty = await start(mode, behavior, { saveSlot: '1' });
       try {
         expect(lv.h.host.startOutcome, mode).toEqual({ ok: true, applied: ['level level-2'] });
-        expect(lv.obs.flow.screen).toBe('playing');
-        expect(lv.obs.flow.levelId).toBe('level-2');
-        expect(lv.obs.state).toBe('playing');
+        expect(lv.obs.legacy.flow.screen).toBe('playing');
+        expect(lv.obs.legacy.flow.levelId).toBe('level-2');
+        expect(lv.obs.legacy.runState).toBe('playing');
         expect(lv.px()).toBeCloseTo(9, 0);
         expect(saved.h.host.startOutcome).toEqual({ ok: true, applied: ['save'] });
-        expect(saved.obs.flow.levelId).toBe('level-2');
-        expect(saved.obs.flow.lives).toBe(2);
+        expect(saved.obs.legacy.flow.levelId).toBe('level-2');
+        expect(saved.obs.legacy.flow.lives).toBe(2);
         expect(saved.h.rt.runState?.().values).toEqual({ fromSave: 1, shift: 1 });
         expect(empty.h.host.startOutcome).toEqual({ ok: false, reason: 'save slot 1 is empty' });
-        expect(empty.obs.flow.screen).toBe('title');
+        expect(empty.obs.legacy.flow.screen).toBe('title');
       } finally {
         await lv.h.dispose();
         await saved.h.dispose();

@@ -108,16 +108,22 @@ for (const variant of VARIANTS) test(`a script's look override glows an object r
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('scene');
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
 
   // Its own look first (the override is off for the first two seconds), then red, then its own look again.
   await expect.poll(async () => (await observe()).counters?.['lit'] ?? -1, { timeout: 20_000 }).toBe(0);
   const plain = reds(await shot(frame));
   let lit = 0;
-  await expect.poll(async () => (lit = reds(await shot(frame))), { timeout: 20_000, message: 'the block glows red' }).toBeGreaterThan(plain + 2000);
-  expect((await observe()).counters?.['lit']).toBe(1);
+  let sawLit = false;
+  // The counter is read beside each picture (the 2 s window may end between a picture and a later read on a loaded host).
+  await expect.poll(async () => {
+    lit = reds(await shot(frame));
+    if ((await observe()).counters?.['lit'] === 1) sawLit = true;
+    return lit;
+  }, { timeout: 20_000, message: 'the block glows red' }).toBeGreaterThan(plain + 2000);
+  expect(sawLit).toBe(true);
   await expect.poll(async () => reds(await shot(frame)), { timeout: 20_000, message: 'the block has its own look again' }).toBeLessThan(plain + 200);
   console.log(`[look-override] ${variant}: red pixels ${plain} → ${lit} → back`);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
-  expect((await observe()).state).toBe('scene');
+  expect((await observe()).state).toBe('running');
 });

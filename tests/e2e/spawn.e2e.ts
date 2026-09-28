@@ -17,13 +17,12 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { STARTER, type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('spawn-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -71,8 +70,7 @@ async function script(behaviorId: string, source: string, ownedTransforms: strin
   await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
   const published = await api('content/behaviors/source', { stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${createHash('sha256').update(behaviorId).digest('hex').slice(0, 32)}` });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
-  const game = await query('queryGameConfig');
-  await cmd('setBehaviorProperties', { entityId: entityId ?? String((game.game as { playerId: string }).playerId), behaviorId, values: { every: 1 } });
+  await cmd('setBehaviorProperties', { entityId: entityId ?? STARTER.playerId, behaviorId, values: { every: 1 } });
 }
 
 /** One projectile every `every` seconds (120 steps per second) beside the player; the last three stay. */
@@ -151,11 +149,8 @@ test('a script spawns a projectile every second in Play (and in the export); old
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; counters?: Record<string, number>; spawned?: { count: number; ids: string[] } };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('awaitingStart');
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   const frame = page.locator('iframe.tl-app__preview-frame');
-  const before = await magenta(frame);
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
-  await expect.poll(async () => (await observe()).state).toBe('playing');
 
   // The shots come once a (simulated) second; at most three stay, plus one on its way out.
   await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 90_000 }).toBeGreaterThanOrEqual(5);
@@ -169,7 +164,7 @@ test('a script spawns a projectile every second in Play (and in the export); old
   const numbers = o.spawned!.ids.map((id) => Number(id.slice('spawn-'.length)));
   expect(Math.min(...numbers)).toBeGreaterThanOrEqual((o.counters!['shots'] ?? 0) - 4);
   // Seen: magenta projectiles beside the player.
-  await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(before + 20);
+  await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(20);
   await page.screenshot({ path: 'test-results/spawn-play.png' });
   // The project never gains them.
   expect(((await query('queryEntities', { limit: 500, offset: 0 })).entities as unknown[]).length).toBe(entitiesBefore);
@@ -199,11 +194,9 @@ test('a script spawns a projectile every second in Play (and in the export); old
   game.on('pageerror', (e) => errors.push(e.message));
   try {
     await game.goto(url);
-    await expect(game.locator('#hud-root')).toContainText('to start', { timeout: 30_000 });
-    await game.locator('canvas#game').click();
-    await game.keyboard.press('Enter');
-    await expect(game.locator('#hud-root')).toContainText('to jump', { timeout: 30_000 });
-    // Once the run is live the shots come; one is always beside the player.
+    // Phase 24.6: the scene plays at once (the export's own observation says so).
+    await expect.poll(() => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null), { timeout: 30_000 }).toBe('running');
+    // The shots come; one is always beside the player.
     let seen = 0;
     await expect.poll(async () => (seen = await magenta(game)), { timeout: 60_000 }).toBeGreaterThan(20);
     await game.screenshot({ path: 'test-results/spawn-export.png' });

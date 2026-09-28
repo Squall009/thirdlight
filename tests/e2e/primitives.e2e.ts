@@ -163,7 +163,7 @@ test('collectible, patrol, hitbox and health from "+ Add component"; in Play a c
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; counters?: Record<string, number>; hidden?: string[] };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('scene');
+  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('running');
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   const counter = async (name: string): Promise<number> => (await observe()).counters?.[name] ?? 0;
   // The character stands on the collectible: collected, back after 0.5 s, collected again.
@@ -177,5 +177,5 @@ test('collectible, patrol, hitbox and health from "+ Add component"; in Play a c
   await expect.poll(() => counter('hp'), { timeout: 10_000 }).toBe(2);
   expect(await counter('damage')).toBe(1);
   // Nothing else happened to the character (no engine rule on health): the scene plays on.
-  expect((await observe()).state).toBe('scene');
+  expect((await observe()).state).toBe('running');
 });

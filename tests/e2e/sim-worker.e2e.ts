@@ -22,7 +22,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, publishWav, startBackend, type E2EBackend } from './backend';
+import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 
 let be: E2EBackend | null = null;
@@ -48,16 +48,17 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
   expect(res['ok'], JSON.stringify(res)).toBe(true);
 }
 
-/** The starter with the game session, its step and platform removed, a pickup that chimes (a fixture sound) 1.5 m ahead of the player. */
+/** The starter with its step and platform removed, a collectible that chimes (a fixture sound through the event cue table) 1.5 m ahead of the player, and a title that waits for the start (the game shell). */
 async function setup(isolation: boolean): Promise<void> {
   be = await startBackend('simw-e2e', 'starter', isolation ? { THIRDLIGHT_CROSS_ORIGIN_ISOLATION: '1' } : {});
-  await addGameSession(be);
   const chime = await publishWav(be, 'cue-start.wav', 'audio-chime', 'Chime');
   for (const entityId of ['box-0002', 'box-0003']) await cmd('deleteEntity', { entityId });
   const q = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 200, offset: 0 } })) as { entities?: { id: string; sceneId?: string; components: { transform?: { position: number[] } } }[] };
   const player = q.entities!.find((e) => e.id === 'model-0001')!;
   const [px, py] = player.components.transform!.position as [number, number];
-  await cmd('createEntity', { ...(player.sceneId !== undefined ? { sceneId: player.sceneId } : {}), kind: 'group', name: 'Chime pickup', transform: { position: [px + 1.5, py, 0] }, components: { pickup: { kind: 'custom', counter: 'items', value: 1, size: [0.8, 2], cue: chime } } });
+  await cmd('createEntity', { ...(player.sceneId !== undefined ? { sceneId: player.sceneId } : {}), kind: 'group', name: 'Chime item', transform: { position: [px + 1.5, py, 0] }, components: { collectible: { counter: 'items', size: [0.8, 2, 0.8] } } });
+  await cmd('setEventCues', { cues: [{ on: 'event', name: 'collected', assetId: chime }] });
+  await addTitleShell(be);
 }
 
 /** Open the editor (with a page query) and start Play; returns the play session id. */
@@ -77,10 +78,11 @@ async function playChecks(page: Page, psid: string, expectMode: { mode: string; 
   expect((await observe()).simulation).toEqual(expectMode);
   await expect.poll(() => logs.find((l) => l.startsWith('[thirdlight] simulation:')) ?? '').toContain(expectMode.mode === 'worker' ? 'simulation: worker' : 'simulation: single thread');
 
-  // A click in the game focuses it and unlocks sound; Enter starts the run.
-  await page.locator('iframe.tl-app__preview-frame').click();
+  // A click in the game focuses it and unlocks sound; Enter starts the game (the title's Start).
+  await page.locator('iframe.tl-app__preview-frame').click({ position: { x: 400, y: 300 } });
+  await expect.poll(async () => (await observe()).state).toBe('paused');
   await page.keyboard.press('Enter');
-  await expect.poll(async () => (await observe()).state).toBe('playing');
+  await expect.poll(async () => (await observe()).state).toBe('running');
   await expect.poll(async () => (await observe()).sound?.unlocked).toBe(true);
   await page.waitForTimeout(300);
 
@@ -98,7 +100,7 @@ async function playChecks(page: Page, psid: string, expectMode: { mode: string; 
         return o.player!.x > x0 + 0.02;
       }, { timeout: 15_000 })
       .toBe(true);
-    // Walk on through the pickup: counted in the simulation, its sound played by the page's audio owner.
+    // Walk on through the item: counted in the simulation, its sound played by the page's audio owner.
     await expect.poll(async () => (await observe()).counters?.['items'] ?? 0, { timeout: 15_000 }).toBe(1);
   } finally {
     await page.keyboard.up('d');
@@ -185,13 +187,13 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
     try {
       await game.goto(`${site.url}${c.query}`);
       await expect.poll(() => game.evaluate(() => (window as unknown as { __thirdlightThreading?: unknown }).__thirdlightThreading ?? null), { timeout: 30_000 }).toMatchObject(c.want);
-      // The run starts from the keyboard (the run command goes to wherever the simulation runs) …
-      const hud = game.locator('#hud-root');
-      await expect(hud).toContainText('Deaths: 0', { timeout: 20_000 });
-      const titleText = await hud.innerText();
-      await game.mouse.click(20, 400);
+      // The game starts from the keyboard (the title's Start; the restart goes to wherever the simulation runs) …
+      const observed = async (): Promise<string | null> => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null);
+      await expect(game.locator('[data-tl-ui-doc="start-title"]')).toBeVisible({ timeout: 20_000 });
+      await expect.poll(observed, { timeout: 20_000 }).toBe('paused');
+      await game.mouse.click(400, 400);
       await game.keyboard.press('Enter');
-      await expect.poll(() => hud.innerText(), { timeout: 15_000 }).not.toBe(titleText);
+      await expect.poll(observed, { timeout: 15_000 }).toBe('running');
       // … and a held key moves the player: the view changes much more than while standing still.
       const diff = (p: Buffer, q: Buffer): number => {
         const a = decodePng(p);

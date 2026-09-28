@@ -195,7 +195,7 @@ test('pointer: hover lights a box\'s lamp and a click hides it — the mouse in 
 
   // ---- Play: the real mouse ----
   const observe = await startPlay();
-  expect((await observe())!.state).toBe('scene');
+  expect((await observe())!.state).toBe('running');
   await page.waitForTimeout(500);
   const before = await view(page, 'canvas', true);
   const red = redBlob(before.img);

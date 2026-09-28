@@ -116,7 +116,7 @@ keeps the gate green.
 | 24.4i | done 2026-09-28: `content.eventCues` (`setEventCues`; signal or event name → sound), Media tab |
 | 24.4j | done 2026-09-28: `content.shell {screens?: {title, pause, settings, controls, save, load}, hud?, scenes?: [{scene, spawn?}], pause?, status?}` (`setShell`, Game shell tab); engine actions `open`, `nextScene`; `$flow.counters/health/prompts/shell`; counters in the `components` save section |
 | 24.5 | done 2026-09-28: descriptor `create` entries and `icon`s drive the GameObject menu, the hierarchy and Scene-view icons; zone/pickup/enemy no longer offered; Gameplay panel = settings, camera (+ an existing game block); no lives/score UI; "Character locomotion" preset; MCP wording generic |
-| 24.6 | — |
+| 24.6 | done 2026-09-28 (fast gate): observations and control results report a play state (`running`/`paused`); the session's run state, checkpoint, deaths, goal, events, level flow and title view moved to an optional `legacy` block (24.7 deletes it); `$flow` lost level/lives/HUD/totals/score/result; `health` is every object's; the 20 `addGameSession` tests run in scene mode (a title shell where they waited for a start) |
 | 24.7 | — |
 | 24.8 | — |
 | 24.9 | — |
@@ -392,3 +392,68 @@ keeps the gate green.
   `animator-skinned` the new preset, `gizmos` the renamed artwork. New e2e
   `create-menu` (2D and 3D). `DEFAULT_ZONE_SIZE` is one 1.5 m square for
   every role (the per-role sizes were fitted to the default jump).
+- 2026-09-28 (24.6): the session's view is not deleted now but moved into
+  an optional `legacy` block of the observation (protocol
+  `validateGameObservation`; host `GameHostObservation.legacy`: `runState`,
+  `checkpointId`, `checkpointActive`, `goalReached`, `failed`, `deathCount`,
+  `eventCount`, `eventDropped`, `events` and the level flow's `flow` and
+  `titleView`). Reason: least churn — the session and the flow live until
+  24.7, their tests read one block through `legacyObservation()`
+  (`tests/e2e/backend.ts`), and 24.7 deletes the block, the helper and
+  `LEGACY_RUN_STATES`/`LEGACY_EVENT_KINDS` wholesale. The core is generic in
+  both kinds of play: `state` is `PLAY_STATES` (`running`, `paused` while the
+  engine pause holds the simulation — a shell menu, the pause panel, a game
+  mode, the flow's menus; `stopped` for a disposed host), the same field in
+  control results; `GAME_RUN_STATES`, `GAME_EVENT_KINDS` and state `scene`
+  are gone. A scene-mode observation now also carries `animators`, `spawned`
+  and `effects`, and `health` is every object's health
+  (`{objectId: {current, max}}`, at most 64), not the session player's.
+- 2026-09-28 (24.6): the control route answers every command alike in both
+  kinds of play (run 0 in scene mode; D34 fixed); `replay` in scene mode is
+  the engine restart (an input-frame entry, as the pause panel's). `start`
+  is only a session's (scene mode refuses it, as before).
+- 2026-09-28 (24.6): `$flow` keeps the menu values (screen, title,
+  subtitle, objective, instructions, volumes, quality, slots, saveNote,
+  canSave) and the generic ones (counters, health, prompts, input, shell);
+  the flow's `level`, `lives`, `hud`, `totals`, `score` and `result` are
+  gone now (no test or engine document read them after the ports; the
+  flow's own DOM menus still show them until 24.7). The export's debug line
+  names the build and the play state only. MCP: `tl_game_observe` teaches the
+  play state, counters, health, shell and the `legacy` block;
+  `tl_play_start` no longer teaches the flow save (`save {levelId, run}`,
+  `saveSlot auto`), which still loads until 24.7.
+- 2026-09-28 (24.6): tests. The 20 files that called `addGameSession` run in
+  scene mode; `addGameSession` is deleted. Where a test waited in
+  `awaitingStart` to see the world before play (visual-script's timed door,
+  sim-worker's keyboard start), a game shell title holds the start
+  (`addTitleShell(be, hud?)`: a corner panel with a Start button; its HUD
+  replaced the classic HUD text). Rebind now uses a project controls screen
+  (the engine `rebind`/`resetBindings` actions) instead of the flow's
+  settings list; project-ui and ui-editor use the shell's pause screen
+  (heading bound to `$flow.shell.screen`); scenes' exit zone became a
+  trigger with `sceneTransition`; sim-worker's chiming pickup a collectible
+  with an event cue; sensors checks the door after it closes (the scene
+  plays at once). The perf benchmark and large-project still build the
+  session (24.7 moves them) and read `legacy.runState`. The platformer's own
+  tests (beacon-reach, blocks, flow, pad-menus, m9-flow, m3-sample, m3-shell)
+  read `legacy` and are deleted in 24.7.
+- 2026-09-28 (24.6): found on the way and fixed: D38 (a shell screen took
+  the keyboard focus from the game canvas, so Enter did not reach its
+  focused button), D39 (no locomotion animator parameters and no start
+  spawn without the session: the controller's object is now fed from its
+  own motion — horizontal speed over x and z — and `Runtime.requestArrival`
+  places it at a Play-from scene's spawn). No replay or digest changed: the
+  runtime's `GameView` and the step digest are untouched (the observation
+  is a host view), and the animator feed only changes games without the
+  session, which have no recorded fixtures with a character animator. The
+  m3 delivery wire fixture (`fixtures/m3/delivery/wire/observe-result.json`,
+  not in the gate) still shows the packet-48 shape; it goes with 24.7.
+- 2026-09-28 (24.6): load-sensitive tests hardened on the way (3 workers on
+  the GPU host): shell's walk past the second collectible holds the key until
+  the character is there (not 1.5 s); look-override reads the counter beside
+  each picture; dialogue's audio sampler loop is paced and bounded (unpaced,
+  after a failure it kept the worker busy past every timeout and the whole
+  run hung); project-ui adds a `track` camera shot (the session's following
+  camera made its world label move). D38's fix is on the modal backdrop's
+  `pointerdown` (a `mousedown` handler on the document root broke the
+  dialogue box's clicks in Play).

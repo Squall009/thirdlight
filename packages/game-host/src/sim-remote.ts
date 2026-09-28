@@ -510,6 +510,13 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       command({ op: 'requestScene', sceneOp: op, sceneId });
       return { ok: true };
     },
+    requestArrival: (sceneId: string, spawnId: string) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const status = mirror.sceneSet?.status;
+      if (!hasScenes || (status !== undefined && !(sceneId in status))) return { ok: false, error: rtError('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId))}`, { reason: 'transfer' }) };
+      command({ op: 'requestArrival', sceneId, spawnId });
+      return { ok: true };
+    },
   };
 
   const startDriver = (): void => {

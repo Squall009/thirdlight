@@ -79,13 +79,13 @@ test('Play opens in the Game tab; the Scene tab shows the viewport while the gam
     });
     return ((await r.json()) as { state?: string }).state ?? null;
   };
-  await expect.poll(observe, { timeout: 15_000 }).toBe('scene');
+  await expect.poll(observe, { timeout: 15_000 }).toBe('running');
 
   // Scene tab: the viewport is back; the game is still there (observable, hidden not unmounted).
   await page.getByRole('tab', { name: 'Scene' }).click();
   await expect(frame).toBeHidden();
   await expect(frame).toHaveCount(1);
-  expect(await observe()).toBe('scene');
+  expect(await observe()).toBe('running');
   await page.getByRole('tab', { name: 'Game', exact: true }).click();
   await expect(frame).toBeVisible();
 

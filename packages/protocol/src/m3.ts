@@ -526,10 +526,22 @@ export const GAME_OBSERVE_TIMEOUT_DEFAULT_MS = 5_000;
 /** The retained event bound (gameplay.md §6 `MAX_GAME_EVENTS`). */
 export const GAME_OBSERVATION_EVENT_MAX = 32;
 
-/** The closed §20 run-state set (gameplay.md §2). */
-/** Phase 23.0: `scene` — a scene-mode play (no game block: no run to be in). */
-export const GAME_RUN_STATES = ['awaitingStart', 'playing', 'respawning', 'won', 'scene'] as const;
-export type GameRunState = (typeof GAME_RUN_STATES)[number];
+/**
+ * Phase 24.6: the closed play-state set of an observation and a control
+ * result — generic for every game: the simulation runs, or the engine pause
+ * holds it (a menu, the pause panel, a game mode's pause). `stopped` is the
+ * play's end (a stopped play has no observation to read).
+ */
+export const PLAY_STATES = ['running', 'paused', 'stopped'] as const;
+export type PlayState = (typeof PLAY_STATES)[number];
+
+/**
+ * Phase 24.6: the legacy game session's run states (gameplay.md §2), reported
+ * only under an observation's `legacy` block while a project still has the
+ * game block. Phase 24.7 deletes them with the session.
+ */
+export const LEGACY_RUN_STATES = ['awaitingStart', 'playing', 'respawning', 'won'] as const;
+export type LegacyRunState = (typeof LEGACY_RUN_STATES)[number];
 
 /** The closed sound-status set (§20.1/delivery.md §5.2). */
 export const GAME_SOUND_STATUSES = ['muted', 'blocked', 'ready', 'unavailable'] as const;
@@ -553,8 +565,8 @@ export const GAME_RELAY_ERROR_CODES = [
   'limits_exceeded',
 ] as const;
 
-/** The closed §20 game-event kind set (gameplay.md §6). */
-export const GAME_EVENT_KINDS = [
+/** Phase 24.6: the legacy game session's event kinds (gameplay.md §6), under `legacy.events` only; deleted in 24.7. */
+export const LEGACY_EVENT_KINDS = [
   'runStarted',
   'died',
   'respawned',
@@ -709,8 +721,8 @@ export function validateGameControlResult(value: unknown): FieldErrorResult {
   if (typeof value.command !== 'string' || !(GAME_CONTROL_COMMANDS as readonly string[]).includes(value.command)) {
     return fieldError('field_value', '/command', `command must be one of ${GAME_CONTROL_COMMANDS.join(', ')}`);
   }
-  if (typeof value.state !== 'string' || !(GAME_RUN_STATES as readonly string[]).includes(value.state)) {
-    return fieldError('field_value', '/state', 'state must be an accepted run state');
+  if (typeof value.state !== 'string' || !(PLAY_STATES as readonly string[]).includes(value.state)) {
+    return fieldError('field_value', '/state', `state must be one of ${PLAY_STATES.join(', ')}`);
   }
   if (typeof value.acceptedAtStep !== 'number' || !Number.isInteger(value.acceptedAtStep) || value.acceptedAtStep < 0) {
     return fieldError('field_value', '/acceptedAtStep', 'acceptedAtStep must be a non-negative integer');
@@ -729,9 +741,50 @@ export function validateGameControlResult(value: unknown): FieldErrorResult {
 }
 
 /**
- * Validate one §20 observation document (≤ 16 KiB, ≤ 32 events, binary-free).
- * The values come from the committed read-only `GameView` (gameplay.md §6);
- * this validator asserts the wire shape and bounds only.
+ * Phase 24.6: the legacy game session's block of an observation — its run
+ * state, checkpoint, deaths, goal, events and the level flow. Present only
+ * while a project has the game block; phase 24.7 deletes it with the session.
+ */
+function validateLegacyObservation(value: unknown): FieldErrorResult | null {
+  if (!isPlainObject(value)) return fieldError('field_type', '/legacy', 'legacy is the game session\'s block { runState, checkpointId, checkpointActive, goalReached, failed, deathCount, eventCount, eventDropped, events, flow?, titleView? }');
+  if (typeof value.runState !== 'string' || !(LEGACY_RUN_STATES as readonly string[]).includes(value.runState)) {
+    return fieldError('field_value', '/legacy/runState', `legacy.runState must be one of ${LEGACY_RUN_STATES.join(', ')}`);
+  }
+  if (value.checkpointId !== null && typeof value.checkpointId !== 'string') {
+    return fieldError('field_type', '/legacy/checkpointId', 'legacy.checkpointId must be a string or null');
+  }
+  for (const key of ['checkpointActive', 'goalReached', 'failed'] as const) {
+    if (typeof value[key] !== 'boolean') return fieldError('field_type', `/legacy/${key}`, `legacy.${key} must be a boolean`);
+  }
+  for (const key of ['deathCount', 'eventCount', 'eventDropped'] as const) {
+    if (!Number.isInteger(value[key]) || (value[key] as number) < 0) return fieldError('field_value', `/legacy/${key}`, `legacy.${key} must be a non-negative integer`);
+  }
+  if (!Array.isArray(value.events)) return fieldError('field_type', '/legacy/events', 'legacy.events must be an array');
+  if (value.events.length > GAME_OBSERVATION_EVENT_MAX) {
+    return fieldError('limits_exceeded', '/legacy/events', `legacy.events must retain at most ${GAME_OBSERVATION_EVENT_MAX} entries`, { limit: 'events', max: GAME_OBSERVATION_EVENT_MAX });
+  }
+  for (let i = 0; i < value.events.length; i += 1) {
+    const ev = value.events[i];
+    const at = `/legacy/events/${i}`;
+    if (!isPlainObject(ev)) return fieldError('field_type', at, 'each event must be an object');
+    if (typeof ev.id !== 'string' || ev.id.length === 0) return fieldError('field_type', `${at}/id`, 'event.id must be a non-empty string');
+    if (typeof ev.kind !== 'string' || !(LEGACY_EVENT_KINDS as readonly string[]).includes(ev.kind)) return fieldError('field_value', `${at}/kind`, 'event.kind must be an accepted game-session event kind');
+    if (!Number.isInteger(ev.stepIndex) || (ev.stepIndex as number) < 0) return fieldError('field_value', `${at}/stepIndex`, 'event.stepIndex must be a non-negative integer');
+    if (typeof ev.boundary !== 'boolean') return fieldError('field_type', `${at}/boundary`, 'event.boundary must be a boolean');
+    if (!Number.isInteger(ev.deathCount) || (ev.deathCount as number) < 0) return fieldError('field_value', `${at}/deathCount`, 'event.deathCount must be a non-negative integer');
+  }
+  // Phase 9.10: the level flow's view (screen, level, lives, totals, music, volumes, …).
+  if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
+    return fieldError('field_type', '/legacy/flow', 'legacy.flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality, save?, score? }');
+  }
+  return null;
+}
+
+/**
+ * Validate one §20 observation document (≤ 16 KiB, binary-free). Phase
+ * 24.6: its core is generic (the play state, step, sound, counters, health,
+ * scenes, …); a project with the legacy game block adds `legacy` (≤ 32
+ * events). This validator asserts the wire shape and bounds only.
  */
 export function validateGameObservation(value: unknown): FieldErrorResult {
   if (!isPlainObject(value)) {
@@ -762,21 +815,8 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (typeof value.simTime !== 'number' || !Number.isFinite(value.simTime) || value.simTime < 0) {
     return fieldError('field_value', '/simTime', 'simTime must be a finite number ≥ 0');
   }
-  if (typeof value.state !== 'string' || !(GAME_RUN_STATES as readonly string[]).includes(value.state)) {
-    return fieldError('field_value', '/state', 'state must be an accepted run state');
-  }
-  if (value.checkpointId !== null && typeof value.checkpointId !== 'string') {
-    return fieldError('field_type', '/checkpointId', 'checkpointId must be a string or null');
-  }
-  for (const key of ['checkpointActive', 'goalReached', 'failed'] as const) {
-    if (typeof value[key] !== 'boolean') {
-      return fieldError('field_type', `/${key}`, `${key} must be a boolean`);
-    }
-  }
-  for (const key of ['deathCount', 'eventCount', 'eventDropped'] as const) {
-    if (!Number.isInteger(value[key]) || (value[key] as number) < 0) {
-      return fieldError('field_value', `/${key}`, `${key} must be a non-negative integer`);
-    }
+  if (typeof value.state !== 'string' || !(PLAY_STATES as readonly string[]).includes(value.state)) {
+    return fieldError('field_value', '/state', `state must be one of ${PLAY_STATES.join(', ')}`);
   }
   if (value.inputMode !== 'physical' && value.inputMode !== 'test') {
     return fieldError('field_value', '/inputMode', 'inputMode must be "physical" or "test"');
@@ -800,33 +840,17 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (typeof sound.gesture !== 'string' || !(GAME_GESTURES as readonly string[]).includes(sound.gesture)) {
     return fieldError('field_value', '/sound/gesture', 'sound.gesture must be one of local, none');
   }
-  if (!Array.isArray(value.events)) {
-    return fieldError('field_type', '/events', 'events must be an array');
+  // Phase 24.6: the named counters and every object's health (generic; at most 32 / 64 entries).
+  if (value.counters !== undefined && (!isPlainObject(value.counters) || Object.keys(value.counters).length > 32 || !Object.values(value.counters).every((x) => typeof x === 'number' && Number.isFinite(x)))) {
+    return fieldError('field_type', '/counters', 'counters maps counter names to numbers (at most 32)');
   }
-  if (value.events.length > GAME_OBSERVATION_EVENT_MAX) {
-    return fieldError('limits_exceeded', '/events', `events must retain at most ${GAME_OBSERVATION_EVENT_MAX} entries`, {
-      limit: 'events',
-      max: GAME_OBSERVATION_EVENT_MAX,
-    });
+  if (value.health !== undefined && (!isPlainObject(value.health) || Object.keys(value.health).length > 64 || !Object.values(value.health).every((x) => isPlainObject(x) && typeof x['current'] === 'number' && typeof x['max'] === 'number'))) {
+    return fieldError('field_type', '/health', 'health maps object ids to { current, max } (at most 64)');
   }
-  for (let i = 0; i < value.events.length; i += 1) {
-    const ev = value.events[i];
-    if (!isPlainObject(ev)) return fieldError('field_type', `/events/${i}`, 'each event must be an object');
-    if (typeof ev.id !== 'string' || ev.id.length === 0) {
-      return fieldError('field_type', `/events/${i}/id`, 'event.id must be a non-empty string');
-    }
-    if (typeof ev.kind !== 'string' || !(GAME_EVENT_KINDS as readonly string[]).includes(ev.kind)) {
-      return fieldError('field_value', `/events/${i}/kind`, 'event.kind must be an accepted game-event kind');
-    }
-    if (!Number.isInteger(ev.stepIndex) || (ev.stepIndex as number) < 0) {
-      return fieldError('field_value', `/events/${i}/stepIndex`, 'event.stepIndex must be a non-negative integer');
-    }
-    if (typeof ev.boundary !== 'boolean') {
-      return fieldError('field_type', `/events/${i}/boundary`, 'event.boundary must be a boolean');
-    }
-    if (!Number.isInteger(ev.deathCount) || (ev.deathCount as number) < 0) {
-      return fieldError('field_value', `/events/${i}/deathCount`, 'event.deathCount must be a non-negative integer');
-    }
+  // Phase 24.6: the legacy game session's view (only while the project has the game block; deleted in 24.7).
+  if (value.legacy !== undefined) {
+    const lg = validateLegacyObservation(value.legacy);
+    if (lg !== null) return lg;
   }
   // Phase 9.7: optional animator states (entity id → state name).
   if (value.animators !== undefined) {
@@ -883,10 +907,6 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
     if (!isPlainObject(b) || !isPlainObject(b['device']) || (b['device']['kind'] !== 'keyboardMouse' && b['device']['kind'] !== 'gamepad') || typeof b['profile'] !== 'string' || !Array.isArray(b['changed']) || !isPlainObject(b['glyphs'])) {
       return fieldError('field_type', '/inputBindings', 'inputBindings is { device: { kind, id?, family? }, profile, listening, changed: [action], glyphs: { action: { label, icon } } }');
     }
-  }
-  // Phase 9.10: the optional game-flow block.
-  if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
-    return fieldError('field_type', '/flow', 'flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality, save?, score? }');
   }
   const n = utf8Bytes(value);
   if (n === null || n > GAME_OBSERVATION_MAX_BYTES) {

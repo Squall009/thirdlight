@@ -1,27 +1,56 @@
 /**
- * Phase 23.14: rebinding through the built-in settings screen (which lists
- * every action through the bindings API) in Play, on the engine sample with
- * an emulated Xbox-family pad. Jump is rebound from Space to K by pressing
- * K: K jumps and Space no longer does; the rebinding survives a reload of the
- * editor (saved per player profile in the browser); "Reset controls to
- * defaults" brings Space back. The glyph lookup switches from the key cap
- * "K" to the pad's "A" (south face button) when the pad becomes the device
- * used last.
+ * Phase 23.14: rebinding in Play, on the starter with an emulated Xbox-family
+ * pad. Phase 24.6: through a project's own controls screen (a UI document in
+ * the game shell with the engine's `rebind` and `resetBindings` actions)
+ * instead of the removed level flow's settings screen. Jump is rebound from
+ * Space to K by pressing K: K jumps and Space no longer does; the rebinding
+ * survives a reload of the editor (saved per player profile in the browser);
+ * "Reset controls" brings Space back. The glyph lookup switches from the key
+ * cap "K" to the pad's "A" (south face button) when the pad becomes the
+ * device used last.
  */
-import { createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Frame, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('rebind-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
 });
+
+async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
+  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-rebind' }, args });
+  expect(res.ok, JSON.stringify(res).slice(0, 400)).toBe(true);
+}
+
+const FULL = { anchor: [0, 0], pivot: [0, 0], stretch: 'both' };
+const BUTTON = { color: '#ffffff', background: '#303848', fontSize: 20, padding: 8, radius: 6 };
+/** The title (Start, Controls) and the controls screen (rebind jump's key, reset) as project UI documents. */
+const DOCS = [
+  {
+    uiDocumentId: 'title',
+    name: 'Title',
+    root: { type: 'panel', ...FULL, css: { background: '#203040' }, children: [
+      { type: 'button', id: 'start', anchor: [0.5, 0.4], pivot: [0.5, 0.5], size: [220, 48], text: 'Start', css: BUTTON, onClick: { do: 'engine', action: 'newGame' } },
+      { type: 'button', id: 'controls', anchor: [0.5, 0.6], pivot: [0.5, 0.5], size: [220, 48], text: 'Controls', css: BUTTON, onClick: { do: 'engine', action: 'open', screen: 'controls' } },
+    ] },
+  },
+  {
+    uiDocumentId: 'controls',
+    name: 'Controls',
+    root: { type: 'panel', ...FULL, css: { background: '#304020' }, children: [
+      { type: 'button', id: 'rebind', anchor: [0.5, 0.3], pivot: [0.5, 0.5], size: [260, 48], text: 'Jump (keys)', css: BUTTON, onClick: { do: 'engine', action: 'rebind', input: 'jump', device: 'keyboardMouse' } },
+      { type: 'button', id: 'reset', anchor: [0.5, 0.5], pivot: [0.5, 0.5], size: [260, 48], text: 'Reset controls', css: BUTTON, onClick: { do: 'engine', action: 'resetBindings' } },
+      { type: 'button', id: 'back', anchor: [0.5, 0.7], pivot: [0.5, 0.5], size: [260, 48], text: 'Back', css: BUTTON, onClick: { do: 'engine', action: 'back' } },
+    ] },
+  },
+];
 
 /** A standard-mapped Xbox-family pad the test moves (`window.__tlPad`), in every frame of the page. */
 const FAKE_PAD = `(() => {
@@ -35,8 +64,8 @@ const FAKE_PAD = `(() => {
   Object.defineProperty(Navigator.prototype, 'getGamepads', { configurable: true, value: function () { return [snapshot(), null, null, null]; } });
 })();`;
 
-type Bindings = { device: { kind: string; family?: string }; profile: string; changed: string[]; glyphs: Record<string, { label: string; icon: string }> };
-type Observation = { ok?: boolean; state?: string; player?: { x: number; y: number }; flow?: { screen: string; rebound: string[] }; inputBindings?: Bindings };
+type Bindings = { device: { kind: string; family?: string }; profile: string; listening?: unknown; changed: string[]; glyphs: Record<string, { label: string; icon: string }> };
+type Observation = { ok?: boolean; state?: string; player?: { x: number; y: number }; shell?: { screen: string }; inputBindings?: Bindings };
 
 async function playFrame(page: Page): Promise<Frame> {
   let found: Frame | undefined;
@@ -44,7 +73,7 @@ async function playFrame(page: Page): Promise<Frame> {
     .poll(async () => {
       for (const f of page.frames()) {
         if (f === page.mainFrame()) continue;
-        if (await f.locator('.tl-flow').count().catch(() => 0)) {
+        if (await f.locator('[data-tl-ui-doc="title"]').count().catch(() => 0)) {
           found = f;
           return true;
         }
@@ -74,36 +103,14 @@ async function startPlay(page: Page): Promise<{ frame: Frame; observe: () => Pro
   };
   await expect.poll(async () => (await observe()).ok, { timeout: 30_000 }).toBe(true);
   const frame = await playFrame(page);
-  await expect(frame.locator('.tl-flow')).toHaveAttribute('data-screen', 'title', { timeout: 20_000 });
-  await page.locator('iframe.tl-app__preview-frame').click();
+  await expect.poll(async () => (await observe()).shell?.screen, { timeout: 20_000 }).toBe('title');
   return { frame, observe };
 }
 
-/** Move the menu selection to the item whose label starts with `prefix` (acting only on a selection seen twice in a row). */
-async function selectItem(page: Page, frame: Frame, prefix: string): Promise<void> {
-  const items = frame.locator('.tl-flow__item');
-  let seen = -2;
-  await expect
-    .poll(async () => {
-      const labels = await items.allTextContents();
-      const want = labels.findIndex((l) => l.startsWith(prefix));
-      const at = await items.evaluateAll((els) => els.findIndex((e) => e.classList.contains('is-selected')));
-      if (at !== seen) {
-        seen = at;
-        return false;
-      }
-      if (want < 0 || want === at) return want >= 0;
-      await page.keyboard.press(want > at ? 'ArrowDown' : 'ArrowUp');
-      seen = -2;
-      return false;
-    }, { timeout: 60_000, intervals: [300] })
-    .toBe(true);
-}
-
-async function openSettings(page: Page, frame: Frame): Promise<void> {
-  await selectItem(page, frame, 'Settings');
-  await page.keyboard.press('Enter');
-  await expect(frame.locator('.tl-flow')).toHaveAttribute('data-screen', 'settings');
+/** Open the controls screen from the title. */
+async function openControls(frame: Frame, observe: () => Promise<Observation>): Promise<void> {
+  await frame.locator('[data-tl-ui-doc="title"] [data-widget="controls"]').click();
+  await expect.poll(async () => (await observe()).shell?.screen).toBe('controls');
 }
 
 async function peak(page: Page, observe: () => Promise<Observation>, key: string): Promise<number> {
@@ -118,28 +125,23 @@ async function peak(page: Page, observe: () => Promise<Observation>, key: string
   return top;
 }
 
-test('rebind jump to K in the settings: K jumps, it survives a reload, reset restores Space; the glyph follows the pad', async ({ page }) => {
+test('rebind jump to K on a controls screen: K jumps, it survives a reload, reset restores Space; the glyph follows the pad', async ({ page }) => {
   test.setTimeout(300_000);
-  // The game flow (title, settings) with the sample's one level.
-  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-  const spawnId = String(((await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} }))['game'] as { spawnId: string }).spawnId);
-  const res = await be.command({ op: 'setFlow', projectId: be.projectId, expectedRevision: revision, requestId: `req-${createHash('sha256').update(String(Math.random())).digest('hex').slice(0, 32)}`, origin: { kind: 'mcp', clientId: 'e2e-rebind' }, args: { flow: { levels: [{ id: 'level-1', name: 'Level 1', scenes: ['scene-main'], spawnId }] } } });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
+  // The game shell: a title and a controls screen (project UI documents).
+  for (const d of DOCS) await cmd('setUiDocument', { document: d });
+  await cmd('setShell', { shell: { screens: { title: 'title', controls: 'controls' } } });
   await page.addInitScript(FAKE_PAD);
   let { frame, observe } = await startPlay(page);
-  const items = frame.locator('.tl-flow__item');
+  const controls = frame.locator('[data-tl-ui-doc="controls"]');
 
-  // Every action is listed (keys and pad), not only jump/attack/interact.
-  await openSettings(page, frame);
-  for (const label of ['Jump (keys): Space', 'Jump (pad): A', 'Pause (keys): Esc', 'Submit (keys): Enter', 'Navigate up (keys): Up', 'Move − (keys): A', 'Reset controls to defaults']) await expect(items.filter({ hasText: label }), label).toHaveCount(1);
+  // Every action has its glyph (keys and pad), not only jump.
   await expect.poll(async () => (await observe()).inputBindings?.glyphs['jump']).toEqual({ label: 'Space', icon: 'key' });
+  await openControls(frame, observe);
 
   // Listen for jump's key and press K.
-  await selectItem(page, frame, 'Jump (keys)');
-  await page.keyboard.press('Enter');
-  await expect(frame.locator('.tl-flow')).toContainText('Press a key for Jump');
+  await controls.locator('[data-widget="rebind"]').click();
+  await expect.poll(async () => (await observe()).inputBindings?.listening ?? null).not.toBeNull();
   await page.keyboard.press('k');
-  await expect(items.filter({ hasText: 'Jump (keys): K' })).toHaveCount(1);
   await expect.poll(async () => (await observe()).inputBindings?.changed).toEqual(['jump']);
   expect((await observe()).inputBindings!.glyphs['jump']).toEqual({ label: 'K', icon: 'key' });
 
@@ -153,11 +155,12 @@ test('rebind jump to K in the settings: K jumps, it survives a reload, reset res
   await expect.poll(async () => (await observe()).inputBindings?.glyphs['jump']).toEqual({ label: 'K', icon: 'key' });
 
   // Back to the title and a new game: K jumps, Space does not.
-  await page.keyboard.press('Escape');
-  await expect(frame.locator('.tl-flow')).toHaveAttribute('data-screen', 'title');
-  await selectItem(page, frame, 'New game');
-  await page.keyboard.press('Enter');
-  await expect.poll(async () => (await observe()).state, { timeout: 20_000 }).toBe('playing');
+  await controls.locator('[data-widget="back"]').click();
+  await expect.poll(async () => (await observe()).shell?.screen).toBe('title');
+  await frame.locator('[data-tl-ui-doc="title"] [data-widget="start"]').click();
+  await expect.poll(async () => (await observe()).shell?.screen, { timeout: 20_000 }).toBe('playing');
+  expect((await observe()).state).toBe('running');
+  await page.locator('iframe.tl-app__preview-frame').click();
   await page.waitForTimeout(700); // settle on the ground
   const ground = (await observe()).player!.y;
   expect(await peak(page, observe, 'Space')).toBeLessThan(ground + 0.1);
@@ -165,15 +168,11 @@ test('rebind jump to K in the settings: K jumps, it survives a reload, reset res
 
   // A reload: the saved rebinding holds from the start.
   ({ frame, observe } = await startPlay(page));
-  const again = frame.locator('.tl-flow__item');
   await expect.poll(async () => (await observe()).inputBindings?.changed).toEqual(['jump']);
-  await openSettings(page, frame);
-  await expect(again.filter({ hasText: 'Jump (keys): K' })).toHaveCount(1);
+  await openControls(frame, observe);
 
   // Reset restores the project's bindings (and saves that).
-  await selectItem(page, frame, 'Reset controls');
-  await page.keyboard.press('Enter');
-  await expect(again.filter({ hasText: 'Jump (keys): Space' })).toHaveCount(1);
+  await frame.locator('[data-tl-ui-doc="controls"] [data-widget="reset"]').click();
   await expect.poll(async () => (await observe()).inputBindings?.changed).toEqual([]);
   ({ frame, observe } = await startPlay(page));
   await expect.poll(async () => (await observe()).inputBindings?.glyphs['jump']).toEqual({ label: 'Space', icon: 'key' });

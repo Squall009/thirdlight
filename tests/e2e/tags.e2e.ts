@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { STARTER, type E2EBackend, startBackend } from './backend';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -96,7 +96,6 @@ test('tags in project settings and the inspector: add, rename keeps the bit, fol
 
 test('a script queries objects by tag in Play: folder tags count, inactive objects do not', async ({ page }) => {
   be = await startBackend('tags-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
   const REPO_BOX = { size: [0.3, 0.3, 0.3], material: { color: '#ff00ff' } };
   await cmd('setTags', { tags: [{ name: 'hazard' }, { name: 'pickup' }] });
   const hazards = String((await cmd('createEntity', { kind: 'folder', name: 'Hazards' })).createdId);
@@ -149,7 +148,7 @@ test('a script queries objects by tag in Play: folder tags count, inactive objec
   expect(published.status, JSON.stringify(published.json)).toBe(200);
   const game = await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} });
   expect(game.tags).toEqual([{ bit: 0, name: 'hazard' }, { bit: 1, name: 'pickup' }]);
-  const playerId = String((game.game as { playerId: string }).playerId);
+  const playerId = STARTER.playerId;
   await cmd('setBehaviorProperties', { entityId: playerId, behaviorId: 'behavior-tags', values: { speed: 1 } });
 
   await page.goto(be.editorUrl);
@@ -158,9 +157,8 @@ test('a script queries objects by tag in Play: folder tags count, inactive objec
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<{ state?: string; player?: { x: number } }> => (await api(`play/${psid}/observe`, {})).json as never;
-  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('awaitingStart');
+  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('running');
   await expect(page.locator('.tl-notice')).toHaveCount(0);
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
   // Spawn is x = 3: right means the query found exactly [spike, lava].
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeGreaterThan(4.5);
 });

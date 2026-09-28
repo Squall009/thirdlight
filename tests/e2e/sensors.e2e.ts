@@ -18,14 +18,13 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
 import { menu } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('sensors-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -191,12 +190,9 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
   const counter = async (name: string): Promise<number> => (await observe()).counters?.[name] ?? 0;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('awaitingStart');
+  // Phase 24.6: a scene plays at once (no run to start), so the door is checked shown after it closes again.
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   const frame = page.locator('iframe.tl-app__preview-frame');
-  await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(40);
-  const shut = await magenta(frame);
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
-  await expect.poll(async () => (await observe()).state).toBe('playing');
 
   // The player starts inside the circle: one enter event, the stay signal every step.
   await expect.poll(async () => counter('entered'), { timeout: 30_000 }).toBe(1);
@@ -204,10 +200,10 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   // One second later the door opens (hidden: no magenta), four seconds after that it closes again.
   await expect.poll(async () => counter('opened'), { timeout: 30_000 }).toBe(1);
   expect(await counter('closed')).toBe(0);
-  await expect.poll(async () => magenta(frame), { timeout: 10_000 }).toBeLessThan(shut / 10);
+  await expect.poll(async () => magenta(frame), { timeout: 10_000 }).toBeLessThan(4);
   await page.screenshot({ path: 'test-results/sensors-open.png' });
   await expect.poll(async () => counter('closed'), { timeout: 60_000 }).toBe(1);
-  await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(shut / 2);
+  await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(40);
   // The every-0.5 s timer ticked all along; the enter event came once (the player never left).
   const o = await observe();
   expect(o.counters?.['ticks'] ?? 0).toBeGreaterThanOrEqual(10);

@@ -50,7 +50,6 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
   const notes: string[] = [];
   const flow = project.content['flow'] as { levels?: ReadonlyArray<{ id: string; scenes: readonly string[] }> } | undefined;
   const levels = Array.isArray(flow?.levels) ? flow!.levels : [];
-  const hasGame = project.content['game'] !== null && project.content['game'] !== undefined;
 
   if (options.sceneId !== undefined) {
     const sceneId = options.sceneId;
@@ -68,10 +67,9 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
       } else {
         const start = project.startScenes ?? [];
         out.scenes = start.includes(sceneId) ? [...start] : [...start, sceneId];
-        if (hasGame) {
-          const spawn = scene.entities.find((e) => e.components?.['playerSpawn'] !== undefined);
-          if (spawn !== undefined) out.spawnId = spawn.id;
-        }
+        // Phase 24.6: the chosen scene's first spawn, with or without the game session.
+        const spawn = scene.entities.find((e) => e.components?.['playerSpawn'] !== undefined);
+        if (spawn !== undefined) out.spawnId = spawn.id;
       }
     }
   }

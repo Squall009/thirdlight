@@ -154,36 +154,43 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
 export const STARTER = { playerId: 'model-0001', spawnId: 'spawn-0001', cameraId: 'cam-main', groundId: 'box-0001', pillarId: 'model-0002' } as const;
 
 /**
- * Phase 24.2: give a starter project the platformer game block (the run
- * session: awaiting start, deaths, respawn, the HUD) with what the block
- * requires: a following camera and a goal zone (placed out of reach). The
- * starter itself has no game rules; a test whose generic subject still needs
- * the session's run states calls this. Goes away with the block (phase
- * 24.6/24.7).
+ * Phase 24.6: the generic "wait for the player to start": a game shell whose
+ * title screen (a small corner panel with a Start button, so the scene stays
+ * visible) holds the engine pause until Start (`[data-tl-ui-doc="start-title"]
+ * [data-widget="start"]`). With `hud`, a HUD document shows that text (its
+ * `{$flow.counters.<name>}` bindings read the named counters) as
+ * `[data-tl-ui-doc="start-hud"] [data-widget="line"]`. Replaces the game
+ * session's awaiting-start state and classic HUD in tests whose subject is
+ * generic.
  */
-export async function addGameSession(be: E2EBackend, extra: Record<string, unknown> = {}): Promise<void> {
+export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void> {
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
     const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-    const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-session' }, args });
-    if (r['ok'] !== true) throw new Error(`addGameSession ${op}: ${JSON.stringify(r).slice(0, 400)}`);
+    const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-shell' }, args });
+    if (r['ok'] !== true) throw new Error(`addTitleShell ${op}: ${JSON.stringify(r).slice(0, 400)}`);
   };
-  // The session's camera follows the player (no bounds: an open world).
-  await run('setComponent', { entityId: STARTER.cameraId, component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } });
-  // The block requires a goal zone somewhere in the project: one far out of reach.
-  await run('createEntity', { kind: 'group', name: 'Session goal', transform: { position: [500, -100, 0] }, components: { gameZone: { role: 'goal', size: [1, 1] } } });
-  await run('setGameConfig', {
-    game: {
-      configVersion: 2,
-      title: 'Test game',
-      objective: 'Play the scene',
-      instructions: 'Arrow keys or A / D to move, Space to jump.',
-      playerId: STARTER.playerId,
-      cameraId: STARTER.cameraId,
-      spawnId: STARTER.spawnId,
-      cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
-      ...extra,
-    },
-  });
+  const corner = { anchor: [0, 0], pivot: [0, 0], offset: [12, 12] };
+  await run('setUiDocument', { document: { uiDocumentId: 'start-title', name: 'Start', root: { type: 'panel', ...corner, size: [180, 56], css: { background: '#203040', padding: 6 }, children: [
+    { type: 'button', id: 'start', size: [160, 40], text: 'Start', css: { color: '#ffffff', background: '#406080', fontSize: 18 }, onClick: { do: 'engine', action: 'newGame' } },
+  ] } } });
+  if (hud !== undefined) {
+    await run('setUiDocument', { document: { uiDocumentId: 'start-hud', name: 'Status', root: { type: 'panel', ...corner, size: [260, 40], css: { background: '#203040', padding: 6 }, children: [
+      { type: 'text', id: 'line', text: hud, css: { color: '#ffffff', fontSize: 18 } },
+    ] } } });
+  }
+  await run('setShell', { shell: { screens: { title: 'start-title' }, ...(hud !== undefined ? { hud: ['start-hud'] } : {}) } });
+}
+
+/**
+ * Phase 24.6: an observation of a project with the legacy game block, read
+ * the old way: the session's `legacy` block (run state, deaths, checkpoint,
+ * goal, events, the level flow) spread over the generic core, with `state`
+ * the session's run state. Only the tests whose subject is the platformer
+ * game use it; they go with the block in phase 24.7.
+ */
+export function legacyObservation<T = Record<string, unknown>>(o: unknown): T {
+  const r = o as Record<string, unknown> & { legacy?: Record<string, unknown> & { runState?: string } };
+  return { ...r, ...(r.legacy ?? {}), state: r.legacy?.runState ?? r['state'] } as T;
 }
 
 /**

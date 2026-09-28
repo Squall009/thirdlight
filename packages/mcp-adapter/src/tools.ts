@@ -487,7 +487,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_game_control',
     description:
-      'Submit one bounded §20 game-control command (start, replay, mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
+      'Submit one bounded §20 game-control command (replay (restart the scene), start (only an older project with the game block has a run to start), mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
       'sceneId - the same request a script makes with ctx.scenes; debugPause / debugResume / debugStep hold the simulation at a step boundary, ' +
       'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}; ' +
       'phase 23.8: debugCommand with name and args runs a project debug command - one a script declared with ctx.debug.command(name, {description, args: [{name, type: number|string|boolean, optional}]}, handler?) - ' +
@@ -495,7 +495,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'refused (game_command_invalid) when no script declared it or the args do not match) to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
-      'tuple + run state); with no connected/presenting browser the contracted session_unavailable is returned - ' +
+      'tuple + play state running|paused); replay restarts the scene (or the level of an older project with the game block); with no connected/presenting browser the contracted session_unavailable is returned - ' +
       'never a fabricated success. Body <= 4 KiB; no gameplay simulation, no eval.',
     inputSchema: {
       type: 'object',
@@ -514,10 +514,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_game_observe',
     description:
-      'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
-      'session (`player` {x, y, z} is the player\'s position; a scene played without a game block reports state "scene", its step and player, no run state). The values come from the committed read-only GameView; the observation is bounded and carries no ' +
+      'Read one bounded §20 observation document (<= 16 KiB) from an explicitly presented play ' +
+      'session: `state` running|paused (the engine pause holds the simulation: a menu, the pause panel, a game mode), stepIndex, simTime, `player` {x, y, z} (the controller object\'s position), ' +
+      '`scenes` {loaded, loading}; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (the named counters: collectibles and scripts) and `health` the run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|flow, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel; `flow` (a game with levels) the screen, level, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings); with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` the named counters (collectibles and scripts add to them); `health` every object\'s health {objectId: {current, max}}; `shell` {screen, scene, hud} the game shell; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|flow, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel; `legacy` only for an older project that still has the game block (removed in phase 24: its run state, checkpoint, deaths, goal, session events and level flow); with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {
@@ -543,10 +544,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'browser (an active authoring session); with none, the backend opens a headless editor (else session_unavailable). ' +
       'Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
       'playSessionId + the frozen snapshotId/revision on success. Phase 23.8 test/debug starts (the editor\'s "Play from..." sends the same): ' +
-      'sceneId - start there (a game with levels starts the first level that loads the scene, skipping the title; without levels the scene loads with the start scenes and the player starts at its first player spawn); ' +
+      'sceneId - start there (the scene loads with the start scenes and the player starts at its first player spawn; the title screen is skipped); ' +
       'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
-      'save - a flow save document (as the Play page writes them; <= 64 KB) or saveSlot auto|1|2|3 (a save in the Play page) to continue a game with levels; ' +
-      'phase 23.19: or a project save document {format: "thirdlight.save", version, playSeconds?, doc, sections?} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated) or saveSlot 1-99 (a project slot of the Play page); ' +
+      'save - a project save document {format: "thirdlight.save", version, playSeconds?, doc, sections?} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated) or saveSlot 1-99 (a project slot of the Play page); ' +
       'mode - the game mode the run starts in (checked against content.modes; ignored and noted in start.notes when the project has none). ' +
       'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
@@ -557,8 +557,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         sceneId: { type: 'string', description: 'start Play at this scene' },
         mode: { type: 'string', description: 'a game mode id (applies once the project has game modes)' },
         variables: { type: 'object', description: 'script variables: what ctx.save holds from step 0' },
-        save: { type: 'object', description: 'a save document to continue from (a game with levels), or a project save document (format "thirdlight.save")' },
-        saveSlot: { type: 'string', pattern: '^(auto|[1-9][0-9]?)$', description: 'continue from this save slot of the Play page (auto, 1-3 for a game flow; 1-99 for project saves)' },
+        save: { type: 'object', description: 'a project save document (format "thirdlight.save") to continue from' },
+        saveSlot: { type: 'string', pattern: '^(auto|[1-9][0-9]?)$', description: 'continue from this project save slot of the Play page (1-99)' },
       },
       additionalProperties: false,
     },

@@ -56,7 +56,7 @@ test('jump rebound to W in the Input window: W jumps in Play, Space does not', a
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 15_000 }).toBe(200);
   // The starter has no game block: the scene plays at once; a click focuses the game.
   await page.locator('iframe.tl-app__preview-frame').click();
-  await expect.poll(async () => (await observe()).state).toBe('scene');
+  await expect.poll(async () => (await observe()).state).toBe('running');
   await page.waitForTimeout(500); // settle on the ground
   const ground = (await observe()).player!.y;
 

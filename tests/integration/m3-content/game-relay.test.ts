@@ -51,9 +51,25 @@ function controlResult(overrides: Record<string, unknown> = {}): Record<string, 
     buildId,
     runId,
     command: 'start',
-    state: 'playing',
+    state: 'running',
     acceptedAtStep: 0,
     inputMode: 'physical',
+    ...overrides,
+  };
+}
+
+/** Phase 24.6: the legacy game session's block (a project with the game block; deleted in 24.7). */
+function legacyBlock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    runState: 'playing',
+    checkpointId: null,
+    checkpointActive: false,
+    deathCount: 0,
+    goalReached: false,
+    eventCount: 1,
+    eventDropped: 0,
+    failed: false,
+    events: [{ id: `${runId}/runStarted/0`, kind: 'runStarted', stepIndex: 0, boundary: true, deathCount: 0 }],
     ...overrides,
   };
 }
@@ -68,19 +84,12 @@ function observation(overrides: Record<string, unknown> = {}): Record<string, un
     runId,
     stepIndex: 12,
     simTime: 0.1,
-    state: 'playing',
-    checkpointId: null,
-    checkpointActive: false,
-    deathCount: 0,
-    goalReached: false,
-    eventCount: 1,
-    eventDropped: 0,
-    failed: false,
+    state: 'running',
     inputMode: 'physical',
     sound: { status: 'blocked', unlocked: false, voices: 0, muted: false, gesture: 'none' },
-    events: [
-      { id: `${runId}/runStarted/0`, kind: 'runStarted', stepIndex: 0, boundary: true, deathCount: 0 },
-    ],
+    counters: { items: 2 },
+    health: { 'box-0001': { current: 3, max: 3 } },
+    legacy: legacyBlock(),
     observedAt: '2026-09-19T10:00:03Z',
     ...overrides,
   };
@@ -233,10 +242,21 @@ describe('packet 48 — §20 wire shapes are strict and bounded', () => {
 
   it('rejects an observation carrying binary and one over the event bound', () => {
     expect(validateGameObservation(observation()).ok).toBe(true);
-    const withBinary = observation({ events: [new Uint8Array([1, 2, 3])] } as Record<string, unknown>);
+    const withBinary = observation({ legacy: legacyBlock({ events: [new Uint8Array([1, 2, 3])] }) } as Record<string, unknown>);
     expect(validateGameObservation(withBinary).ok).toBe(false);
-    const tooMany = observation({ events: Array.from({ length: 33 }, (_, i) => ({ id: `e${i}`, kind: 'died', stepIndex: i, boundary: false, deathCount: i })) });
+    const tooMany = observation({ legacy: legacyBlock({ events: Array.from({ length: 33 }, (_, i) => ({ id: `e${i}`, kind: 'died', stepIndex: i, boundary: false, deathCount: i })) }) });
     expect(validateGameObservation(tooMany).ok).toBe(false);
+  });
+
+  it('phase 24.6: the core observation is generic (a play state; the session only under legacy)', () => {
+    const { legacy: _legacy, ...generic } = observation();
+    expect(validateGameObservation(generic).ok).toBe(true);
+    expect(validateGameObservation(observation({ state: 'paused' })).ok).toBe(true);
+    for (const state of ['playing', 'won', 'awaitingStart', 'scene']) expect(validateGameObservation(observation({ state })).ok, state).toBe(false);
+    expect(validateGameObservation(observation({ legacy: legacyBlock({ runState: 'running' }) })).ok).toBe(false);
+    expect(validateGameObservation(observation({ counters: { items: 'two' } })).ok).toBe(false);
+    expect(validateGameObservation(observation({ health: { a: 3 } })).ok).toBe(false);
+    expect(validateGameControlResult(controlResult({ state: 'playing' })).ok).toBe(false);
   });
 
   it('rejects a control result missing the identity tuple', () => {

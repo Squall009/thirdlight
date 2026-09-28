@@ -423,12 +423,12 @@ async function startShell(): Promise<Shell> {
       if (!tres.ok) throw new Error('getInterpolatedState failed');
       const t = tres.state.transforms.find((x) => x.id === 'group-0001');
       return {
-        state: obs.state,
+        state: obs.legacy.runState,
         runId: obs.runId,
         stepIndex: obs.stepIndex,
-        deathCount: obs.deathCount,
-        goalReached: obs.goalReached,
-        checkpointId: obs.checkpointId,
+        deathCount: obs.legacy.deathCount,
+        goalReached: obs.legacy.goalReached,
+        checkpointId: obs.legacy.checkpointId,
         grounded: v.playerMotion.grounded,
         x: t ? t.position[0] : 0,
         y: t ? t.position[1] : 0,
@@ -694,7 +694,7 @@ describe('the full local shell over real parts (delivery.md §3.1/§4)', () => {
     const obs = host2.observe();
     expect(obs.ok).toBe(true);
     if (obs.ok) {
-      expect(obs.observation.state).toBe('awaitingStart'); // a fresh host, a fresh title
+      expect(obs.observation.legacy.runState).toBe('awaitingStart'); // a fresh host, a fresh title
       expect(obs.observation.runId).toBe(run0); // the same snapshot identity
     }
     host2.dispose();

@@ -959,8 +959,8 @@ export function bootstrapPreviewM3(): void {
     const gv = h.host.runtime.getGameView();
     const obs = h.host.observe();
     if (!gv.ok || !obs.ok) {
-      // Phase 23.0: a scene-mode play (no game block) reports its step, sound and player
-      // (state "scene": no run, so no deaths, goal or checkpoints).
+      // Phase 23.0: a scene-mode play (no game block) reports its step, sound and player.
+      // Phase 24.6: the same generic core as a game-block play, without its legacy block.
       const sc = h.host.observeScene?.();
       if (sc === undefined || !sc.ok) return null;
       const o = sc.observation;
@@ -974,18 +974,10 @@ export function bootstrapPreviewM3(): void {
         observedAt: new Date().toISOString(),
         stepIndex: o.stepIndex,
         simTime: o.simTime,
-        state: 'scene',
-        checkpointId: null,
-        checkpointActive: false,
-        goalReached: false,
-        failed: false,
-        deathCount: 0,
-        eventCount: 0,
-        eventDropped: 0,
+        state: o.state,
         inputMode: h.access.inputTestActive ? 'test' : 'physical',
         sound: o.sound,
         simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
-        events: [],
         ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
         ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
         ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
@@ -1003,9 +995,13 @@ export function bootstrapPreviewM3(): void {
         ...(o.hidden !== undefined ? { hidden: [...o.hidden] } : {}),
         // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
         ...(o.inputBindings !== undefined ? { inputBindings: structuredClone(o.inputBindings) } : {}),
-        // Phase 24.4: the named counters (collectibles and scripts add to them; at most 32).
-        ...sceneCounters(h.host.runtime),
+        // Phase 24.4: the named counters (collectibles and scripts add to them; at most 32); phase 24.6: every object's health.
+        ...countersAndHealth(h.host.runtime),
+        // Phase 24.6: the animator states and the spawned objects, as a game-block play reports them.
+        ...animatorStates(h.host.runtime),
+        ...spawnedObservation(h.host.runtime),
         ...rendererObservation(h),
+        ...effectsObservation(h),
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
         ...debugCommandsObservation(h),
@@ -1033,34 +1029,38 @@ export function bootstrapPreviewM3(): void {
       observedAt: new Date().toISOString(),
       stepIndex: v.stepIndex,
       simTime: v.simTime,
-      state: v.state,
-      checkpointId: v.checkpointId,
-      checkpointActive: v.checkpointActive,
-      goalReached: v.goalReached,
-      failed: obs.observation.failed,
-      deathCount: v.deathCount,
-      eventCount: v.eventCount,
-      eventDropped: v.eventDropped,
+      // Phase 24.6: the generic play state; the game session's own view is the legacy block (deleted in 24.7).
+      state: obs.observation.state,
       inputMode: h.access.inputTestActive ? 'test' : 'physical',
       sound: obs.observation.sound,
       // Phase 22.0: where the simulation runs (worker | single) and how its frames reach the page.
       simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
-      events: v.events.slice(-32).map((e) => ({ id: e.id, kind: e.kind, stepIndex: e.stepIndex, boundary: e.boundary, deathCount: e.deathCount })),
+      legacy: {
+        runState: v.state,
+        checkpointId: v.checkpointId,
+        checkpointActive: v.checkpointActive,
+        goalReached: v.goalReached,
+        failed: obs.observation.legacy.failed,
+        deathCount: v.deathCount,
+        eventCount: v.eventCount,
+        eventDropped: v.eventDropped,
+        events: v.events.slice(-32).map((e) => ({ id: e.id, kind: e.kind, stepIndex: e.stepIndex, boundary: e.boundary, deathCount: e.deathCount })),
+        // Phase 9.10: the level flow (screen, level, lives, music, volumes).
+        ...(obs.observation.legacy.flow !== undefined ? { flow: structuredClone(obs.observation.legacy.flow) } : {}),
+        // Phase 14.5: the title background and the camera's offset behind the title menu.
+        ...(obs.observation.legacy.titleView !== undefined ? { titleView: { scene: obs.observation.legacy.titleView.scene, cameraOffset: [...obs.observation.legacy.titleView.cameraOffset] } } : {}),
+      },
       // Phase 23.0: z too (a 3D game moves in depth).
       ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
       // Phase 12 (c): the loaded scenes and the ones on their way.
       ...(obs.observation.scenes !== undefined ? { scenes: { loaded: [...obs.observation.scenes.loaded], loading: [...obs.observation.scenes.loading] } } : {}),
       // Phase 9.7: each animator's current state (entity id → state name).
       ...animatorStates(h.host.runtime),
-      // Phase 9.9: the run's counters and the player's health.
-      ...gameCounters(h.host.runtime),
+      // Phase 9.9: the named counters; phase 24.6: every object's health.
+      ...countersAndHealth(h.host.runtime),
       // Phase 14.1: the live spawned entities (ctx.spawn): how many, the first 64 ids.
       ...spawnedObservation(h.host.runtime),
-      // Phase 9.10: the game flow (screen, level, lives, music, volumes).
-      ...(obs.observation.flow !== undefined ? { flow: structuredClone(obs.observation.flow) } : {}),
       ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
-      // Phase 14.5: the title background and the camera's offset behind the title menu.
-      ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
       // Phase 23.4: the resolved camera (virtual cameras: the live one, a blend, the pose and lens).
       ...(obs.observation.camera !== undefined ? { camera: structuredClone(obs.observation.camera) } : {}),
       // Phase 23.18: the environment preset blend (once a script changed it).
@@ -1116,6 +1116,13 @@ export function bootstrapPreviewM3(): void {
   });
 
   const control = async (handle: M3PreviewHandle, body: ControlBody): Promise<void> => {
+    // Phase 24.6: the step and play state of the answer (a game-block play's view, else the scene's).
+    const acceptedNow = (): { ok: true; state: 'running' | 'paused' | 'stopped'; acceptedAtStep: number } => {
+      const o = handle.host.observe();
+      if (o.ok) return { ok: true, state: o.observation.state, acceptedAtStep: o.observation.stepIndex };
+      const sc = handle.host.observeScene?.();
+      return sc !== undefined && sc.ok ? { ok: true, state: sc.observation.state, acceptedAtStep: sc.observation.stepIndex } : { ok: true, state: 'running', acceptedAtStep: 0 };
+    };
     // Phase 12 (c): a scene request goes to the runtime like a script's ctx.scenes.
     let r: ReturnType<GameHost['control']>;
     if (body.command === 'debugCommand') {
@@ -1124,38 +1131,28 @@ export function bootstrapPreviewM3(): void {
     } else if (body.command === 'debugPause' || body.command === 'debugResume' || body.command === 'debugStep') {
       // Phase 19.2: the debugger's hold / release / single step (Play only; an export has no relay).
       await handle.access.debugControl(body.command);
-      const view = handle.host.runtime.getGameView();
-      r = { ok: true, state: view.ok ? view.view.state : 'awaitingStart', acceptedAtStep: view.ok ? view.view.stepIndex : 0 };
+      r = acceptedNow();
     } else if (body.command === 'loadScene' || body.command === 'unloadScene') {
       const s = handle.host.scene(body.command === 'loadScene' ? 'load' : 'unload', String(body.sceneId ?? ''));
-      const view = handle.host.runtime.getGameView();
-      r = s.ok ? { ok: true, state: view.ok ? view.view.state : 'awaitingStart', acceptedAtStep: view.ok ? view.view.stepIndex : 0 } : s;
+      r = s.ok ? acceptedNow() : s;
     } else {
       r = handle.host.control(body.command);
     }
+    if (!r.ok) {
+      bridge.sendGameResult('control', playId, body.relayId, { ok: false, error: { code: r.error.code, message: r.error.message } });
+      return;
+    }
+    // Phase 24.6: every play answers alike; a scene-mode play (no game block) has run 0.
     const gv = handle.host.runtime.getGameView();
-    if (r.ok && !gv.ok && body.command === 'debugCommand') {
-      // Phase 23.8: a scene-mode play (no game block) runs debug commands too; its run state is "scene".
-      const snap = handle.identity.snapshotId;
-      bridge.sendGameResult('control', playId, body.relayId, {
-        ok: true,
-        result: { ok: true, playSessionId: playId, snapshotId: snap, buildId: handle.identity.buildId, runId: `${snap}#0`, command: body.command, state: 'scene', acceptedAtStep: r.acceptedAtStep, inputMode: handle.access.inputTestActive ? 'test' : 'physical' },
-      });
-      return;
-    }
-    if (!r.ok || !gv.ok) {
-      const error = r.ok ? { code: 'game_unavailable', message: 'this play has no game session' } : { code: r.error.code, message: r.error.message };
-      bridge.sendGameResult('control', playId, body.relayId, { ok: false, error });
-      return;
-    }
+    const snap = gv.ok ? gv.view.snapshotId : handle.identity.snapshotId;
     bridge.sendGameResult('control', playId, body.relayId, {
       ok: true,
       result: {
         ok: true,
         playSessionId: playId,
-        snapshotId: gv.view.snapshotId,
+        snapshotId: snap,
         buildId: handle.identity.buildId,
-        runId: gv.view.runId,
+        runId: gv.ok ? gv.view.runId : `${snap}#0`,
         command: body.command,
         state: r.state,
         acceptedAtStep: r.acceptedAtStep,
@@ -1260,17 +1257,19 @@ function debugCommandsObservation(h: M3PreviewHandle): { debugCommands?: Record<
 }
 
 /** Phase 24.4: a scene-mode play's named counters (at most 32; no game session, so no player health). */
-function sceneCounters(runtime: unknown): { counters?: Record<string, number> } {
-  const c = gameCounters(runtime).counters;
-  return c !== undefined ? { counters: c } : {};
-}
-
-/** Phase 9.9: counters (at most 32) and health, for tl_game_observe. */
-function gameCounters(runtime: unknown): { counters?: Record<string, number>; health?: { current: number; max: number } } {
-  const g = (runtime as { gameCounters?: () => { counters: Record<string, number>; health: { current: number; max: number } | null } }).gameCounters?.();
-  if (g === undefined) return {};
-  const entries = Object.entries(g.counters).slice(0, 32);
-  return { ...(entries.length > 0 ? { counters: Object.fromEntries(entries) } : {}), ...(g.health !== null ? { health: g.health } : {}) };
+/**
+ * Phase 9.9: the named counters (at most 32), for tl_game_observe. Phase 24.6:
+ * `health` is every object's health (object id → {current, max}; at most 64),
+ * in both kinds of play — no longer the game session's player only.
+ */
+function countersAndHealth(runtime: unknown): { counters?: Record<string, number>; health?: Record<string, { current: number; max: number }> } {
+  const rt = runtime as { gameCounters?: () => { counters: Record<string, number> }; healthsView?: () => Readonly<Record<string, { current: number; max: number }>> };
+  const c = Object.entries(rt.gameCounters?.().counters ?? {}).slice(0, 32);
+  const hp = Object.entries(rt.healthsView?.() ?? {}).slice(0, 64);
+  return {
+    ...(c.length > 0 ? { counters: Object.fromEntries(c) } : {}),
+    ...(hp.length > 0 ? { health: Object.fromEntries(hp.map(([id, x]) => [id, { current: x.current, max: x.max }])) } : {}),
+  };
 }
 
 /**

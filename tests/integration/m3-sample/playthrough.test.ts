@@ -135,7 +135,11 @@ async function play(mode: 'keys' | 'pad', jumps: readonly number[]) {
     const s: Any = host.runtime.getInterpolatedState();
     return s.state.transforms.find((t: Any) => t.id === player.id).position[0];
   };
-  const obs = (): Any => (host.observe() as Any).observation;
+  // Phase 24.6: the session's view is the observation's legacy block (this test goes with the session in 24.7).
+  const obs = (): Any => {
+    const o = (host.observe() as Any).observation;
+    return { ...o, ...o.legacy, state: o.legacy.runState };
+  };
   const key = (code: string, down = true): void =>
     target.dispatch(down ? 'keydown' : 'keyup', { code, target: { tagName: 'CANVAS', isContentEditable: false }, repeat: false });
 

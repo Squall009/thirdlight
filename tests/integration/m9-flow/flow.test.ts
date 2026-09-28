@@ -162,37 +162,37 @@ describe('game flow (real host, platformer, Rapier, scene loading)', () => {
   it('title → level 1 → level complete → level 2 (its scene loaded, its spawn) → the end screen; music per screen', async () => {
     const g = await game();
     await g.tick(20);
-    expect(g.obs().flow.screen).toBe('title');
+    expect(g.obs().legacy.flow.screen).toBe('title');
     expect(g.menuRoot().allText()).toContain('Flow Test');
     expect(g.menuRoot().allText()).toContain('Two little levels');
-    expect(g.obs().flow.music).toMatchObject({ assetId: 'music-title', playing: true });
+    expect(g.obs().legacy.flow.music).toMatchObject({ assetId: 'music-title', playing: true });
     // New game (the first item) with the submit edge.
     g.ui.submit = true;
     await g.tick(30);
-    expect(g.obs().flow).toMatchObject({ screen: 'playing', levelId: 'meadow-1', lives: 2 });
-    expect(g.obs().state).toBe('playing');
-    expect(g.obs().flow.music.assetId).toBe('music-1');
+    expect(g.obs().legacy.flow).toMatchObject({ screen: 'playing', levelId: 'meadow-1', lives: 2 });
+    expect(g.obs().legacy.runState).toBe('playing');
+    expect(g.obs().legacy.flow.music.assetId).toBe('music-1');
     g.setMove(1);
     await g.tick(240);
-    expect(g.obs().state).toBe('won');
-    expect(g.obs().flow.screen).toBe('levelComplete');
+    expect(g.obs().legacy.runState).toBe('won');
+    expect(g.obs().legacy.flow.screen).toBe('levelComplete');
     expect(g.menuRoot().allText()).toContain('Level complete');
     expect(g.menuRoot().allText()).toMatch(/Time 0:0\d\.\d/);
     g.setMove(0);
     g.ui.submit = true; // Next level
     await g.tick(60);
     expect(g.obs().scenes.loaded.sort()).toEqual(['scene-main', 'scene-two']);
-    expect(g.obs().flow).toMatchObject({ screen: 'playing', levelId: 'meadow-2' });
-    expect(g.obs().state).toBe('playing');
+    expect(g.obs().legacy.flow).toMatchObject({ screen: 'playing', levelId: 'meadow-2' });
+    expect(g.obs().legacy.runState).toBe('playing');
     expect(g.pos()[0]).toBeCloseTo(100, 0); // at level 2's spawn
-    expect(g.obs().flow.music.assetId).toBe('music-2');
+    expect(g.obs().legacy.flow.music.assetId).toBe('music-2');
     g.setMove(1);
     await g.tick(240);
-    expect(g.obs().flow.screen).toBe('levelComplete');
+    expect(g.obs().legacy.flow.screen).toBe('levelComplete');
     g.setMove(0);
     g.ui.submit = true; // Finish
     await g.tick(5);
-    expect(g.obs().flow.screen).toBe('finished');
+    expect(g.obs().legacy.flow.screen).toBe('finished');
     expect(g.menuRoot().allText()).toContain('Made in Thirdlight');
   });
 
@@ -202,16 +202,16 @@ describe('game flow (real host, platformer, Rapier, scene loading)', () => {
     expect(g.host.control('start').ok).toBe(true); // the relay's start = a new game
     await g.tick(20);
     g.setMove(-1); // into the lava, twice
-    for (let i = 0; i < 20 && g.obs().flow.screen === 'playing'; i++) await g.tick(60);
-    expect(g.obs().flow).toMatchObject({ screen: 'gameOver', lives: 0 });
+    for (let i = 0; i < 20 && g.obs().legacy.flow.screen === 'playing'; i++) await g.tick(60);
+    expect(g.obs().legacy.flow).toMatchObject({ screen: 'gameOver', lives: 0 });
     const step = g.obs().stepIndex;
     await g.tick(60);
     expect(g.obs().stepIndex).toBe(step); // paused
     g.setMove(0);
     g.ui.submit = true; // Retry level
     await g.tick(40);
-    expect(g.obs().flow).toMatchObject({ screen: 'playing', lives: 2, levelId: 'meadow-1' });
-    expect(g.obs().deathCount).toBe(0);
+    expect(g.obs().legacy.flow).toMatchObject({ screen: 'playing', lives: 2, levelId: 'meadow-1' });
+    expect(g.obs().legacy.deathCount).toBe(0);
     expect(Math.abs(g.pos()[0])).toBeLessThan(0.5);
   });
 
@@ -220,10 +220,10 @@ describe('game flow (real host, platformer, Rapier, scene loading)', () => {
     await g.tick(10);
     g.host.control('start');
     await g.tick(20);
-    expect(g.obs().flow.music.gain).toBeCloseTo(0.5, 5);
+    expect(g.obs().legacy.flow.music.gain).toBeCloseTo(0.5, 5);
     g.ui.pause = true;
     await g.tick(2);
-    expect(g.obs().flow.screen).toBe('paused');
+    expect(g.obs().legacy.flow.screen).toBe('paused');
     const step = g.obs().stepIndex;
     await g.tick(30);
     expect(g.obs().stepIndex).toBe(step);
@@ -233,18 +233,18 @@ describe('game flow (real host, platformer, Rapier, scene loading)', () => {
     await g.tick(1);
     g.ui.submit = true; // Resume, Restart level, [Settings]
     await g.tick(1);
-    expect(g.obs().flow.screen).toBe('settings');
+    expect(g.obs().legacy.flow.screen).toBe('settings');
     g.ui.right = true; // Music volume +10 %
     await g.tick(1);
-    expect(g.obs().flow.volumes.music).toBeCloseTo(0.6, 5);
-    expect(g.obs().flow.music.gain).toBeCloseTo(0.6, 5);
+    expect(g.obs().legacy.flow.volumes.music).toBeCloseTo(0.6, 5);
+    expect(g.obs().legacy.flow.music.gain).toBeCloseTo(0.6, 5);
     expect(g.menuRoot().attrs['data-music-gain']).toBe('0.60');
     g.ui.cancel = true; // back to the pause menu
     await g.tick(1);
-    expect(g.obs().flow.screen).toBe('paused');
+    expect(g.obs().legacy.flow.screen).toBe('paused');
     g.ui.pause = true; // resume
     await g.tick(10);
-    expect(g.obs().flow.screen).toBe('playing');
+    expect(g.obs().legacy.flow.screen).toBe('playing');
     expect(g.obs().stepIndex).toBeGreaterThan(step);
   });
 });

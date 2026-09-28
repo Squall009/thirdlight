@@ -83,7 +83,7 @@ test('a script attached to the player runs in Play; the export ships it', async 
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<{ state?: string; player?: { x: number } }> => (await api(`play/${psid}/observe`, {})).json as never;
-  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('scene');
+  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('running');
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   // No input is ever sent: the player leaves its spawn (x = 3) under the script's control.
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeGreaterThan(4.5);
@@ -120,7 +120,7 @@ test('a script attached to the player runs in Play; the export ships it', async 
     await exportPage.goto(url);
     // The exported scene runs and the shipped script moves the player there too.
     const observed = (): Promise<{ state?: string; player?: { x: number } } | null> => exportPage.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string; player?: { x: number } } | null }).__thirdlightObserve?.() ?? null);
-    await expect.poll(async () => (await observed())?.state ?? null, { timeout: 15_000 }).toBe('scene');
+    await expect.poll(async () => (await observed())?.state ?? null, { timeout: 15_000 }).toBe('running');
     await expect.poll(async () => (await observed())?.player?.x ?? 0, { timeout: 10_000 }).toBeGreaterThan(4.5);
     expect(loaded.some((l) => /^200 \/behaviors\/[0-9a-f]{64}\.js$/.test(l))).toBe(true);
     expect(errors).toEqual([]);

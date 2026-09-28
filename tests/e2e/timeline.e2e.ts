@@ -286,7 +286,7 @@ test('a six-shot timeline in Play and the export: cameras, move, music, fade and
     const r = await api(`play/${psid}/observe`, {});
     return r.status === 200 ? (r.json as unknown as Observation) : null;
   };
-  await expect.poll(async () => (await observe())?.state ?? null, { timeout: 60_000 }).toBe('scene');
+  await expect.poll(async () => (await observe())?.state ?? null, { timeout: 60_000 }).toBe('running');
   const box = (await frame.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const fadeIn = (loc: ReturnType<Page['frameLocator']>) => async (): Promise<number> => {
@@ -308,7 +308,7 @@ test('a six-shot timeline in Play and the export: cameras, move, music, fade and
   try {
     await game.goto(site.url);
     const read = (): Promise<Observation | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null);
-    await expect.poll(async () => (await read())?.state ?? null, { timeout: 60_000 }).toBe('scene');
+    await expect.poll(async () => (await read())?.state ?? null, { timeout: 60_000 }).toBe('running');
     await game.mouse.click(400, 300);
     const fade = async (): Promise<number> => game.evaluate(() => Number(document.querySelector('[data-tl-fade]')?.getAttribute('data-tl-fade') ?? 0));
     await drive(game, read, ids, fade, game);

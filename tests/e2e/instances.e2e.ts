@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend } from './backend';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -97,8 +97,6 @@ test('the scatter dialog makes one entity that draws many copies; the buffer rou
 
 test('an instance set in a scene loaded during Play is drawn once the scene loads', async ({ page }) => {
   be = await startBackend('inst-load', 'starter');
-  // The control route's loadScene answers only with a game session (D34: refused in scene mode).
-  await addGameSession(be);
   // A row of pillars along the start ground (x 2..14), published through the route MCP uses.
   const transforms: number[] = [];
   for (let i = 0; i < 25; i += 1) transforms.push(2 + i * 0.5, 0, -2 - (i % 3), 0, 0, 0, 1, 0.3, 0.3, 0.3);
@@ -116,7 +114,7 @@ test('an instance set in a scene loaded during Play is drawn once the scene load
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async () => (await api(`play/${psid}/observe`, {})).json as { state?: string; scenes?: { loaded: string[] } };
-  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('awaitingStart');
+  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('running');
   await page.waitForTimeout(500);
   await page.screenshot({ path: 'test-results/instances-before-load.png' });
   expect((await api(`play/${psid}/control`, { command: 'loadScene', sceneId: 'scene-grove' })).status).toBe(200);

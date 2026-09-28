@@ -97,6 +97,7 @@ export type SimCommand =
   | { readonly op: 'startLevel'; readonly level: { scenes: readonly string[]; spawnId: string }; readonly restore?: unknown }
   | { readonly op: 'setPaused'; readonly paused: boolean }
   | { readonly op: 'requestScene'; readonly sceneOp: 'load' | 'unload'; readonly sceneId: string }
+  | { readonly op: 'requestArrival'; readonly sceneId: string; readonly spawnId: string }
   | { readonly op: 'setViewport'; readonly width: number; readonly height: number }
   /** Phase 23.4: the viewport the view is drawn in (screen↔world projection's aspect). */
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }

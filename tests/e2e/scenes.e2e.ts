@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, STARTER, startBackend, type E2EBackend } from './backend';
+import { STARTER, startBackend, type E2EBackend } from './backend';
 import { createBox } from './ui';
 
 let be: E2EBackend;
@@ -177,7 +177,7 @@ async function buildCave(): Promise<void> {
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'group', name: 'Cave spawn', transform: { position: [65, 0.91, 0] }, components: { playerSpawn: {} } });
 }
 
-async function startPlay(page: Page, firstState = 'awaitingStart'): Promise<{ psid: string; observe: () => Promise<{ state?: string; player?: { x: number; y: number }; scenes?: { loaded: string[]; loading: string[] } }> }> {
+async function startPlay(page: Page, firstState = 'running'): Promise<{ psid: string; observe: () => Promise<{ state?: string; player?: { x: number; y: number }; scenes?: { loaded: string[]; loading: string[] } }> }> {
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -205,21 +205,19 @@ test('Play: a script loads a scene with ctx.scenes and acts once it is loaded', 
     '',
   ].join('\n'));
   // The starter has no game block: the scene plays at once (scene mode).
-  const { observe } = await startPlay(page, 'scene');
+  const { observe } = await startPlay(page);
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-cave']);
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeGreaterThan(4.5);
 });
 
-test('Play: an exit zone loads its scene and moves the player there; MCP unloads it', async ({ page }) => {
+test('Play: a scene transition trigger loads its scene and moves the player there; MCP unloads it', async ({ page }) => {
   be = await startBackend('exits-e2e', 'starter');
   await buildCave();
-  // Exit zones and the run start are the game session's (removed in phase 24.7 for a scene-transition trigger).
-  await addGameSession(be);
-  // The exit sits on the start spawn: entering the run enters the exit.
-  await cmd('createEntity', { kind: 'group', name: 'To the cave', transform: { position: [3, 1, 0] }, components: { gameZone: { role: 'exit', size: [1, 2], load: ['scene-cave'], spawnId: String(((await query('queryEntities', { sceneId: 'scene-cave' })).entities as { id: string; name?: string }[]).find((e) => e.name === 'Cave spawn')!.id) } } });
+  // Phase 24.6: a trigger with a scene transition (was the game session's exit zone). It sits on the
+  // start spawn: the character starts inside it, so the scene plays straight into the transition.
+  const caveSpawn = String(((await query('queryEntities', { sceneId: 'scene-cave' })).entities as { id: string; name?: string }[]).find((e) => e.name === 'Cave spawn')!.id);
+  await cmd('createEntity', { kind: 'group', name: 'To the cave', transform: { position: [3, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'to-cave', sceneTransition: { scene: 'scene-cave', spawn: caveSpawn } } } });
   const { psid, observe } = await startPlay(page);
-  expect((await observe()).scenes?.loaded).toEqual(['scene-main']);
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-cave']);
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeCloseTo(65, 0);
   // The frame: the player on the cave floor next to the magenta marker.

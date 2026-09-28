@@ -231,7 +231,9 @@ export {
   GAME_CONTROL_COMMANDS,
   debugCommandCallProblem,
   GAME_CONTROL_RESULT_MAX_BYTES,
-  GAME_EVENT_KINDS,
+  LEGACY_EVENT_KINDS,
+  LEGACY_RUN_STATES,
+  PLAY_STATES,
   GAME_GESTURES,
   GAME_INPUT_MODES,
   GAME_OBSERVATION_EVENT_MAX,
@@ -241,7 +243,6 @@ export {
   GAME_OBSERVE_TIMEOUT_MAX_MS,
   GAME_OBSERVE_TIMEOUT_MIN_MS,
   GAME_RELAY_ERROR_CODES,
-  GAME_RUN_STATES,
   GAME_SOUND_STATUSES,
   RUN_ID_RE,
   V3_CONTENT_KEYS,
@@ -278,7 +279,8 @@ export {
   type GameControlCommand,
   type GameControlRequest,
   type GameObserveRequest,
-  type GameRunState,
+  type LegacyRunState,
+  type PlayState,
 } from './m3';// Phase 9.6: light baking shared by the editor and the backend.
 export {
   bakeHashes,

@@ -14,7 +14,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { randomUUID } from 'node:crypto';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, legacyObservation } from './backend';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -34,7 +34,7 @@ async function relay(path: string, body: unknown): Promise<{ status: number; jso
   return { status: r.status, json: (await r.json()) as Record<string, unknown> };
 }
 
-type Observation = { state: string; player?: { x: number; y: number }; counters?: Record<string, number>; health?: { current: number; max: number }; deathCount?: number };
+type Observation = { state: string; player?: { x: number; y: number }; counters?: Record<string, number>; health?: Record<string, { current: number; max: number }>; deathCount?: number };
 
 /** Type a value into an Inspector field and commit it. */
 async function field(page: Page, label: string, value: string): Promise<void> {
@@ -123,7 +123,7 @@ test('a level built from gameplay blocks plays: coins, stomp, plate and door, on
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
-  const observe = async (): Promise<Observation> => (await relay(`${psid}/observe`, {})).json as unknown as Observation;
+  const observe = async (): Promise<Observation> => legacyObservation<Observation>((await relay(`${psid}/observe`, {})).json);
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(200);
   expect((await relay(`${psid}/control`, { command: 'start' })).status).toBe(200);
   await expect.poll(async () => (await observe()).state).toBe('playing');
@@ -162,7 +162,7 @@ test('a level built from gameplay blocks plays: coins, stomp, plate and door, on
   ]);
   await expect.poll(async () => (await observe()).counters?.['defeated']).toBe(1);
   const afterStomp = await observe();
-  expect(afterStomp.health).toEqual({ current: 3, max: 3 });
+  expect(Object.values(afterStomp.health ?? {})).toEqual([{ current: 3, max: 3 }]); // phase 24.6: every object's health (the player's only here)
   expect(afterStomp.deathCount ?? 0).toBe(0);
 
   // Plate → door: the door (x 11.5) blocks until the plate opens it.

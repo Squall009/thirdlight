@@ -11,7 +11,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, legacyObservation } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -47,7 +47,7 @@ async function startPlay(page: Page): Promise<string> {
 
 test('an agent plays Beacon Reach to the goal through the play relays (observe → input → observe …)', async ({ page }) => {
   const psid = await startPlay(page);
-  const observe = async (): Promise<Observation> => (await relay(`${psid}/observe`, {})).json as unknown as Observation;
+  const observe = async (): Promise<Observation> => legacyObservation<Observation>((await relay(`${psid}/observe`, {})).json);
   expect((await observe()).state).toBe('awaitingStart');
   expect((await relay(`${psid}/control`, { command: 'start' })).status).toBe(200);
 
@@ -97,7 +97,7 @@ test('the keyboard drives the game in the editor preview', async ({ page }) => {
   const x = async (): Promise<number> => ((await relay(`${psid}/observe`, {})).json as unknown as Observation).player!.x;
   await page.locator('iframe.tl-app__preview-frame').click(); // focus the game
   await page.keyboard.press('Enter');
-  await expect.poll(async () => ((await relay(`${psid}/observe`, {})).json as unknown as Observation).state).toBe('playing');
+  await expect.poll(async () => legacyObservation<Observation>((await relay(`${psid}/observe`, {})).json).state).toBe('playing');
   const x0 = await x();
   // Held until the player has run half a metre (poll, not a fixed hold: a CPU-rendered
   // frame can take hundreds of milliseconds, and the game steps with its frames).

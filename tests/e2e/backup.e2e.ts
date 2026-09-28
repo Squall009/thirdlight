@@ -69,5 +69,5 @@ test('a backup of a live project is refused; after a stop it restores as a new p
       },
       { timeout: 15_000 },
     )
-    .toBe('scene');
+    .toBe('running');
 });

@@ -137,8 +137,8 @@ describe.each(MODES)('saves (real host, Rapier, a reloaded page; threading: %s)'
     first.ui.submit = true; // New game
     await first.tick(20);
     first.setMove(1);
-    for (let i = 0; i < 40 && first.obs().checkpointId === null; i++) await first.tick(10);
-    expect(first.obs().checkpointId).toBe('cp-0001');
+    for (let i = 0; i < 40 && first.obs().legacy.checkpointId === null; i++) await first.tick(10);
+    expect(first.obs().legacy.checkpointId).toBe('cp-0001');
     await first.tick(200); // the script writes its value; a later checkpoint autosave is not needed for it
     first.setMove(0);
     // Pause → Settings → music volume down (saved at once).
@@ -152,7 +152,7 @@ describe.each(MODES)('saves (real host, Rapier, a reloaded page; threading: %s)'
     await first.tick(1);
     first.ui.submit = true; // Resume, Restart, Save game, [Settings]
     await first.tick(1);
-    expect(first.obs().flow.screen).toBe('settings');
+    expect(first.obs().legacy.flow.screen).toBe('settings');
     first.ui.left = true;
     await first.tick(1);
     first.ui.cancel = true;
@@ -164,16 +164,16 @@ describe.each(MODES)('saves (real host, Rapier, a reloaded page; threading: %s)'
     await first.tick(1);
     first.ui.submit = true;
     await first.tick(1);
-    expect(first.obs().flow.screen).toBe('save');
+    expect(first.obs().legacy.flow.screen).toBe('save');
     first.ui.submit = true; // Slot 1
     await first.tick(1);
-    expect(first.obs().flow.save).toMatchObject({ slots: { auto: 'ok', '1': 'ok', '2': 'empty', '3': 'empty' }, lastWrite: '1' });
+    expect(first.obs().legacy.flow.save).toMatchObject({ slots: { auto: 'ok', '1': 'ok', '2': 'empty', '3': 'empty' }, lastWrite: '1' });
     first.host.dispose();
 
     // The page reloads: a new host on the same storage.
     const second = await page(mode, storage);
     await second.tick(10);
-    expect(second.obs().flow.volumes.music).toBeCloseTo(0.7, 5); // the settings came back
+    expect(second.obs().legacy.flow.volumes.music).toBeCloseTo(0.7, 5); // the settings came back
     expect(second.menu().allText()).toContain('Continue — Meadow 1');
     expect(second.menu().allText()).toContain('Load game');
     // Load game → Slot 1: at the checkpoint, the coin still collected, the value back.
@@ -183,12 +183,12 @@ describe.each(MODES)('saves (real host, Rapier, a reloaded page; threading: %s)'
     await second.tick(1);
     second.ui.submit = true;
     await second.tick(1);
-    expect(second.obs().flow.screen).toBe('load');
+    expect(second.obs().legacy.flow.screen).toBe('load');
     second.ui.submit = true; // Slot 1
     await second.tick(60);
-    expect(second.obs().flow).toMatchObject({ screen: 'playing', lives: 3 });
-    expect(second.obs().state).toBe('playing');
-    expect(second.obs().checkpointId).toBe('cp-0001');
+    expect(second.obs().legacy.flow).toMatchObject({ screen: 'playing', lives: 3 });
+    expect(second.obs().legacy.runState).toBe('playing');
+    expect(second.obs().legacy.checkpointId).toBe('cp-0001');
     expect(second.px()).toBeCloseTo(6, 0); // the checkpoint's safe spawn
     expect(second.rt.gameCounters().counters).toMatchObject({ coins: 1 });
     expect(second.rt.hiddenEntities().has('coin-0001')).toBe(true);
@@ -203,7 +203,7 @@ describe.each(MODES)('saves (real host, Rapier, a reloaded page; threading: %s)'
     await g.tick(5);
     expect(g.menu().allText()).toContain('Damaged save ignored: Autosave');
     expect(g.menu().allText()).not.toContain('Continue');
-    expect(g.obs().flow.save.slots.auto).toBe('damaged');
+    expect(g.obs().legacy.flow.save.slots.auto).toBe('damaged');
     expect(g.host.control('clearSave').ok).toBe(true);
     expect(map.size).toBe(0);
   });

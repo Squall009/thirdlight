@@ -73,6 +73,8 @@ export {
   type GameStartOptions,
   type GameStartOutcome,
   type GameHostObservation,
+  type GameHostLegacyObservation,
+  type PlayState,
   type GameHostSceneObservation,
   type GameHostEnvironmentObservation,
   type SocketObservation,

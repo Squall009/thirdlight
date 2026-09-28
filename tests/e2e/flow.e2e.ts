@@ -16,7 +16,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, legacyObservation } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -197,7 +197,7 @@ test('two levels through the title screen, game over, pause and music volume —
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<Record<string, unknown>> => {
     const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/play/${psid}/observe`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json' }, body: '{}' });
-    return (await r.json()) as Record<string, unknown>;
+    return legacyObservation(await r.json());
   };
   await expect.poll(async () => (await observe())['ok'], { timeout: 30_000 }).toBe(true);
   const frame = page.frameLocator('iframe.tl-app__preview-frame');

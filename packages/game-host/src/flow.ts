@@ -945,24 +945,18 @@ export function createFlowController(deps: FlowDeps): FlowController {
           return;
       }
     },
+    // Phase 24.6: only the menu values — the level, lives, HUD line, totals,
+    // score and level result are game rules and no longer reach `$flow`.
     uiValues(): Readonly<Record<string, unknown>> {
-      const l = level();
       const slots = screen === 'title' || screen === 'load' || screen === 'save' || screen === 'paused' ? slotStates() : null;
-      const r = levelResult;
       return {
         screen,
         title: deps.gameTitle,
         subtitle: flow.title?.subtitle ?? deps.objective,
         objective: deps.objective,
         instructions: deps.instructions,
-        level: { id: l.id, name: l.name, index: levelIndex, count: flow.levels.length, last: levelIndex + 1 >= flow.levels.length },
-        lives,
-        hud: hudLine(),
         volumes: { ...volumes },
         quality,
-        totals: { ...totals },
-        ...(rules !== undefined ? { score: { game: hudScore(), level: runningLevelScore(), best: bestOf(l.id) ?? null } } : {}),
-        result: r === null ? null : { seconds: Math.round(r.seconds * 100) / 100, time: time(r.seconds), deaths: r.deaths, counters: { ...r.counters }, ...(r.score !== undefined ? { score: r.score.score, bonus: r.score.bonus, best: r.score.best, newBest: r.score.newBest } : {}) },
         ...(slots !== null ? { slots: Object.fromEntries(SAVE_SLOTS.map((sl) => [sl, { state: slots[sl].state, label: slotLabel(slots[sl]) }])) } : {}),
         saveNote,
         canSave: deps.save !== undefined,

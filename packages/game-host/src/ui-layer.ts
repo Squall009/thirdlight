@@ -210,6 +210,9 @@ class DocView {
     if (this.backdrop !== null) {
       classes(this.backdrop, ['tl-ui__backdrop']);
       this.root.appendChild(this.backdrop);
+      // Phase 24.6 (D38): a press on the backdrop keeps the keyboard focus on the game surface (the input
+      // owner listens there), as a press on a widget does.
+      (this.backdrop.addEventListener as ((t: string, h: (e?: unknown) => void) => void) | undefined)?.call(this.backdrop, 'pointerdown', (e?: unknown) => (e as { preventDefault?: () => void } | undefined)?.preventDefault?.());
     }
     this.content = dom.createElement('div') as UiNode;
     classes(this.content, ['tl-ui__root']);

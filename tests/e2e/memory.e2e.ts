@@ -32,7 +32,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
 
@@ -372,7 +372,7 @@ async function startPlay(page: Page): Promise<{ psid: string; relay: (path: stri
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const relay = (path: string, body: unknown = {}) => api(`play/${psid}/${path}`, body);
-  await expect.poll(async () => (await relay('observe')).json['state'], { timeout: 60_000 }).toMatch(/awaitingStart|playing/);
+  await expect.poll(async () => (await relay('observe')).json['state'], { timeout: 60_000 }).toBe('running');
   const frame = (): Frame => {
     const f = page.frames().find((x) => x !== page.mainFrame() && x.url().includes('/play'));
     if (f === undefined) throw new Error('no preview frame');
@@ -389,12 +389,9 @@ async function stopPlay(page: Page): Promise<void> {
 test('Play started and stopped 20× returns the editor page to its baseline (iframe, worker, renderer)', async ({ page }) => {
   test.setTimeout(600_000);
   be = await startBackend('memory-play', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
   const probe = await openEditor(page);
   await leakCheck(page, probe, 'Play start/stop', cycles(20), async () => {
-    const { relay } = await startPlay(page);
-    expect((await relay('control', { command: 'start' })).status).toBe(200);
-    await expect.poll(async () => (await relay('observe')).json['state'], { timeout: 30_000 }).toBe('playing');
+    await startPlay(page);
     await stopPlay(page);
   });
   expect(page.frames()).toHaveLength(1);
@@ -451,7 +448,6 @@ for (const threads of ['off', 'worker'] as const) {
     // The webgpu project runs the default mode (the worker) only: the page-thread composition is the same adapter.
     test.skip(webgpuProject() && threads === 'off', 'the webgpu project runs the worker mode');
     be = await startBackend(`memory-play-scenes-${threads}`, 'starter');
-    await addGameSession(be); // the run states come from the game session (phase 24.2)
     // The side scene: a backdrop, crates, an effect emitter and (below, once uploaded) a model — behind the
     // player's start, in view (objects out of view are never uploaded, so their release would not show).
     await cmd('createScene', { sceneId: 'scene-side', name: 'Side' });
@@ -477,8 +473,6 @@ for (const threads of ['off', 'worker'] as const) {
     await cmd('deleteEntity', { entityId: statue });
     await cmd('createEntity', { sceneId: 'scene-side', kind: 'model', name: 'Side statue', model: { asset: { assetId } }, transform: { position: [5, 0, -2.5], scale: [0.5, 0.5, 0.5] } });
     const { relay, frame } = await startPlay(page);
-    expect((await relay('control', { command: 'start' })).status).toBe(200);
-    await expect.poll(async () => (await relay('observe')).json['state'], { timeout: 30_000 }).toBe('playing');
     const observe = async (): Promise<{ scenes?: { loaded: string[] }; counters?: Record<string, number>; spawned?: unknown[] }> => (await relay('observe')).json as never;
     const gpu = async (): Promise<Record<string, number>> => ((await relay('diagnostics')).json['diagnostics'] as { renderer: { gpu: Record<string, number> } }).renderer.gpu;
     const loaded = async (): Promise<string[]> => (await observe()).scenes?.loaded ?? [];
@@ -522,14 +516,13 @@ for (const threads of ['off', 'worker'] as const) {
     await checkGpu('Play: additive scene loaded/unloaded', base);
 
     base = await pausedGpu();
-    // A level restart (`replay`: the start scenes only again) with the side scene loaded each time.
+    // A restart (`replay`: the start scenes only again) with the side scene loaded each time.
     await leakCheck(page, probe, `Play: level restarted with a scene loaded (threads ${threads})`, cycles(20), async () => {
       expect((await relay('control', { command: 'loadScene', sceneId: 'scene-side' })).status).toBe(200);
       await expect.poll(loaded, { timeout: 30_000 }).toContain('scene-side');
-      const run = String((await relay('observe')).json['runId']);
       const r = await relay('control', { command: 'replay' });
       expect(r.json['ok'], JSON.stringify(r.json)).toBe(true);
-      await expect.poll(async () => { const o = (await relay('observe')).json; return `${o['runId'] !== run}/${o['state']}`; }, { timeout: 30_000 }).toBe('true/playing');
+      // Phase 24.6: a scene restart (no game session) is seen by the later load going away.
       await expect.poll(loaded, { timeout: 30_000 }).not.toContain('scene-side');
     }, frame, playTol);
     await checkGpu('Play: level restarted with a scene loaded', base);

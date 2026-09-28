@@ -30,13 +30,12 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { addGameSession, publishWav, startBackend, type E2EBackend } from './backend';
+import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('visual-script-e2e', 'starter');
-  await addGameSession(be);
 });
 test.afterEach(async () => {
   await be.stop();
@@ -149,8 +148,7 @@ test('visual script: build On start → Add to counter in the Graph tab, publish
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('awaitingStart');
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   await expect.poll(async () => (await observe()).counters?.['gifts'], { timeout: 30_000 }).toBe(3);
   await page.getByTitle('Stop the play preview').click();
 
@@ -262,20 +260,22 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   expect(published[0]!.declaration).toEqual({ properties: [{ key: 'sensor', label: 'Sensor', type: 'entityRef', default: null }] });
   await cmd('setBehaviorProperties', { entityId: door, behaviorId: 'timed-door', values: { sensor: trigger } });
 
-  // Play: the player starts in the sensor; a second later the door disappears and the opening is counted.
+  // Play: a title holds the start (the game shell); after Start the player is in the sensor, a second
+  // later the door disappears and the opening is counted (the shell's HUD shows the counter).
+  await addTitleShell(be, 'Opened {$flow.counters.opened}');
   const started = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('awaitingStart');
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('paused');
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(40);
   const shut = await magenta(frame);
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
+  await frame.contentFrame().locator('[data-tl-ui-doc="start-title"] [data-widget="start"]').click();
   await expect.poll(async () => (await observe()).counters?.['opened'] ?? 0, { timeout: 30_000 }).toBe(1);
   await expect.poll(async () => magenta(frame), { timeout: 15_000 }).toBeLessThan(shut / 10);
-  expect((await observe()).state).toBe('playing');
+  expect((await observe()).state).toBe('running');
   await page.getByTitle('Stop the play preview').click();
 
   // 19.3: the export runs the same graph, served statically with the backend stopped:
@@ -293,14 +293,12 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   game.on('pageerror', (e) => errors.push(e.message));
   try {
     await game.goto(site.url);
-    const hud = game.locator('#hud-root');
-    await expect(hud).toContainText('to start', { timeout: 30_000 });
+    const start = game.locator('[data-tl-ui-doc="start-title"] [data-widget="start"]');
+    await expect(start).toBeVisible({ timeout: 30_000 });
     await expect.poll(async () => magenta(game), { timeout: 20_000 }).toBeGreaterThan(40);
     const closed = await magenta(game);
-    expect(await hud.textContent()).not.toContain('Opened');
-    await game.locator('canvas#game').click();
-    await game.keyboard.press('Enter');
-    await expect(hud).toContainText('to jump', { timeout: 30_000 });
+    await start.click();
+    const hud = game.locator('[data-tl-ui-doc="start-hud"] [data-widget="line"]');
     await expect(hud).toContainText('Opened 1', { timeout: 30_000 });
     await expect.poll(async () => magenta(game), { timeout: 15_000 }).toBeLessThan(closed / 10);
     // The graph behavior's module came from the static site (nothing else was contacted).

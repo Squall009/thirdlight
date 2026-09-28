@@ -26,9 +26,9 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
 
-import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { STARTER, type E2EBackend, startBackend } from './backend';
 import { makePng } from './png-make';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
@@ -38,7 +38,6 @@ let be: E2EBackend;
 let dir: string;
 test.beforeEach(async () => {
   be = await startBackend('project-ui-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
   dir = mkdtempSync(join(tmpdir(), 'tl-ui-e2e-'));
 });
 test.afterEach(async () => {
@@ -118,7 +117,7 @@ async function importFile(page: Page, file: string, label: string): Promise<stri
   return assets.find((a) => (a.displayName ?? a.assetId).includes(label) || a.assetId.includes(label))!.assetId;
 }
 
-/** Everything the tests share: assets, the marker, the script, the theme, the documents and the flow. */
+/** Everything the tests share: assets, the marker, the script, the theme, the documents and the game shell. */
 async function setUp(page: Page): Promise<{ fontId: string }> {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -127,11 +126,13 @@ async function setUp(page: Page): Promise<{ fontId: string }> {
   writeFileSync(framePng, makePng(12, 12, (x, y) => (x < 3 || y < 3 || x > 8 || y > 8 ? [240, 200, 80, 255] : [20, 30, 40, 220])));
   const frameId = await importFile(page, framePng, 'ui-frame');
 
-  const game = (await query('queryGameConfig')).game as { playerId: string; spawnId: string };
   await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'UI marker', transform: { position: [3, 0.6, 0] }, box: { size: [0.4, 0.4, 0.4], material: { color: '#ff00ff' } } });
   const entities = (await query('queryEntities', { limit: 200, offset: 0 }))['entities'] as { id: string; name?: string }[];
   const markerId = entities.find((e) => e.name === 'UI marker')!.id;
-  await publishScript(game.playerId);
+  await publishScript(STARTER.playerId);
+  // The camera follows the character (a track rig; the world label then moves across the view as it walks).
+  const cam = ((await query('queryEntity', { entityId: STARTER.cameraId }))['entity'] as { components: { transform: { position: number[]; rotation?: number[] } } }).components.transform;
+  await cmd('createEntity', { kind: 'group', name: 'Follow shot', transform: { position: cam.position, ...(cam.rotation !== undefined ? { rotation: cam.rotation } : {}) }, components: { virtualCamera: { rig: 'track', target: STARTER.playerId } } });
 
   await cmd('setUiTheme', { theme: { uiThemeId: 'neutral', name: 'Neutral', styles: {
     label: { font: fontId, fontSize: 20, color: '#ffffff', textShadow: '#000000' },
@@ -164,12 +165,13 @@ async function setUp(page: Page): Promise<{ fontId: string }> {
   await cmd('setUiDocument', { document: {
     uiDocumentId: 'pause', name: 'Pause', theme: 'neutral',
     root: { type: 'stack', anchor: [0.5, 0.5], direction: 'column', gap: 8, style: 'framed', children: [
-      { id: 'heading', type: 'text', style: 'label', text: 'Paused — {$flow.level.name}' },
+      { id: 'heading', type: 'text', style: 'label', text: 'Paused — {$flow.shell.screen}' },
       { id: 'resume', type: 'button', style: 'btn', text: 'Resume', onClick: { do: 'engine', action: 'resume' } },
       { id: 'quit', type: 'button', style: 'btn', text: 'Quit to title', onClick: { do: 'engine', action: 'quitToTitle' } },
     ] },
   } });
-  await cmd('setFlow', { flow: { levels: [{ id: 'level-1', name: 'Level One', scenes: ['scene-main'], spawnId: game.spawnId }], screens: { paused: 'pause' } } });
+  // Phase 24.6: the game shell's pause screen (the level flow is gone).
+  await cmd('setShell', { shell: { screens: { pause: 'pause' } } });
   // MCP reads them back.
   const cfg = await query('queryGameConfig');
   expect((cfg['uiDocuments'] as { uiDocumentId: string }[]).map((d) => d.uiDocumentId)).toEqual(['hud', 'menu', 'pause']);
@@ -202,17 +204,15 @@ async function checkHud(root: Page | Frame, fontId: string): Promise<void> {
   expect(border).toContain('blob:');
 }
 
-async function pauseAndResume(page: Page, root: Page | Frame, flow: Locator): Promise<void> {
+async function pauseAndResume(page: Page, root: Page | Frame): Promise<void> {
   await page.keyboard.press('Escape');
-  await expect(flow).toHaveAttribute('data-screen', 'paused');
-  // The built-in panel stays hidden; the project's pause document shows, with the flow's level name.
-  await expect(flow).toHaveClass(/is-hidden/);
+  // The engine pause panel stays away; the project's pause document shows, with a host value ($flow.shell).
   const pause = root.locator('[data-tl-ui-doc="pause"][data-tl-ui-source="screen"]');
   await expect(pause).toHaveCount(1);
-  await expect(pause.locator('[data-widget="heading"]')).toHaveText('Paused — Level One');
+  await expect(root.locator('[data-tl-pause-panel]')).toHaveCount(0);
+  await expect(pause.locator('[data-widget="heading"]')).toHaveText('Paused — pause');
   await expect(pause).toHaveAttribute('data-focus', 'resume');
   await page.keyboard.press('Enter'); // Resume (an engine action)
-  await expect(flow).toHaveAttribute('data-screen', 'playing');
   await expect(root.locator('[data-tl-ui-doc="pause"]')).toHaveCount(0);
 }
 
@@ -236,11 +236,9 @@ test('project UI in Play: bound bar, click to script, keyboard and gamepad focus
   const observe = async (): Promise<Record<string, unknown>> => (await api(`play/${psid}/observe`, {})).json;
   await expect.poll(async () => (await observe())['ok'], { timeout: 30_000 }).toBe(true);
   const frame = page.frameLocator('iframe.tl-app__preview-frame');
-  const flow = frame.locator('.tl-flow');
-  await expect(flow).toHaveAttribute('data-screen', 'title', { timeout: 20_000 });
+  // Phase 24.6: the scene plays at once (the shell has no title here).
+  await expect.poll(async () => (await observe())['state'], { timeout: 20_000 }).toBe('running');
   await page.locator('iframe.tl-app__preview-frame').click();
-  await page.keyboard.press('Enter'); // New game
-  await expect(flow).toHaveAttribute('data-screen', 'playing');
   const playFrame = page.frames().find((f) => f !== page.mainFrame() && f.url().includes('/play'))!;
   expect(playFrame).toBeDefined();
 
@@ -297,7 +295,7 @@ test('project UI in Play: bound bar, click to script, keyboard and gamepad focus
   await expect.poll(async () => (await ui()).shown).toEqual(['hud']);
 
   // Escape: the project's pause document replaces the built-in pause panel; Resume resumes.
-  await pauseAndResume(page, playFrame, flow);
+  await pauseAndResume(page, playFrame);
 });
 
 function serve(root: string): Promise<{ server: Server; url: string }> {
@@ -328,16 +326,12 @@ test('project UI in the static export: bound bar, click to script, the project f
     const game = await page.context().newPage();
     game.on('pageerror', (e) => errors.push(e.message));
     await game.goto(s.url);
-    const flow = game.locator('.tl-flow');
-    await expect(flow).toHaveAttribute('data-screen', 'title', { timeout: 30_000 });
-    await game.mouse.click(20, 700); // the canvas, away from the menu
-    await game.keyboard.press('Enter'); // New game
-    await expect(flow).toHaveAttribute('data-screen', 'playing');
+    await game.mouse.click(20, 700); // the canvas, away from the HUD
     await checkHud(game, fontId);
     await expect(game.locator('[data-widget="tag"]')).toHaveAttribute('data-anchor', 'on', { timeout: 10_000 });
     await game.screenshot({ path: 'test-results/project-ui-export.png' });
     await game.mouse.click(20, 700);
-    await pauseAndResume(game, game, flow);
+    await pauseAndResume(game, game);
     expect(errors).toEqual([]);
   } finally {
     await new Promise<void>((ok) => s.server.close(() => ok()));

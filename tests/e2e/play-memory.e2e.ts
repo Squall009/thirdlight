@@ -7,12 +7,11 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('play-memory-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -48,7 +47,6 @@ test('the play preview holds a fixed set of GPU resources while the game runs wi
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 15_000 }).toBe(200);
-  expect((await relay(`${psid}/control`, { command: 'start' })).status).toBe(200);
 
   const gpu = async (): Promise<Gpu | undefined> => {
     const d = await relay(`${psid}/diagnostics`, {});

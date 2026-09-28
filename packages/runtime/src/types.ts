@@ -2471,6 +2471,8 @@ export interface Runtime {
   provideScene?(sceneId: string, result: { ok: true; entities: readonly EntityV3[] } | { ok: false; message: string }): { ok: true } | { ok: false; error: RuntimeError };
   /** Request a load/unload from outside a step (host, MCP); same rules as `ctx.scenes`. */
   requestScene?(op: 'load' | 'unload', sceneId: string, options?: SceneLoadOptions): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 24.6: a start's spawn in a game without the session: the character arrives there once the scene is loaded. */
+  requestArrival?(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError };
   /** Phase 22.0: why `requestScene(op, sceneId)` would be refused now (null: accepted); changes nothing. */
   sceneRequestProblem?(op: 'load' | 'unload', sceneId: string): string | null;
 

@@ -182,7 +182,7 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   // The title first (its document drawn over the view); the game waits behind it.
   await expect.poll(async () => (await observe())?.shell?.screen ?? null, { timeout: 60_000 }).toBe('title');
   const t0 = (await observe())!;
-  expect(t0.state).toBe('scene');
+  expect(t0.state).toBe('paused'); // phase 24.6: the menu holds the engine pause
   expect(t0.paused).toBe(true);
   expect(t0.ui?.screen).toBe('title');
   await expect(frame.locator('[data-tl-ui-doc="title"][data-tl-ui-source="screen"]')).toHaveCount(1);
@@ -196,6 +196,7 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   await expect.poll(async () => (await observe())?.shell?.screen ?? null, { timeout: 15_000 }).toBe('playing');
   await expect.poll(async () => (await observe())!.stepIndex, { timeout: 10_000 }).toBeGreaterThan(t0.stepIndex + 30);
   expect((await observe())!.paused).toBe(false);
+  expect((await observe())!.state).toBe('running');
   expect((await observe())!.shell?.hud).toEqual(['hud']);
   const hud = frame.locator('[data-tl-ui-doc="hud"][data-tl-ui-source="hud"]');
   await expect(hud).toHaveCount(1);
@@ -235,10 +236,15 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   await frame.locator('[data-tl-ui-doc="paused"] [data-widget="resume"]').click();
   await expect.poll(async () => (await observe())?.shell?.screen ?? null, { timeout: 10_000 }).toBe('playing');
   await page.mouse.click(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height * 0.8);
-  await hold(page, 'a', 1500);
+  // Held until the character is past the second one (a fixed hold was too short on a loaded host).
+  await page.keyboard.down('a');
+  try {
+    await expect.poll(async () => (await observe())?.player?.x ?? 99, { timeout: 15_000 }).toBeLessThan(0.6);
+  } finally {
+    await page.keyboard.up('a');
+  }
   await expect.poll(async () => (await observe())?.counters?.['items'] ?? 0, { timeout: 15_000 }).toBe(2);
   await expect(hud).toContainText('Items 2');
-  await expect.poll(async () => (await observe())?.player?.x ?? 99, { timeout: 10_000 }).toBeLessThan(0.6);
   expect((await observe())!.hidden).toEqual(expect.arrayContaining([tokenA, tokenB]));
 
   // Escape, Load: the save comes back — one item, the second collectible back in place; the game plays on.

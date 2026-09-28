@@ -23,14 +23,13 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
 import { menu } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('ui-editor-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -284,23 +283,30 @@ test('UI document editor: build a HUD, drag, anchor, theme colour, undo/redo, th
   await menu(page, 'Edit', 'Redo');
   await expect.poll(async () => (await innerColour(page, stack))[2], { timeout: 10_000 }).toBeGreaterThan(200);
 
-  // Game flow: the pause screen becomes this document (the screen picker).
-  const game = (await query('queryGameConfig')).game as { spawnId: string };
-  await cmd('setFlow', { flow: { levels: [{ id: 'level-1', name: 'Level One', scenes: ['scene-main'], spawnId: game.spawnId }] } });
-  await page.getByRole('tab', { name: 'Game flow', exact: true }).click();
-  await page.getByLabel('pause screen', { exact: true }).selectOption(DOC_ID);
-  await expect.poll(async () => ((await query('queryGameConfig'))['flow'] as { screens?: Record<string, string> } | null)?.screens).toEqual({ paused: DOC_ID });
+  // The game shell: its pause screen becomes this document (the Game shell tab's screen picker).
+  await page.getByRole('tab', { name: 'Game shell' }).click();
+  const shellPanel = page.getByLabel('game shell', { exact: true });
+  const shell = async (): Promise<{ screens?: Record<string, string> } | null> => ((await query('queryGameConfig'))['shell'] as { screens?: Record<string, string> } | undefined) ?? null;
+  await shellPanel.getByRole('button', { name: 'add game shell' }).click();
+  await expect.poll(shell).toEqual({});
+  await shellPanel.getByLabel('add shell screens', { exact: true }).click();
+  await shellPanel.getByLabel('shell screens pause', { exact: true }).selectOption(DOC_ID);
+  await expect.poll(async () => (await shell())?.screens?.['pause']).toBe(DOC_ID);
 
   // Play: Escape shows the document (same text, button, theme colour) instead of the built-in pause panel.
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  const observe = async (): Promise<{ state?: string; shell?: { screen: string } }> => {
+    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/play/${psid}/observe`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json' }, body: '{}' });
+    return (await r.json()) as never;
+  };
   const frame = page.frameLocator('iframe.tl-app__preview-frame');
-  const flow = frame.locator('.tl-flow');
-  await expect(flow).toHaveAttribute('data-screen', 'title', { timeout: 30_000 });
+  await expect.poll(async () => (await observe()).shell?.screen, { timeout: 30_000 }).toBe('playing');
   await page.locator('iframe.tl-app__preview-frame').click();
-  await page.keyboard.press('Enter');
-  await expect(flow).toHaveAttribute('data-screen', 'playing');
   await page.keyboard.press('Escape');
-  await expect(flow).toHaveAttribute('data-screen', 'paused');
+  await expect.poll(async () => (await observe()).shell?.screen).toBe('pause');
+  expect((await observe()).state).toBe('paused');
   const shown = frame.locator(`[data-tl-ui-doc="${DOC_ID}"][data-tl-ui-source="screen"]`);
   await expect(shown).toHaveCount(1);
   await expect(shown.locator('[data-widget="text"]')).toHaveText('Hello UI');

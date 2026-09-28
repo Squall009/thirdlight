@@ -16,12 +16,11 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('script-props-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -164,8 +163,7 @@ test('a public and a private script property: Inspector, per-object override and
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; counters?: Record<string, number>; behaviors?: { entityId: string; scripts: { behaviorId: string; properties: { key: string; visibility: string; value: unknown }[] }[] } };
   const observe = async (body: Record<string, unknown> = {}): Promise<Obs> => (await api(`play/${psid}/observe`, body)).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('awaitingStart');
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   await expect.poll(async () => (await observe()).counters?.['secret_read'], { timeout: 30_000 }).toBe(7);
   expect((await observe()).counters?.['speed_read']).toBe(5);
 

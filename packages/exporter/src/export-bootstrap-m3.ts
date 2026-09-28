@@ -574,7 +574,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
         if (settle === undefined || settle.ok) return;
         const code = settle.code ?? 'models_config_invalid';
         const res = host.observe();
-        if (res.ok && res.observation.state === 'awaitingStart') {
+        if (res.ok && res.observation.legacy.runState === 'awaitingStart') {
           host.dispose();
           hud(`export error: the model prepare hard-failed (${code}); the composition is unavailable`, true);
         } else {
@@ -605,7 +605,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       return { ...game.observation, ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}) };
     }
     const scene = host.observeScene?.();
-    return scene !== undefined && scene.ok ? { state: 'scene', ...scene.observation } : null;
+    return scene !== undefined && scene.ok ? scene.observation : null;
   };
 
   const refresh = (): void => {
@@ -615,7 +615,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       return;
     }
     const obs = res.observation;
-    hud(`${manifest.snapshotId} \u00b7 build ${manifest.buildId.slice(0, 12)} \u00b7 ${obs.state} \u00b7 deaths=${obs.deathCount} \u00b7 goal=${obs.goalReached}`, false);
+    // Phase 24.6: the debug line names the build and the play state only (no game rules).
+    hud(`${manifest.snapshotId} \u00b7 build ${manifest.buildId.slice(0, 12)} \u00b7 ${obs.state}`, false);
   };
   refresh();
   window.addEventListener('pagehide', () => host.dispose(), { once: true });

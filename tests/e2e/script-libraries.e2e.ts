@@ -19,12 +19,11 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('script-libraries-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -109,8 +108,7 @@ async function playCounters(page: Page, expected: Record<string, number>): Promi
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('awaitingStart');
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
+  await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   for (const [key, value] of Object.entries(expected)) await expect.poll(async () => (await observe()).counters?.[key], { timeout: 30_000 }).toBe(value);
   await page.getByTitle('Stop the play preview').click();
 }

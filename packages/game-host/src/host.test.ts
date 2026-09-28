@@ -421,7 +421,7 @@ function harness(options: HarnessOptions = {}): Harness {
 function view(host: Harness['host']): { state: string; stepIndex: number } {
   const res = host.observe();
   if (!res.ok) throw new Error(`observe failed: ${JSON.stringify(res.error)}`);
-  return { state: res.observation.state, stepIndex: res.observation.stepIndex };
+  return { state: res.observation.legacy.runState, stepIndex: res.observation.stepIndex };
 }
 // ---------------------------------------------------------------------------
 // Tests.
@@ -524,7 +524,7 @@ describe('the menu/control channel between frames (B04/B08, C4/C5)', () => {
     tick(); // the pre-roll settle at awaitingStart
     expect(view(host).state).toBe('awaitingStart');
     const res = host.control('start');
-    expect(res).toMatchObject({ ok: true, state: 'awaitingStart' }); // the state at acceptance
+    expect(res).toMatchObject({ ok: true, state: 'running' }); // phase 24.6: the play state at acceptance
     tick(); // the boundary consumes the queued command
     expect(view(host).state).toBe('playing');
     // A start in play is rejected by the runtime's own rule.
@@ -650,7 +650,8 @@ describe('observe and the committed identity (B08/B09)', () => {
       expect(res.observation.runId).toBe('host-demo@r1#0'); // `${snapshotId}#${replayEpoch}`
       expect(res.observation.snapshotId).toBe('host-demo@r1');
       expect(res.observation.buildId).toBe('test-build-id'); // the wrapper's verified manifest buildId
-      expect(res.observation.state).toBe('awaitingStart');
+      expect(res.observation.state).toBe('running'); // phase 24.6: the generic play state
+      expect(res.observation.legacy.runState).toBe('awaitingStart');
       expect(res.observation.inputMode).toBe('physical');
       expect(res.observation.sound.status).toBe('ready'); // the spy owner is ready
       expect(res.observation.sound.gesture).toBe('local');

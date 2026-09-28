@@ -5,7 +5,7 @@
  * capsule 3 m above it, off the origin in x and z — is switched to 3D in the
  * project settings form. In Play (the simulation worker, and the page's main
  * thread with ?threads=off) the capsule falls and rests on the box, observed
- * through tl_game_observe's relay (state "scene": no game block); the static
+ * through tl_game_observe's relay (a scene-mode play: no game block); the static
  * export, served with the backend stopped, ships the separate 3D backend
  * script (the 2D worker does not carry it) and lands the capsule the same way,
  * read through the export's observation (`window.__thirdlightObserve`).
@@ -85,7 +85,7 @@ async function expectLanded(read: () => Promise<Observation | null>, what: strin
     )
     .not.toBeNull();
   const o = last!;
-  expect(o.state, what).toBe('scene');
+  expect(o.state, what).toBe('running');
   expect(o.player!.y, `${what}: resting on the floor's top`).toBeGreaterThan(REST.min);
   expect(o.player!.y, `${what}: resting on the floor's top`).toBeLessThan(REST.max);
   // It fell straight down: x and z kept (within Rapier's f32 rounding).

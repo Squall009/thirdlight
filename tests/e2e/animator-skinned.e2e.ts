@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { addGameSession, startBackend, type E2EBackend } from './backend';
+import { STARTER, startBackend, type E2EBackend } from './backend';
 import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';
 
 const shots = process.env['TL_ANIM_SHOTS'];
@@ -48,8 +48,6 @@ async function shot(page: Page, name: string): Promise<void> {
 test("a rigged character's clips play on the starter's player: idle, run, airborne", async ({ page }) => {
   test.setTimeout(240_000);
   be = await startBackend('skinned-anim', 'starter');
-  // The run start and the relays' test input go through the game session.
-  await addGameSession(be);
   const glb = join(mkdtempSync(join(tmpdir(), 'tl-skin-')), 'char_rigged.glb');
   writeFileSync(glb, skinnedGlb(LOCOMOTION_CLIPS));
   await page.goto(be.editorUrl);
@@ -62,8 +60,7 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
   const assets = async () => (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; displayName: string }[];
   await expect.poll(async () => (await assets()).some((a) => a.displayName.includes('char_rigged'))).toBe(true);
   const character = (await assets()).find((a) => a.displayName.includes('char_rigged'))!.assetId;
-  const game = (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['game'] as { playerId: string };
-  const model = String((await cmd('createEntity', { kind: 'model', name: 'Character', parentId: game.playerId, model: { asset: { assetId: character } }, transform: { position: [0, 0, 0] } })).createdId);
+  const model = String((await cmd('createEntity', { kind: 'model', name: 'Character', parentId: STARTER.playerId, model: { asset: { assetId: character } }, transform: { position: [0, 0, 0] } })).createdId);
 
   await page.getByRole('tab', { name: 'Animator', exact: true }).click();
   await page.getByLabel('animator model').selectOption(character);
@@ -89,7 +86,6 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(200);
   const animState = async (): Promise<string | undefined> => ((await relay(`${psid}/observe`, {})).json as { animators?: Record<string, string> }).animators?.[model];
-  expect((await relay(`${psid}/control`, { command: 'start' })).status).toBe(200);
   await expect.poll(animState, { timeout: 10_000 }).toBe('Idle');
   await shot(page, 'idle');
 

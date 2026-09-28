@@ -20,12 +20,11 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { addGameSession, type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('visual-script-debug-e2e', 'starter');
-  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();
@@ -195,8 +194,7 @@ test('visual script editor and debugging: problems, variables, functions, switch
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   type Obs = { state?: string; stepIndex?: number; counters?: Record<string, number>; debug?: { paused: boolean; hit: { nodeId: string; entityId: string } | null } };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
-  await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('awaitingStart');
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
+  await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
   await expect.poll(async () => (await observe()).counters?.['hits'] ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
 
   // Back in the Graph tab: the debugger watches the box; the nodes that run light up.

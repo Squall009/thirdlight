@@ -143,7 +143,7 @@ async function expectCarried(read: () => Promise<Observation | null>, what: stri
     )
     .not.toBeNull();
   const o = (await read())!;
-  expect(o.state, what).toBe('scene');
+  expect(o.state, what).toBe('running');
   expect(o.player!.x, what).toBeGreaterThan(3.97);
   expect(o.player!.x, what).toBeLessThan(4.001);
   expect(Math.abs(o.player!.z), what).toBeLessThan(1e-3);

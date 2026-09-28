@@ -197,30 +197,49 @@ export interface DialogueObservation {
   readonly auto: boolean;
 }
 
+/**
+ * Phase 24.6: the play state every game reports — the simulation runs, or the
+ * engine pause holds it (a menu, the pause panel, a game mode's pause).
+ * `stopped` is the play's end (a disposed host has nothing to observe).
+ */
+export type PlayState = 'running' | 'paused' | 'stopped';
+
+/**
+ * Phase 24.6: the legacy game session's view (its run state, checkpoint,
+ * deaths, goal and the level flow). Only a project with the game block has
+ * it; phase 24.7 deletes it with the session.
+ */
+export interface GameHostLegacyObservation {
+  readonly runState: RunState;
+  readonly checkpointId: string | null;
+  readonly deathCount: number;
+  readonly goalReached: boolean;
+  readonly failed: boolean;
+  /** Phase 9.10: the level flow (screen, level, lives, music, volumes). */
+  readonly flow?: FlowObservation;
+  /**
+   * Phase 14.5: while the title menu shows, its background scene (null: the
+   * first level's start) and the camera's offset from where it follows the
+   * player (the title scene's framing plus the pan).
+   */
+  readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
+}
+
 export interface GameHostObservation {
   readonly runId: string;
   readonly snapshotId: string;
   readonly buildId: string;
   readonly stepIndex: number;
-  readonly state: RunState;
-  readonly checkpointId: string | null;
-  readonly deathCount: number;
-  readonly goalReached: boolean;
-  readonly failed: boolean;
+  /** Phase 24.6: the generic play state. */
+  readonly state: PlayState;
   readonly sound: GameHostSound;
   readonly inputMode: 'physical' | 'test';
+  /** Phase 24.6: the legacy game session's view (deleted in 24.7). */
+  readonly legacy: GameHostLegacyObservation;
   /** Phase 12 (c), additive: the loaded scenes and the ones being loaded (v4 games). */
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
-  /** Phase 9.10, additive: the game flow (screen, level, lives, music, volumes). */
-  readonly flow?: FlowObservation;
   /** Phase 9.10, additive: the audio sources' live loops (entity id → gain; phase 14.5: `ambience:<n>` for a level's ambience). */
   readonly loops?: Readonly<Record<string, number>>;
-  /**
-   * Phase 14.5, additive: while the title menu shows, its background scene
-   * (null: the first level's start) and the camera's offset from where it
-   * follows the player (the title scene's framing plus the pan).
-   */
-  readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
   readonly camera?: CameraViewInfo;
   /** Phase 23.18, additive: the environment preset blend once a script changed it (target, progress, weights by key; '' = the base look). */
@@ -264,6 +283,8 @@ export interface GameHostSceneObservation {
   readonly buildId: string;
   readonly stepIndex: number;
   readonly simTime: number;
+  /** Phase 24.6: the generic play state. */
+  readonly state: PlayState;
   readonly sound: GameHostSound;
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
@@ -313,7 +334,7 @@ export type GameControlError =
   | { code: string; reason?: string; command?: string; state?: string; message: string };
 
 export type GameControlResult =
-  | { readonly ok: true; readonly state: RunState; readonly acceptedAtStep: number }
+  | { readonly ok: true; readonly state: PlayState; readonly acceptedAtStep: number }
   | { readonly ok: false; readonly error: GameControlError };
 
 /**
@@ -1500,6 +1521,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceAnchors();
   };
 
+  /** Phase 24.6: the generic play state (the engine pause, a menu or the debugger hold the simulation). */
+  const playState = (): PlayState => (disposed ? 'stopped' : runtime?.isPaused === true || scenePaused ? 'paused' : 'running');
+
   const control = (action: GameControlAction): GameControlResult => {
     if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
     if (!mounted || runtime === null) {
@@ -1513,14 +1537,22 @@ export function createGameHost(config: GameHostConfig): GameHost {
           const okFlow = action === 'start' ? flowCtl.newGame() : flowCtl.restartLevel();
           const v = runtime.getGameView();
           if (!okFlow) return { ok: false, error: { code: 'game_command_invalid', reason: 'level', message: 'the level could not start' } };
-          return { ok: true, state: v.ok ? v.view.state : 'awaitingStart', acceptedAtStep: v.ok ? v.view.stepIndex : 0 };
+          return { ok: true, state: playState(), acceptedAtStep: v.ok ? v.view.stepIndex : 0 };
+        }
+        // Phase 24.6: a game without the session restarts its scene on replay (the pause panel's restart:
+        // an input-frame entry, so a recording replays it); there is no run to start.
+        if (gameViewOf(runtime) === null && action === 'replay' && runtime.queueUiEvent !== undefined) {
+          const q = runtime.queueUiEvent({ kind: 'restart', doc: '', widget: '', name: '' });
+          if (q.ok === false) return { ok: false, error: toControlError(q.error) };
+          const d = runtime.getDiagnostics();
+          return { ok: true, state: playState(), acceptedAtStep: d.ok ? d.diagnostics.stepIndex : 0 };
         }
         const res = runtime.gameCommand(action);
         if (res.ok === false) return { ok: false, error: toControlError(res.error) };
         const viewRes = runtime.getGameView();
         return {
           ok: true,
-          state: viewRes.ok ? viewRes.view.state : 'awaitingStart',
+          state: playState(),
           acceptedAtStep: viewRes.ok ? viewRes.view.stepIndex : 0,
         };
       }
@@ -1535,10 +1567,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
         break;
     }
     const viewRes = runtime.getGameView();
+    const diag = viewRes.ok ? null : runtime.getDiagnostics();
     return {
       ok: true,
-      state: viewRes.ok ? viewRes.view.state : 'awaitingStart',
-      acceptedAtStep: viewRes.ok ? viewRes.view.stepIndex : 0,
+      state: playState(),
+      acceptedAtStep: viewRes.ok ? viewRes.view.stepIndex : diag !== null && diag.ok ? diag.diagnostics.stepIndex : 0,
     };
   };
 
@@ -1584,6 +1617,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
           const r = rt.requestScene?.('load', id);
           if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game has no scenes to load' : r.error.message };
         }
+        // Phase 24.6: the character starts at the chosen scene's spawn (arriving once that scene is loaded).
+        if (start.spawnId !== undefined) {
+          const r = rt.requestArrival?.(start.scenes[start.scenes.length - 1]!, start.spawnId);
+          if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game cannot place the character' : r.error.message };
+          applied.push(`spawn ${start.spawnId}`);
+        }
       }
       applied.push(`scenes ${start.scenes.join(', ')}`);
     }
@@ -1617,7 +1656,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (!r.ok) return { ok: false, error: toControlError(r.error) };
     const view = gameViewOf(runtime);
     const d = view === null ? runtime.getDiagnostics() : null;
-    return { ok: true, state: view !== null ? view.state : 'awaitingStart', acceptedAtStep: view !== null ? view.stepIndex : d !== null && d.ok ? d.diagnostics.stepIndex : 0 };
+    return { ok: true, state: playState(), acceptedAtStep: view !== null ? view.stepIndex : d !== null && d.ok ? d.diagnostics.stepIndex : 0 };
   };
 
   /** The audio assets' bytes for the owner (game cues, scripts' sounds, audio sources). */
@@ -1945,17 +1984,20 @@ export function createGameHost(config: GameHostConfig): GameHost {
         snapshotId: v.snapshotId,
         buildId: config.buildId,
         stepIndex: v.stepIndex,
-        state: v.state,
-        checkpointId: v.checkpointId,
-        deathCount: v.deathCount,
-        goalReached: v.goalReached,
-        failed: v.failed,
+        state: playState(),
         sound: mapSoundStatus(config.audio),
         inputMode: 'physical', // the local shell; the relay's exclusive test mode is packet 59
+        legacy: {
+          runState: v.state,
+          checkpointId: v.checkpointId,
+          deathCount: v.deathCount,
+          goalReached: v.goalReached,
+          failed: v.failed,
+          ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
+          ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
+        },
         ...scenesObservation(runtime),
-        ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
         ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
-        ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
         ...cameraObservation(runtime),
         ...environmentObservation(runtime),
         ...audioObservation(),
@@ -2073,6 +2115,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         buildId: config.buildId,
         stepIndex: d.ok ? d.diagnostics.stepIndex : 0,
         simTime: d.ok ? d.diagnostics.simTime : 0,
+        state: playState(),
         sound: mapSoundStatus(config.audio),
         inputMode: 'physical',
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
