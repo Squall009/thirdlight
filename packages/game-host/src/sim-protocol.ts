@@ -164,6 +164,8 @@ export interface FrameState {
   readonly view?: GameView | null;
   readonly hidden?: readonly string[];
   readonly opacity?: readonly (readonly [string, number])[];
+  /** Phase 24.4h: the look overrides when they changed (the whole list; [] when the last one was cleared). */
+  readonly looks?: readonly (readonly [string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }])[];
   readonly poses?: readonly (readonly [string, AnimatorPose])[];
   readonly counters?: { counters: Record<string, number>; health: { current: number; max: number } | null };
   readonly runSave?: RunSaveState;

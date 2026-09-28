@@ -96,7 +96,7 @@ import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
-import { GameplayBlocks } from './blocks';
+import { GameplayBlocks, type SceneTransitionRequest } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { MotionSegments, TransformMirror } from './step-buffers';
 import {
@@ -971,7 +971,7 @@ export function instantiateRuntime(
   // content projection (collected in document order; the projection sorts by
   // entityId codepoint order — document order is explicitly not used).
   const zoneSpecs: { entityId: string; role: GameZoneRole; center: Vec2; half: Vec2; safeSpawnId?: string; activation?: Readonly<CheckpointActivationAppearance> }[] = [];
-  const spawnSpecs: { entityId: string; center: Vec2; facing?: 'left' | 'right' }[] = [];
+  const spawnSpecs: { entityId: string; center: Vec2; facing?: 'left' | 'right'; yaw?: number }[] = [];
   let cameraFollowData: { deadZone: Vec2; smoothing: number; bounds: GameCameraBounds } | undefined;
   for (const e of scene.entities) {
     const t = e.components.transform;
@@ -1014,7 +1014,9 @@ export function instantiateRuntime(
     if (v3.playerSpawn !== undefined) {
       // Phase 15.2: a spawn's facing (only when set, so older snapshots project exactly as before).
       const facing = (v3.playerSpawn as { facing?: string }).facing;
-      spawnSpecs.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] }, ...(facing === 'left' || facing === 'right' ? { facing } : {}) });
+      // Phase 24.4f: a yaw in degrees (any direction; only when set).
+      const yaw = (v3.playerSpawn as { yaw?: unknown }).yaw;
+      spawnSpecs.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] }, ...(facing === 'left' || facing === 'right' ? { facing } : {}), ...(typeof yaw === 'number' && Number.isFinite(yaw) ? { yaw } : {}) });
     }
     if (cam && v3.cameraFollow !== undefined) {
       const f = v3.cameraFollow;
@@ -1320,6 +1322,7 @@ export function instantiateRuntime(
     ...(snap.modes !== undefined ? { modes: snap.modes } : {}),
     ...(startMode !== undefined ? { startMode } : {}),
     ...(snap.timelines !== undefined ? { timelines: snap.timelines } : {}),
+    ...(snap.eventCues !== undefined ? { eventCues: snap.eventCues } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1416,6 +1419,8 @@ interface RuntimeArgs {
   startMode?: string;
   /** Phase 23.17: the project's timelines. */
   timelines?: readonly TimelineAsset[];
+  /** Phase 24.4i: the event → cue table. */
+  eventCues?: readonly import('./types').RuntimeEventCue[];
   /** Phase 23.18: the environment preset ids (ctx.environment). */
   environmentPresets: readonly string[];
 }
@@ -1434,6 +1439,10 @@ interface SceneBatchState {
 
 /** Phase 12 (c): one requested scene operation, committed with its step. */
 type SceneOp = { op: 'load'; sceneId: string; at?: readonly [number, number, number] } | { op: 'unload'; sceneId: string };
+
+/** Phase 24.4f: the largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
+export const CHARACTER_IMPULSE_MAX = 100;
+const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
 
 class RuntimeInstance implements Runtime {
   private stateName: RuntimeStateName;
@@ -1663,6 +1672,15 @@ class RuntimeInstance implements Runtime {
   private pendingRespawn: [number, number, number] | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
   private pendingRestart = false;
+  /** Phase 24.4f: the yaw (radians) the character faces on its next placement (a spawn's yaw), and this step's one for the controller. */
+  private pendingFacing: number | null = null;
+  private stepFacing: number | null = null;
+  /** Phase 24.4f: impulses scripts gave the character (m/s, summed) waiting for the next controller phase. */
+  private impulseAcc: [number, number, number] | null = null;
+  /** Phase 24.4e: a trigger's scene transition waiting for its scene (then the character moves to the spawn). */
+  private pendingArrival: { spawnId: string; waitFor: string } | null = null;
+  /** Phase 24.4i: the event → cue table (empty: no event sounds). */
+  private readonly eventCues: readonly import('./types').RuntimeEventCue[];
   private readonly lifecycleControl: import('./types').BehaviorLifecycle;
   private behaviorTicksFn: ((entityId: string) => boolean) | undefined = undefined;
   // ---- Phase 23.17: the sequencer (inert without timelines) ----
@@ -1744,6 +1762,24 @@ class RuntimeInstance implements Runtime {
   private readonly collectibleControl = Object.freeze({
     collected: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.isCollected(entityId) ?? false) : false),
     restore: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.restore(entityId) ?? false) : false),
+  });
+  /** Phase 24.4f: the character (`ctx.character`): an impulse (m/s added to its velocity) for its next controller phase. */
+  private readonly characterControl = Object.freeze({
+    impulse: (v: unknown): boolean => {
+      if (this.controllerEntityId === undefined) return false;
+      if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= CHARACTER_IMPULSE_MAX)) return false;
+      const a = this.impulseAcc ?? [0, 0, 0];
+      // The 2D plane has no depth: its z is dropped.
+      this.impulseAcc = [a[0] + (v[0] as number), a[1] + (v[1] as number), this.physics3d !== undefined ? a[2] + (v[2] as number) : 0];
+      this.intentsVersion += 1;
+      return true;
+    },
+  });
+  /** Phase 24.4h: per-object look overrides (`ctx.look`; the renderer applies them). */
+  private readonly lookControl = Object.freeze({
+    set: (entityId: string, look: unknown): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setLook(entityId, look) ?? false) : false),
+    clear: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.clearLook(entityId) ?? false) : false),
+    get: (entityId: string): import('./primitives').EntityLook | null => (typeof entityId === 'string' ? (this.blocks?.primitives.lookOf(entityId) ?? null) : null),
   });
   /** Phase 23.13: the audio intent log (handles, fades, music, duck; the host plays its commands). */
   private readonly audio: AudioMixer;
@@ -2005,6 +2041,7 @@ class RuntimeInstance implements Runtime {
     this.anchorScale = this.modes.active ? this.modes.timeScale() : 1;
     this.noteBehaviorGroups(args.initialEntities);
     this.lifecycleControl = this.buildLifecycleControl();
+    this.eventCues = args.eventCues ?? [];
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
     const rt = this;
     this.blocks = new GameplayBlocks(
@@ -2047,6 +2084,8 @@ class RuntimeInstance implements Runtime {
           if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
         },
         playCue: (assetId: string) => void rt.audio.play(assetId),
+        // Phase 24.4e: a trigger's scene transition.
+        sceneTransition: (triggerId, t) => rt.beginSceneTransition(triggerId, t),
         effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
         animator: (id: string) => {
           const own = rt.animatorMachines.get(id)?.machine;
@@ -2091,6 +2130,8 @@ class RuntimeInstance implements Runtime {
     // Phase 23.17: the timelines (inert while the project has none).
     this.timelines = new TimelineSystem(args.timelines ?? [], this.hz, this.buildTimelineHost());
     this.timelineControl = this.buildTimelineControl();
+    // Phase 24.4i: the event → cue table listens to the blocks' signals and events.
+    if (this.eventCues.length > 0) this.blocks?.enableCueLog();
   }
 
   // ---- Phase 23.11: sockets ---------------------------------------------------------
@@ -3265,6 +3306,8 @@ class RuntimeInstance implements Runtime {
   private stepOnce(): boolean {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
+    // Phase 24.4e: a scene transition's arrival once its scene is loaded.
+    if (this.pendingArrival !== null && !this.runArrival(this.stepIndex + 1)) return false;
     // Phase 23.10: a restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
     this.modes.beginStep(this.stepIndex + 1);
@@ -3321,6 +3364,9 @@ class RuntimeInstance implements Runtime {
       this.pendingRespawn = null;
       try {
         this.placeCharacter3D(x, y, z);
+        // Phase 24.4f: a spawn's yaw turns the character as it is placed.
+        if (this.pendingFacing !== null) this.faceCharacter3D(this.pendingFacing);
+        this.pendingFacing = null;
       } catch (e) {
         this.curr = cloneCurr(backup);
         this.failStopFromError(e, stepOrdinal);
@@ -3357,6 +3403,8 @@ class RuntimeInstance implements Runtime {
     this.dialogue.endStep();
     // Phase 23.18: the environment blend advances with the step.
     this.environment.step();
+    // Phase 24.4i: the event → cue table plays the sounds of this step's signals and events.
+    if (this.eventCues.length > 0) this.playEventCues();
     // Phase 23.13: fades and clips advance; finished sounds are seen next step.
     this.audio.endStep();
     this.prev = backup; // prev := curr at the end of step n−1
@@ -3390,6 +3438,8 @@ class RuntimeInstance implements Runtime {
     // Phase 12 (c): scene unloads/loads take effect at the boundary, before
     // the run bookkeeping (a respawn may land in a scene that just loaded).
     if (!this.applySceneOps()) return false;
+    // Phase 24.4e: a scene transition's arrival once its scene is loaded (a game without the game session).
+    if (this.pendingArrival !== null && !this.runArrival(ordinal)) return false;
     // Phase 14.1: the spawns and destroys the last step requested, in order.
     if (!this.applySpawnOps()) return false;
     this.spawnsThisStep = 0;
@@ -3441,6 +3491,7 @@ class RuntimeInstance implements Runtime {
     const held = this.modes.physicsHeld;
     if (!held) this.blocks?.beforeStep(ordinal);
     this.stepBounce = this.blocks?.takeBounce() ?? null;
+    this.stepFacing = null;
     if (
       action.jump === 'pressed' &&
       (action.actions?.['navigate']?.y ?? 0) < -0.5 &&
@@ -3468,13 +3519,24 @@ class RuntimeInstance implements Runtime {
           const [x, y, z] = this.pendingRespawn;
           this.intents.characterPlace = { x, y, z };
           this.intentsVersion += 1;
+          // Phase 24.4f: a spawn's yaw turns the character as it is placed.
+          if (this.pendingFacing !== null) {
+            this.stepFacing = this.pendingFacing;
+            this.faceCharacter3D(this.pendingFacing);
+          }
         }
         this.pendingRespawn = null;
+        this.pendingFacing = null;
       }
       // Phase 23.2: a script's character_place takes effect before the controller runs.
       if (this.physics3d !== undefined && this.intents.characterPlace !== null) this.applyCharacterPlace3D();
       if (!held) {
         this.runPhase('controller', action);
+        // Phase 24.4f: the impulses reached the controller (a held step keeps them for the next one).
+        if (this.impulseAcc !== null) {
+          this.impulseAcc = null;
+          this.intentsVersion += 1;
+        }
         this.runPhysicsPhase();
       }
       this.runPhase('transform', action);
@@ -3517,6 +3579,8 @@ class RuntimeInstance implements Runtime {
     this.environment.step();
     // Phase 23.19: saves asked for this step are assembled, loaded ones restored (a step boundary).
     this.saves.endStep();
+    // Phase 24.4i: the event → cue table plays the sounds of this step's signals and events.
+    if (this.eventCues.length > 0) this.playEventCues();
     // Phase 23.13: fades and clips advance; finished sounds are seen next step.
     this.audio.endStep();
     // The accepted step-end promotion (runtime.md §12.1.1) runs unchanged
@@ -3725,6 +3789,9 @@ class RuntimeInstance implements Runtime {
    */
   private restartRun(ordinal: number): boolean {
     this.pendingRestart = false;
+    // Phase 24.4f: scripts' impulses and a spawn facing do not outlive the run.
+    this.impulseAcc = null;
+    this.pendingFacing = null;
     this.clearSpawned();
     if (!this.restoreStartSet()) return false;
     for (const [id, data] of this.entities) {
@@ -3777,6 +3844,143 @@ class RuntimeInstance implements Runtime {
     prevMirror.copyFrom(this.curr, this.currShape);
     this.prev = prevMirror.map;
     return true;
+  }
+
+  // ---- Phase 24.4e: scene transitions -------------------------------------------------
+
+  /**
+   * A trigger's scene transition (the character entered it): its unloads and
+   * its load are queued like `ctx.scenes` calls, and the character moves to
+   * the spawn once the scene is loaded — through the game session's transfer
+   * when there is one (as an exit zone does), else at the next step boundary
+   * after the load (`runArrival`).
+   */
+  private beginSceneTransition(triggerId: string, t: SceneTransitionRequest): void {
+    const ops: SceneOp[] = [...t.unload.map((sceneId): SceneOp => ({ op: 'unload', sceneId })), { op: 'load', sceneId: t.scene }];
+    let loads = true;
+    for (const op of ops) {
+      const problem = this.sceneOpProblem(op.op, op.sceneId);
+      if (problem !== null) {
+        this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.stepIndex, reason: op.op });
+        if (op.op === 'load') loads = false;
+        continue;
+      }
+      this.enqueueSceneOp(op);
+    }
+    if (t.spawn === null || !loads) return;
+    if (this.session !== null) this.pendingTransfer = { spawnId: t.spawn, waitFor: [t.scene] };
+    else this.pendingArrival = { spawnId: t.spawn, waitFor: t.scene };
+  }
+
+  /** The arrival of a scene transition, at a step boundary once its scene is loaded. Returns false after a fail-stop. */
+  private runArrival(ordinal: number): boolean {
+    const a = this.pendingArrival;
+    if (a === null || this.sceneStatus.get(a.waitFor) === 'loading') return true;
+    this.pendingArrival = null;
+    const t = this.curr.get(a.spawnId);
+    const spawn = this.entityDocument(a.spawnId);
+    const marker = (spawn?.components as { playerSpawn?: { yaw?: unknown } } | undefined)?.playerSpawn;
+    if (t === undefined || marker === undefined) {
+      this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition spawn "${a.spawnId}" is not loaded; the character stays`), stepIndex: this.stepIndex, reason: 'transfer' });
+      return true;
+    }
+    // The spawn becomes the one respawns use (ctx.lifecycle).
+    this.activeSpawn = a.spawnId;
+    const yaw = typeof marker.yaw === 'number' && Number.isFinite(marker.yaw) ? (marker.yaw * Math.PI) / 180 : null;
+    const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
+    if (this.physics3d !== undefined) {
+      this.pendingRespawn = [x, y, z];
+      this.pendingFacing = yaw;
+      return true;
+    }
+    try {
+      this.placeCharacter2D(x, y, ordinal);
+    } catch (e) {
+      this.failStopFromError(e, this.stepIndex);
+      return false;
+    }
+    if (yaw !== null && this.controllerEntityId !== undefined) this.blocks?.faceSpawn(this.controllerEntityId, yaw);
+    return true;
+  }
+
+  /** A loaded entity's document (its components), or undefined. */
+  private entityDocument(id: string): EntityV3 | undefined {
+    for (const b of this.batches.values()) {
+      if (!b.ids.has(id)) continue;
+      return b.entities.find((e) => e.id === id);
+    }
+    return this.spawnedEntities.get(id);
+  }
+
+  /**
+   * Phase 24.4e: put the 2D-plane character at an origin, from rest (a game
+   * without the game session): the port's character is cleared and
+   * placed, its transform set, and the controller module's windows and
+   * velocity reset (its reset hook, as a transfer).
+   */
+  private placeCharacter2D(x: number, y: number, ordinal: number): void {
+    const id = this.controllerEntityId;
+    const port = this.resetPort();
+    if (id === undefined || port === null) return;
+    try {
+      port.clearCharacterMotion();
+      port.placeCharacter({ x, y });
+    } catch (e) {
+      throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
+    }
+    const t = this.curr.get(id);
+    if (t !== undefined) {
+      t.position[0] = x;
+      t.position[1] = y;
+    }
+    const target: Vec2 = { x, y };
+    for (const entry of this.entries) {
+      if (!entry.phased || !entry.owners.includes(id)) continue;
+      const instance = entry.instance as SimulationPhaseModule;
+      if (typeof instance.reset !== 'function') continue;
+      this.currentModuleId = entry.id;
+      instance.reset(this.buildResetContext('transfer', ordinal, target, new Set(entry.owners)));
+    }
+    this.lastSegments.set(id, x, y, x, y);
+  }
+
+  /** Phase 24.4f: turn the 3D character to a yaw (radians about +Y) — its transform now, its controller with the placement. */
+  private faceCharacter3D(yaw: number): void {
+    const id = this.controllerEntityId;
+    const t = id !== undefined ? this.curr.get(id) : undefined;
+    if (t === undefined) return;
+    t.rotation[0] = 0;
+    t.rotation[1] = Math.sin(yaw / 2);
+    t.rotation[2] = 0;
+    t.rotation[3] = Math.cos(yaw / 2);
+  }
+
+  // ---- Phase 24.4i: the event → cue table -----------------------------------------------
+
+  /**
+   * Play the cue of every table row a signal or event of this step matches
+   * (and last step's animator clip events, which scripts see this step) —
+   * each row at most once per step, in table order, through the audio intent
+   * log (the host plays it; the simulation never reads it back).
+   */
+  private playEventCues(): void {
+    const log = this.blocks?.takeCueLog() ?? null;
+    const clips = this.animatorEvents;
+    if (log === null && clips.length === 0) return;
+    for (const c of this.eventCues) {
+      let hit = false;
+      if (c.on === 'signal') hit = log !== null && log.signals.includes(c.name);
+      else {
+        hit = log !== null && log.events.some((e) => e.name === c.name && (c.entity === undefined || e.entity === c.entity));
+        if (!hit) hit = clips.some((e) => e.name === c.name && (c.entity === undefined || e.entityId === c.entity));
+      }
+      if (hit) this.audio.play(c.assetId, { volume: c.volume ?? 1, ...(c.bus !== undefined ? { bus: c.bus } : {}) });
+    }
+  }
+
+  /** Phase 24.4h: the look overrides now (object → emissive/tint), for the renderer. */
+  entityLooks(): ReadonlyMap<string, import('./primitives').EntityLook> {
+    return this.blocks?.primitives.looksView() ?? NO_LOOKS;
   }
 
   /** Phase 23.17: the timelines' screen overlay, plays and last events (null until a timeline played). */
@@ -4245,7 +4449,9 @@ class RuntimeInstance implements Runtime {
 
     // Phase 15.2: the player's facing models turn to the spawn's facing (before
     // the prev := curr promotion, so the first frame shows it).
-    if (spawn.facing !== undefined) this.blocks?.faceSpawn(player, spawn.facing);
+    // Phase 24.4f: a yaw wins over the left/right facing.
+    if (spawn.yaw !== undefined) this.blocks?.faceSpawn(player, (spawn.yaw * Math.PI) / 180);
+    else if (spawn.facing !== undefined) this.blocks?.faceSpawn(player, spawn.facing);
 
     // R7: apply + rebase. The staged pose is already in `curr` (R5) and the
     // camera hook wrote the camera pose (R6); the standard `prev := curr`
@@ -4951,6 +5157,10 @@ class RuntimeInstance implements Runtime {
     this.readyLoads.clear();
     this.pendingUnloads.clear();
     this.pendingTransfer = null;
+    // Phase 24.4e/f: a scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
+    this.pendingArrival = null;
+    this.pendingFacing = null;
+    this.impulseAcc = null;
     this.exitsInside.clear();
     for (const [sceneId, entities] of this.startBatchSource) {
       if (this.batches.has(sceneId)) continue;
@@ -5180,6 +5390,9 @@ class RuntimeInstance implements Runtime {
       fields['patrol'] = { value: this.patrolControl, enumerable: true };
       fields['hitbox'] = { value: this.hitboxControl, enumerable: true };
       fields['collectible'] = { value: this.collectibleControl, enumerable: true };
+      // Phase 24.4f/h: the character's impulse and the per-object look overrides.
+      fields['character'] = { value: this.characterControl, enumerable: true };
+      fields['look'] = { value: this.lookControl, enumerable: true };
       fields['audio'] = { value: this.audioControl, enumerable: true };
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
@@ -5247,6 +5460,9 @@ class RuntimeInstance implements Runtime {
       ...(s.characterMove !== null ? { characterMove: Object.freeze({ ...s.characterMove }) } : {}),
       ...(s.characterPlace !== null ? { characterPlace: Object.freeze({ ...s.characterPlace }) } : {}),
       ...(s.characterEnabled !== null ? { characterEnabled: s.characterEnabled } : {}),
+      // Phase 24.4f: scripts' impulses for the controller, and the yaw a placement faces (present only when set).
+      ...(this.impulseAcc !== null ? { impulse: Object.freeze({ x: this.impulseAcc[0], y: this.impulseAcc[1], z: this.impulseAcc[2] }) } : {}),
+      ...(this.stepFacing !== null ? { characterYaw: this.stepFacing } : {}),
     });
     this.intentViewCache = view;
     this.intentViewVersion = this.intentsVersion;

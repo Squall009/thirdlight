@@ -33,7 +33,7 @@
  */
 import type { ActionFrame } from './actions';
 import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
-import { BLOCK_DEFAULTS, type EntityV3 } from '@thirdlight/project-model';
+import { BLOCK_DEFAULTS, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, ModelBounds, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal, colliderRotationZ, colliderShape3DOf } from './scene-set';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
@@ -90,11 +90,29 @@ interface Trigger extends Box {
   spent: boolean;
   /** Phase 23.1 (3D): the volume — a box's half extents with depth, a sphere, or a capsule (its centre-segment half length). */
   volume: { kind: 'box'; half: Vec3 } | { kind: 'sphere'; radius: number } | { kind: 'capsule'; radius: number; halfSegment: number };
+  /** Phase 24.4e: the scene transition an entry starts (null: none). */
+  transition: SceneTransitionRequest | null;
+}
+
+/** Phase 24.4e: a trigger's scene transition, as the runtime carries it out. */
+export interface SceneTransitionRequest {
+  readonly scene: string;
+  readonly spawn: string | null;
+  readonly unload: readonly string[];
+}
+
+function transitionOf(v: unknown): SceneTransitionRequest | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const t = v as { scene?: unknown; spawn?: unknown; unload?: unknown };
+  if (typeof t.scene !== 'string') return null;
+  return Object.freeze({ scene: t.scene, spawn: typeof t.spawn === 'string' ? t.spawn : null, unload: Object.freeze(Array.isArray(t.unload) ? t.unload.filter((x): x is string => typeof x === 'string') : []) });
 }
 
 interface Switch extends Box {
   signal: string;
   mode: 'interact' | 'stand';
+  /** Phase 24.4f: the input action an interact switch reads. */
+  action: string;
   once: boolean;
   inside: boolean;
   spent: boolean;
@@ -207,6 +225,8 @@ export interface BlocksHost {
    * controller's object, also in a scene without a game session (absent: `playerId`).
    */
   readonly characterId?: string;
+  /** Phase 24.4e: the character entered a trigger with a scene transition (the runtime loads, unloads and moves it). */
+  sceneTransition?(triggerId: string, transition: SceneTransitionRequest): void;
 }
 
 // ---- phase 23.1: 3D geometry (phase 24.4: in geometry3.ts) ---------------------
@@ -264,6 +284,26 @@ const NO_MESSAGES: readonly BehaviorMessage[] = Object.freeze([]);
 const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
 const NO_CARRY3: Readonly<Vec3> = Object.freeze([0, 0, 0]) as unknown as Readonly<Vec3>;
 
+/**
+ * Phase 9.13: a model facing where its parent goes. Phase 24.4f: `velocity`
+ * models face the horizontal motion in any direction (the yaw of the motion
+ * about +Y plus an offset, turning at `rateV` rad/s); `sides` ones pick one of
+ * two yaws by the sign of the motion along X (the old behaviour).
+ */
+interface Facer {
+  mode: 'sides' | 'velocity';
+  right: number;
+  left: number;
+  rate: number;
+  yaw: number;
+  lastX: number | null;
+  /** velocity: the offset (rad), the turn rate (rad/s), the last world position (x, z), whose motion it reads (its parent, else itself). */
+  offset: number;
+  rateV: number;
+  last: [number, number] | null;
+  follow: string;
+}
+
 export class GameplayBlocks {
   private readonly movers = new Map<string, Mover>();
   private readonly triggers = new Map<string, Trigger>();
@@ -274,8 +314,10 @@ export class GameplayBlocks {
   private readonly hazardDamage = new Map<string, number>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
+  /** Phase 24.4f: how many facers face their velocity (the generic and 3D steps turn only those). */
+  private velocityFacers = 0;
   /** Phase 9.13: models that face where their parent goes (yaw about +Y, radians). */
-  private readonly facers = new Map<string, { right: number; left: number; rate: number; yaw: number; lastX: number | null }>();
+  private readonly facers = new Map<string, Facer>();
   private readonly counters = new Map<string, number>();
   private health: { max: number; start: number; current: number; invulnerable: number; invulnerableUntil: number; knockback: number; hitBounce: number; knockbackSteps: number; hitEffect: string | null } | null = null;
   /** Phase 20.2: entities whose `effect` component (re)starts or stops on a signal. */
@@ -330,6 +372,7 @@ export class GameplayBlocks {
       setHidden: (id, hidden) => blocks.setVisible(id, !hidden),
       addCounter: (name, delta) => blocks.addCounter(name, delta),
       emit: (signal) => blocks.emit(signal),
+      note: (e) => blocks.cueLog?.events.push({ name: e.type, entity: e.entity }),
     });
     this.add(entities);
   }
@@ -377,12 +420,27 @@ export class GameplayBlocks {
       const col = c['collider'];
       if (col !== undefined && col['oneWay'] === true) this.oneWay.add(e.id);
       const face = c['faceMovement'];
-      if (face !== undefined && e.parentId !== undefined) {
+      // Phase 24.4f: a velocity model may sit at the top (it faces its own motion); a two-sided one faces its parent's.
+      const velocity = face?.['mode'] === 'velocity';
+      if (face !== undefined && (e.parentId !== undefined || velocity)) {
         const right = (num(face['yawRight'], 90) * Math.PI) / 180;
         const left = (num(face['yawLeft'], -90) * Math.PI) / 180;
         const turn = num(face['turnSeconds'], 0.12);
         const q = e.components.transform.rotation;
-        this.facers.set(e.id, { right, left, rate: turn > 0 ? Math.abs(right - left) / turn : Infinity, yaw: 2 * Math.atan2(q[1] ?? 0, q[3] ?? 1), lastX: null });
+        if (this.facers.get(e.id)?.mode === 'velocity') this.velocityFacers -= 1;
+        this.facers.set(e.id, {
+          mode: velocity ? 'velocity' : 'sides',
+          right,
+          left,
+          rate: turn > 0 ? Math.abs(right - left) / turn : Infinity,
+          yaw: 2 * Math.atan2(q[1] ?? 0, q[3] ?? 1),
+          lastX: null,
+          offset: (num(face['yawOffset'], 0) * Math.PI) / 180,
+          rateV: turn > 0 ? Math.PI / turn : Infinity,
+          last: null,
+          follow: e.parentId ?? e.id,
+        });
+        if (velocity) this.velocityFacers += 1;
       }
       const m = c['mover'];
       if (m !== undefined) {
@@ -441,12 +499,13 @@ export class GameplayBlocks {
           once: t['once'] === true,
           inside: false,
           spent: false,
+          transition: transitionOf(t['sceneTransition']),
         });
       }
       const s = c['switch'];
       if (s !== undefined) {
         const size = s['size'] as number[];
-        this.switches.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(s['signal']), mode: s['mode'] as Switch['mode'], once: s['once'] === true, inside: false, spent: false });
+        this.switches.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(s['signal']), mode: s['mode'] as Switch['mode'], action: typeof s['action'] === 'string' ? (s['action'] as string) : SWITCH_DEFAULT_ACTION, once: s['once'] === true, inside: false, spent: false });
       }
       const pk = c['pickup'];
       if (pk !== undefined) {
@@ -555,6 +614,7 @@ export class GameplayBlocks {
       this.hidden.delete(id);
       this.opacity.delete(id);
       this.parents.delete(id);
+      if (this.facers.get(id)?.mode === 'velocity') this.velocityFacers -= 1;
       this.facers.delete(id);
       this.effectTriggers.delete(id);
       this.zoneEffects.delete(id);
@@ -600,7 +660,7 @@ export class GameplayBlocks {
    * (the player's) turn to it at once, as if the player had just moved that
    * way (a spawn without a facing leaves them as they are).
    */
-  faceSpawn(rootId: string, facing: 'left' | 'right'): void {
+  faceSpawn(rootId: string, facing: 'left' | 'right' | number): void {
     for (const [id, f] of this.facers) {
       let p = this.parents.get(id);
       let under = false;
@@ -612,8 +672,11 @@ export class GameplayBlocks {
         p = this.parents.get(p);
       }
       if (!under) continue;
-      f.yaw = facing === 'right' ? f.right : f.left;
+      // Phase 24.4f: a yaw (radians about +Y): a velocity model turns to it; a two-sided one to the side it points at.
+      if (typeof facing === 'number') f.yaw = f.mode === 'velocity' ? facing + f.offset : Math.sin(facing) >= 0 ? f.right : f.left;
+      else f.yaw = facing === 'right' ? f.right : f.left;
       f.lastX = null;
+      f.last = null;
       const t = this.host.curr.get(id);
       if (t !== undefined) {
         t.rotation[0] = 0;
@@ -706,6 +769,25 @@ export class GameplayBlocks {
 
   emit(name: string): void {
     this.signalsNow.add(name);
+    this.cueLog?.signals.push(name);
+  }
+
+  // ---- phase 24.4i: what the event → cue table listens to ----------------------------
+
+  /** This step's signals and events, in the order they happened (null: the project has no event sounds). */
+  private cueLog: { signals: string[]; events: { name: string; entity: string }[] } | null = null;
+
+  /** Start noting signals and events for the event → cue table (a project with event sounds). */
+  enableCueLog(): void {
+    if (this.cueLog === null) this.cueLog = { signals: [], events: [] };
+  }
+
+  /** The signals and events noted since the last call (then forgotten). */
+  takeCueLog(): { signals: readonly string[]; events: readonly { name: string; entity: string }[] } | null {
+    const log = this.cueLog;
+    if (log === null || (log.signals.length === 0 && log.events.length === 0)) return null;
+    this.cueLog = { signals: [], events: [] };
+    return log;
   }
 
   /** Phase 14.2: the triggers the player entered or left in the previous step (in trigger order). */
@@ -906,6 +988,8 @@ export class GameplayBlocks {
     // Phase 24.4: the generic primitives first (patrols walk; collectibles and contacts test the character while playing).
     this.primitives.afterPhysics(playing);
     if (this.host.physics3d !== undefined) {
+      // Phase 24.4f: velocity-facing models turn in 3D too (two-sided ones stay a 2D-plane feature).
+      if (this.velocityFacers > 0) this.turnFacers(1 / this.host.hz, true);
       if (playing) this.triggers3D();
       return;
     }
@@ -920,23 +1004,11 @@ export class GameplayBlocks {
       const cy = feetAnchored ? at[1] + half.y : at[1];
       return Math.abs(player.x + this.pc.ox - at[0]) < half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - cy) < half.y + this.pc.hh;
     };
-    // Phase 14.2: a circle against the capsule itself (a segment of half
-    // length halfHeight − radius, swept by the radius): the distance from the
-    // circle's centre to the segment is under the two radii.
-    const segHalf = Math.max(0, this.pc.hh - this.pc.hw);
-    const inCircle = (id: string, r: number): boolean => {
-      const at = this.worldOf(id);
-      if (at === null) return false;
-      const cx = player.x + this.pc.ox;
-      const cy = player.y + this.pc.oy;
-      const ny = Math.min(cy + segHalf, Math.max(cy - segHalf, at[1]));
-      return Math.hypot(at[0] - cx, at[1] - ny) < r + this.pc.hw;
-    };
-    for (const t of this.triggers.values()) this.updateTrigger(t, t.radius !== null ? inCircle(t.id, t.radius) : overlaps(t.id, t.half));
-    const interact = frame.actions?.['interact']?.p === 'pressed';
+    this.triggers2D(player);
     for (const s of this.switches.values()) {
       const inside = overlaps(s.id, s.half);
-      const fire = s.mode === 'stand' ? inside && !s.inside : inside && interact;
+      // Phase 24.4f: an interact switch reads its own action (absent: interact).
+      const fire = s.mode === 'stand' ? inside && !s.inside : inside && frame.actions?.[s.action]?.p === 'pressed';
       if (fire && !s.spent) {
         this.emit(s.signal);
         if (s.once) s.spent = true;
@@ -991,14 +1063,47 @@ export class GameplayBlocks {
    */
   afterPhysicsGeneric(): void {
     this.primitives.afterPhysics(true);
+    // Phase 24.4f: velocity-facing models turn without the session too.
+    if (this.velocityFacers > 0) this.turnFacers(1 / this.host.hz, true);
+    // Phase 24.4e: triggers test the character (the controller's object) without the session too.
+    if (this.triggers.size > 0) {
+      const id = this.host.characterId ?? this.host.playerId;
+      const t = id !== '' ? this.host.curr.get(id) : undefined;
+      if (t !== undefined) this.triggers2D({ x: t.position[0], y: t.position[1] });
+    }
   }
 
   /** Phase 24.4: a 2D-plane plain step (no simulation modules): the primitives' events turn over and they step. */
   stepPrimitivesOnly(stepIndex: number): void {
-    if (!this.primitives.active) return;
+    if (!this.primitives.active && this.velocityFacers === 0) return;
     this.step = stepIndex;
     this.primitives.turnover(stepIndex);
     this.primitives.afterPhysics(true);
+    if (this.velocityFacers > 0) this.turnFacers(1 / this.host.hz, true);
+  }
+
+  /**
+   * The 2D-plane triggers against the character at `player` (its origin): a
+   * box against the capsule's box; phase 14.2: a circle against the capsule
+   * itself (a segment of half length halfHeight − radius, swept by the
+   * radius) — the distance from the circle's centre to the segment is under
+   * the two radii.
+   */
+  private triggers2D(player: Vec2): void {
+    const segHalf = Math.max(0, this.pc.hh - this.pc.hw);
+    const cx = player.x + this.pc.ox;
+    const cy = player.y + this.pc.oy;
+    for (const t of this.triggers.values()) {
+      const at = this.worldOf(t.id);
+      let inside = false;
+      if (at !== null) {
+        if (t.radius !== null) {
+          const ny = Math.min(cy + segHalf, Math.max(cy - segHalf, at[1]));
+          inside = Math.hypot(at[0] - cx, at[1] - ny) < t.radius + this.pc.hw;
+        } else inside = Math.abs(cx - at[0]) < t.half.x + this.pc.hw && Math.abs(cy - at[1]) < t.half.y + this.pc.hh;
+      }
+      this.updateTrigger(t, inside);
+    }
   }
 
   /** Phase 24.4: the primitives' events of the previous step (every object's; the behavior host gives each script those it owns). */
@@ -1008,6 +1113,8 @@ export class GameplayBlocks {
 
   /** A trigger's signals and events for this step's inside test (the 2D plane's and 3D's shared rules). */
   private updateTrigger(t: Trigger, inside: boolean): void {
+    // Phase 24.4e: an entry starts the trigger's scene transition (as its signal, only once with `once`).
+    if (inside && !t.inside && t.transition !== null && !t.spent) this.host.sceneTransition?.(t.id, t.transition);
     if (inside && (!t.inside || t.stay) && !t.spent) {
       this.emit(t.signal);
       if (t.once) t.spent = true;
@@ -1015,7 +1122,10 @@ export class GameplayBlocks {
     if (!inside && t.inside && t.exitSignal !== null) this.emit(t.exitSignal);
     // Phase 14.2: every real entry and exit (whatever `once` says about the signal).
     // `stepIndex` counts as scripts' `ctx.stepIndex` does (this.step is the 1-based ordinal).
-    if (inside !== t.inside) this.triggerEventsNow.push(Object.freeze({ type: inside ? 'enter' : 'exit', trigger: t.id, stepIndex: this.step - 1 }));
+    if (inside !== t.inside) {
+      this.triggerEventsNow.push(Object.freeze({ type: inside ? 'enter' : 'exit', trigger: t.id, stepIndex: this.step - 1 }));
+      this.cueLog?.events.push({ name: inside ? 'enter' : 'exit', entity: t.id });
+    }
     t.inside = inside;
   }
 
@@ -1202,8 +1312,13 @@ export class GameplayBlocks {
 
   /** World position by summing the parent chain (the runtime's hierarchy has no rotation here). */
   /** Phase 9.13: each facing model turns toward its parent's horizontal motion (it keeps its yaw while the parent stands). */
-  private turnFacers(dt: number): void {
+  private turnFacers(dt: number, velocityOnly = false): void {
     for (const [id, f] of this.facers) {
+      if (f.mode === 'velocity') {
+        this.turnVelocityFacer(id, f, dt);
+        continue;
+      }
+      if (velocityOnly) continue;
       const parent = this.parents.get(id);
       const at = parent !== undefined ? this.worldOf(parent) : null;
       if (at === null) continue;
@@ -1221,6 +1336,38 @@ export class GameplayBlocks {
         t.rotation[2] = 0;
         t.rotation[3] = Math.cos(f.yaw / 2);
       }
+    }
+  }
+
+  /**
+   * Phase 24.4f: a velocity model turns toward the yaw of the horizontal
+   * motion of what it follows (its parent, else itself) — atan2(dx, dz) about
+   * +Y, 0 facing +Z, plus its offset — by the shorter way at its turn rate;
+   * it keeps its yaw while standing (below 0.1 mm per step).
+   */
+  private turnVelocityFacer(id: string, f: Facer, dt: number): void {
+    const at = this.worldOf(f.follow);
+    if (at === null) return;
+    const last = f.last;
+    f.last = [at[0], at[2]];
+    if (last !== null) {
+      const dx = at[0] - last[0];
+      const dz = at[2] - last[1];
+      if (Math.hypot(dx, dz) > 1e-4) {
+        const target = Math.atan2(dx, dz) + f.offset;
+        let d = target - f.yaw;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        const step = f.rateV * dt;
+        f.yaw = Math.abs(d) <= step ? f.yaw + d : f.yaw + Math.sign(d) * step;
+        f.yaw = Math.atan2(Math.sin(f.yaw), Math.cos(f.yaw));
+      }
+    }
+    const t = this.host.curr.get(id);
+    if (t !== undefined) {
+      t.rotation[0] = 0;
+      t.rotation[1] = Math.sin(f.yaw / 2);
+      t.rotation[2] = 0;
+      t.rotation[3] = Math.cos(f.yaw / 2);
     }
   }
 

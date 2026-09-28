@@ -48,7 +48,7 @@ import type {
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
   // Phase 15.2: a v4 spawn's facing (optional).
-  playerSpawn: ['facing'],
+  playerSpawn: ['facing', 'yaw'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
@@ -61,9 +61,9 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   // Phase 9.9: gameplay building blocks.
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
   audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
-  faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
-  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'],
-  switch: ['mode', 'signal', 'size', 'once'],
+  faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],
+  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],
+  switch: ['mode', 'signal', 'size', 'once', 'action'],
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
   enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],

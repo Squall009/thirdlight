@@ -15,7 +15,13 @@
  *   - `topDown`: straight down onto the target from `distance`, turned by `yaw`;
  *   - `fixed`: where it is placed; with a target it looks at it;
  *   - `rail`: rides a `cameraPath` (a `progress` 0–1 along it, moving at
- *     `railSpeed`), looking at the target or along the path.
+ *     `railSpeed`), looking at the target or along the path;
+ *   - `track` (phase 24.4g): keeps its placed rotation and follows a target
+ *     at an offset (`trackOffset`; absent: where it is placed relative to the
+ *     target), moving only once the target leaves a dead zone around the
+ *     point it frames, smoothed by `damping`, kept inside optional bounds
+ *     (`boundsMin`/`boundsMax`, per axis) — a side view, a fixed-angle
+ *     top-down or isometric view, a 3D chase that does not turn.
  *   Each camera also sets how the view blends to it (cut, linear, eased over
  *   `blendTime`), its lens (`fovY`, `near`, `far`: absent = the scene camera's),
  *   a letterbox amount and a constant shake.
@@ -27,7 +33,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 
-export const VIRTUAL_CAMERA_RIGS = ['follow', 'orbitPoint', 'topDown', 'fixed', 'rail'] as const;
+export const VIRTUAL_CAMERA_RIGS = ['follow', 'orbitPoint', 'topDown', 'fixed', 'rail', 'track'] as const;
 export type VirtualCameraRig = (typeof VIRTUAL_CAMERA_RIGS)[number];
 export const CAMERA_BLENDS = ['cut', 'linear', 'eased'] as const;
 export type CameraBlendStyle = (typeof CAMERA_BLENDS)[number];
@@ -110,6 +116,10 @@ export const VIRTUAL_CAMERA_LIMITS = Object.freeze({
   shakeAmplitude: { min: 0, max: 10 },
   shakeFrequency: { min: 0.1, max: 60 },
   shakeRotation: { min: 0, max: 45 },
+  /** Phase 24.4g: a track camera's dead zone per axis (m). */
+  deadZone: { min: 0, max: 1000 },
+  /** Phase 24.4g: a track camera's bounds (m). */
+  bounds: { min: -1e6, max: 1e6 },
 });
 
 export interface VirtualCameraComponent {
@@ -159,6 +169,14 @@ export interface VirtualCameraComponent {
   shakeAmplitude?: number;
   shakeFrequency?: number;
   shakeRotation?: number;
+  /** Phase 24.4g, track: the camera's position relative to the point it frames (absent: as placed relative to the target). */
+  trackOffset?: [number, number, number];
+  /** Phase 24.4g, track: the box (w, h, d; centred on the framed point) the target moves in before the camera follows (absent: none). */
+  deadZone?: [number, number, number];
+  /** Phase 24.4g, track: the framed point stays at or above this, per axis (absent: no limit). */
+  boundsMin?: [number, number, number];
+  /** Phase 24.4g, track: the framed point stays at or below this, per axis (absent: no limit). */
+  boundsMax?: [number, number, number];
 }
 
 export interface CameraPathComponent {
@@ -209,6 +227,11 @@ export const VIRTUAL_CAMERA_FIELDS = [
   'shakeAmplitude',
   'shakeFrequency',
   'shakeRotation',
+  // Phase 24.4g: last, so every existing camera keeps its exact canonical bytes.
+  'trackOffset',
+  'deadZone',
+  'boundsMin',
+  'boundsMax',
 ] as const;
 export const CAMERA_PATH_FIELDS = ['points', 'closed', 'smooth'] as const;
 export const CAMERA_PATH_LIMITS = Object.freeze({ minPoints: 2, maxPoints: 64, coordinate: 1e6 });
@@ -272,6 +295,21 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
   // A rail without a path is allowed (it is picked after the rig in the Inspector); it stays where it is placed.
   if (value['targetOffset'] !== undefined && !vec3(value['targetOffset'], VIRTUAL_CAMERA_LIMITS.offset.min, VIRTUAL_CAMERA_LIMITS.offset.max)) err(errors, 'field_value', `${path}/targetOffset`, 'targetOffset is [x, y, z] metres, each −1000–1000', value['targetOffset']);
   if (value['point'] !== undefined && !vec3(value['point'], VIRTUAL_CAMERA_LIMITS.point.min, VIRTUAL_CAMERA_LIMITS.point.max)) err(errors, 'field_value', `${path}/point`, 'point is [x, y, z] metres', value['point']);
+  // Phase 24.4g: the track rig's offset, dead zone and bounds (only a track camera reads them).
+  const track = rig === 'track';
+  for (const k of ['trackOffset', 'deadZone', 'boundsMin', 'boundsMax'] as const) {
+    if (value[k] !== undefined && !track) err(errors, 'field_unexpected', `${path}/${k}`, `only a track camera has ${k}`, value[k]);
+  }
+  if (track) {
+    if (value['trackOffset'] !== undefined && !vec3(value['trackOffset'], VIRTUAL_CAMERA_LIMITS.offset.min, VIRTUAL_CAMERA_LIMITS.offset.max)) err(errors, 'field_value', `${path}/trackOffset`, 'trackOffset is [x, y, z] metres, each −1000–1000', value['trackOffset']);
+    if (value['deadZone'] !== undefined && !vec3(value['deadZone'], VIRTUAL_CAMERA_LIMITS.deadZone.min, VIRTUAL_CAMERA_LIMITS.deadZone.max)) err(errors, 'field_value', `${path}/deadZone`, 'deadZone is [w, h, d] metres, each 0–1000', value['deadZone']);
+    for (const k of ['boundsMin', 'boundsMax'] as const) {
+      if (value[k] !== undefined && !vec3(value[k], VIRTUAL_CAMERA_LIMITS.bounds.min, VIRTUAL_CAMERA_LIMITS.bounds.max)) err(errors, 'field_value', `${path}/${k}`, `${k} is [x, y, z] metres`, value[k]);
+    }
+    const lo = value['boundsMin'];
+    const hi = value['boundsMax'];
+    if (vec3(lo, -Infinity, Infinity) && vec3(hi, -Infinity, Infinity) && (lo as number[]).some((x, i) => x > (hi as number[])[i]!)) err(errors, 'field_value', `${path}/boundsMax`, 'boundsMax is at least boundsMin on every axis', hi);
+  }
   for (const [k, lim] of NUMBER_FIELDS) {
     const v = value[k];
     if (v !== undefined && !num(v, lim.min, lim.max)) err(errors, 'field_value', `${path}/${k}`, `${k} is ${lim.min}–${lim.max}`, v);

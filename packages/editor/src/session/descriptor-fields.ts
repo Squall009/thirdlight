@@ -234,12 +234,17 @@ export function groupFields(fields: readonly FieldDescriptor[]): { group: string
   return out.filter((b) => b.fields.length > 0);
 }
 
+/** Phase 24.4e: project references a starting value may use (a required scene reference: this scene). */
+export interface StartRefs {
+  scene?: string;
+}
+
 /**
  * A starting value for a field: its default, else (an object) its required
  * applicable fields' starting values, (an enum) its first option, (a bool)
  * false, (a list) the smallest list of item starting values.
  */
-export function startValue(f: FieldDescriptor, parent?: Level): unknown {
+export function startValue(f: FieldDescriptor, parent?: Level, refs?: StartRefs): unknown {
   if (f.default !== undefined) return clone(f.default);
   switch (f.type) {
     case 'object': {
@@ -248,7 +253,7 @@ export function startValue(f: FieldDescriptor, parent?: Level): unknown {
       for (let pass = 0; pass < 3; pass++) {
         for (const g of visibleFields(level)) {
           if (g.required !== true || value[g.key] !== undefined) continue;
-          const v = startValue(g, level);
+          const v = startValue(g, level, refs);
           if (v !== undefined) value[g.key] = v;
         }
       }
@@ -275,6 +280,9 @@ export function startValue(f: FieldDescriptor, parent?: Level): unknown {
     case 'string':
     case 'signal':
       return f.required === true ? f.key : undefined;
+    // Phase 24.4e: a required scene reference starts at a scene the caller offers (a scene transition's target).
+    case 'sceneRef':
+      return f.required === true ? refs?.scene : undefined;
     default:
       return undefined;
   }

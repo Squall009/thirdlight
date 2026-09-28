@@ -36,10 +36,11 @@
  * Pure: no I/O, no three.js, no UI code.
  */
 
+import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cues';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
-import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PICKUP_KINDS, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
+import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PICKUP_KINDS, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, PICKUP_RESPAWN, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
@@ -736,6 +737,8 @@ const playerSpawn: ComponentDescriptor = {
   value: obj('playerSpawn', 'Player spawn', 'A spawn marker.', [
     // Phase 15.2: which way the player faces when it starts or respawns here.
     enm('facing', 'Facing', 'The way the player faces when it starts or respawns here (its face-movement models turn to it at once; none: as placed).', ['none', 'left', 'right'], { default: 'none', omitDefault: true }),
+    // Phase 24.4f: a facing in any direction (3D too): the character's yaw on arrival.
+    num('yaw', 'Yaw', 'The way the character faces on arrival, degrees about +Y (0: facing +Z; absent: as it was).', { min: -360, max: 360, step: 5, unit: 'deg' }),
   ]),
   add: { kind: 'menu', value: {} },
   handles: [],
@@ -782,14 +785,17 @@ const cameraFollow: ComponentDescriptor = {
 // Phase 23.4: the camera framework (defaults and their reasons: project-model VIRTUAL_CAMERA_DEFAULTS).
 const ORBITING = when('rig', 'follow', 'orbitPoint');
 const TRACKING = when('rig', 'follow', 'orbitPoint', 'topDown');
+/** Phase 24.4g: the rigs that lag behind a target by `damping` (the track rig's smoothing). */
+const DAMPED = when('rig', 'follow', 'orbitPoint', 'topDown', 'track');
+const TRACK = when('rig', 'track');
 const ACTION_NAME = { format: 'identifier' as const, minLength: 1, maxLength: 32 };
 const virtualCamera: ComponentDescriptor = {
   name: 'virtualCamera',
   label: 'Virtual camera',
-  tooltip: 'A camera shot the game cuts or blends to: follow/orbit a target, orbit a point in snapped turns, top-down, fixed/look-at or along a rail. The live one is the enabled camera with the highest priority (on a tie the one activated last); without one the scene camera keeps its own view.',
+  tooltip: 'A camera shot the game cuts or blends to: follow/orbit a target, orbit a point in snapped turns, top-down, fixed/look-at, along a rail, or track a target with a dead zone and bounds. The live one is the enabled camera with the highest priority (on a tie the one activated last); without one the scene camera keeps its own view.',
   category: 'Camera',
   value: obj('virtualCamera', 'Virtual camera', 'One camera shot and how the view blends to it.', [
-    enm('rig', 'Rig', 'How the camera moves: follow/orbit a target, orbit a point, straight down onto the target, fixed where it is placed, or along a camera path.', VIRTUAL_CAMERA_RIGS, { required: true, default: 'follow', labels: { follow: 'Follow / orbit', orbitPoint: 'Orbit a point', topDown: 'Top-down', fixed: 'Fixed / look-at', rail: 'Rail (path)' } }),
+    enm('rig', 'Rig', 'How the camera moves: follow/orbit a target, orbit a point, straight down onto the target, fixed where it is placed, along a camera path, or track a target without turning (dead zone, bounds).', VIRTUAL_CAMERA_RIGS, { required: true, default: 'follow', labels: { follow: 'Follow / orbit', orbitPoint: 'Orbit a point', topDown: 'Top-down', fixed: 'Fixed / look-at', rail: 'Rail (path)', track: 'Track (dead zone)' } }),
     int('priority', 'Priority', 'The enabled camera with the highest priority is live (on a tie: the one activated last, then the first in the scene).', { min: VCL.priority.min, max: VCL.priority.max, default: VCD.priority }),
     bool('enabled', 'Enabled at start', 'Takes part from the start; scripts activate and deactivate cameras (ctx.camera).', { default: VCD.enabled }),
     entity('target', 'Target', 'The object it follows, circles or looks at (none: the rig centres on where the camera is placed; fixed and rail cameras look ahead).', { anyScene: true }),
@@ -813,7 +819,12 @@ const virtualCamera: ComponentDescriptor = {
     vec3('point', 'Point', 'The world point it circles (absent: the target, else where the camera is placed).', { when: when('rig', 'orbitPoint'), min: VCL.point.min, max: VCL.point.max, step: 0.5, unit: 'm', handle: 'point' }),
     bool('collision', 'Collision', 'Pulled in front of colliders between it and the target (3D projects).', { when: when('rig', 'follow'), default: VCD.collision }),
     num('collisionRadius', 'Collision radius', 'The clearance it keeps from what it is pulled in by.', { when: when('rig', 'follow'), min: VCL.collisionRadius.min, max: VCL.collisionRadius.max, step: 0.05, unit: 'm', default: VCD.collisionRadius }),
-    num('damping', 'Damping', 'How long it lags behind a moving target (0: rigid).', { when: TRACKING, min: VCL.damping.min, max: VCL.damping.max, step: 0.05, unit: 's', default: VCD.damping }),
+    // Phase 24.4g: the track rig — its offset from the framed point, the dead zone and the bounds (world axes).
+    vec3('trackOffset', 'Offset', 'Where the camera sits relative to the point it frames (absent: where it is placed relative to the target at the start).', { when: TRACK, min: VCL.offset.min, max: VCL.offset.max, step: 0.5, unit: 'm' }),
+    vec3('deadZone', 'Dead zone', 'The box (width, height, depth) around the framed point the target moves in before the camera follows (0: always follows).', { when: TRACK, min: VCL.deadZone.min, max: VCL.deadZone.max, step: 0.1, unit: 'm', default: [0, 0, 0], labels: ['w', 'h', 'd'] }),
+    vec3('boundsMin', 'Bounds min', 'The framed point never goes below this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm' }),
+    vec3('boundsMax', 'Bounds max', 'The framed point never goes above this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm' }),
+    num('damping', 'Damping', 'How long it lags behind a moving target (0: rigid; the track rig\'s smoothing).', { when: DAMPED, min: VCL.damping.min, max: VCL.damping.max, step: 0.05, unit: 's', default: VCD.damping }),
     entity('path', 'Path', 'The object carrying the camera path it rides (none: it stays where it is placed).', { when: when('rig', 'rail'), component: 'cameraPath', anyScene: true }),
     num('progress', 'Progress', 'Where along the path it starts (0: the first point, 1: the end).', { when: when('rig', 'rail'), min: VCL.progress.min, max: VCL.progress.max, step: 0.01, default: VCD.progress }),
     num('railSpeed', 'Rail speed', 'How fast it rides the path (negative: backwards; 0: stays until a script moves it).', { when: when('rig', 'rail'), min: VCL.railSpeed.min, max: VCL.railSpeed.max, step: 0.5, unit: 'm/s', default: VCD.railSpeed }),
@@ -835,6 +846,8 @@ const virtualCamera: ComponentDescriptor = {
     { label: 'Orbit a point (snapped turns)', value: { rig: 'orbitPoint', distance: 15, pitch: 45 } },
     { label: 'Top-down', value: { rig: 'topDown', distance: 15 } },
     { label: 'Fixed / look-at', value: { rig: 'fixed' } },
+    // Phase 24.4g: frames its target as placed, following once it leaves a 2 × 1 m box (about a body's reach), with a short 0.2 s lag.
+    { label: 'Track (dead zone)', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } },
   ],
   handles: [{ kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') }],
   excludes: [
@@ -1223,6 +1236,12 @@ const trigger: ComponentDescriptor = {
     signal('exitSignal', 'Exit signal', 'Sent when the player leaves (absent: none).'),
     enm('mode', 'Mode', 'Enter: once per entry. Stay: every step while inside.', TRIGGER_MODES, { default: 'enter' }),
     bool('once', 'Once', 'Only the first time.', { default: false }),
+    // Phase 24.4e: the generic scene exit — a trigger that moves the character to another scene.
+    obj('sceneTransition', 'Scene transition', 'Entering loads a scene and moves the character to a spawn in it (absent: no transition).', [
+      scene('scene', 'Load scene', 'The scene loaded when the character enters.', { required: true }),
+      entity('spawn', 'Arrive at', 'The player spawn the character is moved to once the scene is loaded (in that scene or this one; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
+      list('unload', 'Unload scenes', 'Scenes unloaded at the same time.', scene('*', 'Scene', 'A scene to unload.'), { maxItems: MAX_TRANSITION_UNLOADS, unique: true }),
+    ]),
   ]),
   // Phase 15.5: a 2 m square (the default 1.8 m character fits inside) sending the neutral signal name "trigger".
   add: { kind: 'menu', value: { size: [2, 2], signal: 'trigger' } },
@@ -1249,10 +1268,12 @@ const switchC: ComponentDescriptor = {
   tooltip: 'A lever or button (interact) or a pressure plate (stand) that sends a signal.',
   category: 'Gameplay',
   value: obj('switch', 'Switch', 'A switch.', [
-    enm('mode', 'Mode', 'Interact: press the interact action nearby. Stand: step on it.', SWITCH_MODES, { required: true, default: 'interact' }),
+    enm('mode', 'Mode', 'Interact: press its action nearby. Stand: step on it.', SWITCH_MODES, { required: true, default: 'interact' }),
     signal('signal', 'Signal', 'Sent when used.', { required: true, default: 'open' }),
     vec2('size', 'Size', 'The area the player must be in.', { required: true, min: 0.05, max: 100, step: 0.1, unit: 'm', default: [1, 1], labels: ['w', 'h'], handle: 'box2' }),
     bool('once', 'Once', 'Only the first time.', { default: false }),
+    // Phase 24.4f: the input action that works an interact switch (absent: interact).
+    str('action', 'Action', 'The input action pressed nearby to use it.', { ...ACTION_NAME, when: when('mode', 'interact'), default: SWITCH_DEFAULT_ACTION }),
   ]),
   // Phase 15.5: a 1 m square pressed with the interact action, sending "open" (the door preset waits for it).
   add: { kind: 'menu', value: { mode: 'interact', signal: 'open', size: [1, 1] } },
@@ -1468,15 +1489,23 @@ const audioSource: ComponentDescriptor = {
 const faceMovement: ComponentDescriptor = {
   name: 'faceMovement',
   label: 'Face movement',
-  tooltip: 'Turns this model to face where its parent is going (the player\'s model, an enemy\'s model).',
+  tooltip: 'Turns this model to face where its parent (or, at the top, itself) is going: to one of two yaws by the side it moves to, or toward its motion in any direction.',
   category: 'Animation',
-  value: obj('faceMovement', 'Face movement', 'Yaw per direction.', [
-    num('yawRight', 'Yaw moving right', 'Rotation about +Y while the parent moves right.', { required: true, min: -360, max: 360, step: 5, unit: 'deg', default: 90 }),
-    num('yawLeft', 'Yaw moving left', 'Rotation about +Y while the parent moves left.', { required: true, min: -360, max: 360, step: 5, unit: 'deg', default: -90 }),
-    num('turnSeconds', 'Turn time', 'Time to turn around.', { min: 0, max: 5, step: 0.01, unit: 's', default: 0.12 }),
+  value: obj('faceMovement', 'Face movement', 'Yaw from the motion.', [
+    // Phase 24.4f: `velocity` faces the horizontal motion in any direction (3D too); `sides` (absent) picks one of two yaws by the sign of X.
+    enm('mode', 'Mode', 'Sides: one yaw moving right, another moving left. Velocity: faces the way it moves, in any direction.', FACE_MOVEMENT_MODES, { default: 'sides', omitDefault: true, labels: { sides: 'Two sides', velocity: 'Face velocity' } }),
+    num('yawRight', 'Yaw moving right', 'Rotation about +Y while the parent moves right.', { required: true, when: when('mode', 'sides'), min: -360, max: 360, step: 5, unit: 'deg', default: 90 }),
+    num('yawLeft', 'Yaw moving left', 'Rotation about +Y while the parent moves left.', { required: true, when: when('mode', 'sides'), min: -360, max: 360, step: 5, unit: 'deg', default: -90 }),
+    num('yawOffset', 'Yaw offset', 'Added to the motion\'s yaw (0: the model is authored facing +Z).', { when: when('mode', 'velocity'), min: -360, max: 360, step: 5, unit: 'deg', default: 0 }),
+    num('turnSeconds', 'Turn time', 'Time to turn around (a half turn).', { min: 0, max: 5, step: 0.01, unit: 's', default: 0.12 }),
   ]),
   // Phase 15.5: a model authored facing +Z turns ±90° to face +X / −X, turning around in 0.12 s (quick, still visible).
   add: { kind: 'menu', value: { yawRight: 90, yawLeft: -90, turnSeconds: 0.12 } },
+  presets: [
+    { label: 'Two sides', value: { yawRight: 90, yawLeft: -90, turnSeconds: 0.12 } },
+    // Phase 24.4f: a model authored facing +Z faces its motion (a 3D walker, a top-down character).
+    { label: 'Face velocity', value: { mode: 'velocity', turnSeconds: 0.12 } },
+  ],
   handles: [],
   excludes: [],
   prefab: true,
@@ -1996,6 +2025,22 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   // Phase 23.10: game modes (the first is the start mode) and the behavior groups modes tick.
   { key: 'modes', label: 'Game modes', tooltip: 'Named states of the running game: the input maps, camera, UI documents and ticking behavior groups of each, switched in one transition without a scene load (explore and tactical, on foot and driving, build and play…). The first mode is the one a run starts in.', required: false, value: list('modes', 'Game modes', `Up to ${MODE_LIMITS.modes} modes; the first is the start mode.`, MODE_ITEM, { maxItems: MODE_LIMITS.modes, default: [] }), ops: ['setModes'] },
   { key: 'behaviorGroups', label: 'Behavior groups', tooltip: 'Names an object\'s behavior can belong to (its Behavior group component); a game mode lists the groups that tick while it is active.', required: false, value: list('behaviorGroups', 'Behavior groups', `Up to ${MODE_LIMITS.behaviorGroups} names.`, str('*', 'Group', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MODE_LIMITS.behaviorGroups, unique: true, default: [] }), ops: ['setBehaviorGroups'] },
+  // Phase 24.4i: the event → cue table (the generic replacement for fixed cue slots).
+  {
+    key: 'eventCues',
+    label: 'Event sounds',
+    tooltip: 'Sounds the game plays when a signal is sent or an event happens (a trigger entered, something collected, damaged, touched…), by name.',
+    required: false,
+    value: list('eventCues', 'Event sounds', `Up to ${EVENT_CUE_LIMITS.cues} rows.`, obj('*', 'Event sound', 'One sound for one signal or event.', [
+      enm('on', 'On', 'A signal (by its name) or an event scripts see in ctx.events (by its type: enter, exit, collected, damaged, died, contact…, or an animator clip event\'s name).', EVENT_CUE_SOURCES, { required: true, default: 'signal', labels: { signal: 'Signal', event: 'Event' } }),
+      str('name', 'Name', 'The signal\'s name, or the event\'s type or name.', { required: true, minLength: 1, maxLength: EVENT_CUE_LIMITS.name, default: 'trigger' }),
+      entity('entity', 'Object', 'Only this object\'s events (absent: any object\'s).', { when: when('on', 'event'), anyScene: true }),
+      asset('assetId', 'Sound', 'The audio asset played.', ['audio'], { required: true }),
+      num('volume', 'Volume', 'How loud (0–1).', { min: 0, max: 1, step: 0.05, default: 1 }),
+      enm('bus', 'Bus', 'The mixer bus it plays on.', EVENT_CUE_BUSES, { default: 'sfx' }),
+    ]), { maxItems: EVENT_CUE_LIMITS.cues, default: [] }),
+    ops: ['setEventCues'],
+  },
   { key: 'uiThemes', label: 'UI themes', tooltip: 'Named styles and icons UI documents share.', required: false, value: list('uiThemes', 'UI themes', `Up to ${UI_LIMITS.themes} themes.`, json('*', 'Theme', 'A UI theme: { uiThemeId, name, styles, icons? }.', { readOnly: true }), { maxItems: UI_LIMITS.themes, default: [] }), ops: ['setUiTheme', 'deleteUiTheme'] },
   // Phase 23.16: dialogue — conversations (dialogue graphs, edited in the Dialogue tab with graphEdit), the speaker registry, the settings.
   { key: 'dialogues', label: 'Dialogues', tooltip: 'Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.', required: false, value: list('dialogues', 'Dialogues', `Up to ${DIALOGUE_LIMITS.dialogues} conversations.`, json('*', 'Dialogue', 'A conversation: { dialogueId, name, graph } (graph kind dialogue).', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.dialogues, default: [] }), ops: ['setDialogue', 'deleteDialogue', 'graphEdit'] },

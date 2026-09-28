@@ -201,6 +201,7 @@ export {
   SELECTION_HIGHLIGHT_EMISSIVE,
   SHARED_MATERIAL_KEY,
   setEmissiveLook,
+  setEntityLook,
   setSelectionHighlight,
   toNodeMaterial,
   withoutAmbientLight,

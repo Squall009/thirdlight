@@ -95,7 +95,7 @@ const MENU: { option: string; name: string; added: Record<string, unknown>; edit
   { option: 'Health', name: 'health', added: { max: 3 }, edit: (p) => field(p, 'health max', '5'), after: { max: 5 } },
   { option: 'Pickup', name: 'pickup', added: { kind: 'coin' }, edit: (p) => inspector(p).getByLabel('pickup kind', { exact: true }).selectOption('custom'), after: { kind: 'custom', counter: 'counter' } },
   { option: 'Enemy', name: 'enemy', added: { patrol: 'edges' }, edit: (p) => inspector(p).getByLabel('enemy patrol', { exact: true }).selectOption('points'), after: { patrol: 'points', range: [-2, 2] } },
-  { option: 'Face movement', name: 'faceMovement', added: { turnSeconds: 0.12 }, edit: (p) => field(p, 'faceMovement turnSeconds', '0.3'), after: { turnSeconds: 0.3 } },
+  { option: 'Face movement: Two sides', name: 'faceMovement', added: { turnSeconds: 0.12 }, edit: (p) => field(p, 'faceMovement turnSeconds', '0.3'), after: { turnSeconds: 0.3 } },
 ];
 
 test('every component kind: added, edited (one undo) and removed through the Inspector', async ({ page }) => {

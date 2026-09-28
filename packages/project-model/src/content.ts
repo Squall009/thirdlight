@@ -11,6 +11,7 @@
  * §4.3).
  */
 
+import { canonicalEventCues, validateEventCueReferences, validateEventCues } from './event-cues';
 import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
 import { canonicalDialogues, canonicalDialogueSettings, canonicalSpeakers, validateDialogueReferences, validateDialogues, validateDialogueSettings, validateSpeakers } from './dialogue';
 import { canonicalTimelines, validateTimelineReferences, validateTimelines, type TimelineAsset } from './timelines';
@@ -2197,8 +2198,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2379,6 +2380,15 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     validateUiReferences(doc, errors, (id) => kinds.get(id));
     if (doc['dialogues'] !== undefined || doc['speakers'] !== undefined || doc['dialogueSettings'] !== undefined) validateDialogueReferences(doc, errors, (id) => kinds.get(id));
   }
+  // Phase 24.4i: the event → cue table (v4) and its sounds.
+  if (version === 4 && doc['eventCues'] !== undefined) {
+    const before = errors.length;
+    validateEventCues(doc['eventCues'], '/eventCues', errors);
+    if (errors.length === before) {
+      const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind'] ?? 'model'] as const));
+      validateEventCueReferences(doc, errors, (id) => kinds.get(id));
+    }
+  }
   // Phase 23.10: game modes and behavior groups (v4), and what the modes reference.
   if (version === 4 && doc['behaviorGroups'] !== undefined) validateBehaviorGroups(doc['behaviorGroups'], '/behaviorGroups', errors);
   if (version === 4 && doc['modes'] !== undefined) {
@@ -2549,6 +2559,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).dialogues !== undefined && (c as ContentCatalogV4).dialogues!.length > 0 ? { dialogues: canonicalDialogues((c as ContentCatalogV4).dialogues!) } : {}),
     ...((c as ContentCatalogV4).speakers !== undefined && (c as ContentCatalogV4).speakers!.length > 0 ? { speakers: canonicalSpeakers((c as ContentCatalogV4).speakers!) } : {}),
     ...((c as ContentCatalogV4).dialogueSettings !== undefined ? { dialogueSettings: canonicalDialogueSettings((c as ContentCatalogV4).dialogueSettings!) } : {}),
+    // Phase 24.4i: present only when the project maps events to cues.
+    ...((c as ContentCatalogV4).eventCues !== undefined && (c as ContentCatalogV4).eventCues!.length > 0 ? { eventCues: canonicalEventCues((c as ContentCatalogV4).eventCues!) } : {}),
     // Phase 23.17: present only when there are timelines.
     ...((c as ContentCatalogV4).timelines !== undefined && (c as ContentCatalogV4).timelines!.length > 0 ? { timelines: canonicalTimelines((c as ContentCatalogV4).timelines!) } : {}),
     // Phase 9.6: present only when a scene has a bake.

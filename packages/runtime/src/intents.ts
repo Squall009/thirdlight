@@ -197,6 +197,10 @@ export interface IntentSet {
   readonly characterPlace?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** Phase 23.2: the committed `character_enable` value, or null. */
   readonly characterEnabled?: boolean | null;
+  /** Phase 24.4f: the velocity (m/s) scripts' `ctx.character.impulse` calls add at this controller phase (summed; absent: none). */
+  readonly impulse?: { readonly x: number; readonly y: number; readonly z: number };
+  /** Phase 24.4f: the yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's yaw; absent: as it was). */
+  readonly characterYaw?: number;
 }
 
 /**

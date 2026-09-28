@@ -40,6 +40,8 @@ export class FrameEncoder {
   private view: GameView | null | undefined = undefined;
   private hidden: string[] | null = null;
   private opacityKey = '';
+  /** Phase 24.4h: the look overrides last sent ('' : none). */
+  private looksKey = '';
   private posesKey = '';
   private countersKey = '';
   /** Phase 23.4: the camera pose scratch and whether a camera went out last frame. */
@@ -219,6 +221,16 @@ export class FrameEncoder {
       if (key !== this.opacityKey) {
         this.opacityKey = key;
         out.opacity = entries;
+      }
+    }
+    // Phase 24.4h: the look overrides (only when they changed; never for a game that set none).
+    const looks = rt.entityLooks?.();
+    if (looks !== undefined && (looks.size > 0 || this.looksKey !== '')) {
+      const entries = [...looks].map(([id, l]) => [id, { ...l }] as const).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      const key = entries.length === 0 ? '' : JSON.stringify(entries);
+      if (key !== this.looksKey) {
+        this.looksKey = key;
+        out.looks = entries;
       }
     }
     const posesMap = (rt as { animatorPoses?: () => ReadonlyMap<string, AnimatorPose> }).animatorPoses?.();
@@ -408,6 +420,8 @@ export class FrameMirror {
   view: GameView | null = null;
   hidden: ReadonlySet<string> = new Set();
   opacity: ReadonlyMap<string, number> = new Map();
+  /** Phase 24.4h: the look overrides. */
+  looks: ReadonlyMap<string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }> = new Map();
   poses: ReadonlyMap<string, AnimatorPose> = new Map();
   counters: { counters: Record<string, number>; health: { current: number; max: number } | null } = { counters: {}, health: null };
   runSave: unknown = null;
@@ -478,6 +492,7 @@ export class FrameMirror {
     if (s.view !== undefined) this.view = s.view === null ? null : deepFreeze(s.view);
     if (s.hidden !== undefined) this.hidden = new Set(s.hidden);
     if (s.opacity !== undefined) this.opacity = new Map(s.opacity);
+    if (s.looks !== undefined) this.looks = new Map(s.looks);
     if (s.poses !== undefined) this.poses = new Map(s.poses);
     if (s.counters !== undefined) this.counters = s.counters;
     if (s.runSave !== undefined) this.runSave = s.runSave;

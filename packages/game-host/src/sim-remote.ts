@@ -310,6 +310,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     behaviorDebug: () => [],
     hiddenEntities: () => mirror.hidden,
     entityOpacity: () => mirror.opacity,
+    // Phase 24.4h: the look overrides (ctx.look).
+    entityLooks: () => mirror.looks,
     animatorPoses: (): ReadonlyMap<string, AnimatorPose> => mirror.poses,
     takeAudioRequests: () => {
       const out = mirror.audio;

@@ -266,6 +266,10 @@ export type { BehaviorSpawnControl } from './types';
 export { MAX_TIMERS_PER_INSTANCE, MAX_TIMER_SECONDS } from './timers';
 export type { BehaviorMessage, BehaviorMessageControl, BehaviorMessages, BehaviorTimers, TriggerEventRecord } from './types';
 // Phase 24.4: the generic primitives' script APIs and events.
+export type { BehaviorCharacter, BehaviorLook, BehaviorLookValue, RuntimeEventCue } from './types';
+export type { EntityLook } from './primitives';
+export { CHARACTER_IMPULSE_MAX } from './runtime';
+export { LOOK_MAX_EMISSIVE_INTENSITY, MAX_LOOK_OVERRIDES } from './primitives';
 export type { BehaviorCollectible, BehaviorHealth, BehaviorHitbox, BehaviorPatrol, CollectEventRecord, ContactEventRecord, HealthEventRecord, PatrolEventRecord, PrimitiveEventRecord } from './types';
 // Phase 23.7: ctx.random (seeded, replay-safe) and ctx.world queries.
 export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random';

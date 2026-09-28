@@ -420,3 +420,24 @@ describe('slide policy (C32-1, physics.md §7/§8 min_slope_slide_deg)', () => {
     expect(state.slideSteps).toBe(0);
   });
 });
+
+describe('phase 24.4f: a script impulse', () => {
+  it('adds to the velocity: up lifts a grounded character into an arc; x decays at the acceleration', () => {
+    const state = createControllerState(0, 0.91);
+    const h = harness();
+    h.seed(state);
+    controllerStep(state, 'char-0001', frame(0), SETTINGS, DT, COS_MAX, COS_MIN, TAN_MIN, h.client, undefined, undefined, { x: 3, y: 6 });
+    expect(state.airborne).toBe(true);
+    expect(state.vy).toBeCloseTo(6 + SETTINGS.gravity_y * DT, 12);
+    // Idle input: x approaches 0 at the deceleration (60 m/s²) from the impulse's 3 m/s.
+    expect(state.vx).toBeCloseTo(3 - 60 * DT, 12);
+    expect(h.staged[h.staged.length - 1]!.delta.y).toBeGreaterThan(0);
+    // No impulse: the old step exactly.
+    const plain = createControllerState(0, 0.91);
+    const h2 = harness();
+    h2.seed(plain);
+    controllerStep(plain, 'char-0001', frame(0), SETTINGS, DT, COS_MAX, COS_MIN, TAN_MIN, h2.client);
+    expect(plain.vy).toBe(0);
+    expect(plain.vx).toBe(0);
+  });
+});

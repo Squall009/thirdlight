@@ -104,11 +104,16 @@ keeps the gate green.
 | 24.1 | done 2026-09-27: Sprout tests deleted; `animator-skinned`, `lightmaps-kit` on generated GLBs (browser bake always, Blender bake when Blender is there) |
 | 24.2 | done 2026-09-28: `templates/starter` (no game block, plays as a scene); 35 e2e files, the template unit test and 5 project-model tests off `beacon-reach`; the rest listed below for 24.7 |
 | 24.3 | done 2026-09-28: modules resolve from component/block references only; the platformer is unpinned; the host has no default set and no module import (specs injected by the composition entries); an export links only the specs its manifest names |
-| 24.4 | a–d done 2026-09-28 (fast gate; the full gate runs when 24.4 is complete); e–j open |
+| 24.4 | a–i done 2026-09-28 (fast gate; the full gate runs when 24.4 is complete); j open |
 | 24.4a | done 2026-09-28: `collectible {counter, amount?, size?, onCollect?, respawn?}`; `ctx.collectible.collected/restore`; `collected`/`restored` events |
 | 24.4b | done 2026-09-28: `health` on any object; `ctx.health.get/damage/heal/events`; `damaged`/`healed`/`died` events |
 | 24.4c | done 2026-09-28: `patrol {mode: waypoints or edges, …}` (the mover's path code; wall/ledge probes); `ctx.patrol.get/setActive/turn`; `turned` events |
 | 24.4d | done 2026-09-28: `hitbox {shape?, size or radius, damage?}`; `contact`/`separate` events with the other object and the normal; `ctx.hitbox.setActive/touching` |
+| 24.4e | done 2026-09-28: `trigger.sceneTransition {scene, spawn?, unload?}`; trigger enter/exit events also without the session (2D) |
+| 24.4f | done 2026-09-28: `ctx.character.impulse([x, y, z])`; `faceMovement {mode: 'velocity', yawOffset?}`; `playerSpawn.yaw`; `switch.action` |
+| 24.4g | done 2026-09-28: `virtualCamera` rig `track {target, trackOffset?, deadZone?, damping?, boundsMin?, boundsMax?}` |
+| 24.4h | done 2026-09-28: `ctx.look.set/clear/get` (emissive, intensity, tint), both renderers |
+| 24.4i | done 2026-09-28: `content.eventCues` (`setEventCues`; signal or event name → sound), Media tab |
 | 24.5 | — |
 | 24.6 | — |
 | 24.7 | — |
@@ -238,3 +243,55 @@ keeps the gate green.
   calls (`ctx.health.damage`, …); there are no "On damaged / On contact"
   event nodes yet (a graph reads the calls; event nodes are open for 24.5,
   whose descriptors drive menus and nodes).
+- 2026-09-28 (24.4e): the trigger already had `enter`/`exit` events in
+  `ctx.events` (phase 14.2); the gap was a 2D scene without the game session,
+  where triggers did not run at all. They now run there (after the transform
+  phase, against the controller's object); no recorded replay changed.
+  `sceneTransition` is a trigger field, not a new component: an entry (as
+  its signal, once with `once`) queues the unloads and the load like
+  `ctx.scenes`, then moves the character to the spawn once the scene is
+  loaded — through the session's transfer when there is one, else at the next
+  step boundary (3D: `pendingRespawn`; 2D: the port's placement and the
+  controller's reset hook). The spawn must be a `playerSpawn` in the loaded
+  scene or the trigger's (checked across scenes by the project rule, as the
+  exit's), and becomes the active spawn. The Inspector's "+ add" for an
+  object with a required scene reference starts at another scene of the
+  project (`startValue` refs).
+- 2026-09-28 (24.4f): an impulse adds to the velocity (the controllers' own
+  acceleration brings it back to what the input asks), summed per step and
+  consumed by the next controller phase; a positive y lifts a grounded
+  character into an arc. Limit 100 m/s per component (a safety bound).
+  Facing: `faceMovement.mode: 'velocity'` (the yaw of the horizontal motion,
+  atan2(dx, dz), plus `yawOffset`; `turnSeconds` is the time of a half turn)
+  and `playerSpawn.yaw` (degrees, 0 = +Z). Velocity models turn in 3D and
+  without the session; two-sided models keep their old scope (the session's
+  2D step) so nothing recorded changes. `facing: left|right` stays readable
+  (24.8 upgrades it). The switch's `action` defaults to `interact`.
+- 2026-09-28 (24.4g): the camera follow is a new virtual-camera rig
+  (`track`) in the phase 23.4 brain, not a new component: it runs wherever
+  the brain runs (both dimensions, any mode), keeps the camera's placed
+  rotation and offset (its depth is data, no `CAMERA_Z`), reuses `damping` as
+  its smoothing, and clamps the framed point to per-axis bounds. No frustum
+  clamp (a level-bounds rule of the platformer camera). The dead zone and
+  bounds have no Scene handle yet (world-space boxes not tied to the camera
+  object; a handle kind for them is open for 24.5).
+- 2026-09-28 (24.4h): look overrides live with the primitives (reset with a
+  new run, removed with their object, saved in the `components` section,
+  at most 1024), reach the renderer as `entityLooks()` (mirrored from the
+  simulation worker; in the step digest only while one is set) and are
+  applied by `setEntityLook` (the checkpoint glow's own-copy rule; a tint
+  multiplies the base colour). The checkpoint glow now goes through it.
+- 2026-09-28 (24.4i): `content.eventCues` rows `{on: signal|event, name,
+  entity?, assetId, volume?, bus?}` (at most 64). The runtime notes the
+  step's signals and trigger/primitive events (only when the project has a
+  table) and plays each matching row once per step through the audio intent
+  log, so the host plays it in both threading modes and the export (its
+  sounds are captured with the content). Signals and event types share one
+  `name` field, told apart by `on`. The Media tab edits the table (a row is
+  made from its three essentials, then edited with the descriptor form).
+- 2026-09-28 (24.4e–i): `shader-parity` expected `auto` to take WebGL 2 in
+  the default project; on the GPU host that project has a WebGPU adapter
+  (`auto` → WebGPU). The test now follows `gpuAvailable()` (a stale test
+  expectation since the gates moved to the GPU, as `effects-runtime` in
+  24.2; not a product bug). The inspector test's Face movement option is now
+  its preset "Two sides" (the component has presets).

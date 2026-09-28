@@ -31,7 +31,7 @@ import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { uiOf, withUi } from './ui-ops';
 import { dialogueValueOf, withDialogueValue } from './dialogue-ops';
-import { behaviorGroupsOf, modesOf, withBehaviorGroups, withModes } from './mode-ops';
+import { behaviorGroupsOf, eventCuesOf, modesOf, withBehaviorGroups, withEventCues, withModes } from './mode-ops';
 import { timelineOf, withTimeline } from './timeline-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
@@ -542,6 +542,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withBehaviorGroups(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setEventCues') {
+    // Phase 24.4i: the event → cue table back to what it was.
+    const before = eventCuesOf(content);
+    const change: ChangeData = { type: 'setEventCues', previous: deepClone(before), next: deepClone(inv.restore) };
+    return finish(state, bumped(scene), withEventCues(content, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setSaveSchema') {
     const before = (content as { saveSchema?: import('@thirdlight/project-model').SaveSchema }).saveSchema ?? null;
     const change: ChangeData = { type: 'setSaveSchema', previous: before === null ? null : structuredClone(before), next: inv.restore === null ? null : structuredClone(inv.restore) };
@@ -1020,6 +1027,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = behaviorGroupsOf(content);
     const change: ChangeData = { type: 'setBehaviorGroups', previous: [...before], next: [...f.next] };
     return finish(state, bumped(scene), withBehaviorGroups(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setEventCues') {
+    const before = eventCuesOf(content);
+    const change: ChangeData = { type: 'setEventCues', previous: deepClone(before), next: deepClone(f.next) };
+    return finish(state, bumped(scene), withEventCues(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setSaveSchema') {

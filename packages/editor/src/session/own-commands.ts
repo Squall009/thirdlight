@@ -42,6 +42,8 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   // Phase 23.10: game modes and behavior groups (whole lists).
   'setModes',
   'setBehaviorGroups',
+  // Phase 24.4i: the event → cue table (whole list).
+  'setEventCues',
   'setSaveSchema',
   'setFlow',
   'setStartScenes',

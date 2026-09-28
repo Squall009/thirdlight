@@ -131,7 +131,12 @@ export interface RuntimeSnapshot {
   modes?: import('@thirdlight/project-model').RuntimeModes;
   /** Phase 23.17, v4 only, optional: the project's timelines (`content.timelines`; `ctx.timeline`). */
   timelines?: readonly import('@thirdlight/project-model').TimelineAsset[];
+  /** Phase 24.4i, v4 only, optional: the event → cue table (`content.eventCues`); absent: no event sounds. */
+  eventCues?: readonly RuntimeEventCue[];
 }
+
+/** Phase 24.4i: one row of the event → cue table (project-model `EventCue`). */
+export type RuntimeEventCue = import('@thirdlight/project-model').EventCue;
 
 /** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
 export interface ModelBounds {
@@ -526,7 +531,7 @@ export interface GameContent {
   /** Ascending `entityId` codepoint order. */
   readonly zones: readonly GameZoneSpec[];
   /** Phase 15.2: `facing` only when the spawn sets left or right. */
-  readonly spawns: readonly { entityId: string; center: Vec2; facing?: 'left' | 'right' }[];
+  readonly spawns: readonly { entityId: string; center: Vec2; facing?: 'left' | 'right'; yaw?: number }[];
   /** Phase 14.0: the player entity and its collision capsule (from its `controller`). */
   readonly player: { entityId: string; capsule: PlayerCapsule };
   readonly camera: {
@@ -758,6 +763,10 @@ export interface StepContext {
   readonly hitbox?: BehaviorHitbox;
   /** Phase 24.4a: collectibles (`ctx.collectible`). */
   readonly collectible?: BehaviorCollectible;
+  /** Phase 24.4f: the character (`ctx.character`). */
+  readonly character?: BehaviorCharacter;
+  /** Phase 24.4h: per-object look overrides (`ctx.look`). */
+  readonly look?: BehaviorLook;
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
   /**
@@ -2115,6 +2124,52 @@ export interface BehaviorCollectible {
   restore(entityId: string): boolean;
 }
 
+/** Phase 24.4f: `ctx.character` — the character (the object with the Character controller). */
+export interface BehaviorCharacter {
+  /**
+   * Add `velocity` [x, y, z] (m/s, each at most 100 either way) to the character's velocity at its next move — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without a character or for a bad vector.
+   * @graphNode Character impulse
+   * @graphLabel velocity velocity
+   */
+  impulse(velocity: readonly [number, number, number]): boolean;
+}
+
+/**
+ * Phase 24.4h: a look override (`ctx.look.set`): an emissive glow and a tint
+ * multiplied into the object's own colour, on every mesh under the object.
+ */
+export interface BehaviorLookValue {
+  /** The glow colour ('#rrggbb'). */
+  emissive?: string;
+  /** How strongly it glows (0–4; absent with a glow colour: 1). */
+  emissiveIntensity?: number;
+  /** A colour ('#rrggbb') multiplied into the object's own colour. */
+  tint?: string;
+}
+
+/** Phase 24.4h: `ctx.look` — per-object look overrides the renderer applies (both renderers). */
+export interface BehaviorLook {
+  /**
+   * Give an object (and every mesh under it) a look override — a glow (emissive colour and intensity) and/or a tint — replacing any it had, until cleared or a new run. False for an object not loaded or a bad value.
+   * @graphNode Set look
+   * @graphLabel entityId object
+   */
+  set(entityId: string, look: BehaviorLookValue): boolean;
+  /**
+   * Give an object its own look back. False when it had no override.
+   * @graphNode Clear look
+   * @graphLabel entityId object
+   */
+  clear(entityId: string): boolean;
+  /**
+   * The object's look override now, or null when it has none.
+   * @graphPure
+   * @graphNode Look of
+   * @graphLabel entityId object
+   */
+  get(entityId: string): BehaviorLookValue | null;
+}
+
 /** Phase 9.7: one entity's animator, as a script sees it. */
 export interface BehaviorAnimatorHandle {
   /**
@@ -2292,6 +2347,8 @@ export interface Runtime {
   hiddenEntities?(): ReadonlySet<string>;
   /** Phase 15.3: entities fading out (id -> opacity 0-1; a defeated enemy with `defeat: "fade"`). */
   entityOpacity?(): ReadonlyMap<string, number>;
+  /** Phase 24.4h: the per-object look overrides scripts set (ctx.look; the renderer applies them). */
+  entityLooks?(): ReadonlyMap<string, import('./primitives').EntityLook>;
   /** Phase 9.10: the sounds scripts played since the last call. Phase 23.13: the audio intent log's commands. */
   takeAudioRequests?(): import('./audio-mixer').AudioCommand[];
   /** Phase 23.13: the audio intent log's deterministic state (digests; null while scripts never used audio). */

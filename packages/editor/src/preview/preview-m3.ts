@@ -161,6 +161,8 @@ export interface PreviewManifestV2 {
   saveSchema?: SaveSchema;
   /** Phase 23.17: the timelines. */
   timelines?: import('@thirdlight/runtime').TimelineAsset[];
+  /** Phase 24.4i: the event → cue table. */
+  eventCues?: import('@thirdlight/runtime').RuntimeEventCue[];
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -402,7 +404,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -464,7 +466,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBoundsU0 = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
   const withBoundsU1 = manifest.dialogue !== undefined ? ({ ...withBoundsU0, dialogue: manifest.dialogue } as RuntimeSnapshot) : withBoundsU0;
   // Phase 23.17: the timelines (ctx.timeline, play-on-start / play-on-signal).
-  const withBoundsU = manifest.timelines !== undefined && manifest.timelines.length > 0 ? ({ ...withBoundsU1, timelines: manifest.timelines } as RuntimeSnapshot) : withBoundsU1;
+  const withBoundsU2 = manifest.timelines !== undefined && manifest.timelines.length > 0 ? ({ ...withBoundsU1, timelines: manifest.timelines } as RuntimeSnapshot) : withBoundsU1;
+  // Phase 24.4i: the event → cue table (the runtime plays its sounds through the audio intent log).
+  const withBoundsU = manifest.eventCues !== undefined && manifest.eventCues.length > 0 ? ({ ...withBoundsU2, eventCues: manifest.eventCues } as RuntimeSnapshot) : withBoundsU2;
   // Phase 23.13: the audio assets' recorded durations (script sounds' finished events are computed from them).
   const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const withBoundsA = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;

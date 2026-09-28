@@ -28,6 +28,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { diff, diffPng, serveHarness, show, within, type Diff } from './parity';
+import { gpuAvailable } from './browser-env.mjs';
 import { decodePng, type Image } from './png';
 
 const HERE = resolve(import.meta.dirname, 'shader-parity');
@@ -97,9 +98,10 @@ for (const name of CASES) {
     const got = await render(page, 'webgl2', name);
     expect(got.backend).toBe('webgl2');
     expect(within(compare(name, 'webgl2', got)), `webgl2 ${name}`).toBe(true);
-    // The default backend: auto takes WebGL 2 here (no WebGPU adapter in this project).
+    // The default backend: auto takes WebGL 2 here without a WebGPU adapter (SwiftShader); on the
+    // host's GPU (2026-09-27) the default project has one, and auto takes WebGPU.
     const auto = await render(page, 'auto', name);
-    expect(auto.backend).toBe('webgl2');
+    expect(auto.backend).toBe(gpuAvailable() ? 'webgpu' : 'webgl2');
     expect(within(compare(name, 'auto', auto)), `auto ${name}`).toBe(true);
   });
 }

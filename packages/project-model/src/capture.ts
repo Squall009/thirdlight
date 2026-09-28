@@ -151,6 +151,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const id of dialogueAssetRefs(content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[] })) setRef(id);
   // Phase 23.17: the sounds the timelines play.
   for (const id of timelineRefs((content as { timelines?: TimelineAsset[] }).timelines).assets) setRef(id);
+  // Phase 24.4i: the sounds of the event → cue table.
+  for (const c of (content as { eventCues?: { assetId: string }[] }).eventCues ?? []) setRef(c.assetId);
   // Phase 9.5: the sky images and the grading LUT.
   const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;
   if (env?.sky?.texture !== undefined) setRef(env.sky.texture);

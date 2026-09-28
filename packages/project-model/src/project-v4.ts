@@ -342,6 +342,26 @@ export function composeV4(
     });
   }
 
+  // Phase 24.4e: triggers' scene transitions (the scenes exist; the spawn is a player spawn the character can reach).
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      const t = (e.components as { trigger?: { sceneTransition?: { scene: string; spawn?: string; unload?: string[] } } }).trigger?.sceneTransition;
+      if (t === undefined) return;
+      const at = `/entities/${i}/components/trigger/sceneTransition`;
+      if (!sceneIds.has(t.scene)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/scene`, reason: 'scene', message: 'a scene transition names no scene of the project', expected: 'an existing scene id' }, t.scene)));
+      (t.unload ?? []).forEach((id, j) => {
+        if (!sceneIds.has(id)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/unload/${j}`, reason: 'scene', message: 'a scene transition unloads no scene of the project', expected: 'an existing scene id' }, id)));
+      });
+      if (t.spawn !== undefined) {
+        const hit = entityById.get(t.spawn);
+        const reachable = hit !== undefined && (hit.sceneId === s.sceneId || hit.sceneId === t.scene);
+        if (hit === undefined || hit.entity.components.playerSpawn === undefined || !reachable) {
+          errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/spawn`, reason: 'spawn', message: 'a scene transition\'s spawn must be a player spawn in the scene it loads (or its own)', expected: 'a playerSpawn entity id' }, t.spawn)));
+        }
+      }
+    });
+  }
+
   // Per-scene references against the content block.
   for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
 

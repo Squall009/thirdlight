@@ -110,6 +110,13 @@ describe('project v4', () => {
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, exit]))).toContain('an exit names no scene');
     const badSpawn = scene('scene-exit', [{ id: 'zone-0001', components: { transform: T, gameZone: { role: 'exit', size: [1, 1], load: ['scene-core'], spawnId: 'spawn-0002' } } }]);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, badSpawn]))).toContain('an exit spawn must be');
+    // Phase 24.4e: a trigger's scene transition names existing scenes and a player spawn in the scene it loads (or its own).
+    const door = (t: Record<string, unknown>) => scene('scene-exit', [{ id: 'door-0001', components: { transform: T, trigger: { size: [1, 1], signal: 'door', sceneTransition: t } } }]);
+    expect(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', spawn: 'spawn-0002', unload: ['scene-exit'] })]).ok).toBe(true);
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-gone' })]))).toContain('a scene transition names no scene');
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', unload: ['scene-gone'] })]))).toContain('a scene transition unloads no scene');
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-core', spawn: 'spawn-0002' })]))).toContain('a scene transition\'s spawn must be');
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', spawn: 'box-0001' })]))).toContain('a scene transition\'s spawn must be');
     const inst = scene('scene-level', [{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: 'asset-none' }, buffer: DIGEST, count: 2 } } }]);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, inst]))).toContain('asset_reference_missing');
   });

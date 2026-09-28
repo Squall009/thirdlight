@@ -326,6 +326,11 @@ export {
   PRIMITIVE_DEFAULTS,
   PRIMITIVE_LIMITS,
   type CollectibleComponent,
+  // Phase 24.4e/f: scene transitions, switch actions, face-velocity models.
+  FACE_MOVEMENT_MODES,
+  MAX_TRANSITION_UNLOADS,
+  SWITCH_DEFAULT_ACTION,
+  type SceneTransitionAction,
   type PatrolComponent,
   type HitboxComponent,
   type BlockComponentName,
@@ -650,6 +655,8 @@ export {
   validateModeTransition,
 } from './modes';
 export type { BehaviorGroupComponent, GameMode, ModeBlend, ModePhysics, ModeTransition, ModeUngrouped, RuntimeModes } from './modes';
+// Phase 24.4i: the event → cue table.
+export { ENGINE_EVENT_TYPES, EVENT_CUE_BUSES, EVENT_CUE_FIELDS, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES, canonicalEventCue, canonicalEventCues, validateEventCue, validateEventCueReferences, validateEventCues, type EventCue } from './event-cues';
 // Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
 // Phase 9.7: animator controllers.

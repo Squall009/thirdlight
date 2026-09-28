@@ -423,7 +423,13 @@ export function validatePlayerSpawnComponent(c: unknown, path: string, errors: M
       if (typeof v !== 'string' || !(PLAYER_SPAWN_FACINGS as readonly string[]).includes(v)) errors.push(fieldValue(`${path}/facing`, v, '"none", "left" or "right"', 'facing is none, left or right'));
       continue;
     }
-    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'facing' : '{} (no fields)'));
+    // Phase 24.4f: the way the character faces on arrival, a yaw in degrees about +Y (0: facing +Z; any direction, 3D too).
+    if (k === 'yaw' && version === 4) {
+      const v = c[k];
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < -360 || v > 360) errors.push(fieldValue(`${path}/yaw`, v, 'a number −360–360', 'yaw is −360–360 degrees'));
+      continue;
+    }
+    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'facing, yaw' : '{} (no fields)'));
   }
 }
 
@@ -1273,8 +1279,8 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['gameZone'] !== undefined) components.gameZone = canonicalGameZone(comps['gameZone']);
   if (comps['playerSpawn'] !== undefined) {
-    const facing = (comps['playerSpawn'] as { facing?: PlayerSpawnFacing }).facing;
-    components.playerSpawn = facing !== undefined ? { facing } : {};
+    const { facing, yaw } = comps['playerSpawn'] as { facing?: PlayerSpawnFacing; yaw?: number };
+    components.playerSpawn = { ...(facing !== undefined ? { facing } : {}), ...(yaw !== undefined ? { yaw } : {}) };
   }
   if (comps['cameraFollow'] !== undefined) components.cameraFollow = canonicalCameraFollow(comps['cameraFollow']);
   if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);

@@ -38,6 +38,7 @@ import type { ModelErrorV2 } from './errors';
 import { validateFlow } from './flow';
 import { validateInput } from './input';
 import { validateModes } from './modes';
+import { validateEventCues } from './event-cues';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, validateEnvironment, validateMaterials } from './materials';
 import { validateEffects } from './effects';
 import { validateBlockStamps, validateBlockTypes, validateCellFields } from './block-layers';
@@ -148,6 +149,13 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
   'virtualCamera:far': (o, v) => {
     if (typeof o['near'] === 'number') o['near'] = Math.min(o['near'] as number, v / 2);
   },
+  // Phase 24.4g: the track rig's bounds (the other side moved out of the way).
+  'virtualCamera:boundsMin': (o) => {
+    if (Array.isArray(o['boundsMax'])) o['boundsMax'] = [1e6, 1e6, 1e6];
+  },
+  'virtualCamera:boundsMax': (o) => {
+    if (Array.isArray(o['boundsMin'])) o['boundsMin'] = [-1e6, -1e6, -1e6];
+  },
   'behaviors:*.declaration.properties.*.min': (o, v) => {
     o['max'] = Math.max(o['max'] as number, v);
   },
@@ -190,7 +198,8 @@ function withValue(root: J, objPtr: string, key: string, value: J, dpath: string
   const o = clone(getAt(root, objPtr)) as Obj;
   o[key] = value;
   const adj = ADJUST[dpath];
-  if (adj !== undefined && typeof value === 'number') adj(o, value);
+  // Phase 24.4g: a vector's cross-field rule too (the track rig's bounds).
+  if (adj !== undefined && (typeof value === 'number' || Array.isArray(value))) adj(o, value as number);
   return setAt(root, objPtr, o);
 }
 
@@ -480,6 +489,8 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { rig: 'topDown', target: 'spawn-0001', distance: 12, yaw: 90, damping: 0 },
     { rig: 'fixed', target: 'spawn-0001', blend: 'eased', blendTime: 2 },
     { rig: 'rail', path: 'path-0001', progress: 0.25, railSpeed: 3, railMode: 'pingpong', target: 'spawn-0001' },
+    // Phase 24.4g: the track rig.
+    { rig: 'track', target: 'spawn-0001', trackOffset: [0, 2, 12], deadZone: [2, 1, 2], boundsMin: [-50, -10, -50], boundsMax: [50, 20, 50], damping: 0.2 },
   ],
   cameraPath: [{ points: [[0, 0, 0], [4, 1, 0], [8, 0, 2]], closed: true, smooth: false }],
   cameraFollow: [{ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 }, distance: 10, maxSpeed: 100 }],
@@ -490,7 +501,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { role: 'goal', size: [2, 2], effect: 'fx-a' },
     { role: 'exit', size: [1.5, 2.5], load: ['scene-b'], unload: ['scene-c'], spawnId: 'spawn-0001' },
   ],
-  playerSpawn: [{ facing: 'left' }],
+  playerSpawn: [{ facing: 'left' }, { yaw: 90 }],
   mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
   trigger: [
     { shape: 'box', size: [2, 2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
@@ -498,8 +509,10 @@ const COMPONENT_BASES: Record<string, J[]> = {
     // Phase 23.1: the 3D areas.
     { shape: 'sphere', radius: 1.5, signal: 'enter' },
     { shape: 'capsule', radius: 0.025, height: 500, signal: 'enter' },
+    // Phase 24.4e: a scene transition.
+    { size: [2, 2, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-0001', unload: ['scene-c'] } },
   ],
-  switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }],
+  switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }, { mode: 'interact', signal: 'open', size: [1, 1], action: 'use' }],
   health: [{ max: 5, start: 3, invulnerableSeconds: 1, knockback: 2, knockbackTime: 0.4, hitBounce: 3, hitEffect: 'fx-a' }],
   pickup: [
     { kind: 'coin', value: 1, size: [1, 1], respawn: 'death', cue: 'cue-a', effect: 'fx-a' },
@@ -518,7 +531,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   hitbox: [{ shape: 'box', size: [1, 2, 3], damage: 2 }, { shape: 'sphere', radius: 0.5 }],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }, { assetId: 'cue-a', volume: 0.8, range: 12, distanceModel: 'inverse', refDistance: 2, rolloff: 1.5 }],
   animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true } }],
-  faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }],
+  faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }, { mode: 'velocity', yawOffset: -90, turnSeconds: 0.2 }],
   modelAnimation: [{ assetId: 'model-a', version: 1, roles: { idle: { clipIndex: 0 }, run: { clipIndex: 1 }, airborne: { clipIndex: 2 } } }],
   behavior: [{ behaviorId: 'beh-a', values: { speed: 3 } }],
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
@@ -829,6 +842,8 @@ function runAllProbes(): void {
   // Phase 23.10: game modes (every field, the references present) and behavior groups.
   // (The shape validator: the references to documents, maps and groups are the project's check, tested in modes.test.ts.)
   probe('modes', (v) => errorsOf((e) => validateModes(v, '', e)), [{ modeId: 'explore', name: 'Explore', inputMaps: ['gameplay', 'tactical'], camera: 'cam-0001', ui: ['hud'], groups: ['field'], ungrouped: 'pause', pause: false, pauseScreen: 'hud', timeScale: 0.5, physics: 'hold', enter: { blend: 'eased', blendTime: 0.5, fade: 'fade', fadeTime: 0.25 } }], '', block('modes'), 'modes:');
+  // Phase 24.4i: the event → cue table (the shape validator; the sounds' kinds are the project's check).
+  probe('eventCues', (v) => errorsOf((e) => validateEventCues(v, '', e)), [{ on: 'event', name: 'collected', entity: 'spawn-0001', assetId: 'cue-a', volume: 0.5, bus: 'ui' }, { on: 'signal', name: 'door', assetId: 'cue-a' }], '', block('eventCues'), 'eventCues:');
   probe('behaviorGroups', contentErrors, contentDoc({ behaviorGroups: ['field', 'board'] }), '/behaviorGroups', block('behaviorGroups'), 'behaviorGroups:');
   // Phase 23.17: timelines (json items).
   probe('timelines', contentErrors, contentDoc({ timelines: [{ timelineId: 'intro', name: 'Intro', duration: 2, tracks: [{ trackId: 's', type: 'signal', keys: [{ time: 1, name: 'go' }] }] }] }), '/timelines', block('timelines'), 'timelines:');
@@ -925,7 +940,8 @@ describe('descriptor registry (phase 15.0)', () => {
     // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
     // repeat the sky/fog/post descriptors, about 9 KB; phase 24.4: + collectible, patrol and hitbox, about 6 KB,
     // until 24.7 removes the pickup and enemy blocks)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(240_000);
+    // (phase 24.4e–i: + scene transitions, the track rig, face velocity, event sounds, about 4 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(246_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

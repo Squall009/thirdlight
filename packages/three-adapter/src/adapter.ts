@@ -29,7 +29,7 @@ import type { MaterialFunctionLike } from './material-graph';
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
-import { releaseEmissiveLooks, setEmissiveLook, SHARED_MATERIAL_KEY } from './node-materials';
+import { releaseEmissiveLooks, setEmissiveLook, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
@@ -1107,6 +1107,42 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     shownCheckpoint = active;
   };
 
+  // Phase 24.4h: the simulation's per-object look overrides (ctx.look): applied
+  // when one changes, and again when the object's meshes change (a model that
+  // finished loading after the override was set); cleared ones give the
+  // object its own look back.
+  type LookLike = { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string };
+  const shownLooks = new Map<string, { look: LookLike; meshes: number }>();
+  const meshCount = (root: THREE.Object3D): number => {
+    let n = 0;
+    root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh === true) n += 1;
+    });
+    return n;
+  };
+  const sameLook = (a: LookLike, b: LookLike): boolean => a.emissive === b.emissive && a.emissiveIntensity === b.emissiveIntensity && a.tint === b.tint;
+  const syncEntityLooks = (): void => {
+    const looks = (opts.runtime as { entityLooks?: () => ReadonlyMap<string, LookLike> }).entityLooks?.();
+    if (looks === undefined || (looks.size === 0 && shownLooks.size === 0)) return;
+    for (const id of [...shownLooks.keys()]) {
+      if (looks.has(id)) continue;
+      const obj = objects.get(id);
+      if (obj !== undefined) setEntityLook(obj, null);
+      // A zone activation look on the same object is applied again by its own sync.
+      if (shownCheckpoint === id) shownCheckpoint = null;
+      shownLooks.delete(id);
+    }
+    for (const [id, look] of looks) {
+      const obj = objects.get(id);
+      if (obj === undefined) continue;
+      const shown = shownLooks.get(id);
+      const meshes = meshCount(obj);
+      if (shown !== undefined && sameLook(shown.look, look) && shown.meshes === meshes) continue;
+      setEntityLook(obj, look);
+      shownLooks.set(id, { look, meshes });
+    }
+  };
+
   // --- Phase 12 (c): follow the runtime's scene set ------------------------
   /** Scenes realized so far (the start scenes came with the snapshot). */
   const realizedScenes = new Map<string, ReadonlySet<string>>();
@@ -1128,6 +1164,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const id of ids) lightmaps?.release(id);
       realization?.removeEntities(ids);
       if (shownCheckpoint !== null && ids.has(shownCheckpoint)) shownCheckpoint = null;
+      for (const id of ids) shownLooks.delete(id);
       // Children before parents (reverse document order).
       for (const id of [...ids].reverse()) releaseEntity(id);
       realizedScenes.delete(sceneId);
@@ -1158,6 +1195,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         realizedSpawned.delete(id);
         hiddenIds.delete(id);
         if (shownCheckpoint === id) shownCheckpoint = null;
+        shownLooks.delete(id);
       }
     }
     const added = spawned.filter((e) => !realizedSpawned.has((e as { id: string }).id)) as unknown as (typeof opts.snapshot.scene.entities)[number][];
@@ -1358,6 +1396,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     applyResolvedCamera();
     applyCameraOffset();
     syncCheckpointLook();
+    syncEntityLooks();
     // Phase 9.9: collected pickups and defeated enemies disappear (and come back on a replay).
     const hiddenNow = (opts.runtime as { hiddenEntities?: () => ReadonlySet<string> }).hiddenEntities?.();
     if (hiddenNow !== undefined) {

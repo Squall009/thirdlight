@@ -94,6 +94,8 @@ export default defineConfig({
         '**/material-runtime.e2e.ts',
         // Phase 23.18: environment preset blends (sky, fog, lights in place) on WebGPU.
         '**/environment-presets.e2e.ts',
+        // Phase 24.4h: per-object look overrides (emissive, tint) on WebGPU.
+        '**/look-override.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

@@ -469,7 +469,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
   // Phase 15.2: which way the player faces at this spawn (v4).
-  playerSpawn: ['facing'],
+  playerSpawn: ['facing', 'yaw'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
@@ -480,9 +480,9 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   animator: ['controller', 'parameters'],
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
   audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
-  faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
-  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'],
-  switch: ['mode', 'signal', 'size', 'once'],
+  faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],
+  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],
+  switch: ['mode', 'signal', 'size', 'once', 'action'],
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
   enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],

@@ -91,7 +91,7 @@ import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtim
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { TimelineAsset } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -577,6 +577,9 @@ function EditorApp(): JSX.Element {
   const [modes, setModes] = useState<GameMode[]>([]);
   const [behaviorGroups, setBehaviorGroups] = useState<string[]>([]);
   const [modesError, setModesError] = useState<string | null>(null);
+  /** Phase 24.4i: the event → cue table and the last setEventCues error. */
+  const [eventCues, setEventCues] = useState<EventCue[]>([]);
+  const [eventCuesError, setEventCuesError] = useState<string | null>(null);
   /** Phase 23.10: the running Play's current game mode (the toolbar shows it; null: none or not playing). */
   const [playMode, setPlayMode] = useState<{ current: string; name: string } | null>(null);
   // Phase 23.10: the running Play's game mode for the toolbar (from its diagnostics; a project with modes).
@@ -898,6 +901,7 @@ function EditorApp(): JSX.Element {
     setCollisionLayers(stable('collisionLayers', c.getCollisionLayers()));
     setModes(stable('modes', c.getModes()));
     setBehaviorGroups(stable('behaviorGroups', c.getBehaviorGroups()));
+    setEventCues(stable('eventCues', c.getEventCues()));
     setSaveSchema(stable('saveSchema', c.getSaveSchema()));
     const mats = stable('materials', c.getMaterials());
     const env = stable('environment', c.getEnvironment());
@@ -2016,6 +2020,14 @@ function EditorApp(): JSX.Element {
     const res = await c.command('setBehaviorGroups', { groups: next }, c.projection.revision);
     if (res.ok) setModesError(null);
     else setModesError((res.response as { message?: string }).message ?? 'the behavior groups could not be saved');
+  }, []);
+  /** Phase 24.4i: replace the event → cue table (one setEventCues command). */
+  const saveEventCues = useCallback(async (next: EventCue[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setEventCues', { cues: next }, c.projection.revision);
+    if (res.ok) setEventCuesError(null);
+    else setEventCuesError((res.response as { message?: string }).message ?? 'the event sounds could not be saved');
   }, []);
   /** Phase 23.19: replace the project save schema (one setSaveSchema command; null removes it). */
   const saveSaveSchema = useCallback(async (next: SaveSchema | null) => {
@@ -4820,6 +4832,11 @@ function EditorApp(): JSX.Element {
               previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
               onUnlockPreview={unlockPreview}
               onPreviewCue={(id) => void previewCue(id)}
+              registry={registry}
+              eventCues={eventCues}
+              fieldContext={fieldContextMemo}
+              eventCuesError={eventCuesError}
+              onSetEventCues={(next) => void saveEventCues(next)}
             />
           )}
           </div>

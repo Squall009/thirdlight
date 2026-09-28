@@ -111,14 +111,39 @@ export interface TriggerComponent {
   height?: number;
   /** Phase 14.2: `enter` (absent) emits once per entry, `stay` every step while the player is inside. */
   mode?: (typeof TRIGGER_MODES)[number];
+  /**
+   * Phase 24.4e: entering the area moves the character to another scene: `scene` is loaded,
+   * `unload` scenes are unloaded, and once `scene` is loaded the character stands at `spawn`
+   * (a player spawn in that scene or the trigger's own; absent: it stays where it is).
+   */
+  sceneTransition?: SceneTransitionAction;
 }
+
+/** Phase 24.4e: a trigger's scene transition (the generic form of a scene exit). */
+export interface SceneTransitionAction {
+  /** The scene loaded. */
+  scene: string;
+  /** Where the character arrives: a player spawn in `scene` (or the trigger's own scene). */
+  spawn?: string;
+  /** Scenes unloaded at the same time (absent: none). */
+  unload?: string[];
+}
+
+/** Phase 24.4e: at most this many scenes a transition unloads (the exit zone's limit). */
+export const MAX_TRANSITION_UNLOADS = 16;
+export const SCENE_TRANSITION_FIELDS = ['scene', 'spawn', 'unload'] as const;
 
 export interface SwitchComponent {
   mode: (typeof SWITCH_MODES)[number];
   signal: string;
   size: [number, number];
   once?: boolean;
+  /** Phase 24.4f: `interact` mode: the input action that works it (absent: `interact`). */
+  action?: string;
 }
+
+/** Phase 24.4f: the input action an `interact` switch reads when it names none. */
+export const SWITCH_DEFAULT_ACTION = 'interact';
 
 export interface HealthComponent {
   max: number;
@@ -249,7 +274,8 @@ export function validateTriggerComponent(value: unknown, path: string, errors: M
   const round = shape === 'circle' || shape === 'sphere' || shape === 'capsule';
   const capsule = shape === 'capsule';
   const circle = round;
-  fields(value, ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'], round ? (capsule ? ['radius', 'height', 'signal'] : ['radius', 'signal']) : ['size', 'signal'], path, errors);
+  fields(value, TRIGGER_FIELDS, round ? (capsule ? ['radius', 'height', 'signal'] : ['radius', 'signal']) : ['size', 'signal'], path, errors);
+  if (value['sceneTransition'] !== undefined) validateSceneTransition(value['sceneTransition'], `${path}/sceneTransition`, errors);
   if (value['exitSignal'] !== undefined && (typeof value['exitSignal'] !== 'string' || !NAME_RE.test(value['exitSignal']))) err(errors, 'field_value', `${path}/exitSignal`, 'exitSignal is a name', value['exitSignal']);
   if (shape !== undefined && !(TRIGGER_SHAPES as readonly unknown[]).includes(shape)) err(errors, 'field_value', `${path}/shape`, 'shape is box or circle (a 3D project: box, sphere or capsule)', shape);
   if (circle && value['size'] !== undefined) err(errors, 'field_unexpected', `${path}/size`, `a ${String(shape)} trigger has a radius, not a size`, value['size']);
@@ -267,9 +293,31 @@ export function validateTriggerComponent(value: unknown, path: string, errors: M
   if (value['once'] !== undefined && typeof value['once'] !== 'boolean') err(errors, 'field_type', `${path}/once`, 'once is true or false', value['once']);
 }
 
+/** Phase 24.4e: a scene id (the `content.scenes[]` id syntax) and an entity id. */
+const SCENE_OR_ENTITY_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** Phase 24.4f: an input action name. */
+const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+export const TRIGGER_FIELDS = ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'] as const;
+export const SWITCH_FIELDS = ['mode', 'signal', 'size', 'once', 'action'] as const;
+
+function validateSceneTransition(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'sceneTransition is an object { scene, spawn?, unload? }', value);
+  fields(value, SCENE_TRANSITION_FIELDS, ['scene'], path, errors);
+  if (value['scene'] !== undefined && (typeof value['scene'] !== 'string' || !SCENE_OR_ENTITY_RE.test(value['scene']))) err(errors, 'field_value', `${path}/scene`, 'scene names a scene (a scene id)', value['scene']);
+  if (value['spawn'] !== undefined && (typeof value['spawn'] !== 'string' || !SCENE_OR_ENTITY_RE.test(value['spawn']))) err(errors, 'field_value', `${path}/spawn`, 'spawn names a player spawn (an entity id)', value['spawn']);
+  const u = value['unload'];
+  if (u !== undefined && (!Array.isArray(u) || u.length > MAX_TRANSITION_UNLOADS || !u.every((x) => typeof x === 'string' && SCENE_OR_ENTITY_RE.test(x)) || new Set(u).size !== u.length)) {
+    err(errors, 'field_value', `${path}/unload`, `unload is up to ${MAX_TRANSITION_UNLOADS} different scene ids`, u);
+  }
+}
+
 export function validateSwitchComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'switch is an object', value);
-  fields(value, ['mode', 'signal', 'size', 'once'], ['mode', 'signal', 'size'], path, errors);
+  fields(value, SWITCH_FIELDS, ['mode', 'signal', 'size'], path, errors);
+  if (value['action'] !== undefined) {
+    if (typeof value['action'] !== 'string' || !ACTION_NAME_RE.test(value['action'])) err(errors, 'field_value', `${path}/action`, 'action names an input action (a letter or _, then letters, digits or _; at most 32)', value['action']);
+    else if (value['mode'] !== undefined && value['mode'] !== 'interact') err(errors, 'field_unexpected', `${path}/action`, 'only an interact switch reads an action', value['action']);
+  }
   if (value['mode'] !== undefined && !(SWITCH_MODES as readonly unknown[]).includes(value['mode'])) err(errors, 'field_value', `${path}/mode`, 'mode is interact or stand', value['mode']);
   if (value['signal'] !== undefined && (typeof value['signal'] !== 'string' || !NAME_RE.test(value['signal']))) err(errors, 'field_value', `${path}/signal`, 'signal is a name', value['signal']);
   if (value['size'] !== undefined && !vec2(value['size'], 0.05, 100)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
@@ -344,8 +392,13 @@ export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
   ...(c.radius !== undefined ? { radius: c.radius } : {}),
   ...(c.mode !== undefined ? { mode: c.mode } : {}),
   ...(c.height !== undefined ? { height: c.height } : {}),
+  // Phase 24.4e: last, so an existing trigger keeps its exact canonical bytes.
+  ...(c.sceneTransition !== undefined
+    ? { sceneTransition: { scene: c.sceneTransition.scene, ...(c.sceneTransition.spawn !== undefined ? { spawn: c.sceneTransition.spawn } : {}), ...(c.sceneTransition.unload !== undefined ? { unload: [...c.sceneTransition.unload] } : {}) } }
+    : {}),
 });
-export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: copy2(c.size), ...(c.once !== undefined ? { once: c.once } : {}) });
+// Phase 24.4f: `action` last (an existing switch keeps its exact canonical bytes).
+export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: copy2(c.size), ...(c.once !== undefined ? { once: c.once } : {}), ...(c.action !== undefined ? { action: c.action } : {}) });
 export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
   max: c.max,
   ...(c.start !== undefined ? { start: c.start } : {}),
@@ -441,19 +494,46 @@ export const canonicalAudioSource = (c: AudioSourceComponent): AudioSourceCompon
  * parent moves right or left, reached over `turnSeconds`.
  */
 export interface FaceMovementComponent {
-  yawRight: number;
-  yawLeft: number;
+  /** `sides` (absent): `yawRight`/`yawLeft` by the sign of the motion along X; phase 24.4f: `velocity`: the yaw of the horizontal motion (any direction, 3D too). */
+  mode?: (typeof FACE_MOVEMENT_MODES)[number];
+  /** `sides` only (required there). */
+  yawRight?: number;
+  yawLeft?: number;
+  /** `sides`: time to turn from one side to the other; `velocity`: time for a half turn (180°). */
   turnSeconds?: number;
+  /** Phase 24.4f, `velocity`: added to the motion's yaw (degrees; a model authored facing +X uses −90). */
+  yawOffset?: number;
 }
+
+/** Phase 24.4f: how a face-movement model picks its yaw. */
+export const FACE_MOVEMENT_MODES = ['sides', 'velocity'] as const;
+export const FACE_MOVEMENT_FIELDS = ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'] as const;
 
 export function validateFaceMovementComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'faceMovement is an object', value);
-  fields(value, ['yawRight', 'yawLeft', 'turnSeconds'], ['yawRight', 'yawLeft'], path, errors);
-  for (const k of ['yawRight', 'yawLeft'] as const) if (value[k] !== undefined && !num(value[k], -360, 360)) err(errors, 'field_value', `${path}/${k}`, `${k} is −360–360 degrees`, value[k]);
+  const velocity = value['mode'] === 'velocity';
+  fields(value, FACE_MOVEMENT_FIELDS, velocity ? [] : ['yawRight', 'yawLeft'], path, errors);
+  if (value['mode'] !== undefined && !(FACE_MOVEMENT_MODES as readonly unknown[]).includes(value['mode'])) err(errors, 'field_value', `${path}/mode`, 'mode is sides or velocity', value['mode']);
+  for (const k of ['yawRight', 'yawLeft'] as const) {
+    if (value[k] === undefined) continue;
+    if (velocity) err(errors, 'field_unexpected', `${path}/${k}`, `a velocity face-movement has no ${k} (it faces the way it moves; see yawOffset)`, value[k]);
+    else if (!num(value[k], -360, 360)) err(errors, 'field_value', `${path}/${k}`, `${k} is −360–360 degrees`, value[k]);
+  }
+  if (value['yawOffset'] !== undefined) {
+    if (!velocity) err(errors, 'field_unexpected', `${path}/yawOffset`, 'only a velocity face-movement has a yawOffset', value['yawOffset']);
+    else if (!num(value['yawOffset'], -360, 360)) err(errors, 'field_value', `${path}/yawOffset`, 'yawOffset is −360–360 degrees', value['yawOffset']);
+  }
   if (value['turnSeconds'] !== undefined && !num(value['turnSeconds'], 0, 5)) err(errors, 'field_value', `${path}/turnSeconds`, 'turnSeconds is 0–5', value['turnSeconds']);
 }
 
-export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementComponent => ({ yawRight: c.yawRight, yawLeft: c.yawLeft, ...(c.turnSeconds !== undefined ? { turnSeconds: c.turnSeconds } : {}) });
+// Phase 24.4f: `mode` and `yawOffset` last (an existing component keeps its exact canonical bytes).
+export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementComponent => ({
+  ...(c.yawRight !== undefined ? { yawRight: c.yawRight } : {}),
+  ...(c.yawLeft !== undefined ? { yawLeft: c.yawLeft } : {}),
+  ...(c.turnSeconds !== undefined ? { turnSeconds: c.turnSeconds } : {}),
+  ...(c.mode !== undefined ? { mode: c.mode } : {}),
+  ...(c.yawOffset !== undefined ? { yawOffset: c.yawOffset } : {}),
+});
 
 // ---- phase 24.4: generic primitives (both physics dimensions) ------------------------
 
@@ -648,13 +728,13 @@ export const canonicalHitbox = (c: HitboxComponent): HitboxComponent => ({
 
 export const BLOCK_COMPONENTS = {
   mover: { validate: validateMoverComponent, canonical: canonicalMover, fields: MOVER_FIELDS },
-  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'] },
-  switch: { validate: validateSwitchComponent, canonical: canonicalSwitch, fields: ['mode', 'signal', 'size', 'once'] },
+  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: TRIGGER_FIELDS },
+  switch: { validate: validateSwitchComponent, canonical: canonicalSwitch, fields: SWITCH_FIELDS },
   health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: HEALTH_FIELDS },
   pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: PICKUP_FIELDS },
   enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ENEMY_FIELDS },
   audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: AUDIO_SOURCE_FIELDS },
-  faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: ['yawRight', 'yawLeft', 'turnSeconds'] },
+  faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: FACE_MOVEMENT_FIELDS },
   // Phase 24.4: last, so every existing entity keeps its exact canonical bytes.
   collectible: { validate: validateCollectibleComponent, canonical: canonicalCollectible, fields: COLLECTIBLE_FIELDS },
   patrol: { validate: validatePatrolComponent, canonical: canonicalPatrol, fields: PATROL_FIELDS },

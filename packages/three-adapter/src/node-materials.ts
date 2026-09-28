@@ -219,6 +219,19 @@ export function releaseEmissiveLooks(root: THREE.Object3D): void {
  * own copy (hooks included), so no other mesh glows.
  */
 export function setEmissiveLook(root: THREE.Object3D, look: { emissive: string; emissiveIntensity: number } | null): void {
+  setEntityLook(root, look);
+}
+
+/**
+ * Phase 24.4h: a look override on every mesh under `root` — an emissive
+ * colour and intensity and/or a tint multiplied into each material's own
+ * colour — or back to each material's own (`look` null; a field left out
+ * keeps the material's own value). Like the activation glow, a mesh wearing a
+ * shared material first gets its own copy, so nothing else changes. Works on
+ * both renderers: the node materials read `color`, `emissive` and
+ * `emissiveIntensity` as uniforms every frame.
+ */
+export function setEntityLook(root: THREE.Object3D, look: { emissive?: string; emissiveIntensity?: number; tint?: string } | null): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     const shared = mesh.userData[SOURCE_KEY] !== undefined || (mesh.material as THREE.Material | undefined)?.userData?.[SHARED_MATERIAL_KEY] === true;
@@ -227,18 +240,32 @@ export function setEmissiveLook(root: THREE.Object3D, look: { emissive: string; 
       delete mesh.material.userData[SHARED_MATERIAL_KEY];
       mesh.userData[OWN_KEY] = true;
     }
-    const mat = mesh.material as EmissiveCapable | EmissiveCapable[] | undefined;
-    if (mat === undefined || Array.isArray(mat) || mat.emissive === undefined) return;
-    if (mat.userData['baseEmissive'] === undefined) {
-      mat.userData['baseEmissive'] = mat.emissive.getHex();
-      mat.userData['baseEmissiveIntensity'] = mat.emissiveIntensity ?? 1;
+    const mat = mesh.material as (EmissiveCapable & { color?: THREE.Color }) | EmissiveCapable[] | undefined;
+    if (mat === undefined || Array.isArray(mat)) return;
+    if (mat.emissive !== undefined) {
+      if (mat.userData['baseEmissive'] === undefined) {
+        mat.userData['baseEmissive'] = mat.emissive.getHex();
+        mat.userData['baseEmissiveIntensity'] = mat.emissiveIntensity ?? 1;
+      }
+      if (look === null || (look.emissive === undefined && look.emissiveIntensity === undefined)) {
+        mat.emissive.setHex(mat.userData['baseEmissive'] as number);
+        mat.emissiveIntensity = mat.userData['baseEmissiveIntensity'] as number;
+      } else {
+        if (look.emissive !== undefined) mat.emissive.set(look.emissive);
+        else mat.emissive.setHex(mat.userData['baseEmissive'] as number);
+        mat.emissiveIntensity = look.emissiveIntensity ?? 1;
+      }
     }
-    if (look === null) {
-      mat.emissive.setHex(mat.userData['baseEmissive'] as number);
-      mat.emissiveIntensity = mat.userData['baseEmissiveIntensity'] as number;
-    } else {
-      mat.emissive.set(look.emissive);
-      mat.emissiveIntensity = look.emissiveIntensity;
+    // Phase 24.4h: the tint multiplies the material's own colour (the base kept the first time).
+    const color = (mat as { color?: THREE.Color }).color;
+    if (color !== undefined && color.isColor === true) {
+      if (look?.tint !== undefined) {
+        if (mat.userData['baseColor'] === undefined) mat.userData['baseColor'] = color.getHex();
+        color.setHex(mat.userData['baseColor'] as number).multiply(new THREE.Color(look.tint));
+      } else if (mat.userData['baseColor'] !== undefined) {
+        color.setHex(mat.userData['baseColor'] as number);
+        delete mat.userData['baseColor'];
+      }
     }
   });
 }

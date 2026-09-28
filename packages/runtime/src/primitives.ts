@@ -173,6 +173,8 @@ export interface PrimitivesHost {
   setHidden(id: string, hidden: boolean): void;
   addCounter(name: string, delta: number): void;
   emit(signal: string): void;
+  /** Phase 24.4i: every event as it happens (the event → cue table listens; absent: nobody). */
+  note?(e: PrimitiveEventRecord): void;
 }
 
 /** Phase 24.4: the `components` save section (plain JSON). */
@@ -185,6 +187,52 @@ export interface PrimitivesSaveState {
   patrol?: Record<string, { p: number[]; d: number[]; w: number; a: boolean; s?: number; u?: number; r?: number }>;
   /** Hitboxes scripts switched off. */
   off?: string[];
+  /** Phase 24.4h: the look overrides scripts set (object → its override). */
+  look?: Record<string, EntityLook>;
+}
+
+/**
+ * Phase 24.4h: a per-object look override the simulation or a script sets
+ * (`ctx.look.set`): an emissive colour and intensity, and a tint multiplied
+ * into the base colour, on every mesh under the object. The renderer applies
+ * it on both backends; clearing it gives the object its own look back.
+ */
+export interface EntityLook {
+  /** '#rrggbb'. */
+  readonly emissive?: string;
+  /** 0–4 (absent with an emissive colour: 1). */
+  readonly emissiveIntensity?: number;
+  /** '#rrggbb', multiplied into the base colour. */
+  readonly tint?: string;
+}
+
+/** Phase 24.4h: the brightest emissive a look override may set (the surface's own limit). */
+export const LOOK_MAX_EMISSIVE_INTENSITY = 4;
+/** Phase 24.4h: engine limit — objects with a look override at once (a replay-safe bound on the state). */
+export const MAX_LOOK_OVERRIDES = 1024;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** A valid look override from a script's value, or null (a bad field, or nothing set). */
+export function entityLookOf(value: unknown): EntityLook | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  for (const k of Object.keys(v)) if (k !== 'emissive' && k !== 'emissiveIntensity' && k !== 'tint') return null;
+  const out: { emissive?: string; emissiveIntensity?: number; tint?: string } = {};
+  if (v['emissive'] !== undefined) {
+    if (typeof v['emissive'] !== 'string' || !HEX_COLOR.test(v['emissive'])) return null;
+    out.emissive = v['emissive'].toLowerCase();
+  }
+  if (v['emissiveIntensity'] !== undefined) {
+    const n = v['emissiveIntensity'];
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > LOOK_MAX_EMISSIVE_INTENSITY) return null;
+    out.emissiveIntensity = n;
+  }
+  if (v['tint'] !== undefined) {
+    if (typeof v['tint'] !== 'string' || !HEX_COLOR.test(v['tint'])) return null;
+    out.tint = v['tint'].toLowerCase();
+  }
+  if (out.emissive === undefined && out.emissiveIntensity === undefined && out.tint === undefined) return null;
+  return Object.freeze(out);
 }
 
 const NO_EVENTS: readonly PrimitiveEventRecord[] = Object.freeze([]);
@@ -214,6 +262,10 @@ export class Primitives {
   private eventsNow: PrimitiveEventRecord[] = [];
   private eventsPrev: readonly PrimitiveEventRecord[] = NO_EVENTS;
   private step = 0;
+  /** Phase 24.4h: look overrides by object (insertion order is irrelevant: views are sorted). */
+  private readonly looks = new Map<string, EntityLook>();
+  /** Bumped on every look change (the renderer and the worker mirror compare it). */
+  private looksVersion = 0;
 
   constructor(private readonly host: PrimitivesHost) {}
 
@@ -277,6 +329,7 @@ export class Primitives {
       this.patrols.delete(id);
       this.hitboxes.delete(id);
       this.lastCentre.delete(id);
+      if (this.looks.delete(id)) this.looksVersion += 1;
     }
     for (const [key, [a, b]] of this.contacts) if (ids.has(a) || ids.has(b)) this.contacts.delete(key);
   }
@@ -291,6 +344,44 @@ export class Primitives {
     this.lastCentre = new Map();
     this.eventsNow = [];
     this.eventsPrev = NO_EVENTS;
+    if (this.looks.size > 0) {
+      this.looks.clear();
+      this.looksVersion += 1;
+    }
+  }
+
+  // ---- phase 24.4h: look overrides ---------------------------------------------------
+
+  /** Set an object's look override (replacing any it had); false for a bad look, an object not loaded, or past the limit. */
+  setLook(id: string, value: unknown): boolean {
+    if (!this.host.curr.has(id)) return false;
+    const look = entityLookOf(value);
+    if (look === null) return false;
+    if (!this.looks.has(id) && this.looks.size >= MAX_LOOK_OVERRIDES) return false;
+    this.looks.set(id, look);
+    this.looksVersion += 1;
+    return true;
+  }
+
+  /** Give an object its own look back (false when it had no override). */
+  clearLook(id: string): boolean {
+    if (!this.looks.delete(id)) return false;
+    this.looksVersion += 1;
+    return true;
+  }
+
+  lookOf(id: string): EntityLook | null {
+    return this.looks.get(id) ?? null;
+  }
+
+  /** The overrides now (the renderer's view; sorted by object id when read for a digest or a save). */
+  looksView(): ReadonlyMap<string, EntityLook> {
+    return this.looks;
+  }
+
+  /** Bumped on every look change. */
+  get lookVersion(): number {
+    return this.looksVersion;
   }
 
   private resetPatrol(p: Patrol): void {
@@ -328,7 +419,9 @@ export class Primitives {
   }
 
   private push(e: PrimitiveEventRecord): void {
-    this.eventsNow.push(Object.freeze(e));
+    const f = Object.freeze(e);
+    this.eventsNow.push(f);
+    this.host.note?.(f);
   }
 
   // ---- collectibles ----------------------------------------------------------------
@@ -605,6 +698,7 @@ export class Primitives {
     }
     const off = [...sorted(this.hitboxes).filter(([, b]) => !b.active).map(([id]) => id)];
     if (off.length > 0) out.off = off;
+    if (this.looks.size > 0) out.look = Object.fromEntries(sorted(this.looks).map(([id, l]) => [id, { ...l }]));
     return out;
   }
 
@@ -614,7 +708,8 @@ export class Primitives {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'the components section is an object';
     const v = value as Record<string, unknown>;
     const isMap = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
-    for (const k of Object.keys(v)) if (!['health', 'collected', 'patrol', 'off'].includes(k)) return `unknown key "${k.slice(0, 32)}"`;
+    for (const k of Object.keys(v)) if (!['health', 'collected', 'patrol', 'off', 'look'].includes(k)) return `unknown key "${k.slice(0, 32)}"`;
+    if (v['look'] !== undefined && (!isMap(v['look']) || !Object.values(v['look']).every((l) => entityLookOf(l) !== null))) return 'look maps objects to a look override {emissive?, emissiveIntensity?, tint?}';
     if (v['health'] !== undefined && (!isMap(v['health']) || !Object.values(v['health']).every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0))) return 'health maps objects to a health ≥ 0';
     if (v['collected'] !== undefined && (!isMap(v['collected']) || !Object.values(v['collected']).every((x) => Number.isInteger(x) && (x as number) >= -1))) return 'collected maps objects to whole steps (-1: never back)';
     if (v['off'] !== undefined && !(Array.isArray(v['off']) && v['off'].every((x) => typeof x === 'string'))) return 'off lists object ids';
@@ -657,6 +752,12 @@ export class Primitives {
     }
     const off = new Set(v.off ?? []);
     for (const b of this.hitboxes.values()) b.active = !off.has(b.id);
+    this.looks.clear();
+    for (const [id, l] of Object.entries(v.look ?? {})) {
+      const look = entityLookOf(l);
+      if (look !== null && this.host.curr.has(id) && this.looks.size < MAX_LOOK_OVERRIDES) this.looks.set(id, look);
+    }
+    this.looksVersion += 1;
     this.contacts = new Map();
     this.lastCentre = new Map();
   }

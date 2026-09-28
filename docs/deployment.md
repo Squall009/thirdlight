@@ -1521,6 +1521,41 @@ schema's **components** section keeps health, collected collectibles,
 patrollers and switched-off hitboxes. A scene's play observation
 (`tl_game_observe`) now reports the named `counters` too.
 
+### Scene transitions, impulses, facing, camera tracking, looks and event sounds (phase 24.4e–i)
+
+Generic again: both dimensions, with or without a game session.
+
+- **Trigger → Scene transition** (Inspector, a trigger's "+ add"): entering
+  the trigger loads **Load scene**, unloads **Unload scenes**, and once the
+  scene is loaded moves the character to **Arrive at** (a player spawn in
+  that scene or the trigger's own; it becomes the spawn `ctx.lifecycle`
+  respawns at). A trigger's `enter`/`exit` events reach the scripts that own
+  it (`ctx.events`), now also in a 2D scene without a game session. It
+  replaces the exit zone, which stays until phase 24.7.
+- **Character impulse**: `ctx.character.impulse([x, y, z])` adds a velocity
+  (m/s) at the character's next move (a push, a launch, a bounce; up lifts it
+  off the ground; the 2D plane ignores z).
+- **Facing**: Face movement **Face velocity** turns a model toward its
+  motion in any direction (3D too; **Yaw offset** for a model authored facing
+  another way; at the top of the hierarchy it follows its own motion). A
+  player spawn's **Yaw** is the way the character faces on arrival (3D: the
+  character turns; 2D: its face-movement models).
+- **Switch → Action**: an interact switch reads the input action you name
+  (default `interact`).
+- **Virtual camera → Track (dead zone)**: keeps its placed rotation and
+  follows its target at its placed offset (or **Offset**), moving only when
+  the target leaves the **Dead zone** box, lagging by **Damping**, and keeping
+  the framed point inside **Bounds min/max**. No fixed camera distance.
+- **Look overrides**: `ctx.look.set(id, {emissive, emissiveIntensity, tint})`
+  glows and tints an object on both renderers until `ctx.look.clear(id)` or a
+  new run (`ctx.look.get(id)` reads it; saved in the `components` section).
+- **Event sounds** (Media tab): rows that play a sound when a **signal** is
+  sent (by name) or an **event** happens (`enter`, `exit`, `collected`,
+  `damaged`, `died`, `contact`, … or an animator clip event's name;
+  optionally only one object's), at a volume on a bus. The export carries
+  their sounds. MCP: `setEventCues {cues}`. They replace the game block's
+  fixed cue slots, which stay until phase 24.7.
+
 ### Timers and trigger events in scripts
 
 - `ctx.timers.after(name, seconds)` fires once, `ctx.timers.every(name,

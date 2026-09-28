@@ -124,6 +124,8 @@ export type PlayerSpawnFacing = (typeof PLAYER_SPAWN_FACINGS)[number];
 /** §23.3.2 spawn marker; phase 15.2 (v4 scenes) adds an optional `facing` (absent: none). */
 export interface PlayerSpawnComponent {
   facing?: PlayerSpawnFacing;
+  /** Phase 24.4f (v4): the character's yaw on arrival, degrees about +Y (0: facing +Z). */
+  yaw?: number;
 }
 
 /** §23.3.3 camera follow data (presentation math is packet 40's). */
@@ -522,6 +524,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   modes?: import('./modes').GameMode[];
   /** Phase 23.10: the behavior group names entities may carry (absent = none). */
   behaviorGroups?: string[];
+  /** Phase 24.4i: the event → cue table (sounds the host plays for signals and events; absent = none). */
+  eventCues?: import('./event-cues').EventCue[];
   /** Phase 23.17: timelines (sequencer assets; absent = none). */
   timelines?: import('./timelines').TimelineAsset[];
   /**

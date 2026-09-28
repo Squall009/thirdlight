@@ -405,7 +405,7 @@ function ObjectWidget(p: RowProps & { aria: string }): JSX.Element {
       ) : (
         <div className="tl-desc__absent">
           <span className="tl-inspector__hint">none</span>
-          <button type="button" className="tl-btn tl-btn--small" aria-label={`add ${p.aria}`} onClick={() => p.onEdit(p.path, startValue(f, p.level))}>
+          <button type="button" className="tl-btn tl-btn--small" aria-label={`add ${p.aria}`} onClick={() => p.onEdit(p.path, startValue(f, p.level, { scene: p.ctx.scenes.find((s) => s.sceneId !== p.ctx.sceneId)?.sceneId ?? p.ctx.scenes[0]?.sceneId }))}>
             + add
           </button>
         </div>

@@ -46,7 +46,7 @@ import {
 
 /** The virtualCamera component as the brain reads it (project-model `VirtualCameraComponent`). */
 export interface VirtualCameraData {
-  readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail';
+  readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail' | 'track';
   readonly priority?: number;
   readonly enabled?: boolean;
   readonly target?: string;
@@ -84,6 +84,11 @@ export interface VirtualCameraData {
   readonly shakeAmplitude?: number;
   readonly shakeFrequency?: number;
   readonly shakeRotation?: number;
+  /** Phase 24.4g (track): the camera's offset from the framed point, the dead zone (w, h, d) and the bounds of the framed point. */
+  readonly trackOffset?: readonly number[];
+  readonly deadZone?: readonly number[];
+  readonly boundsMin?: readonly number[];
+  readonly boundsMax?: readonly number[];
 }
 
 /** The cameraPath component as the brain reads it. */
@@ -186,6 +191,8 @@ interface CamState {
   fovY: number | null;
   letterbox: number;
   pivot: V3 | null;
+  /** Phase 24.4g (track): the offset from the framed point (resolved on its first evaluation when not authored). */
+  trackOffset: V3 | null;
   readonly pose: CameraPose;
 }
 
@@ -352,6 +359,7 @@ export class CameraBrain {
       fovY: typeof d.fovY === 'number' ? d.fovY : null,
       letterbox: num(d.letterbox, 0),
       pivot: null,
+      trackOffset: Array.isArray(d.trackOffset) && d.trackOffset.length === 3 ? [num(d.trackOffset[0], 0), num(d.trackOffset[1], 0), num(d.trackOffset[2], 0)] : null,
       pose: newPose(),
     };
   }
@@ -803,6 +811,10 @@ export class CameraBrain {
       }
       return;
     }
+    if (d.rig === 'track') {
+      this.evaluateTrack(s, haveTarget, target, haveSelf, selfPos, selfRot, dt);
+      return;
+    }
     // follow / orbitPoint / topDown: around a pivot.
     const pivot = this.pivotAt;
     pivot[0] = 0;
@@ -841,6 +853,56 @@ export class CameraBrain {
     pose.position[1] = pv[1] + off[1] * dist;
     pose.position[2] = pv[2] + off[2] * dist;
     quatFromYawPitch(s.yaw, pitch, pose.rotation);
+  }
+
+  /**
+   * Phase 24.4g: the track rig — a standalone follow that keeps the camera's
+   * placed rotation. The framed point (`pivot`) moves only when the target
+   * (plus `targetOffset`) leaves the dead zone around it (per world axis: the
+   * point follows the target's overflow past the half size), eased by
+   * `damping` (an exponential lag; 0: at once), then kept inside the bounds
+   * (per axis, each optional). The camera sits at the framed point plus its
+   * offset — authored, else where it was placed relative to the target when
+   * it first evaluated (so a camera placed 12 m in front of a character keeps
+   * that framing, whatever the depth). Without a target it stays where it is
+   * placed.
+   */
+  private evaluateTrack(s: CamState, haveTarget: boolean, target: V3, haveSelf: boolean, selfPos: readonly number[], selfRot: readonly number[], dt: number): void {
+    const d = s.data;
+    const pose = s.pose;
+    for (let k = 0; k < 4; k += 1) pose.rotation[k] = selfRot[k]!;
+    if (!haveTarget) {
+      pose.position[0] = selfPos[0]!;
+      pose.position[1] = selfPos[1]!;
+      pose.position[2] = selfPos[2]!;
+      return;
+    }
+    if (s.trackOffset === null) s.trackOffset = haveSelf ? [selfPos[0]! - target[0], selfPos[1]! - target[1], selfPos[2]! - target[2]] : [0, 0, D.distance];
+    const lo = d.boundsMin;
+    const hi = d.boundsMax;
+    const clampAxis = (v: number, k: number): number => {
+      const a = Array.isArray(lo) && lo.length === 3 && Number.isFinite(lo[k]) ? lo[k]! : -Infinity;
+      const b = Array.isArray(hi) && hi.length === 3 && Number.isFinite(hi[k]) ? hi[k]! : Infinity;
+      return v < a ? a : v > b ? b : v;
+    };
+    if (s.pivot === null) {
+      // Going live (or the first step): frame the target at once.
+      s.pivot = [clampAxis(target[0], 0), clampAxis(target[1], 1), clampAxis(target[2], 2)];
+    } else {
+      const dz = d.deadZone;
+      const damping = num(d.damping, D.damping);
+      const k = damping > 0 ? 1 - Math.exp(-dt / damping) : 1;
+      for (let i = 0; i < 3; i += 1) {
+        const half = Array.isArray(dz) && dz.length === 3 ? Math.max(0, num(dz[i], 0)) / 2 : 0;
+        const off = target[i]! - s.pivot[i]!;
+        const want = off > half ? target[i]! - half : off < -half ? target[i]! + half : s.pivot[i]!;
+        s.pivot[i] = clampAxis(s.pivot[i]! + (want - s.pivot[i]!) * k, i);
+      }
+    }
+    const o = s.trackOffset;
+    pose.position[0] = s.pivot[0]! + o[0];
+    pose.position[1] = s.pivot[1]! + o[1];
+    pose.position[2] = s.pivot[2]! + o[2];
   }
 
   /**

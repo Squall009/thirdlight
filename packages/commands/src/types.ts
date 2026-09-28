@@ -153,6 +153,8 @@ export type V3MutationOp =
   // phase 23.10: game modes and behavior groups
   | 'setModes'
   | 'setBehaviorGroups'
+  // phase 24.4i: the event → cue table
+  | 'setEventCues'
   | 'deleteUiTheme'
   // phase 23.17: timelines
   | 'setTimeline'
@@ -585,6 +587,17 @@ export interface SetBehaviorGroupsInverse {
   kind: 'setBehaviorGroups';
   restore: string[];
 }
+/** Phase 24.4i: `setEventCues` change data (the whole table). */
+export interface SetEventCuesChange {
+  type: 'setEventCues';
+  previous: import('@thirdlight/project-model').EventCue[];
+  next: import('@thirdlight/project-model').EventCue[];
+}
+/** Phase 24.4i: undo of `setEventCues`: restore the previous table. */
+export interface SetEventCuesInverse {
+  kind: 'setEventCues';
+  restore: import('@thirdlight/project-model').EventCue[];
+}
 
 
 /** Phase 23.17: `setTimeline`/`deleteTimeline` change data: one timeline before and after (null = none). */
@@ -963,6 +976,7 @@ export type ChangeData =
   | SetDialogueChange
   | SetModesChange
   | SetBehaviorGroupsChange
+  | SetEventCuesChange
   | SetUiChange
   | SetTimelineChange;
 
@@ -1007,6 +1021,7 @@ export type ForwardChange =
   | SetDialogueChange
   | SetModesChange
   | SetBehaviorGroupsChange
+  | SetEventCuesChange
   | SetUiChange
   | SetTimelineChange;
 
@@ -1200,6 +1215,7 @@ export type InverseSpec =
   | SetDialogueInverse
   | SetModesInverse
   | SetBehaviorGroupsInverse
+  | SetEventCuesInverse
   | SetTimelineInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
@@ -1662,6 +1678,10 @@ export interface SetModesArgs {
 export interface SetBehaviorGroupsArgs {
   groups: string[];
 }
+/** Phase 24.4i: `setEventCues` replaces the event → cue table. */
+export interface SetEventCuesArgs {
+  cues: import('@thirdlight/project-model').EventCue[];
+}
 
 /** Phase 23.16: `setDialogue` creates or replaces one conversation (by dialogueId; absent graph = a new one's Start node, or the stored graph when renaming). */
 export interface SetDialogueArgs {
@@ -1757,6 +1777,7 @@ export type MutationArgs =
   | SetDialogueSettingsArgs
   | SetModesArgs
   | SetBehaviorGroupsArgs
+  | SetEventCuesArgs
   | SetScriptLibraryArgs
   | DeleteScriptLibraryArgs
   | SetEffectArgs

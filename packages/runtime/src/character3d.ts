@@ -175,6 +175,8 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       coyote = 0;
       prev = undefined;
     }
+    // Phase 24.4f: a placement that faces a spawn's yaw.
+    if (typeof intents.characterYaw === 'number' && Number.isFinite(intents.characterYaw)) yaw = intents.characterYaw;
     const o = originOf(ctx);
     if (!enabled) {
       // Switched off: it stays where it is (no input, no gravity); what it stands on still carries it.
@@ -260,6 +262,18 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     }
     coyote = walkable ? coyoteSteps : Math.max(0, coyote - 1);
     if (buffer > 0) buffer -= 1;
+    // Phase 24.4f: scripts' impulses add to the velocity (the acceleration brings it back to the input's; up lifts it off the ground).
+    const imp = intents.impulse;
+    if (imp !== undefined) {
+      vx += imp.x;
+      vy += imp.y;
+      vz += imp.z;
+      if (imp.y > 0) {
+        jumping = false;
+        coyote = 0;
+        buffer = 0;
+      }
+    }
 
     // Facing: turn toward the way it is pushed.
     if (S.faceMovement && mag > 1e-3) {

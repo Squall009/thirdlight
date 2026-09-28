@@ -658,6 +658,8 @@ export class Projection {
       // Phase 23.10: game modes and behavior groups (tracked by the client from the change data).
       case 'setModes':
       case 'setBehaviorGroups':
+      // Phase 24.4i: the event → cue table (tracked by the client from the change data).
+      case 'setEventCues':
       case 'setSaveSchema':
       case 'setFlow':
       // Phase 16.1: graphs are tracked by the client from the change data.

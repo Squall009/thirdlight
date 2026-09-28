@@ -360,7 +360,7 @@ export interface PrefabComponentsV4Extra {
   patrol?: EntityComponentsV3['patrol'];
   hitbox?: EntityComponentsV3['hitbox'];
   audioSource?: { assetId: string; volume: number; range: number; distanceModel?: 'linear' | 'inverse' | 'exponential'; refDistance?: number; rolloff?: number };
-  faceMovement?: { yawRight: number; yawLeft: number; turnSeconds?: number };
+  faceMovement?: import('./blocks').FaceMovementComponent;
 }
 
 export interface PrefabEntity {

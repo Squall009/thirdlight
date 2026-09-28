@@ -22,9 +22,10 @@ const MAX_REVISION = 2 ** 53 - 1;
 
 import { runtimeDialogueDataProblem, validateSaveSchema, type RuntimeDialogueData, type SaveSchema } from '@thirdlight/project-model';
 import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thirdlight/project-model';
+import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'environmentPresets', 'dialogue']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'environmentPresets', 'dialogue']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -82,6 +83,7 @@ export function validateRuntimeSnapshot(
       dialogue?: RuntimeDialogueData;
       modes?: RuntimeModes;
       timelines?: readonly TimelineAsset[];
+      eventCues?: readonly EventCue[];
       environmentPresets?: readonly string[];
     }
   | { error: RuntimeError } {
@@ -357,6 +359,15 @@ export function validateRuntimeSnapshot(
     if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
     timelines = canonicalTimelines((snap as { timelines: TimelineAsset[] }).timelines);
   }
+  // Phase 24.4i: the optional v4 event → cue table.
+  let eventCues: readonly EventCue[] | undefined;
+  if ((snap as { eventCues?: unknown }).eventCues !== undefined) {
+    if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/eventCues', message: 'snapshot field "eventCues" is v4-only' } };
+    const errs: ModelErrorV2[] = [];
+    validateEventCues((snap as { eventCues?: unknown }).eventCues, '/eventCues', errs);
+    if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
+    eventCues = canonicalEventCues((snap as { eventCues: EventCue[] }).eventCues);
+  }
   // Phase 23.18: the optional environment preset ids (ctx.environment).
   let environmentPresets: readonly string[] | undefined;
   if ((snap as { environmentPresets?: unknown }).environmentPresets !== undefined) {
@@ -440,7 +451,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

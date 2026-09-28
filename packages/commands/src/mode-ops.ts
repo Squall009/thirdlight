@@ -11,12 +11,12 @@
  * refused there. An empty list removes the field (the content bytes stay as
  * before modes existed).
  */
-import { canonicalModes, validateBehaviorGroups, validateModes, type GameMode, type ModelErrorV2 } from '@thirdlight/project-model';
+import { canonicalEventCues, canonicalModes, validateBehaviorGroups, validateEventCues, validateModes, type EventCue, type GameMode, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import type { CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, SetBehaviorGroupsChange, SetModesChange } from './types';
+import type { ContentDocument, SetBehaviorGroupsChange, SetEventCuesChange, SetModesChange } from './types';
 
 type WithModes = ContentDocument & { modes?: GameMode[]; behaviorGroups?: string[] };
 
@@ -71,4 +71,32 @@ export function applySetBehaviorGroups(input: OpInput, args: { groups: string[] 
   if (!gate.ok) return gate;
   const change: SetBehaviorGroupsChange = { type: 'setBehaviorGroups', previous, next };
   return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setBehaviorGroups', restore: previous } } };
+}
+
+// ---- phase 24.4i: the event → cue table ------------------------------------------
+
+export const eventCuesOf = (content: ContentDocument): EventCue[] => (content as ContentDocument & { eventCues?: EventCue[] }).eventCues ?? [];
+
+/** The content with the event → cue table replaced (canonical; an empty table removes the field). */
+export function withEventCues(content: ContentDocument, cues: readonly EventCue[]): ContentDocument {
+  const c = { ...(content as ContentDocument & { eventCues?: EventCue[] }) };
+  if (cues.length > 0) c.eventCues = canonicalEventCues(cues);
+  else delete c.eventCues;
+  return c as ContentDocument;
+}
+
+/** `setEventCues {cues}`: the whole table (one undo step; the sounds are checked by the resulting-state gate). */
+export function applySetEventCues(input: OpInput, args: { cues: EventCue[] }): OpOutcome {
+  const catalog = contentOf(input.content);
+  const errors: ModelErrorV2[] = [];
+  validateEventCues(args.cues, '', errors);
+  if (errors.length > 0) return { ok: false, error: modelError(errors[0]!, '/args/cues') };
+  const previous = deepClone(eventCuesOf(catalog));
+  const next = canonicalEventCues(args.cues);
+  const content = withEventCues(catalog, next);
+  const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
+  const gate = gateResultState({ scene: input.scene, content: catalog, manifest: input.manifest }, resultScene, content);
+  if (!gate.ok) return gate;
+  const change: SetEventCuesChange = { type: 'setEventCues', previous, next: deepClone(next) };
+  return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setEventCues', restore: previous } } };
 }

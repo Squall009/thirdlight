@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { applyLightmap, lightmappedMaterial, refreshLightmappedMaterial } from './lightmaps';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
-import { cloneMaterial, isNodeMaterial, setEmissiveLook, setSelectionHighlight, SELECTION_HIGHLIGHT_EMISSIVE, SHARED_MATERIAL_KEY, toNodeMaterial, withoutAmbientLight } from './node-materials';
+import { cloneMaterial, isNodeMaterial, setEmissiveLook, setEntityLook, setSelectionHighlight, SELECTION_HIGHLIGHT_EMISSIVE, SHARED_MATERIAL_KEY, toNodeMaterial, withoutAmbientLight } from './node-materials';
 
 type NodeProps = { positionNode: unknown; emissiveNode: unknown; normalNode: unknown; colorNode: unknown; contextNode: unknown; aoNode: unknown };
 const props = (m: THREE.Material): NodeProps => m as unknown as NodeProps;
@@ -166,6 +166,29 @@ describe('per-mesh looks', () => {
     expect((a.material as THREE.MeshLambertMaterial).emissive.getHexString()).toBe('00ff00');
     // The copy is the mesh's own (not marked shared).
     expect((a.material as THREE.Material).userData[SHARED_MATERIAL_KEY]).toBeUndefined();
+  });
+
+  it('phase 24.4h: a look override glows and tints an own copy, and clearing it gives the material back its own colour and glow', () => {
+    const shared = new THREE.MeshStandardMaterial({ color: 0x808080, emissive: 0x112233, emissiveIntensity: 0.5 });
+    shared.userData[SHARED_MATERIAL_KEY] = true;
+    const a = mesh(shared);
+    setEntityLook(a, { emissive: '#ff0000', emissiveIntensity: 3, tint: '#ff0000' });
+    const own = a.material as THREE.MeshStandardMaterial;
+    expect(own).not.toBe(shared);
+    expect(own.emissive.getHexString()).toBe('ff0000');
+    expect(own.emissiveIntensity).toBe(3);
+    // The tint multiplies the base colour: grey × red keeps only the red channel.
+    expect(own.color.g).toBe(0);
+    expect(own.color.r).toBeGreaterThan(0);
+    // A tint alone keeps the material's own glow.
+    setEntityLook(a, { tint: '#ffffff' });
+    expect(own.emissive.getHex()).toBe(0x112233);
+    expect(own.emissiveIntensity).toBe(0.5);
+    expect(own.color.getHex()).toBe(0x808080);
+    setEntityLook(a, null);
+    expect(own.color.getHex()).toBe(0x808080);
+    expect(own.emissive.getHex()).toBe(0x112233);
+    expect(shared.color.getHex()).toBe(0x808080);
   });
 
   it('the selection tint sets and clears the emissive of an own material', () => {

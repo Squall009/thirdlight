@@ -62,6 +62,9 @@ export function stepDigest(rt: Runtime): string {
     h.text(id);
     h.num(o);
   }
+  // Phase 24.4h: the look overrides (only while any is set, so every other digest is unchanged).
+  const looks = rt.entityLooks?.();
+  if (looks !== undefined && looks.size > 0) h.text(JSON.stringify([...looks].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
   const poses = (rt as { animatorPoses?: () => ReadonlyMap<string, unknown> }).animatorPoses?.();
   if (poses !== undefined) for (const [id, p] of poses) h.text(`${id}=${JSON.stringify(p)}`);
   const set = rt.sceneSet?.();

@@ -232,6 +232,7 @@ export function controllerStep(
   physics: PhysicsStepClient,
   bounce?: number,
   tuning: ControllerStepTuning = DEFAULT_STEP_TUNING,
+  impulse?: { readonly x: number; readonly y: number },
 ): void {
   const p = state.prevResult;
   const groundedPrev = isGrounded(p, cosMaxSlopeClimb);
@@ -256,6 +257,19 @@ export function controllerStep(
     state.airborne = true;
     state.buffer = 0;
     state.coyote = 0;
+  }
+  // Phase 24.4f: scripts' impulses add to the velocity (up lifts it into an airborne arc; the
+  // horizontal approach below brings x back to what the input asks at its acceleration).
+  if (impulse !== undefined) {
+    state.vx += impulse.x;
+    if (impulse.y !== 0) {
+      state.vy = (state.airborne || !groundedPrev ? state.vy : 0) + impulse.y;
+      if (impulse.y > 0) {
+        state.airborne = true;
+        state.buffer = 0;
+        state.coyote = 0;
+      }
+    }
   }
   // D. grounded (and not airborne) ⇒ rest vertically; else integrate gravity.
   if (groundedPrev && !state.airborne) state.vy = 0;
@@ -374,6 +388,7 @@ export function createControllerModule(
           ctx.physics,
           ctx.intents.bounce,
           tuning,
+          ctx.intents.impulse,
         );
         return;
       }

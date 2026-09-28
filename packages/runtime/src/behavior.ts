@@ -73,6 +73,8 @@ import type {
   BehaviorEffects,
   BehaviorGameState,
   BehaviorCollectible,
+  BehaviorCharacter,
+  BehaviorLook,
   BehaviorHealth,
   BehaviorHitbox,
   BehaviorPatrol,
@@ -193,6 +195,10 @@ export interface BehaviorContext {
   readonly hitbox?: BehaviorHitbox;
   /** Phase 24.4a: collectibles — collected or not, bring one back. */
   readonly collectible?: BehaviorCollectible;
+  /** Phase 24.4f: the character — give it an impulse. */
+  readonly character?: BehaviorCharacter;
+  /** Phase 24.4h: per-object look overrides — a glow or a tint, set and cleared. */
+  readonly look?: BehaviorLook;
   /** Play sounds (presentation only, never part of the simulation). */
   readonly audio?: BehaviorAudio;
   /** Play visual effects (presentation only, never part of the simulation). */
@@ -967,6 +973,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.patrol !== undefined) fields['patrol'] = { value: src.patrol, enumerable: true };
         if (src.hitbox !== undefined) fields['hitbox'] = { value: src.hitbox, enumerable: true };
         if (src.collectible !== undefined) fields['collectible'] = { value: src.collectible, enumerable: true };
+        // Phase 24.4f/h: the character's impulse and the look overrides.
+        if (src.character !== undefined) fields['character'] = { value: src.character, enumerable: true };
+        if (src.look !== undefined) fields['look'] = { value: src.look, enumerable: true };
         // Phase 9.10: sounds (played by the host; the simulation never waits on them).
         if (src.audio !== undefined) fields['audio'] = { value: src.audio, enumerable: true };
         // Phase 20.2: visual effects (played by the renderer; the simulation never reads them back).
