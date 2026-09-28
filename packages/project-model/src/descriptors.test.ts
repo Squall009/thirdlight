@@ -491,7 +491,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   ],
   cameraPath: [{ points: [[0, 0, 0], [4, 1, 0], [8, 0, 2]], closed: true, smooth: false }],
   light: LIGHTS,
-  playerSpawn: [{ facing: 'left' }, { yaw: 90 }],
+  playerSpawn: [{ yaw: 90 }],
   mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
   trigger: [
     { shape: 'box', size: [2, 2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
@@ -696,7 +696,6 @@ function contentDoc(extra: Obj = {}): Obj {
     behaviors: [],
     settings: {},
     behaviorTrust: { entries: [] },
-    game: null,
     scenes: [{ sceneId: 'main', name: 'Main' }],
     startScenes: ['main'],
     ...extra,

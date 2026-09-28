@@ -218,7 +218,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
 
 describe('phase 15.2: a spawn says which way the character faces (on arrival)', () => {
   // Phase 24.7: only an arrival (a scene transition's spawn) applies a spawn's
-  // facing; left/right read as a yaw of ∓90°. The character stands still in a
+  // facing; phase 24.8: the facing is the spawn's yaw. The character stands still in a
   // transition trigger and arrives, from rest, at a spawn in a second scene.
   const yawOf = (L: Any, id: string): number => {
     const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
@@ -239,21 +239,18 @@ describe('phase 15.2: a spawn says which way the character faces (on arrival)', 
     return L;
   };
 
-  it('left or right: the face-movement model is turned that way on arrival (the character stands still)', async () => {
-    const left = await arrive({ facing: 'left' });
+  it('a yaw of -90 or 90: the face-movement model is turned that way on arrival (the character stands still)', async () => {
+    const left = await arrive({ yaw: -90 });
     expect(yawOf(left, 'look-0001')).toBeCloseTo(-90, 3);
     await left.tick(30);
     expect(yawOf(left, 'look-0001')).toBeCloseTo(-90, 3);
-    const right = await arrive({ facing: 'right' });
+    const right = await arrive({ yaw: 90 });
     expect(yawOf(right, 'look-0001')).toBeCloseTo(90, 3);
     await right.tick(30);
     expect(yawOf(right, 'look-0001')).toBeCloseTo(90, 3);
   });
 
-  it('none (or absent): the model keeps its placed turn', async () => {
-    const none = await arrive({ facing: 'none' });
-    await none.tick(30);
-    expect(yawOf(none, 'look-0001')).toBeCloseTo(0, 3);
+  it('no yaw: the model keeps its placed turn', async () => {
     const absent = await arrive({});
     await absent.tick(30);
     expect(yawOf(absent, 'look-0001')).toBeCloseTo(0, 3);

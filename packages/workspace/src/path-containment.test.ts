@@ -128,13 +128,13 @@ function nextRequestId(): string {
 }
 
 /**
- * A valid storage v4 project manifest (schemaVersion 2) matching the
+ * A valid storage v4 project manifest (schemaVersion 3) matching the
  * directory name `id` — with no content.json it is the interrupted-creation
  * shape the scan completes (scene file + content.json) when contained.
  */
 function manifestBytes(id: string): string {
   return JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: 3,
     engineVersion: '0.1.0',
     id,
     name: 'Demo',

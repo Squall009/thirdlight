@@ -84,6 +84,7 @@ import type {
   PcmWavRecipe,
 } from './types-v3';
 import { AUDIO_PCM_WAV_PROFILE, MAX_TAGS, type ContentCatalogV4 } from './types-v3';
+import { REMOVED_IN_PHASE_24 } from './upgrade-v24';
 
 // ---- limits (§18.4–§18.6, §20.3, §20.7, §22) ----------------------------------
 
@@ -220,8 +221,9 @@ export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
   'KHR_texture_transform',
 ]);
 
-/** §23.4: a v3 content block carries the five accepted keys plus `game`. */
+/** §23.4: a v3 content block carries the five accepted keys plus `game` (phase 24.8: v4 content has no `game`). */
 const KNOWN_CONTENT_FIELDS_V3 = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game']);
+const KNOWN_CONTENT_FIELDS_V4 = ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'scenes', 'startScenes'];
 /**
  * Phase 15.3: engine timing every project played with before it became data
  * (recorded replays stay valid). Generic reasons: falling through a one-way
@@ -1997,13 +1999,14 @@ function canonicalTrust(t: BehaviorTrust): BehaviorTrust {
 // ---- content schemaVersion 3: `audio` kind and `content.game` (§23.4) ---------
 
 /**
- * Phase 24.7: the game block (`content.game`: the session's
- * player, camera, spawn, cues and timing) was deleted. The key stays in the
- * content block as `null` until the 24.8 format bump; a block is refused.
+ * Phase 24.7: the game block (`content.game`: the session's player, camera,
+ * spawn, cues and timing) was deleted. A v3 envelope keeps the key as
+ * `null`; phase 24.8: v4 content has no `game` key (the loader drops a null
+ * one from a schemaVersion 2 project and refuses a block).
  */
 export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[]): void {
   if (g === null) return;
-  errors.push(withFound({ code: 'game_config_invalid', path, message: 'content.game (the game block) was removed in phase 24: build the game rules as project scripts', reason: 'field_value', expected: 'null' } as ModelErrorV2, g));
+  errors.push(withFound({ code: 'field_value', path, message: `content.game (the game block) was ${REMOVED_IN_PHASE_24}`, expected: 'null' } as ModelErrorV2, g));
 }
 
 /**
@@ -2011,14 +2014,18 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
  * v2 inner validators (prefabs/behaviors/settings/trust), the v3 asset-kind
  * discriminator and the bounded `game` block.
  */
-function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 } {
+function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 | ContentCatalogV4 } {
   const errors: ModelErrorV2[] = [];
-  const required = version === 4 ? [...KNOWN_CONTENT_FIELDS_V3, 'scenes', 'startScenes'] : [...KNOWN_CONTENT_FIELDS_V3];
+  const required = version === 4 ? KNOWN_CONTENT_FIELDS_V4 : [...KNOWN_CONTENT_FIELDS_V3];
+  // Phase 24.8: a v4 content block has no `game` key.
+  if (version === 4 && doc['game'] !== undefined) {
+    errors.push(withFound({ code: 'field_unexpected', path: '/game', message: `content.game (the game block: player, camera, spawn, cues and timing) was ${REMOVED_IN_PHASE_24}`, expected: 'no game key' } as ModelErrorV2, 'game'));
+  }
   for (const key of required) {
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell'))) {
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell'))) {
       errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)'] : [])].join(', ')));
     }
   }
@@ -2156,7 +2163,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['behaviorTrust'] !== undefined) validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
 
   const game = doc['game'];
-  if (game !== undefined && game !== null) validateGameConfig(game, '/game', errors);
+  if (version === 3 && game !== undefined && game !== null) validateGameConfig(game, '/game', errors);
 
   if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
 
@@ -2168,7 +2175,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
   // Phase 24.7: the level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
-  if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: 'content.flow (levels, lives, score) was removed in phase 24: use the game shell (content.shell) and project scripts', expected: 'no flow' } as ModelErrorV2, 'flow'));
+  if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (levels, lives, score and their menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
   // Phase 16.1: standalone graph documents.
   if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
   // Phase 20.0: visual effects.
@@ -2242,7 +2249,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
 
   if (errors.length > 0) return { errors };
-  const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3);
+  const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3 | ContentCatalogV4);
   if (version === 4) {
     (canonical as ContentCatalogV4).scenes = (doc['scenes'] as { sceneId: string; name: string }[]).map((e) => ({ sceneId: e.sceneId, name: e.name }));
     (canonical as ContentCatalogV4).startScenes = [...(doc['startScenes'] as string[])];
@@ -2295,15 +2302,16 @@ export function validateTagRegistry(tags: unknown, path: string, errors: ModelEr
   });
 }
 
-/** §23.7: canonical v3 content block (fixed six-key order, `game` last). */
-export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
+/** §23.7: canonical v3 content block (fixed six-key order, `game` last; phase 24.8: v4 content has no `game`). */
+export function canonicalContentV3<T extends ContentCatalogV3 | ContentCatalogV4>(c: T): T {
+  const v4 = (c as ContentCatalogV4).scenes !== undefined;
   return {
     assets: sortedRecord(c.assets, (a) => a.assetId).map(canonicalAssetV3),
     prefabs: sortedRecord(c.prefabs, (d) => d.prefabId).map(canonicalPrefab),
     behaviors: sortedRecord(c.behaviors, (b) => b.behaviorId).map(canonicalBehavior),
     settings: canonicalSettings(c.settings),
     behaviorTrust: canonicalTrust(c.behaviorTrust),
-    game: null,
+    ...(v4 ? {} : { game: null }),
     // Phase 12 (c): v4 only — the scene index and the start set.
     ...((c as ContentCatalogV4).scenes !== undefined ? { scenes: (c as ContentCatalogV4).scenes.map((e) => ({ sceneId: e.sceneId, name: e.name })) } : {}),
     ...((c as ContentCatalogV4).startScenes !== undefined ? { startScenes: [...(c as ContentCatalogV4).startScenes] } : {}),
@@ -2350,7 +2358,7 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).timelines !== undefined && (c as ContentCatalogV4).timelines!.length > 0 ? { timelines: canonicalTimelines((c as ContentCatalogV4).timelines!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
-  };
+  } as unknown as T;
 }
 
 /**
@@ -2537,7 +2545,7 @@ export function validateContentV3(doc: unknown): ModelResultV3<ContentCatalogV3>
 
 /**
  * Phase 12 (c): the v4 project content block (`content.json`): v3's keys plus
- * the required `startScenes`, with the v4 game block (configVersion 2).
+ * the scene index and the required `startScenes` (phase 24.8: no `game`).
  */
 export function validateContentV4(doc: unknown): ModelResultV3<ContentCatalogV4> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);

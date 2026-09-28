@@ -108,7 +108,6 @@ export function v4Content(): ContentDocument {
     behaviors: [],
     settings: {},
     behaviorTrust: { entries: [] },
-    game: null,
     scenes: [{ sceneId: 'scene-main', name: 'Main' }],
     startScenes: ['scene-main'],
   } as unknown as ContentDocument;

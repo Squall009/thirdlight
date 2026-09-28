@@ -22,7 +22,7 @@ function scene(entities: Obj[]): Obj {
   return { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'spawn-0001', components: { transform: T, playerSpawn: {} } }, ...entities] };
 }
 function content(extra: Obj = {}): Obj {
-  return { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'], ...extra };
+  return { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'], ...extra };
 }
 const withBounds = (bounds: unknown): Obj => {
   const m = JSON.parse(JSON.stringify(MODEL)) as Obj;

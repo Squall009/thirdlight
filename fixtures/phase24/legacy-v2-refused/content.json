@@ -1,0 +1,25 @@
+{
+  "storageVersion": 4,
+  "type": "project-content",
+  "projectId": "legacy-v2-refused",
+  "revision": 2,
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": {"configVersion":2,"title":"Legacy","objective":"Reach the goal","instructions":"Move and jump","playerId":"box-0001","cameraId":"cam-main","spawnId":"spawn-0001","cues":{"start":null,"jump":null,"checkpoint":null,"death":null,"goal":null}},
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"}
+    ],
+    "startScenes": ["scene-main"]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

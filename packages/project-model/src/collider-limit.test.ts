@@ -22,7 +22,7 @@ function scene(sceneId: string, entities: Obj[]): Obj {
   return { schemaVersion: 4, sceneId, revision: 1, entities };
 }
 function content(sceneIds: string[]): Obj {
-  return { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null, scenes: sceneIds.map((sceneId) => ({ sceneId, name: sceneId })), startScenes: sceneIds };
+  return { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, scenes: sceneIds.map((sceneId) => ({ sceneId, name: sceneId })), startScenes: sceneIds };
 }
 const ctx = { projectId: 'p', revision: 1 };
 

@@ -6,7 +6,7 @@
  * dragged; the stored value changes (snapped), in one command, and one undo
  * restores it. Also: polygon corners (drag, add on an edge, Alt+click
  * delete, a concave shape refused), colliders from the model's outline, a
- * spawn's facing, the camera's real frustum, an animator's starting
+ * spawn's yaw, the camera's real frustum, an animator's starting
  * parameter values, and single copies of an instance set (select, delete,
  * move with the gizmo, brush) — each one undo step.
  */
@@ -263,18 +263,19 @@ test('paths and polygons: drag a point, add one on an edge, Alt+click deletes; a
   await expect.poll(async () => comp('model-0002', 'collider')).toBeUndefined();
 });
 
-test('a spawn\'s facing, the camera\'s real frustum, an animator\'s starting parameter values', async ({ page }) => {
+test('a spawn\'s yaw, the camera\'s real frustum, an animator\'s starting parameter values', async ({ page }) => {
   test.setTimeout(180_000);
   await open(page);
   const inspector = page.locator('.tl-inspector');
 
-  // playerSpawn.facing: a select (none/left/right); none removes it.
+  // playerSpawn.yaw (phase 24.8: the left/right facing became it): a number field; undo removes it.
   await select(page, 'spawn-0001', false);
-  await inspector.getByLabel('playerSpawn facing', { exact: true }).selectOption('left');
-  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({ facing: 'left' });
+  const yaw = inspector.getByLabel('playerSpawn yaw', { exact: true });
+  await yaw.fill('-90');
+  await yaw.press('Enter');
+  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({ yaw: -90 });
   await undo(page);
   await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({});
-  await expect(inspector.getByLabel('playerSpawn facing', { exact: true })).toHaveValue('none');
 
   // The camera's frustum follows its fields and the game's aspect.
   const stored = (await comp('cam-main', 'camera'))! as { fovY: number; near: number; far: number };

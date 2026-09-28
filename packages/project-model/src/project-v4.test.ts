@@ -26,14 +26,13 @@ const at = (x: number, y = 0) => ({ position: [x, y, 0], rotation: [0, 0, 0, 1],
 const DIGEST = 'ab'.repeat(32);
 const camera = (id = 'cam-main') => ({ id, components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } });
 const scene = (sceneId: string, entities: unknown[]) => ({ schemaVersion: 4, sceneId, revision: 1, entities });
-const MANIFEST = { schemaVersion: 2, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const MANIFEST = { schemaVersion: 3, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 const content = (extra: Record<string, unknown> = {}) => ({
   assets: [MODEL],
   prefabs: [],
   behaviors: [],
   settings: {},
   behaviorTrust: { entries: [] },
-  game: null,
   scenes: [
     { sceneId: 'scene-core', name: 'Core' },
     { sceneId: 'scene-level', name: 'Level' },
@@ -87,8 +86,8 @@ describe('content v4', () => {
     if (!withGame.ok) {
       const e = withGame.errors.find((x) => x.path === '/game');
       expect(e, JSON.stringify(withGame.errors)).toBeDefined();
-      expect(e!.code).toBe('game_config_invalid');
-      expect(e!.message).toContain('removed in phase 24');
+      expect(e!.code).toBe('field_unexpected');
+      expect(e!.message).toContain('removed in phase 24: build it as project scripts');
     }
     const withFlow = validateContentV4(content({ flow: { levels: [] } }));
     expect(withFlow.ok).toBe(false);
@@ -97,9 +96,9 @@ describe('content v4', () => {
       expect(e, JSON.stringify(withFlow.errors)).toBeDefined();
       expect(e!.message).toContain('removed in phase 24');
     }
-    // The key itself stays: game must be present and null.
-    const { game: _g, ...noGame } = content();
-    expect(validateContentV4(noGame).ok).toBe(false);
+    // Phase 24.8: v4 content has no game key at all (a null one is refused too; the loader drops it from a schemaVersion 2 project).
+    expect('game' in content()).toBe(false);
+    expect(validateContentV4(content({ game: null })).ok).toBe(false);
   });
 });
 
@@ -157,7 +156,7 @@ describe('migration v3 → v4', () => {
     expect(project.scenes[0]!.entities.map((e) => e.id)).toEqual(env.normalized.scene.entities.map((e) => e.id));
     expect(project.content.scenes).toEqual([{ sceneId: env.normalized.scene.sceneId, name: 'Main' }]);
     expect(project.content.startScenes).toEqual([env.normalized.scene.sceneId]);
-    expect(project.content.game).toBeNull();
+    expect('game' in project.content).toBe(false);
     expect(notes).toEqual([]);
     const v = validateProjectV4(project.manifest, project.content, project.scenes);
     expect(v.ok, JSON.stringify(!v.ok && v.errors)).toBe(true);

@@ -163,8 +163,6 @@ export {
   type PcmWavMetrics,
   type PcmWavRecipe,
   type PlayerSpawnComponent,
-  type PlayerSpawnFacing,
-  PLAYER_SPAWN_FACINGS,
   type SceneV3,
   type SurfaceComponent,
 } from './types-v3';
@@ -279,6 +277,17 @@ export {
   type ProjectManifestV2,
   type ProjectV4,
 } from './project-v4';
+// Phase 24.8: the project format after the engine/game separation (the loader's upgrade).
+export {
+  PROJECT_SCHEMA_VERSION,
+  PROJECT_SCHEMA_VERSION_UPGRADED,
+  REMOVED_IN_PHASE_24,
+  REMOVED_COMPONENTS,
+  removedComponentMessage,
+  isRemovedComponent,
+  upgradeProjectDocsV24,
+  type UpgradeV24Result,
+} from './upgrade-v24';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
 export { validateContentV4, MAX_SCENES, ENGINE_TIMING_DEFAULTS } from './content';
 // Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).

@@ -7,7 +7,7 @@
 //   expected.json index) as byte-exact files with REAL SHA-256 digests, in
 //   the storage-v4 layout (phase 12 c; packages/workspace/src/store-v4.ts):
 //
-//     project.json            manifest schemaVersion 2
+//     project.json            manifest schemaVersion 3 (phase 24.8; 2 before)
 //     content.json            { storageVersion 4, type "project-content",
 //                               projectId, revision, content, retry }
 //     scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
@@ -139,14 +139,13 @@ function defaultContent() {
     behaviors: [],
     settings: {},
     behaviorTrust: { entries: [] },
-    game: null,
     scenes: [{ sceneId: SCENE_ID, name: "Main" }],
     startScenes: [SCENE_ID],
   };
 }
 
 function manifestObj(id, name, createdAt) {
-  return { schemaVersion: 2, engineVersion: "0.1.0", id, name, createdAt };
+  return { schemaVersion: 3, engineVersion: "0.1.0", id, name, createdAt };
 }
 
 const RETENTION = 128;
@@ -1025,7 +1024,7 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
   const validEntry = (name, project, snap, note) => ({ dir: `envelope/valid/${name}`, project, revision: revisionOf(snap), records: recordsOf(snap).length, note });
   const idx = {
     indexVersion: 2,
-    storage: "v4: project.json (manifest schemaVersion 2), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
+    storage: "v4: project.json (manifest schemaVersion 3), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
     contracts: {
       commands: "docs/contracts/commands.md",
       workspace: "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",

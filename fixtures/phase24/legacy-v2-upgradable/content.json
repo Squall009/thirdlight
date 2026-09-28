@@ -1,0 +1,25 @@
+{
+  "storageVersion": 4,
+  "type": "project-content",
+  "projectId": "legacy-v2-upgradable",
+  "revision": 3,
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null,
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"}
+    ],
+    "startScenes": ["scene-main"]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

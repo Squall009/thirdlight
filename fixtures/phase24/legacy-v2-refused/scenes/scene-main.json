@@ -1,0 +1,22 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v2-refused",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 2,
+    "entities": [
+      {"id":"cam-main","name":"Main Camera","components":{"transform":{"position":[0,0.5,4],"rotation":[0,0,0,1],"scale":[1,1,1]},"camera":{"type":"perspective","fovY":60,"near":0.1,"far":100},"cameraFollow":{"deadZone":{"x":1,"y":1},"smoothing":0.2}}},
+      {"id":"spawn-0001","name":"Start","components":{"transform":{"position":[0,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}},
+      {"id":"box-0001","name":"Walker","components":{"transform":{"position":[3,0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#aa3333"}},"enemy":{"patrol":"edges","speed":1.5,"contactDamage":1,"stompable":true}}},
+      {"id":"box-0002","name":"Finish","components":{"transform":{"position":[10,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"gameZone":{"role":"goal","size":[1,2]}}},
+      {"id":"box-0003","name":"Heart","components":{"transform":{"position":[5,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[0.4,0.4,0.4],"material":{"color":"#ff4060"}},"pickup":{"kind":"heart","value":1}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

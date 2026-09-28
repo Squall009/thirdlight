@@ -66,7 +66,6 @@ describe('script libraries (data)', () => {
           behaviors: [{ behaviorId: 'b', displayName: 'B', declaration: { properties: [] }, source: { sourceDigest: 'a'.repeat(64), sourceByteLength: 10, entryPath: 'src/index.ts', fileCount: 1, manifestDigest: 'b'.repeat(64), outputDigest: 'c'.repeat(64), outputByteLength: 10, requiredModules: [], libraries: pins, publishedRevision: 1 }, publishedRevision: 1 }],
           settings: {},
           behaviorTrust: { entries: [] },
-          game: null,
           scenes: [{ sceneId: 'main', name: 'Main' }],
           startScenes: ['main'],
           scriptLibraries: libs,

@@ -84,15 +84,10 @@ describe('public surface (dependencies.md §3)', () => {
       'history_invalid',
       'write_failed',
       // Packet 45 appended the commands.md §5.4 v3 game/presentation rows
-      // (and the §41.3.2 animation-role rows); no accepted row changed.
-      'game_reference_missing',
-      'game_reference_in_use',
-      'zone_transform_unsupported',
+      // (and the §41.3.2 animation-role rows); phase 24.8 deleted the game
+      // block and zone rows with the genre layer.
       'spawn_transform_unsupported',
-      'zone_checkpoint_count_invalid',
-      'zone_goal_missing',
       'asset_kind_mismatch',
-      'game_config_invalid',
       'animation_role_out_of_range',
       'animation_role_duplicate',
       'animation_role_mismatch',

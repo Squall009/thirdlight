@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { validateContentV4 } from './content';
 import { ASSET_KINDS } from './descriptors';
 
-const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'] };
+const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'] };
 const RECIPE = { profile: 'font', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
 
 function version(n: number, metrics: Record<string, unknown> = { format: 'ttf', familyName: 'Neutral Sans' }, recipe: Record<string, unknown> = RECIPE) {

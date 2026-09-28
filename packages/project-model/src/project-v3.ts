@@ -7,7 +7,7 @@
  *
  * Composition order (§23.8): content block → scene (the accepted per-document
  * order) → game-dependent scene rules → v3 cross-block asset/cue/animation
- * references → the §13.1 cross-block checks. `game_config_invalid` is a
+ * references → the §13.1 cross-block checks. A non-null game block is a
  * single-error rule that stops the pipeline; the combination check and the
  * envelope/content key set are single-error rules too.
  *
@@ -37,18 +37,6 @@ const ENVELOPE_V3_FIELDS = ['storageVersion', 'type', 'projectId', 'scene', 'con
 const CONTENT_V3_FIELDS = ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game'] as const;
 
 // ---- shared v3 composition (§23.5/§23.8 steps 5–6) ---------------------------
-
-function gameRef(
-  path: string,
-  reason: 'player' | 'camera' | 'camera_follow' | 'spawn' | 'safe_spawn' | 'cue',
-  message: string,
-  expected: string,
-  document: 'scene' | 'content',
-  found?: unknown,
-): ModelErrorV3 {
-  const e: ModelErrorV3 = { code: 'game_reference_missing', path, message, reason, expected, document };
-  return found === undefined ? e : withFound(e, found);
-}
 
 function assetRef(
   code: 'asset_reference_missing' | 'asset_kind_mismatch' | 'asset_version_invalid',
@@ -504,7 +492,7 @@ function prefixErrors(errors: readonly ModelErrorV3[], prefix: string): Envelope
 
 /**
  * The model-owned v3 envelope branch: `storageVersion` known → version
- * combination → envelope/content key set → content (`game_config_invalid`
+ * combination → envelope/content key set → content (a non-null game block
  * stops the pipeline) → scene → composition. Every refusal is a single
  * error; the bytes are never rewritten here.
  */
@@ -589,8 +577,8 @@ export function validateEnvelopeV3(root: unknown): EnvelopeV3Load {
   const contentResult = validateContentV3(contentRaw);
   if (!contentResult.ok) {
     const mapped = prefixErrors(contentResult.errors, '/content');
-    // `game_config_invalid` is a single-error rule that stops the pipeline.
-    if (mapped.some((e) => e.code === 'game_config_invalid')) return envelopeFail(mapped);
+    // A non-null game block (removed in phase 24) is a single-error rule that stops the pipeline.
+    if (mapped.some((e) => e.path === '/content/game')) return envelopeFail(mapped);
     const sceneResult = validateSceneV3(sceneRaw);
     if (!sceneResult.ok) return envelopeFail([...mapped, ...prefixErrors(sceneResult.errors, '/scene')]);
     return envelopeFail(mapped);

@@ -37,7 +37,6 @@ const content = (assets: unknown[]) => ({
   behaviors: [],
   settings: {},
   behaviorTrust: { entries: [] },
-  game: null,
   scenes: [{ sceneId: 'scene-a', name: 'A' }],
   startScenes: ['scene-a'],
 });

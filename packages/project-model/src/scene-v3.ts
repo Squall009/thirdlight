@@ -95,9 +95,8 @@ import {
   type SceneV4,
   isFolderEntity,
   MAX_INSTANCES,
-  PLAYER_SPAWN_FACINGS,
-  type PlayerSpawnFacing,
 } from './types-v3';
+import { isRemovedComponent, removedComponentMessage } from './upgrade-v24';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
@@ -170,6 +169,10 @@ const ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 // ---- small helpers -----------------------------------------------------------
 
 function v3ComponentUnknown(path: string, key: string): ModelErrorV3 {
+  // Phase 24.8: a removed game component names itself and says where it went.
+  if (isRemovedComponent(key)) {
+    return withFound({ code: 'component_unknown', path, message: removedComponentMessage(key), expected: `known component types: ${V3_REGISTRY.join(', ')}` }, key);
+  }
   return withFound(
     {
       code: 'component_unknown',
@@ -263,19 +266,18 @@ export function validatePlayerSpawnComponent(c: unknown, path: string, errors: M
     return;
   }
   for (const k of Object.keys(c)) {
-    // Phase 15.2: v4 spawns may say which way the player faces.
-    if (k === 'facing' && version === 4) {
-      const v = c[k];
-      if (typeof v !== 'string' || !(PLAYER_SPAWN_FACINGS as readonly string[]).includes(v)) errors.push(fieldValue(`${path}/facing`, v, '"none", "left" or "right"', 'facing is none, left or right'));
-      continue;
-    }
     // Phase 24.4f: the way the character faces on arrival, a yaw in degrees about +Y (0: facing +Z; any direction, 3D too).
     if (k === 'yaw' && version === 4) {
       const v = c[k];
       if (typeof v !== 'number' || !Number.isFinite(v) || v < -360 || v > 360) errors.push(fieldValue(`${path}/yaw`, v, 'a number −360–360', 'yaw is −360–360 degrees'));
       continue;
     }
-    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'facing, yaw' : '{} (no fields)'));
+    // Phase 24.8: the left/right `facing` became `yaw` (a schemaVersion 2 project is upgraded on load).
+    if (k === 'facing' && version === 4) {
+      errors.push(withFound({ code: 'field_unexpected', path: `${path}/facing`, message: 'playerSpawn.facing was replaced by yaw in phase 24 (left: -90, right: 90 degrees)', expected: 'yaw' }, c[k]));
+      continue;
+    }
+    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'yaw' : '{} (no fields)'));
   }
 }
 
@@ -970,8 +972,8 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}) };
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['playerSpawn'] !== undefined) {
-    const { facing, yaw } = comps['playerSpawn'] as { facing?: PlayerSpawnFacing; yaw?: number };
-    components.playerSpawn = { ...(facing !== undefined ? { facing } : {}), ...(yaw !== undefined ? { yaw } : {}) };
+    const { yaw } = comps['playerSpawn'] as { yaw?: number };
+    components.playerSpawn = { ...(yaw !== undefined ? { yaw } : {}) };
   }
   if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);

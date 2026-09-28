@@ -61,12 +61,12 @@ describe('storage v4', () => {
     expect(q.scenes).toEqual([{ sceneId: 'scene-main', name: 'Main', entityCount: expect.any(Number) }]);
     expect(q.startScenes).toEqual(['scene-main']);
     // The files on disk: v2 manifest, content.json, scenes/scene-main.json; the v3 envelope kept aside.
-    expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).schemaVersion).toBe(2);
+    expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).schemaVersion).toBe(3);
     expect(existsSync(join(dir, 'content.json'))).toBe(true);
     expect(readdirSync(join(dir, 'scenes'))).toEqual(['scene-main.json']);
     expect(existsSync(join(dir, '.thirdlight', 'migrated-v3', 'main.json'))).toBe(true);
     const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')) as { content: { game: Record<string, unknown> | null } };
-    expect(content.content.game).toBeNull();
+    expect('game' in content.content).toBe(false);
 
     // An entity edit writes the scene file only.
     const contentHash = hashOf(join(dir, 'content.json'));

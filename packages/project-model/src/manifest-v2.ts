@@ -58,6 +58,7 @@ import type {
   ContentCatalogV3,
   SceneV3,
   TagDefinition,
+  ContentCatalogV4,
 } from './types-v3';
 import type { GameplaySettings, PrefabDefinition } from './types-v2';
 import {
@@ -442,7 +443,7 @@ export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScen
   return mediaIdentityFrom(normScene, c.normalized);
 }
 
-function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3): ModelResultV2<MediaBlock> {
+function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3 | ContentCatalogV4): ModelResultV2<MediaBlock> {
   const byId = new Map<string, AssetRecordV3>(content.assets.map((a) => [a.assetId, a]));
   const errors: ModelErrorV2[] = [];
 
@@ -568,7 +569,7 @@ export function captureContentViewV3(
     behaviors: normContent.behaviors,
     settings: settingsRes.normalized,
     behaviorTrust: normContent.behaviorTrust,
-    game: normContent.game,
+    game: null,
   };
   const contentDigest = blockDigest(withoutDigest);
   return { ok: true, normalized: { ...withoutDigest, contentDigest } as CapturedContentViewV3 };

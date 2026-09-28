@@ -1,0 +1,23 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v2-upgradable",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 3,
+    "entities": [
+      {"id":"cam-main","name":"Main Camera","components":{"transform":{"position":[0,0.5,4],"rotation":[0,0,0,1],"scale":[1,1,1]},"camera":{"type":"perspective","fovY":60,"near":0.1,"far":100}}},
+      {"id":"light-0001","name":"Ambient","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#8090a8","intensity":0.6}}},
+      {"id":"spawn-0001","name":"Start","components":{"transform":{"position":[0,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{"facing":"right"}}},
+      {"id":"box-0001","name":"Coin","components":{"transform":{"position":[2,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[0.4,0.4,0.4],"material":{"color":"#e0c040"}},"pickup":{"kind":"coin","value":1,"size":[0.5,0.5]}}},
+      {"id":"box-0002","name":"Star","components":{"transform":{"position":[4,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[0.4,0.4,0.4],"material":{"color":"#ffffff"}},"pickup":{"kind":"custom","counter":"stars","value":5,"respawn":"never"}}},
+      {"id":"box-0003","name":"Crate","components":{"transform":{"position":[6,0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#8a5a2b"}},"health":{"max":3,"invulnerableSeconds":1,"knockback":4}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

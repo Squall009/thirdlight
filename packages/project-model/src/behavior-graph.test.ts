@@ -106,7 +106,6 @@ function content(behavior: Record<string, unknown>): Record<string, unknown> {
     behaviors: [{ behaviorId: 'vs', displayName: 'Visual', declaration: { properties: [{ key: 'value', label: 'Value', type: 'number', default: 0 }] }, source: null, publishedRevision: 1, ...behavior }],
     settings: {},
     behaviorTrust: { entries: [] },
-    game: null,
     scenes: [{ sceneId: 'main', name: 'Main' }],
     startScenes: ['main'],
   };
@@ -118,19 +117,19 @@ describe('the behavior record: graph and source.kind', () => {
   it('a v4 record keeps its graph and source kind through the canonical form (canonical field order)', () => {
     const r = validateContentV4(content({ graph: GRAPH, source: { ...SOURCE, declaredInCode: true, kind: 'graph' } }));
     if (!r.ok) throw new Error(JSON.stringify(r.errors));
-    const b = canonicalContentV3(r.normalized as never).behaviors[0]!;
+    const b = canonicalContentV3(r.normalized).behaviors[0]!;
     expect(b.graph).toEqual({ nodes: [{ id: 'a', type: 'var.number', position: [0, -100], data: { name: 'value' } }, { id: 'start', type: 'event.start', position: [0, 0] }], edges: [] });
     expect(Object.keys(b.graph!.nodes[1]!)).toEqual(['id', 'type', 'position']);
     expect(b.source?.kind).toBe('graph');
     // A record without them stays as it was (no new keys).
     const plain = validateContentV4(content({}));
     if (!plain.ok) throw new Error('plain');
-    expect(Object.keys(canonicalContentV3(plain.normalized as never).behaviors[0]!)).toEqual(['behaviorId', 'displayName', 'declaration', 'source', 'publishedRevision']);
+    expect(Object.keys(canonicalContentV3(plain.normalized).behaviors[0]!)).toEqual(['behaviorId', 'displayName', 'declaration', 'source', 'publishedRevision']);
   });
 
   it('refuses a graph the kind refuses, a bad source kind, and a graph in a v3 project', () => {
     const paths = (c: Record<string, unknown>, v: 3 | 4 = 4): string[] => {
-      const r = v === 4 ? validateContentV4(c) : validateContentV3(Object.fromEntries(Object.entries(c).filter(([k]) => k !== 'scenes' && k !== 'startScenes')));
+      const r = v === 4 ? validateContentV4(c) : validateContentV3({ ...Object.fromEntries(Object.entries(c).filter(([k]) => k !== 'scenes' && k !== 'startScenes')), game: null });
       return r.ok ? [] : r.errors.map((e) => e.path ?? '');
     };
     expect(paths(content({ graph: { nodes: [{ id: 'x', type: 'nope', position: [0, 0] }], edges: [] } }))).toEqual(['/behaviors/0/graph/nodes/0/type']);
@@ -215,7 +214,7 @@ describe('phase 19.1: variables, functions, phases and moved objects', () => {
   it('the record keeps its functions (canonical, sorted); functions need a graph and unique ids; an empty function does not exist', () => {
     const ok = validateContentV4(content({ graph: GRAPH, functions: [{ functionId: 'zeta', graph: FN }, { functionId: 'alpha', graph: FN }] }));
     if (!ok.ok) throw new Error(JSON.stringify(ok.errors));
-    const b = canonicalContentV3(ok.normalized as never).behaviors[0]!;
+    const b = canonicalContentV3(ok.normalized).behaviors[0]!;
     expect(b.functions?.map((f) => f.functionId)).toEqual(['alpha', 'zeta']);
     const paths = (c: Record<string, unknown>): string[] => {
       const r = validateContentV4(c);

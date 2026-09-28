@@ -256,11 +256,7 @@ export interface CommandError {
   component?: string;
   entityIds?: readonly string[];
   referencingEntityIds?: readonly string[];
-  // v3 game/presentation rows (packet 45):
-  /** `game_reference_in_use` only (§23.6): the envelope-document pointers, ascending. */
-  references?: readonly string[];
-  /** `zone_checkpoint_count_invalid` only (§23.9). */
-  zoneIds?: readonly string[];
+  // v3 presentation rows (packet 45):
   /** `animation_role_*` rows: the role key the diagnostic names. */
   role?: string;
   /** `animation_role_out_of_range`/`animation_role_duplicate` rows. */

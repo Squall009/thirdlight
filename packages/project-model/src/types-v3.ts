@@ -75,13 +75,8 @@ export const INSTANCE_FLOATS = 10;
 /** Most copies in one instance set. */
 export const MAX_INSTANCES = 65_536;
 
-/** Phase 15.2: which way the player faces when it starts at a spawn (24.8 upgrades left/right to a yaw). */
-export const PLAYER_SPAWN_FACINGS = ['none', 'left', 'right'] as const;
-export type PlayerSpawnFacing = (typeof PLAYER_SPAWN_FACINGS)[number];
-
-/** §23.3.2 spawn marker; phase 15.2 (v4 scenes) adds an optional `facing` (absent: none). */
+/** §23.3.2 spawn marker. Phase 24.8: the left/right `facing` (phase 15.2) became `yaw` (the loader upgrades it). */
 export interface PlayerSpawnComponent {
-  facing?: PlayerSpawnFacing;
   /** Phase 24.4f (v4): the character's yaw on arrival, degrees about +Y (0: facing +Z). */
   yaw?: number;
 }
@@ -386,7 +381,7 @@ export interface ContentCatalogV3 {
   behaviors: BehaviorRecord[];
   settings: SettingsMap;
   behaviorTrust: BehaviorTrust;
-  /** Phase 24.7: the game block was deleted; the key stays `null` until the 24.8 format bump drops it. */
+  /** The v3 envelope's game block (phase 24.7: always null; phase 24.8: v4 content has no such key). */
   game: null;
   /** Phase 12 (b): the project tag registry, ascending `bit`; absent = no tags. */
   tags?: TagDefinition[];
@@ -394,9 +389,9 @@ export interface ContentCatalogV3 {
 
 /**
  * Phase 12 (c): the v4 project content block (`content.json`) — v3's plus the
- * scenes the game starts with; `game` is configVersion 2 (no level, no killY).
+ * scenes the game starts with (phase 24.8: without the v3 `game` key).
  */
-export interface ContentCatalogV4 extends ContentCatalogV3 {
+export interface ContentCatalogV4 extends Omit<ContentCatalogV3, 'game'> {
   /** The project's scenes, in the order the editor lists them (one file each). */
   scenes: SceneIndexEntry[];
   /** The scenes loaded when the game starts (a subset of `scenes`). */

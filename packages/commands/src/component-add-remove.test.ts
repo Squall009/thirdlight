@@ -65,17 +65,11 @@ describe('setComponent adds and removes box, camera and model (phase 15.1)', () 
     expect(components(removed.state, id)['box']).toBeUndefined();
   });
 
-  it('refuses a second shape on one object and removing the game camera', () => {
+  it('refuses a second shape on one object', () => {
     const s = fresh();
     const box = s.scene.entities.find((e) => (e.components as Record<string, unknown>)['box'] !== undefined)!;
     const both = run(s, 'setComponent', { entityId: box.id, component: 'camera', value: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } });
     expect(both.ok).toBe(false);
-    const cameraId = (BEFORE.content as unknown as { game?: { cameraId: string } }).game?.cameraId;
-    if (cameraId !== undefined) {
-      const gone = run(s, 'setComponent', { entityId: cameraId, component: 'camera', value: null });
-      expect(gone.ok).toBe(false);
-      expect(errorCode(gone)).toBe('game_reference_in_use');
-    }
   });
 });
 

@@ -80,7 +80,7 @@ import {
   serveQueryV4,
   type OpenV4Outcome,
 } from './session-v4';
-import { validateManifestV2Project } from '@thirdlight/project-model';
+import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED, validateManifestV2Project } from '@thirdlight/project-model';
 
 // ---- internal state ------------------------------------------------------------
 
@@ -371,14 +371,16 @@ export function loadManifest(
 
 /**
  * Validate a parsed manifest value: a v4 project's manifest (schemaVersion
- * 2, no scene list — returned as its v1-shaped view) or a v3 project's
+ * 3, or 2 before phase 24.8; no scene list — returned as its v1-shaped view) or a v3 project's
  * manifest (schemaVersion 1, read for the upgrade). At most 10 errors.
  */
 export function validateAnyManifest(
   value: unknown,
 ): { ok: true; manifest: Manifest } | { ok: false; errors: readonly LoadDetail[] } {
-  if ((value as { schemaVersion?: unknown } | null)?.schemaVersion === 2) {
-    const v2 = validateManifestV2Project(value);
+  const sv = (value as { schemaVersion?: unknown } | null)?.schemaVersion;
+  // Phase 24.8: schemaVersion 3; a 2 (before the phase 24 upgrade) reads the same way (the project load upgrades it).
+  if (sv === PROJECT_SCHEMA_VERSION || sv === PROJECT_SCHEMA_VERSION_UPGRADED) {
+    const v2 = validateManifestV2Project(sv === PROJECT_SCHEMA_VERSION_UPGRADED ? { ...(value as object), schemaVersion: PROJECT_SCHEMA_VERSION } : value);
     if (!v2.ok) return { ok: false, errors: v2.errors.slice(0, 10) as unknown as readonly LoadDetail[] };
     return { ok: true, manifest: legacyManifestOf(v2.normalized, 'scene-main') };
   }
@@ -430,7 +432,7 @@ export function loadEnvelopeV3(
   // §16.4 step 5 — the v3 cross-block composition: the §13.1 cross-block
   // check plus the §23.5/§23.8-step-6 game/cue/animation reference checks
   // (`validateProjectV3`). A failure is reported with its model code
-  // (`game_reference_missing`, `asset_kind_mismatch`, `zone_goal_missing`, …).
+  // (`asset_kind_mismatch`, `reference_missing`, …).
   {
     const cross = validateProjectV3(manifest, env.scene, env.content);
     if (!cross.ok) {

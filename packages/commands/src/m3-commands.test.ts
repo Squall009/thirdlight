@@ -174,6 +174,22 @@ describe('v3 setComponent add/edit/remove and reference safety', () => {
   });
 });
 
+describe('phase 24.8: the presets renamed in phase 24.7', () => {
+  it('refuses the old names with the new name in the message', () => {
+    for (const [op, args, name] of [
+      ['createEntity', { kind: 'box', surfacePreset: 'beacon' }, 'emissive-accent'],
+      ['applySurfacePreset', { entityId: 'box-0001', preset: 'hazard' }, 'signal-red'],
+    ] as const) {
+      const r = applyMutation(stateOf(BEFORE), req(op, args as Record<string, unknown>, 0));
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.result.error.code).toBe('field_value');
+        expect(r.result.error.message).toContain(`was renamed "${name}" in phase 24`);
+      }
+    }
+  });
+});
+
 describe('applySurfacePreset (commands.md §8.13)', () => {
   it('copies the frozen row, keeps copies independent and re-applies the recorded value on redo', () => {
     let state = stateOf(BEFORE);

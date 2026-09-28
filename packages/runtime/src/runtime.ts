@@ -3455,15 +3455,14 @@ class RuntimeInstance implements Runtime {
     this.pendingArrival = null;
     const t = this.curr.get(a.spawnId);
     const spawn = this.entityDocument(a.spawnId);
-    const marker = (spawn?.components as { playerSpawn?: { yaw?: unknown; facing?: unknown } } | undefined)?.playerSpawn;
+    const marker = (spawn?.components as { playerSpawn?: { yaw?: unknown } } | undefined)?.playerSpawn;
     if (t === undefined || marker === undefined) {
       this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition spawn "${a.spawnId}" is not loaded; the character stays`), stepIndex: this.stepIndex, reason: 'transfer' });
       return true;
     }
     // The spawn becomes the one respawns use (ctx.lifecycle).
     this.activeSpawn = a.spawnId;
-    // Phase 24.7: an old left/right facing reads as a yaw of ∓90° (24.8 upgrades the stored data).
-    const yaw = typeof marker.yaw === 'number' && Number.isFinite(marker.yaw) ? (marker.yaw * Math.PI) / 180 : marker.facing === 'right' ? Math.PI / 2 : marker.facing === 'left' ? -Math.PI / 2 : null;
+    const yaw = typeof marker.yaw === 'number' && Number.isFinite(marker.yaw) ? (marker.yaw * Math.PI) / 180 : null;
     const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
     if (this.physics3d !== undefined) {
       this.pendingRespawn = [x, y, z];

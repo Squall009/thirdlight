@@ -114,7 +114,7 @@ describe('effects', () => {
   });
 
   it('content: effects are an optional block; system graph assets must exist', () => {
-    const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'] };
+    const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'] };
     const bad = validateContentV4({ ...base, effects: [FX] });
     expect(bad.ok).toBe(false);
     expect(JSON.stringify(bad)).toMatch(/effects\/0\/systems\/0\/graph\/nodes\/4\/data\/texture/);

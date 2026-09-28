@@ -148,15 +148,9 @@ describe('stable constants (dependencies.md §3 single source of truth)', () => 
         'behavior_output_forbidden_content',
         'behavior_declaration_mismatch',
         'behavior_trust_unacknowledged',
-        // packet 44 v3 additions (§23.9)
-        'game_reference_missing',
-        'game_reference_in_use',
-        'zone_transform_unsupported',
+        // packet 44 v3 additions (§23.9; phase 24.8: the game block and zone codes were deleted)
         'spawn_transform_unsupported',
-        'zone_checkpoint_count_invalid',
-        'zone_goal_missing',
         'asset_kind_mismatch',
-        'game_config_invalid',
         // packet 47 media additions (presentation.md §41.7.2 A / §18.9.3)
         'animation_role_out_of_range',
         'animation_role_duplicate',

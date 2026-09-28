@@ -24,11 +24,10 @@ export const ERROR_CODES = [
   'physics_port_error',
   // M3 additions (gameplay.md §8.1; runtime.md §8/§15). Additive: no accepted
   // code changes meaning or carries-shape.
+  // Phase 24.8: the game session's codes (spawn invalid/blocked, session
+  // unavailable) went with the session; "game" here is the running game.
   'game_command_invalid',
-  'game_spawn_invalid',
-  'game_spawn_blocked',
   'camera_viewport_invalid',
-  'game_session_unavailable',
   // Phase 12 (c) scene set: a bad load/unload request, and a scene that could
   // not be loaded (a diagnostic entry; the run continues without it).
   'scene_invalid',

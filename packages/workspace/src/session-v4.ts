@@ -177,8 +177,40 @@ export function openV4(
   if (!j.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [j.error], count: 1 };
   const l = loadV4(core.ops, dir, projectId);
   if (l.kind === 'blocked') return l;
-  const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, l.state);
-  return { kind: 'open', session: makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...migrated.notes]) };
+  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, l.state, l.upgraded.notes) : { state: l.state, notes: [] };
+  const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, upgraded.state);
+  return { kind: 'open', session: makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes]) };
+}
+
+/**
+ * Phase 24.8: write a project the load upgraded (schemaVersion 2 → 3) back
+ * as one new revision: the manifest, the content file and every scene file
+ * (block chunk files are unchanged). If the write fails the project still
+ * opens upgraded in memory (the next open upgrades it again) and the notes
+ * say so.
+ */
+function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, notes: string[]): { state: V4State; notes: string[] } {
+  const revision = state.revision + 1;
+  const files = new Map(state.files);
+  const writes: FileWrite[] = [];
+  const manifestBytes = manifestV2Bytes(state.manifest);
+  writes.push({ rel: MANIFEST_REL_V4, bytes: manifestBytes });
+  files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
+  const contentBytes = contentFileBytes(projectId, revision, state.content, state.fileRecords.get(CONTENT_REL) ?? []);
+  writes.push({ rel: CONTENT_REL, bytes: contentBytes });
+  files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256Hex(contentBytes) });
+  const scenes = new Map<string, SceneV4>();
+  for (const [id, scene] of state.scenes) {
+    const stamped: SceneV4 = { ...scene, revision };
+    const rel = sceneRel(id);
+    const bytes = sceneFileBytes(projectId, stamped, state.fileRecords.get(rel) ?? []);
+    writes.push({ rel, bytes });
+    files.set(rel, { bytes, hash: sha256Hex(bytes) });
+    scenes.set(id, stamped);
+  }
+  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, state.files, writes);
+  if (!res.ok) return { state, notes: [...notes, 'the upgraded project could not be written; it is upgraded again at the next open'] };
+  return { state: { ...state, scenes, revision, files }, notes };
 }
 
 /**

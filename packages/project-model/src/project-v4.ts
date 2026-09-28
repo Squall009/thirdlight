@@ -2,9 +2,9 @@
  * Phase 12 (c): the v4 project — several scenes, one file each — and the
  * pure v3 → v4 migration.
  *
- * Layout (storage v4, workspace): `project.json` (manifest schemaVersion 2),
- * `content.json` (the project-wide content block: assets, prefabs,
- * behaviors, settings, trust, game, tags, startScenes) and
+ * Layout (storage v4, workspace): `project.json` (manifest schemaVersion 3;
+ * 2 before phase 24.8), `content.json` (the project-wide content block:
+ * assets, prefabs, behaviors, settings, trust, tags, startScenes…) and
  * `scenes/<sceneId>.json` (one v4 scene each). This module holds the rules
  * that span documents:
  *
@@ -12,15 +12,13 @@
  * - `startScenes` name existing scenes. The start set holds the one-per-game
  *   things — exactly one (active) camera, at most one controller and one
  *   light of each type; other scenes (loaded later) hold none of these;
- * - `content.game` names its player, camera and start spawn in start
- *   scenes, and the project has at least one goal zone;
- * - an exit zone names existing scenes, and its spawn sits in a scene it
- *   loads (or its own);
+ * - a scene transition names existing scenes, and its spawn sits in the
+ *   scene it loads (or its own);
  * - every scene's asset, cue, tag and behavior references resolve against
  *   the content block (the v3 per-scene cross-block rules, reused).
  *
  * Level bounds and a kill height are gone in v4: rules like these are a
- * game's own logic (scripts, hazard zones). Pure: no I/O.
+ * game's own logic (scripts). Pure: no I/O.
  */
 
 import { composeBlockLayers, type BlockContentView } from './block-layers';
@@ -37,10 +35,15 @@ import { isFolderEntity } from './types-v3';
 import { materialOverrideErrors } from './materials';
 import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors } from './effects';
+import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED } from './upgrade-v24';
 
-/** Phase 12 (c): `project.json` schemaVersion 2 — scenes are the files in `scenes/`. */
+/**
+ * Phase 12 (c): `project.json` — scenes are the files in `scenes/`.
+ * schemaVersion 2 until phase 24.8; 3 since (the format without the genre
+ * layer, `upgrade-v24.ts`: the loader upgrades a 2 before validating).
+ */
 export interface ProjectManifestV2 {
-  schemaVersion: 2;
+  schemaVersion: typeof PROJECT_SCHEMA_VERSION;
   engineVersion: string;
   id: string;
   name: string;
@@ -53,7 +56,13 @@ const UTC_SECONDS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectManifestV2> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
   const errors: ModelErrorV3[] = [];
-  if (doc['schemaVersion'] !== 2) errors.push(fieldValue('/schemaVersion', doc['schemaVersion'], '2', 'a v4 project manifest has schemaVersion 2'));
+  if (doc['schemaVersion'] !== PROJECT_SCHEMA_VERSION) {
+    errors.push(
+      doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED
+        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} project is upgraded by the loader before it is validated (upgradeProjectDocsV24)`)
+        : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
+    );
+  }
   for (const k of MANIFEST_V2_FIELDS) if (doc[k] === undefined) errors.push(fieldMissing(`/${k}`, k));
   for (const k of Object.keys(doc)) {
     if (!(MANIFEST_V2_FIELDS as readonly string[]).includes(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, MANIFEST_V2_FIELDS.join(', ')));
@@ -69,7 +78,7 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   if (errors.length > 0) return fail(errors);
   return {
     ok: true,
-    normalized: { schemaVersion: 2, engineVersion: ev as string, id: id as string, name: name as string, createdAt: at as string },
+    normalized: { schemaVersion: PROJECT_SCHEMA_VERSION, engineVersion: ev as string, id: id as string, name: name as string, createdAt: at as string },
   };
 }
 
@@ -363,9 +372,8 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
  * Phase 23.1: the gameplay blocks' rules that follow the project's physics
  * dimension. A trigger's `sphere` and `capsule` are 3D areas (a 2D plane has
  * `box` and `circle`); in 3D a box trigger needs its depth (`size` [w, h, d])
- * and a circle is a sphere. Switches, pickups and enemies test the player on
- * the 2D plane only (their 3D forms belong to the game modes, phase 23.10), so
- * a 3D project refuses them rather than ignoring depth.
+ * and a circle is a sphere. A switch tests the character on the 2D plane
+ * only, so a 3D project refuses it rather than ignoring depth.
  */
 export function blockDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[]): void {
   const trigger = comps['trigger'] as { shape?: unknown; size?: unknown } | undefined;
@@ -382,9 +390,8 @@ export function blockDimensionErrors(comps: Record<string, unknown>, path: strin
     }
   }
   if (dimension === 3) {
-    for (const block of ['switch', 'pickup', 'enemy'] as const) {
-      if (comps[block] === undefined) continue;
-      errors.push({ code: 'component_conflict', path: `${path}/components/${block}`, message: `the ${block} block works on the 2D plane only; a 3D project uses triggers (3D forms of the character controller blocks come with game modes)`, expected: 'trigger' } as ModelErrorV3);
+    if (comps['switch'] !== undefined) {
+      errors.push({ code: 'component_conflict', path: `${path}/components/switch`, message: 'the switch block works on the 2D plane only; a 3D project uses triggers', expected: 'trigger' } as ModelErrorV3);
     }
   }
 }
@@ -402,7 +409,7 @@ export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: Mo
   // The v3 rules compare published revisions with the scene's revision; in
   // v4 the project revision (shared by all files) is the bound.
   const asV3 = { ...s, schemaVersion: 3, revision: projectRevision } as unknown as SceneV3;
-  composeV3(asV3, { ...(content as ContentCatalogV3), game: null }, local);
+  composeV3(asV3, { ...content, game: null }, local);
   for (const e of local) errors.push(e.document === 'content' ? e : sceneError(s.sceneId, e));
   // Phase 23.0: the rules that follow the project's physics dimension.
   const dimension = physicsDimensionOf(content.settings);
@@ -488,7 +495,7 @@ function nextId(taken: Set<string>, prefix: string): string {
  * Pure v3 → v4: the one v3 scene becomes scene v4 (same id, name "Main") and
  * the content block gains `startScenes: [that scene]`. Phase 24.7: a v3 game
  * block no longer validates (the game block was deleted), so
- * `content.game` is always null here. Retry records are not carried over (the
+ * `content.game` is always null here; phase 24.8: v4 content has no `game`. Retry records are not carried over (the
  * upgrade is a history boundary, charter §6).
  */
 export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, content: ContentCatalogV3): MigrationV4Result {
@@ -500,14 +507,14 @@ export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, conte
     revision: scene.revision,
     entities,
   };
+  const { game: _game, ...rest } = JSON.parse(JSON.stringify(content)) as ContentCatalogV3;
   const contentV4: ContentCatalogV4 = {
-    ...(JSON.parse(JSON.stringify(content)) as ContentCatalogV3),
-    game: null,
+    ...rest,
     scenes: [{ sceneId: scene.sceneId, name: MIGRATED_SCENE_NAME }],
     startScenes: [scene.sceneId],
   };
   const manifestV2: ProjectManifestV2 = {
-    schemaVersion: 2,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     engineVersion: manifest.engineVersion,
     id: manifest.id,
     name: manifest.name,

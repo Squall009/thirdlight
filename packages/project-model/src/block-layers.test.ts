@@ -67,7 +67,7 @@ describe('block layers: data rules', () => {
   });
 
   it('content keys are optional v4 blocks with canonical order and references checked', () => {
-    const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'] };
+    const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'] };
     const ok = validateContentV4({ ...base, blockTypes: [...TYPES].reverse(), cellFields: FIELDS });
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.normalized.blockTypes!.map((t) => t.blockId)).toEqual(['grass', 'ramp', 'slab', 'stone', 'well']);

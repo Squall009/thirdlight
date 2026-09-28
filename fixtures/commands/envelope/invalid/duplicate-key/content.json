@@ -12,7 +12,6 @@
     "behaviorTrust": {
       "entries": []
     },
-    "game": null,
     "scenes": [
       {"sceneId":"scene-main","name":"Main"}
     ],

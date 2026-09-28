@@ -726,9 +726,7 @@ const playerSpawn: ComponentDescriptor = {
   tooltip: 'Where the player starts (a level names its spawn).',
   category: 'Gameplay',
   value: obj('playerSpawn', 'Player spawn', 'A spawn marker.', [
-    // Phase 15.2: which way the player faces when it starts or respawns here.
-    enm('facing', 'Facing', 'The way the player faces when it starts or respawns here (its face-movement models turn to it at once; none: as placed).', ['none', 'left', 'right'], { default: 'none', omitDefault: true }),
-    // Phase 24.4f: a facing in any direction (3D too): the character's yaw on arrival.
+    // Phase 24.4f: a facing in any direction (3D too): the character's yaw on arrival (phase 24.8: replaces the left/right facing).
     num('yaw', 'Yaw', 'The way the character faces on arrival, degrees about +Y (0: facing +Z; absent: as it was).', { min: -360, max: 360, step: 5, unit: 'deg' }),
   ]),
   add: { kind: 'menu', value: {} },

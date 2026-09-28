@@ -75,15 +75,9 @@ export const ERROR_CODES = [
   'history_empty',
   'history_invalid',
   'write_failed',
-  // v3 game/presentation rows (commands.md §5.4, packet 45):
-  'game_reference_missing',
-  'game_reference_in_use',
-  'zone_transform_unsupported',
+  // v3 presentation rows (commands.md §5.4, packet 45; phase 24.8: the game block and zone rows went with them):
   'spawn_transform_unsupported',
-  'zone_checkpoint_count_invalid',
-  'zone_goal_missing',
   'asset_kind_mismatch',
-  'game_config_invalid',
   'animation_role_out_of_range',
   'animation_role_duplicate',
   'animation_role_mismatch',
@@ -870,67 +864,6 @@ export function behaviorDeclarationMismatch(behaviorId: string, reason: string):
 }
 
 // ---- v3 game/presentation constructors (commands.md §5.4, packet 45) -----------
-
-/**
- * §5.4/§23.9: a `content.game` reference or required role does not resolve.
- * `reason` is `player`/`camera`/`camera_follow`/`spawn`/`safe_spawn`/`cue`.
- */
-export function gameReferenceMissing(
-  path: string,
-  reason: string,
-  message: string,
-  expected: string,
-): CommandError {
-  const e: CommandError = {
-    code: 'game_reference_missing',
-    cls: 'validation',
-    path,
-    reason,
-    message,
-    expected,
-  };
-  return e;
-}
-
-/**
- * §5.4/§23.6: a deletion or component removal would dangle a game/checkpoint
- * reference. `entityIds` is the removal closure; `references` are the
- * envelope-document JSON Pointers that would dangle, ascending.
- */
-export function gameReferenceInUse(
-  entityIds: readonly string[],
-  references: readonly string[],
-): CommandError {
-  return {
-    code: 'game_reference_in_use',
-    cls: 'validation',
-    entityIds: [...entityIds],
-    references: [...references],
-    message: 'a deletion or component removal would dangle a game-configuration reference',
-    hint: 'clear the referencing game/checkpoint value first, or remove the whole game configuration',
-  };
-}
-
-/** §5.4/§23.3.1: `content.game` is non-null and the scene has no goal zone. */
-export function zoneGoalMissing(): CommandError {
-  return {
-    code: 'zone_goal_missing',
-    cls: 'validation',
-    message: 'content.game is non-null but the scene has no goal zone',
-    expected: 'at least one gameZone with role "goal"',
-  };
-}
-
-/** §5.4/§23.9: more than one checkpoint zone exists (single error). */
-export function zoneCheckpointCountInvalid(zoneIds: readonly string[]): CommandError {
-  return {
-    code: 'zone_checkpoint_count_invalid',
-    cls: 'validation',
-    zoneIds: [...zoneIds],
-    message: 'more than one checkpoint zone exists; at most one is allowed',
-    expected: '0 or 1 gameZone with role "checkpoint"',
-  };
-}
 
 /** §5.4/§23.9: a reference/reimport kind disagrees with the record. */
 export function assetKindMismatch(

@@ -15,8 +15,8 @@ import { BLOCK_COMPONENTS, COLLIDER_3D_LIMITS } from './index';
 import type { ModelErrorV2 } from './errors';
 
 const T = (position: number[] = [0, 0, 0], scale: number[] = [1, 1, 1]) => ({ position, rotation: [0, 0, 0, 1], scale });
-const MANIFEST = { schemaVersion: 2, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
-const content = (settings: Record<string, unknown>) => ({ assets: [], prefabs: [], behaviors: [], settings, behaviorTrust: { entries: [] }, game: null, scenes: [{ sceneId: 'scene-main', name: 'Main' }], startScenes: ['scene-main'] });
+const MANIFEST = { schemaVersion: 3, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const content = (settings: Record<string, unknown>) => ({ assets: [], prefabs: [], behaviors: [], settings, behaviorTrust: { entries: [] }, scenes: [{ sceneId: 'scene-main', name: 'Main' }], startScenes: ['scene-main'] });
 const CAMERA = { id: 'cam-main', components: { transform: T([0, 2, 10]), camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } };
 const scene = (entities: unknown[]) => ({ schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities });
 const body = (shape: unknown, extra: Record<string, unknown> = {}, scale?: number[]) => ({ id: 'body-0001', components: { transform: T([0, 0, 0], scale), collider: { shape }, ...extra } });

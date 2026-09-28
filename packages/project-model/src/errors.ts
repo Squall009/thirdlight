@@ -143,15 +143,10 @@ export const ERROR_CODES = [
   'behavior_output_forbidden_content',
   'behavior_declaration_mismatch',
   'behavior_trust_unacknowledged',
-  // v3 additions (project-model.md §23.9, extended by the Gate K repair)
-  'game_reference_missing',
-  'game_reference_in_use',
-  'zone_transform_unsupported',
+  // v3 additions (project-model.md §23.9, extended by the Gate K repair; phase 24.8:
+  // the game block and game-zone codes were deleted with them)
   'spawn_transform_unsupported',
-  'zone_checkpoint_count_invalid',
-  'zone_goal_missing',
   'asset_kind_mismatch',
-  'game_config_invalid',
   // presentation.md §41.7.2 A / §18.9.3 (packet 47, CC-44-5): the rigid-animation
   // role/profile codes. Stages 3–4 are pure from the envelope; stages 5–6 and
   // the §41.3.3 A1–A6 profile are re-checked by `asset-pipeline` at
@@ -222,12 +217,6 @@ export type ModelErrorV2 = Omit<ModelError, 'limit' | 'document'> & {
  * error is assignable into it unchanged.
  */
 export type ModelErrorV3 = ModelErrorV2 & {
-  /** `game_reference_in_use` only (§23.6): the deleting/removed closure. */
-  entityIds?: string[];
-  /** `game_reference_in_use` only (§23.6): JSON Pointer paths, ascending. */
-  references?: string[];
-  /** `zone_checkpoint_count_invalid` only (§23.9): the offending zone ids. */
-  zoneIds?: string[];
   /** Phase 12 (c): the scene a v4 project error belongs to. */
   sceneId?: string;
 };

@@ -39,8 +39,8 @@ import type {
 
 /** §23.3 registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
-  // Phase 15.2: a v4 spawn's facing (optional).
-  playerSpawn: ['facing', 'yaw'],
+  // Phase 24.4f: a v4 spawn's yaw (optional; phase 24.8: the left/right facing became it).
+  playerSpawn: ['yaw'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
@@ -151,6 +151,19 @@ export const SURFACE_PRESET_NAMES: readonly SurfacePresetName[] = [
   'signal-red',
   'emissive-accent',
 ];
+
+/**
+ * Phase 24.8: the presets renamed in phase 24.7 (old name → new). Project
+ * files never stored a preset name (a preset is copied as surface values), so
+ * there is nothing to upgrade on load; a command naming an old one is refused
+ * with the new name.
+ */
+export const RENAMED_SURFACE_PRESETS: Readonly<Record<string, SurfacePresetName>> = Object.freeze({ beacon: 'emissive-accent', hazard: 'signal-red' });
+
+/** The refusal's hint for an old preset name ('' for any other value). */
+export function renamedPresetHint(preset: unknown): string {
+  return typeof preset === 'string' && Object.prototype.hasOwnProperty.call(RENAMED_SURFACE_PRESETS, preset) ? ` ("${preset}" was renamed "${RENAMED_SURFACE_PRESETS[preset]}" in phase 24)` : '';
+}
 
 /**
  * Map one project-model error into the command-layer error shape, keeping the

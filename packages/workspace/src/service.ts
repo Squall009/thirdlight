@@ -59,6 +59,8 @@ import {
   INSTANCE_FLOATS,
   normalizeManifest,
   parseDocumentBytes,
+  PROJECT_SCHEMA_VERSION,
+  PROJECT_SCHEMA_VERSION_UPGRADED,
   validateProjectV3,
 } from '@thirdlight/project-model';
 
@@ -1410,12 +1412,14 @@ function scanEntry(core: Core, name: string): ScanEntry {
     } else {
       entry.loadable = false;
       entry.code = l.reason;
-      entry.note = `v4 project does not load (${l.reason}); retained until operator repair`;
+      // Phase 24.8: the first problem says why (a removed game component names itself).
+      const first = l.errors[0]?.message;
+      entry.note = `v4 project does not load (${l.reason}${first !== undefined ? `: ${first.slice(0, 160)}` : ''}); retained until operator repair`;
     }
     return entry;
   }
 
-  // Manifest: a v4 manifest (schemaVersion 2) of an interrupted creation, or
+  // Manifest: a v4 manifest (schemaVersion 3, or 2 before phase 24.8) of an interrupted creation, or
   // the v1 manifest of a storage v3 project.
   const manPath = join(dir, 'project.json');
   if (!core.ops.fileExists(manPath)) {
@@ -1452,7 +1456,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
 
   if (!envelopeExists) {
     entry.kind = 'project';
-    if (manifestVersion !== 2) {
+    if (manifestVersion !== PROJECT_SCHEMA_VERSION && manifestVersion !== PROJECT_SCHEMA_VERSION_UPGRADED) {
       // A v3 manifest without its envelope: a creation interrupted by an
       // earlier version (it wrote storage v3). This version writes new
       // projects as v4 only, so it is kept for the operator.

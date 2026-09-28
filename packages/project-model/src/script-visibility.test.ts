@@ -14,7 +14,6 @@ function content(properties: unknown[], source: unknown = null): Record<string, 
     behaviors: [{ behaviorId: 'mover-a', displayName: 'Mover', declaration: { properties }, source, publishedRevision: 1 }],
     settings: {},
     behaviorTrust: { entries: [] },
-    game: null,
     scenes: [{ sceneId: 'main', name: 'Main' }],
     startScenes: ['main'],
   };
@@ -53,7 +52,7 @@ describe('phase 15.4: script property visibility in the model', () => {
   it('the canonical form keeps private and the texts, and omits public (older bytes unchanged)', () => {
     const r = validateContentV4(content([{ tooltip: 'Help', group: 'G', visibility: 'private', header: 'H', ...SPEED }, { ...SPEED, key: 'jump', visibility: 'public' }], { ...SOURCE, declaredInCode: true }));
     if (!r.ok) throw new Error(JSON.stringify(r.errors));
-    const canonical = canonicalContentV3(r.normalized as never);
+    const canonical = canonicalContentV3(r.normalized);
     expect(canonical.behaviors[0]?.declaration.properties).toEqual([
       { key: 'speed', label: 'Speed', type: 'number', default: 3, visibility: 'private', group: 'G', header: 'H', tooltip: 'Help' },
       { key: 'jump', label: 'Speed', type: 'number', default: 3 },

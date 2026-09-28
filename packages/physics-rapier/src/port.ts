@@ -848,7 +848,7 @@ function createAdapter(
      * M3 (gameplay.md §5.2 R3): query-only clearance of the capsule if placed
      * at `center` (no mutation). A non-finite centre is a `query_failed`;
      * a WASM throw during the probe is likewise `query_failed`. The runtime
-     * maps `blocked`/`no_support`/`query_failed` to `game_spawn_blocked`
+     * maps `blocked`/`no_support`/`query_failed` to a refused placement
      * (fail-stop, no mutation yet at R3).
      */
     characterClearance(center: Vec2): CharacterClearanceResult {

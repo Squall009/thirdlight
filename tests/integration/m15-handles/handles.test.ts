@@ -10,7 +10,7 @@
  * - polygon corners: drag, add on an edge, delete, a concave drag refused;
  * - a collider from a model outline (hull, corner limit) is a valid collider;
  * - instance copies: the buffer edits (move, delete, brush) keep the layout;
- * - `playerSpawn.facing` is v4 data (validated, canonical, removable).
+ * - `playerSpawn.yaw` is v4 data (validated, canonical, removable; phase 24.8: it replaced `facing`).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -314,21 +314,21 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(copyAt(painted, 3)).toEqual({ position: [2.5, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   });
 
-  it('playerSpawn.facing: v4 data — stored, removed with null, a wrong value refused; the descriptor offers none/left/right', () => {
+  it('playerSpawn.yaw: v4 data — stored, removed with null, the old facing refused (phase 24.8: yaw replaced it)', () => {
     let s = fresh();
-    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Start', transform: { position: [0, 1, 0] }, components: { playerSpawn: { facing: 'left' } } }, 'spawn');
+    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Start', transform: { position: [0, 1, 0] }, components: { playerSpawn: { yaw: -90 } } }, 'spawn');
     const id = s.scene.entities.at(-1).id;
-    expect(entityOf(s, id).components.playerSpawn).toEqual({ facing: 'left' });
-    s = must(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { facing: 'right' } }, 'right');
-    expect(entityOf(s, id).components.playerSpawn).toEqual({ facing: 'right' });
-    expect(run(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { facing: 'up' } }).ok).toBe(false);
+    expect(entityOf(s, id).components.playerSpawn).toEqual({ yaw: -90 });
+    s = must(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { yaw: 90 } }, 'right');
+    expect(entityOf(s, id).components.playerSpawn).toEqual({ yaw: 90 });
+    expect(run(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { yaw: 400 } }).ok).toBe(false);
+    expect(run(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { facing: 'left' } }).ok).toBe(false);
     expect(run(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { color: 'red' } }).ok).toBe(false);
-    s = must(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { facing: null } }, 'none');
+    s = must(s, 'setComponent', { entityId: id, component: 'playerSpawn', value: { yaw: null } }, 'none');
     expect(entityOf(s, id).components.playerSpawn).toEqual({});
     s = must(s, 'undo', {}, 'undo');
-    expect(entityOf(s, id).components.playerSpawn).toEqual({ facing: 'right' });
-    const facing = (DESCRIPTORS.components.find((c) => c.name === 'playerSpawn')!.value as Any).fields.find((f: FieldDescriptor) => f.key === 'facing');
-    expect(facing.options.map((o: Any) => o.value)).toEqual(['none', 'left', 'right']);
-    expect(facing.default).toBe('none');
+    expect(entityOf(s, id).components.playerSpawn).toEqual({ yaw: 90 });
+    const fields = (DESCRIPTORS.components.find((c) => c.name === 'playerSpawn')!.value as Any).fields.map((f: FieldDescriptor) => f.key);
+    expect(fields).toEqual(['yaw']);
   });
 });

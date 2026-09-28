@@ -60,7 +60,7 @@ describe('createProject (§8)', () => {
     const manRaw = readFileSync(manPath, 'utf8');
     const man = JSON.parse(manRaw);
     expect(man).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       engineVersion: '0.1.0',
       id: 'proj-new',
       name: 'New Project',
@@ -86,7 +86,7 @@ describe('createProject (§8)', () => {
     const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8'));
     expect(content.storageVersion).toBe(4);
     expect(content.revision).toBe(0);
-    expect(content.content.game).toBeNull();
+    expect('game' in content.content).toBe(false);
     expect(content.retry).toEqual({ recordVersion: 2, retention: 128, records: [] });
     // A new project is not an upgrade: no v3 safety copy is written.
     expect(existsSync(join(dir, '.thirdlight', 'migrated-v3'))).toBe(false);

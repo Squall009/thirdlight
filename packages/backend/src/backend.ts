@@ -438,6 +438,8 @@ export function createBackend(
       ...(e.projectId !== undefined ? { projectId: e.projectId } : {}),
       ...(e.reason !== undefined ? { reason: e.reason } : {}),
       ...(e.holder !== undefined ? { holder: e.holder } : {}),
+      // Phase 24.8: why a project does not load (the model's problems, at most 10) reaches the caller.
+      ...(e.details !== undefined ? { details: e.details } : {}),
     });
 
   const sessionView = (s: SessionRecord): SessionView => {

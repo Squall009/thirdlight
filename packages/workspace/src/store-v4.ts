@@ -1,7 +1,8 @@
 /**
  * Phase 12 (c): storage version 4 — a project is several files.
  *
- *   project.json            manifest schemaVersion 2 (id, name, engine, createdAt)
+ *   project.json            manifest schemaVersion 3 (id, name, engine, createdAt;
+ *                           a 2 is upgraded on open, phase 24.8)
  *   content.json            { storageVersion: 4, type: "project-content", projectId,
  *                             revision, content (v4), retry }
  *   scenes/<sceneId>.json   { storageVersion: 4, type: "scene", projectId,
@@ -25,6 +26,9 @@
  *   in the index): the foreign bytes are snapshotted and writes pause.
  *
  * Validation is the model's (`validateProjectV4`); nothing here repairs data.
+ * Phase 24.8: a schemaVersion 2 project is upgraded by the model's pure
+ * `upgradeProjectDocsV24` before it is validated (the open writes the result
+ * back); game data it refuses blocks the load with the model's problems.
  */
 
 import { mkdirSync } from 'node:fs';
@@ -32,6 +36,9 @@ import { dirname, join } from 'node:path';
 
 import {
   migrateProjectV3ToV4,
+  PROJECT_SCHEMA_VERSION,
+  PROJECT_SCHEMA_VERSION_UPGRADED,
+  upgradeProjectDocsV24,
   parseDocumentBytes,
   serializeCanonical,
   validateContentV3,
@@ -215,7 +222,8 @@ export function manifestV2Bytes(manifest: ProjectManifestV2): Uint8Array {
 // ---- reading -----------------------------------------------------------------
 
 export type LoadV4Outcome =
-  | { kind: 'loaded'; state: V4State }
+  /** `upgraded`: a schemaVersion 2 project read through the phase 24.8 upgrade (not yet written back; its notes). */
+  | { kind: 'loaded'; state: V4State; upgraded?: { notes: string[] } }
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
 function blocked(reason: UnavailableReason, errors: LoadDetail[]): LoadV4Outcome {
@@ -289,7 +297,23 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
     sceneRetry.push({ rel, retry: f.value['retry'], revision: r });
     if (r > revision) revision = r;
   }
-  const v = validateProjectV4(man.value, content.value['content'], sceneDocs, revision);
+  // Phase 24.8: a schemaVersion 2 project is upgraded before it is validated.
+  let manifestDoc: unknown = man.value;
+  let contentDoc: unknown = content.value['content'];
+  let docs: unknown[] = sceneDocs;
+  let upgraded: { notes: string[] } | undefined;
+  if (man.value['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED) {
+    const u = upgradeProjectDocsV24(contentDoc, sceneDocs);
+    if (u.errors.length > 0) {
+      const first = u.errors[0] as { document?: string };
+      return blocked(first.document === 'scene' ? 'scene_invalid' : 'content_invalid', u.errors as unknown as LoadDetail[]);
+    }
+    manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
+    contentDoc = u.content;
+    docs = u.scenes;
+    upgraded = { notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION} (phase 24: the engine has no game rules)`, ...u.notes] };
+  }
+  const v = validateProjectV4(manifestDoc, contentDoc, docs, revision);
   if (!v.ok) {
     // A document that fails its own validation blocks with that document's
     // reason (as the v1–v3 load does); a cross-document rule reports its code.
@@ -324,6 +348,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
   return {
     kind: 'loaded',
     state: { manifest: v.normalized.manifest, content: v.normalized.content, scenes, revision, files, fileRecords },
+    ...(upgraded !== undefined ? { upgraded } : {}),
   };
 }
 

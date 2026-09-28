@@ -126,7 +126,6 @@ export function m2EnvelopeV4(rel: string): { projectId: string; scene: SceneV4; 
   if (!scene.ok) throw new Error(`${rel}: scene is not a valid v4 scene: ${JSON.stringify(scene.errors)}`);
   const content = validateContentV4({
     ...env.content,
-    game: null,
     scenes: [{ sceneId: 'scene-main', name: 'Main' }],
     startScenes: ['scene-main'],
   });

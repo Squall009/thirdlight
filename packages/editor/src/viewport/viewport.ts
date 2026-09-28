@@ -115,9 +115,9 @@ const N = (v: number | undefined): number => v ?? 0;
  */
 function buildKeyOf(e: ProjectedEntity, aspect: number): string {
   const l = e.light;
-  // Phase 15.2: the camera's frustum (fovY/near/far and the game's aspect) and a spawn's facing shape the helpers too.
+  // Phase 15.2: the camera's frustum (fovY/near/far and the game's aspect) and a spawn's facing (phase 24.8: its yaw) shape the helpers too.
   const camera = e.kind === 'camera' ? [e.components['camera'] ?? null, aspect] : null;
-  const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { facing?: string } | undefined)?.facing ?? null) : null;
+  const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw ?? null) : null;
   return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, camera, facing]);
 }
 
@@ -1557,15 +1557,20 @@ export class Viewport {
     } else {
       // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
       this.addIcon(group, e.id, iconKindFor(e, this.iconTable));
-      // Phase 15.2: a spawn's facing, as an arrow along X.
-      const facing = e.playerSpawn === true ? (e.components['playerSpawn'] as { facing?: string } | undefined)?.facing : undefined;
-      if (facing === 'left' || facing === 'right') {
-        const s = facing === 'right' ? 1 : -1;
+      // Phase 15.2: a spawn's facing, as an arrow (phase 24.8: its yaw, degrees about +Y, 0 = +Z).
+      const yaw = e.playerSpawn === true ? (e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw : undefined;
+      if (typeof yaw === 'number') {
+        const r = (yaw * Math.PI) / 180;
+        const dir = new THREE.Vector3(Math.sin(r), 0, Math.cos(r));
+        const side = new THREE.Vector3(dir.z, 0, -dir.x);
+        const tip = dir.clone().multiplyScalar(0.8);
+        const back = dir.clone().multiplyScalar(0.55);
+        const up = new THREE.Vector3(0, 0.18, 0);
         const arrow = new THREE.LineSegments(
-          new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.8 * s, 0, 0), new THREE.Vector3(0.8 * s, 0, 0), new THREE.Vector3(0.55 * s, 0.18, 0), new THREE.Vector3(0.8 * s, 0, 0), new THREE.Vector3(0.55 * s, -0.18, 0)]),
+          new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), tip, tip, back.clone().add(up), tip, back.clone().sub(up), tip, back.clone().addScaledVector(side, 0.18), tip, back.clone().addScaledVector(side, -0.18)]),
           new THREE.LineBasicMaterial({ color: 0xffc857, depthTest: false }),
         );
-        arrow.name = `spawn-facing:${facing}`;
+        arrow.name = `spawn-yaw:${yaw}`;
         arrow.renderOrder = 10;
         group.add(arrow);
       }
