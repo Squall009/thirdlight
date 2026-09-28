@@ -16,6 +16,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test } from '@playwright/test';
 
 import { type E2EBackend, startBackend, controls } from './backend';
+import { decodePng } from './png';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -77,6 +78,12 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   const shot = await call('tl_screenshot', { playSessionId, maxWidth: 512 });
   expect(shot.isError, JSON.stringify(shot.body).slice(0, 300)).toBe(false);
   expect(String(shot.body.dataUrl)).toMatch(/^data:image\/png;base64,/);
+  // Phase 25.2: a drawn frame (the scene, not one flat colour), at most maxWidth wide.
+  const img = decodePng(Buffer.from(String(shot.body.dataUrl).slice('data:image/png;base64,'.length), 'base64'));
+  expect(img.width).toBeLessThanOrEqual(512);
+  const colours = new Set<string>();
+  for (let y = 0; y < img.height; y += 8) for (let x = 0; x < img.width; x += 8) colours.add(img.pixel(x, y).slice(0, 3).join(','));
+  expect(colours.size).toBeGreaterThan(20);
   expect((await call('tl_diagnostics', { playSessionId })).isError).toBe(false);
 
   expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);

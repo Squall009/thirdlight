@@ -76,6 +76,8 @@ export type RelayOutcome =
       kind: 'screenshot' | 'diagnostics';
       code: 'screenshot_timeout' | 'diagnostics_timeout' | 'relay_failed';
       cause?: string;
+      /** Phase 25.2: the preview's own message (why the capture failed), when it sent one. */
+      reason?: string;
     };
 
 /** One bounded input-exercise relay frame (sessions.md §18.1.1). */export interface InputRelayFrame {
@@ -435,7 +437,8 @@ export class PlayManager {
           ? ((ack.error as { code: string }).code)
           : undefined
         : undefined;
-    pending.resolve({ ok: false, kind, code: 'relay_failed', cause });
+    const message = ack.error !== undefined && typeof ack.error === 'object' && ack.error !== null ? (ack.error as { message?: unknown }).message : undefined;
+    pending.resolve({ ok: false, kind, code: 'relay_failed', cause, ...(typeof message === 'string' && message.length > 0 ? { reason: message } : {}) });
     return true;
   }
 

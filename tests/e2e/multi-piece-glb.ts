@@ -7,6 +7,8 @@
  * With `{ lightmapUv: true }` every render mesh also gets TEXCOORD_0/1 (UV1)
  * that lays the box's six faces out without overlap, like a kit exported
  * for light baking.
+ * Phase 25.2: with `{ texturePng }` the material's base colour is that PNG,
+ * embedded in the GLB (a bufferView image) and mapped through TEXCOORD_0.
  */
 
 export interface PieceSpec {
@@ -48,16 +50,16 @@ function box(size: [number, number, number]): { positions: number[]; normals: nu
   return { positions, normals, uv1, indices };
 }
 
-export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapUv?: boolean } = {}): Buffer {
+export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapUv?: boolean; texturePng?: Buffer } = {}): Buffer {
   const chunks: Buffer[] = [];
   let offset = 0;
   const bufferViews: Record<string, unknown>[] = [];
   const accessors: Record<string, unknown>[] = [];
   const meshes: Record<string, unknown>[] = [];
   const nodes: Record<string, unknown>[] = [];
-  const addView = (data: Buffer, target: number): number => {
+  const addView = (data: Buffer, target?: number): number => {
     const pad = (4 - (data.length % 4)) % 4;
-    bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: data.length, target });
+    bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: data.length, ...(target !== undefined ? { target } : {}) });
     chunks.push(data, Buffer.alloc(pad));
     offset += data.length + pad;
     return bufferViews.length - 1;
@@ -81,12 +83,12 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
       const col = addView(Buffer.from(colors.buffer), 34962);
       accessors.push({ bufferView: col, componentType: 5126, count, type: 'VEC4' });
       attributes['COLOR_0'] = accessors.length - 1;
-      if (options.lightmapUv === true) {
+      if (options.lightmapUv === true || options.texturePng !== undefined) {
         const uv = addView(Buffer.from(new Float32Array(g.uv1).buffer), 34962);
         accessors.push({ bufferView: uv, componentType: 5126, count, type: 'VEC2' });
         // glTF numbers texture coordinate sets from 0, so UV0 is the same layout.
         attributes['TEXCOORD_0'] = accessors.length - 1;
-        attributes['TEXCOORD_1'] = accessors.length - 1;
+        if (options.lightmapUv === true) attributes['TEXCOORD_1'] = accessors.length - 1;
       }
     }
     meshes.push({ name, primitives: [{ attributes, indices: idxA, ...(render ? { material: 0 } : {}) }] });
@@ -99,6 +101,7 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     });
     if (p.col !== undefined) nodes.push({ name: `${p.name}_COL`, mesh: addMesh(`${p.name}_COL`, p.col, false) });
   }
+  const image = options.texturePng !== undefined ? addView(options.texturePng) : null;
   const bin = Buffer.concat(chunks);
   const json = {
     asset: { version: '2.0', generator: 'thirdlight e2e multi-piece fixture' },
@@ -106,7 +109,8 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     scenes: [{ name: 'Scene', nodes: nodes.map((_, i) => i) }],
     nodes,
     meshes,
-    materials: [{ name: 'mat_kit', pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.8 } }],
+    materials: [{ name: 'mat_kit', pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.8, ...(image !== null ? { baseColorTexture: { index: 0 } } : {}) } }],
+    ...(image !== null ? { images: [{ bufferView: image, mimeType: 'image/png' }], samplers: [{ magFilter: 9728, minFilter: 9728 }], textures: [{ source: 0, sampler: 0 }] } : {}),
     accessors,
     bufferViews,
     buffers: [{ byteLength: bin.length }],

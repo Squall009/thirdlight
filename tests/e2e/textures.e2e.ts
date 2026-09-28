@@ -94,11 +94,24 @@ for (const variant of RENDERER_VARIANTS) {
     await expect.poll(() => reds(viewport), { timeout: 15_000 }).toBeGreaterThan(before + 100);
 
     // Play draws the same textured box with the same backend.
+    const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
     await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
     const frame = page.locator('iframe.tl-app__preview-frame');
     await expect(frame).toBeVisible();
     await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
     await expect.poll(() => reds(frame), { timeout: 20_000 }).toBeGreaterThan(100);
+    // Phase 25.2: the screenshot relay captures the same textured frame with the same backend.
+    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/play/${psid}/screenshot`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin },
+      body: JSON.stringify({ maxWidth: 512 }),
+    });
+    const shot = (await r.json()) as { dataUrl?: string; width?: number; error?: unknown };
+    expect(r.status, JSON.stringify(shot).slice(0, 300)).toBe(200);
+    const img = decodePng(Buffer.from(String(shot.dataUrl).replace(/^data:image\/png;base64,/, ''), 'base64'));
+    expect(img.width).toBeLessThanOrEqual(512);
+    expect(redPixels(img)).toBeGreaterThan(50);
     await expect(page.locator('.tl-notice')).toHaveCount(0);
   });
 }

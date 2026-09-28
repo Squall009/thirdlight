@@ -96,6 +96,8 @@ export default defineConfig({
         '**/environment-presets.e2e.ts',
         // Phase 24.4h: per-object look overrides (emissive, tint) on WebGPU.
         '**/look-override.e2e.ts',
+        // Phase 25.2: Play screenshots read back from WebGPU, image textures included.
+        '**/screenshot.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

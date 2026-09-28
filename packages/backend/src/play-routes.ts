@@ -473,7 +473,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         : 'relay_failed';
     sendError(
       res,
-      sessionError(code, 'unavailable', `${kind} relay ${outcome.code === 'relay_failed' ? 'failed' : 'timed out'}`, {
+      // Phase 25.2: the preview's reason, when it gave one (e.g. why the capture failed).
+      sessionError(code, 'unavailable', outcome.reason !== undefined ? `${kind} failed in the preview: ${outcome.reason}` : `${kind} relay ${outcome.code === 'relay_failed' ? 'failed' : 'timed out'}`, {
         relayId,
         ...(outcome.cause !== undefined ? { cause: outcome.cause } : {}),
       }),

@@ -152,7 +152,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.0 | done 2026-09-28 |
 | Step 0 (reconcile with phase 24) | done 2026-09-28 |
 | 25.1 | done 2026-09-28: every-optional-key unit test (all 23 keys, strict reader) and `manifest-keys.e2e.ts` (Play and static export); found and fixed D45 |
-| 25.2–25.5 | — |
+| 25.2 | done 2026-09-28: screenshots always answer (a throw or an over-bound PNG becomes `screenshot_failed` with the reason, relayed in the backend's message); WebGPU capture checked in pixels (GPU and headless SwiftShader), image textures in a GLB and a material upload there |
+| 25.3–25.5 | — |
 | 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
 | 25.7–25.24 | — |
 
@@ -218,3 +219,19 @@ boundary it changes (Playwright for any editor surface).
   argument. glTF `extras` were refused only by the material and PBR field
   allowlists; both now accept them. The check is a unit test at the
   inspector that the import route calls, covering every object kind.
+- 2026-09-28 (25.2): the WebGPU capture path is "render and read back in
+  the same task", the plan's first option. It is the path the adapter
+  already took for both backends: the canvas copy (and the downscale's
+  `drawImage`) run in the task that drew the frame, while the WebGPU
+  canvas' current texture is still the drawing buffer. `screenshot.e2e.ts`
+  checks the relay's PNG in pixels on WebGPU (on the GPU and on headless
+  Dawn/SwiftShader), with a GLB whose base colour is an embedded PNG; the
+  texture shows, so image textures upload in headless WebGPU. A render
+  target readback was not added: it would need the post stack to draw into
+  a second target, for no case that fails today. The capture failures that
+  did lose the answer are fixed instead: a throw outside the adapter's PNG
+  step, an error message over the bridge's 256 characters, and a PNG over
+  the backend's 1 MiB (the preview now captures again at a smaller width,
+  down to 256 pixels, and reports the width it has). The backend keeps the
+  `relay_failed` code with the preview's code as `cause` (clients key on
+  them) and puts the preview's reason in the message.

@@ -263,6 +263,12 @@ export interface SceneAdapter {
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
+
+/** Phase 25.2: what a thrown value says, for a capture failure's message (clipped by adapterError). */
+function reasonOf(e: unknown): string {
+  if (e instanceof Error) return `${e.name}: ${e.message}`;
+  return String(e);
+}
 const RENDERER_INFO_LIMIT = 128;
 
 /** Structural canvas surface (duck-typed: the adapter never assumes a
@@ -1499,7 +1505,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         error: adapterError('screenshot_failed', 'captureScreenshot: maxWidth must be a positive integer (width bound)'),
       };
     }
-    const frame = renderFrame();
+    // Phase 25.2: a capture always answers — anything the frame or the read throws becomes
+    // `screenshot_failed` with the reason (the relay would otherwise wait for its timeout).
+    let frame: { ok: true } | { ok: false; error: AdapterError };
+    try {
+      frame = renderFrame();
+    } catch (e) {
+      return { ok: false, error: adapterError('screenshot_failed', `the frame for the capture failed: ${reasonOf(e)}`) };
+    }
     if (!frame.ok) return { ok: false, error: frame.error };
     if (lastFrameSkipped) return { ok: false, error: adapterError('render_failed', 'the renderer is still initialising; nothing is drawn yet') };
     if (typeof canvasLike?.toDataURL !== 'function') {
@@ -1509,8 +1522,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     let w: number;
     let h: number;
     try {
-      // Synchronous capture: the buffer is valid right after render()
-      // within the same task (no preserveDrawingBuffer needed).
+      // Synchronous capture, the same on both backends: the frame is read back in the task
+      // that drew it. WebGL 2: the drawing buffer is valid until the task ends (no
+      // preserveDrawingBuffer needed). WebGPU (phase 25.2): the canvas' current texture is
+      // the drawing buffer until the browser presents it after this task, so the canvas
+      // copy (and the downscale's drawImage) read this frame; checked pixel by pixel in
+      // tests/e2e/screenshot.e2e.ts on a GPU and on headless (SwiftShader) WebGPU.
       dataUrl = canvasLike.toDataURL('image/png');
       w = Math.max(1, Math.floor(canvasLike.width ?? 0));
       h = Math.max(1, Math.floor(canvasLike.height ?? 0));
@@ -1528,8 +1545,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           h = off.height;
         }
       }
-    } catch {
-      return { ok: false, error: adapterError('screenshot_failed', 'PNG capture failed') };
+    } catch (e) {
+      return { ok: false, error: adapterError('screenshot_failed', `PNG capture failed: ${reasonOf(e)}`) };
+    }
+    if (!dataUrl.startsWith('data:image/png;base64,')) {
+      // e.g. `data:,` from a zero-sized canvas: not an image.
+      return { ok: false, error: adapterError('screenshot_failed', `the canvas gave no PNG (${w}×${h} pixels)`) };
     }
     const prefix = 'data:image/png;base64,';
     const b64 = dataUrl.startsWith(prefix) ? dataUrl.slice(prefix.length) : dataUrl;

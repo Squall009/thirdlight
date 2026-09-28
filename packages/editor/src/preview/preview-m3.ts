@@ -96,6 +96,7 @@ import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
+import { answerScreenshot } from './screenshot-answer';
 
 /**
  * Phase 22.0: the simulation worker's script on the preview origin (a static
@@ -894,10 +895,13 @@ export function bootstrapPreviewM3(): void {
 
   bridge.on('tl.screenshot.request', (m) => {
     const body = m as { relayId: string; maxWidth?: number };
-    const shot = handle?.adapter?.captureScreenshot(body.maxWidth ?? 1024);
-    if (shot === undefined) bridge.sendScreenshotResult(playId, body.relayId, notReady);
-    else if (!shot.ok) bridge.sendScreenshotResult(playId, body.relayId, { ok: false, error: { code: shot.error.code, message: shot.error.message } });
-    else bridge.sendScreenshotResult(playId, body.relayId, { ok: true, dataUrl: shot.result.dataUrl, width: shot.result.width, height: shot.result.height });
+    if (handle === null) {
+      bridge.sendScreenshotResult(playId, body.relayId, notReady);
+      return;
+    }
+    // Phase 25.2: always answers (a throw or an over-bound PNG becomes an answer, not a relay timeout).
+    const adapter = handle.adapter;
+    bridge.sendScreenshotResult(playId, body.relayId, answerScreenshot(adapter === null ? null : (w) => adapter.captureScreenshot(w), body.maxWidth ?? 1024));
   });
 
   bridge.on('tl.diagnostics.request', (m) => {

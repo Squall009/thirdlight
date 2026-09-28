@@ -500,6 +500,12 @@ Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 `tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
 `tl_content_query`, `tl_instance_buffer`).
 
+`tl_screenshot` always answers: a capture the preview cannot make comes back
+as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,
+`render_failed`, `not_ready`) and its reason in the message. A PNG over the
+1 MiB bound is captured again at a smaller width; the reply's `width` says
+which. It works the same on the WebGPU and WebGL 2 renderers.
+
 `tl_content_query {target:"game", includeDescriptors:true}` also returns the
 component and content descriptor registry: for every component and content
 block, each field's type, unit, range, step, default, group, label, tooltip,

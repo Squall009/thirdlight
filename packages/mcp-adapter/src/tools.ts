@@ -585,7 +585,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Capture a bounded screenshot (dataUrl ≤ 1 MiB, maxWidth 256–2048) from a play session\'s ' +
       'selected connected browser preview. Fails structurally if the play is not presented or the ' +
-      'editor browser is not connected.',
+      'editor browser is not connected; a capture the preview cannot make says why (error.cause and ' +
+      'message). A PNG over the bound comes back smaller (see width).',
     inputSchema: {
       type: 'object',
       properties: {

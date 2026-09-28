@@ -37,7 +37,7 @@ class FakeEditor {
   presentedFlag = false;
   presentOnStart = true;
   ackStops = true;
-  screenshotReply: { ok: boolean; dataUrl?: string; width?: number; height?: number; error?: { code: string } } | null = {
+  screenshotReply: { ok: boolean; dataUrl?: string; width?: number; height?: number; error?: { code: string; message?: string } } | null = {
     ok: true,
     dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
     width: 256,
@@ -580,6 +580,27 @@ describe('screenshot / diagnostics relay (§12)', () => {
       const j = r.json as { error: Record<string, unknown> };
       expect(j.error.code).toBe('relay_failed');
       expect(j.error.cause).toBe('relay_failed');
+      editor.close();
+      void ws;
+    } finally {
+      await tb.teardown();
+    }
+  });
+
+  it('phase 25.2: a preview that says why the capture failed ⇒ 503 relay_failed with that reason in the message', async () => {
+    const tb = await startBackend();
+    try {
+      const { psid, editor, ws } = await startPresentedPlay(tb);
+      editor.screenshotReply = { ok: false, error: { code: 'screenshot_failed', message: 'PNG capture failed: SecurityError: tainted' } };
+      const r = await api(`${tb.authUrl}/api/v1/projects/demo-0001/play/${psid}/screenshot`, {
+        body: {},
+        token: tb.authToken,
+      });
+      expect(r.status).toBe(503);
+      const j = r.json as { error: Record<string, unknown> };
+      expect(j.error.code).toBe('relay_failed');
+      expect(j.error.cause).toBe('screenshot_failed');
+      expect(j.error.message).toBe('screenshot failed in the preview: PNG capture failed: SecurityError: tainted');
       editor.close();
       void ws;
     } finally {
