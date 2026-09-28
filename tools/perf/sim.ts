@@ -30,6 +30,7 @@ import { M2_SETTINGS_KEYS, physicsDimensionOf } from '@thirdlight/project-model'
 import { physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, staticColliderOf } from '@thirdlight/runtime';
 
 import { cpuCalibration } from './stats';
+import { withGameModules } from '../../tests/game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -144,7 +145,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const frame: Any = { stepIndex: 0, moveX: 1, jump: 'none' };
   const ui: Any = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
   const period = Math.round(hz * 1.5);
-  const host = createGameHost({
+  const host = createGameHost(withGameModules({
     snapshot: {
       snapshotId: 'bench@r1',
       projectId: 'bench',
@@ -178,7 +179,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
     document: { createElement: () => new FakeNode() },
     loadScene: async (id: string) => scenes[id] as Any,
     ...(content.flow !== undefined ? { flow: content.flow } : {}),
-  } as Any);
+  } as Any));
   const mounted = host.mount();
   if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
   const rt: Any = host.runtime;

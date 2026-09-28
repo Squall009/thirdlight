@@ -213,7 +213,7 @@ export async function exportProjectM3(
   }
   // Phase 22.0: the simulation worker bundle (next to the bootstrap: same directory, same rules).
   const workerEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-sim-worker.ts');
-  const worker = await buildSimWorkerBundle(workerEntry);
+  const worker = await buildSimWorkerBundle(workerEntry, closure.moduleIds);
   if (!worker.ok) {
     return fail('export_bundle_graph_forbidden', 'internal', 'the simulation worker bundle build failed (resolution/boundary defect)', {
       modules: worker.modules.slice(0, 8),
@@ -271,20 +271,20 @@ export async function exportProjectM3(
 
   // ---- step 4: the exact M3 bundle import graph --------------------------------
 
-  const graph = checkBundleGraphM3(built.metafile, m3BootstrapEntry);
+  const graph = checkBundleGraphM3(built.metafile, m3BootstrapEntry, closure.moduleIds);
   if (!graph.ok) {
     return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the M3 export bundle graph', {
       modules: graph.forbidden.slice(0, 8),
     });
   }
-  const workerGraph = checkBundleGraphM3(worker.metafile, workerEntry);
+  const workerGraph = checkBundleGraphM3(worker.metafile, workerEntry, closure.moduleIds);
   if (!workerGraph.ok) {
     return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the simulation worker bundle graph', {
       modules: workerGraph.forbidden.slice(0, 8),
     });
   }
   if (physics3d !== null && physics3d.ok) {
-    const g3 = checkBundleGraphM3(physics3d.metafile, physics3dEntry);
+    const g3 = checkBundleGraphM3(physics3d.metafile, physics3dEntry, []);
     if (!g3.ok) return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the 3D physics bundle graph', { modules: g3.forbidden.slice(0, 8) });
   }
 

@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
 import { attachBrowserInput } from '@thirdlight/input';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
+import { withGameModules } from '../../game-modules';
 
 const SAMPLE = resolve(import.meta.dirname, '..', '..', '..', 'samples', 'beacon-reach');
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,7 +108,7 @@ async function play(mode: 'keys' | 'pad', jumps: readonly number[]) {
   if (!physics.ok) throw new Error(JSON.stringify(physics.error));
   const assetPaths: Record<string, string> = {};
   for (const [kind, id] of Object.entries(cap.content.game.cues)) assetPaths[id as string] = `audio/cue-${kind}.wav`;
-  const host = createGameHost({
+  const host = createGameHost(withGameModules({
     snapshot: { snapshotId: `br@r${cap.scene.revision}`, projectId: 'br', revision: cap.scene.revision, scene: cap.scene, game: cap.content.game },
     settings: cap.content.settings,
     physics: physics.port,
@@ -119,7 +120,7 @@ async function play(mode: 'keys' | 'pad', jumps: readonly number[]) {
     buildId: 'b',
     assetPaths,
     document: { createElement: () => new FakeNode() },
-  } as Any);
+  } as Any));
   const mounted = host.mount();
   if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
   await new Promise((r) => setTimeout(r, 50)); // cue bytes decode

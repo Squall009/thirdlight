@@ -85,5 +85,7 @@ export function createGameSessionModule(
 export const platformerGameSessionSpec: SimulationModuleSpec = {
   id: PLATFORMER_GAME_MODULE_ID,
   phases: ['gameplay'],
+  // Phase 24.3: the session runs a player: it needs an entity with the controller.
+  requiresEntityWith: ['controller'],
   create: createGameSessionModule,
 };

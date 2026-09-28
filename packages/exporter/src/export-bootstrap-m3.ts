@@ -19,7 +19,7 @@
  *      never fetches). The model-kind bytes feed the §2.1 `models` block's
  *      `resolveBytes` (the wrapper-verified map — the adapter never re-hashes).
  *   4. `createGameHost` — the single shared production module composition
- *      (runtime + input + platformer/platformer-game + physics-rapier +
+ *      (runtime + input + the manifest's module specs + physics-rapier +
  *      three-adapter scene adapter + the packet-54 audio owner). The adapter
  *      receives the `models` block (`assets` = the referenced model rows,
  *      `animation` from `manifest.media.animation`) + `modelsLoader` =
@@ -70,8 +70,10 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
+// Phase 24.3: the simulation module specs this manifest names (generated per export; nothing else is linked).
+import { moduleSpecs } from 'thirdlight:export-modules';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
 const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
@@ -341,8 +343,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // The physics config (physics-rapier; the manifest's resolved gravity_y drives the solver).
   // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
   const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
-  if (physicsConfig === null && snapshot.game !== null) throw new Error('the game requires a player controller entity');
-  // (no game block and no controller: scene mode — the scene plays as authored)
+  // (no controller: no physics world; a module that needs one says so when the host composes — phase 24.3)
 
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
   const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
@@ -444,6 +445,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     settings,
     behaviorModules,
     modules: moduleIds,
+    moduleSpecs: moduleSpecs as readonly SimulationModuleSpec[],
     ...(physics !== undefined ? { physics } : {}),
     ...(remote !== null ? { runtimeFactory: remote.runtimeFactory } : {}),
     adapter: (runtime) => {

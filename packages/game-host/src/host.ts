@@ -64,11 +64,6 @@ import {
   type ModeView,
   type ProjectSaveFile,
 } from '@thirdlight/runtime';
-import { platformerSpec } from '@thirdlight/platformer';
-import {
-  platformerGameCameraSpec,
-  platformerGameSessionSpec,
-} from '@thirdlight/platformer-game';
 import type { MenuSample } from '@thirdlight/input';
 import type { AudioObservation, AudioSpatialLike, GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
@@ -359,10 +354,18 @@ export interface GameHostConfig {
    * The manifest's required engine module ids (derived by the build from the
    * declared dependencies). The host registers exactly these simulation
    * modules and checks the port modules it needs are injected; an id it
-   * cannot provide is `host_module_unresolved`. Absent ⇒ the game set when
-   * there is a game block, nothing otherwise.
+   * cannot provide is `host_module_unresolved`. Absent ⇒ none (phase 24.3:
+   * there is no default set).
    */
   readonly modules?: readonly string[];
+  /**
+   * Phase 24.3: the simulation module specs this composition provides beyond
+   * the runtime's built-ins, keyed by their manifest module id (`spec.id`)
+   * and listed in dependency order (a module after those it needs). The
+   * composition entry (the Play preview, the export bootstrap, the
+   * simulation worker) registers them; the host imports no module package.
+   */
+  readonly moduleSpecs?: readonly SimulationModuleSpec[];
   /** ADDITIVE (CC-55-2): the render-adapter FACTORY — the three-adapter
    * instance requires the runtime it renders, which the host creates inside
    * `mount()`. `null` = no adapter (headless composition). */
@@ -630,49 +633,60 @@ function toControlError(error: RuntimeError): GameControlError {
  * instance and HUD; the input owner, audio owner, and canvas are
  * wrapper-owned and injected (a new host on the same snapshot reuses them).
  */
-/** The simulation modules this host can register, by manifest module id. */
-const SIMULATION_SPECS: Readonly<Record<string, SimulationModuleSpec>> = {
-  [platformerSpec.id]: platformerSpec,
-  [platformerGameSessionSpec.id]: platformerGameSessionSpec,
-  [platformerGameCameraSpec.id]: platformerGameCameraSpec,
-  // Phase 23.2: the 3D character controller (a runtime built-in).
-  [character3DSpec.id]: character3DSpec,
-};
+/**
+ * The runtime's own simulation modules a manifest can name (phase 23.2: the
+ * 3D character controller). Every other simulation module comes from the
+ * composition's injected spec table (`moduleSpecs`, phase 24.3).
+ */
+const RUNTIME_SIMULATION_SPECS: readonly SimulationModuleSpec[] = [character3DSpec];
 /** The port modules the delivery wrapper injects (checked, not registered). */
 const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
 
 /**
  * Select the simulation modules from the manifest's module list (the build's
- * derived set), or the default game set when the wrapper passed none.
+ * derived set) out of the runtime's built-ins and the injected spec table.
+ * Phase 24.3: no list, no modules — the host has no default set. The
+ * selected specs register in table order (built-ins first, then the
+ * injected table's dependency order).
  */
 function selectModules(
   modulesIn: readonly string[] | undefined,
+  table: readonly SimulationModuleSpec[],
   hasPhysics: boolean,
-  sceneMode: boolean,
-): { ok: true; specs: SimulationModuleSpec[] } | { ok: false; error: { code: 'host_module_unresolved'; message: string } } {
-  if (modulesIn === undefined) {
-    return { ok: true, specs: sceneMode ? [] : [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec] };
-  }
-  const specs: SimulationModuleSpec[] = [];
+  entities: readonly { readonly components?: unknown }[],
+): { ok: true; specs: SimulationModuleSpec[] } | { ok: false; error: GameControlError } {
+  if (modulesIn === undefined) return { ok: true, specs: [] };
+  const byId = new Map<string, SimulationModuleSpec>();
+  for (const spec of table) if (!byId.has(spec.id)) byId.set(spec.id, spec);
+  const picked = new Set<SimulationModuleSpec>();
+  const ports: string[] = [];
   for (const id of modulesIn) {
-    const spec = SIMULATION_SPECS[id];
+    const spec = byId.get(id);
     if (spec !== undefined) {
-      if (!specs.includes(spec)) specs.push(spec);
+      picked.add(spec);
       continue;
     }
     if (id === 'thirdlight.demo:box-motion') continue; // a runtime built-in (already registered)
     if (PORT_MODULES.has(id)) {
-      if ((id === 'thirdlight.physics-rapier:2d' || id === 'thirdlight.physics-rapier:3d') && !hasPhysics) {
-        return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but no physics port was injected` } };
-      }
+      ports.push(id);
       continue;
     }
     return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but this engine does not provide it` } };
   }
-  // Register in dependency order (controller before the session, session before the camera).
-  const order = [character3DSpec, platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
-  specs.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  return { ok: true, specs };
+  // A module's entity requirement is its own declaration (phase 24.3).
+  for (const spec of picked) {
+    for (const component of spec.requiresEntityWith ?? []) {
+      if (!entities.some((e) => ((e.components ?? {}) as Record<string, unknown>)[component] !== undefined)) {
+        return { ok: false, error: { code: 'host_config_invalid', reason: component, message: `module ${spec.id} needs an entity with a ${component} component; the scene has none` } };
+      }
+    }
+  }
+  for (const id of ports) {
+    if ((id === 'thirdlight.physics-rapier:2d' || id === 'thirdlight.physics-rapier:3d') && !hasPhysics) {
+      return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but no physics port was injected` } };
+    }
+  }
+  return { ok: true, specs: [...byId.values()].filter((spec) => picked.has(spec)) };
 }
 
 /**
@@ -687,6 +701,8 @@ export interface GameRuntimeArgs {
   readonly physics?: PhysicsPort | PhysicsPort3D;
   readonly behaviorModules?: readonly SimulationModuleSpec[];
   readonly modules?: readonly string[];
+  /** Phase 24.3: the injected simulation module specs (see `GameHostConfig.moduleSpecs`). */
+  readonly moduleSpecs?: readonly SimulationModuleSpec[];
   readonly actions: ActionSource;
   readonly onFrame?: () => void;
   /** The frame driver (absent: rAF where the environment has it, else manual). A worker passes manual: the main thread drives it. */
@@ -707,22 +723,17 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     return { ok: false, error: { code: 'host_config_invalid', reason: 'game-block', message: 'the game host requires a v3 snapshot' } };
   }
   // Scene mode: without a game block the host plays the scene as authored
-  // (runtime built-ins only, no game session, no HUD).
+  // (no game session, no HUD).
   const sceneMode = snapshot.game === null || snapshot.game === undefined;
-  // (the typed `EntityComponents` union is per-schema; the host reads the
-  // component presence structurally, as the M2 export-composition does.)
-  if (!sceneMode && !scene.entities.some((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)) {
-    return { ok: false, error: { code: 'host_config_invalid', reason: 'controller', message: 'the scene carries no controller entity (the M3 game requires the player controller)' } };
-  }
 
   const registry = createSimulationRegistry();
-  // The M3 module set (delivery.md §3.2: "runtime built-ins + platformer
-  // controller + platformer-game session + linked behavior modules").
   // The registry carries the runtime built-ins (inert unless selected —
-  // the M2 export-composition pattern); the SELECTED modules are the
-  // M3 game set, plus the project's compiled behaviors.
+  // the M2 export-composition pattern); the SELECTED modules are the ones
+  // the manifest names (phase 24.3: resolved through the runtime's specs and
+  // the injected table), plus the project's compiled behaviors.
   for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
-  const selected = selectModules(args.modules, args.physics !== undefined, sceneMode);
+  // (the typed `EntityComponents` union is per-schema; component presence is read structurally.)
+  const selected = selectModules(args.modules, [...RUNTIME_SIMULATION_SPECS, ...(args.moduleSpecs ?? [])], args.physics !== undefined, scene.entities as readonly { readonly components?: unknown }[]);
   if (!selected.ok) return selected;
   const modules: string[] = [];
   for (const spec of selected.specs) {
@@ -1585,6 +1596,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.physics !== undefined ? { physics: config.physics } : {}),
         ...(config.behaviorModules !== undefined ? { behaviorModules: config.behaviorModules } : {}),
         ...(config.modules !== undefined ? { modules: config.modules } : {}),
+        ...(config.moduleSpecs !== undefined ? { moduleSpecs: config.moduleSpecs } : {}),
         actions: config.input,
         onFrame: hostFrame,
         ...(config.variables !== undefined ? { variables: config.variables } : {}),

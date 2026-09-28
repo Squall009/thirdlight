@@ -3,17 +3,22 @@
  * verified over the esbuild `--metafile` output.
  *
  * Allowed: the export bootstrap file (packages/exporter/src/export-bootstrap-m3.ts
- * only), the shared production composition `game-host` and its packages —
- * `runtime`, `platformer`, `platformer-game`, `three-adapter` (with its phase-20.2 `effects`),
+ * only), the shared production composition `game-host` and the generic engine
+ * packages — `runtime`, `three-adapter` (with its phase-20.2 `effects`),
  * `project-model`, `input`, `physics-rapier` — plus `three`, the pinned
  * `@dimforge/rapier2d-compat` (phase 23.0: and `@dimforge/rapier3d-compat`,
  * the 3D backend's `js/physics-3d.js` of a 3D project), and the per-snapshot
- * virtual module the export build generates in memory (`thirdlight:export-artifacts`).
+ * virtual modules the export build generates in memory
+ * (`thirdlight:export-artifacts`, `thirdlight:export-modules`). Phase 24.3: a
+ * module package outside that set (the platformer ones) is allowed only when
+ * the manifest names one of its modules.
  *
  * Forbidden (any node): `backend`, `editor`, `workspace`, `commands`,
  * `mcp-adapter`, `protocol`, `exporter` beyond the bootstrap, `behavior-build`,
  * `asset-pipeline`, and any `node:` builtin. Pure data processing, no I/O.
  */
+
+import { ENGINE_MODULES } from '@thirdlight/project-model';
 
 export interface GraphReport {
   ok: boolean;
@@ -24,7 +29,7 @@ export interface GraphReport {
 const MAX_REPORTED = 8;
 
 /** The virtual-module keys the export build generates (esbuild namespaces them). */
-const VIRTUAL_KEYS = new Set(['thirdlight-export:export-artifacts']);
+const VIRTUAL_KEYS = new Set(['thirdlight-export:export-artifacts', 'thirdlight-export-modules:export-modules']);
 
 /** Metafile keys are absolute or cwd-relative; normalize separators. */
 function normalize(p: string): string {
@@ -37,18 +42,30 @@ function toRepoRel(p: string): string {
   return i >= 0 ? p.slice(i) : p;
 }
 
-const ALLOWED_PACKAGES = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'platformer', 'physics-rapier', 'game-host', 'platformer-game'];
+/** The generic engine packages every export may link. */
+const ENGINE_PACKAGES = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'physics-rapier', 'game-host'];
 
-function allowed(p: string): boolean {
-  if (ALLOWED_PACKAGES.some((name) => p.includes(`packages/${name}/src/`))) return true;
+/** Phase 24.3: the packages of the modules a manifest names (`@thirdlight/<name>` → `<name>`). */
+export function modulePackagesOf(moduleIds: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const m of ENGINE_MODULES) if (moduleIds.includes(m.id) && m.package.startsWith('@thirdlight/')) out.add(m.package.slice('@thirdlight/'.length));
+  return [...out].sort();
+}
+
+function allowed(p: string, packages: readonly string[]): boolean {
+  if (packages.some((name) => p.includes(`packages/${name}/src/`))) return true;
   if (p.includes('node_modules/three/')) return true;
   // The approved physics pins (dependencies.md §7; decision 0005 for 3D): the compat builds and their inlined WASM modules.
   return p.includes('node_modules/@dimforge/rapier2d-compat/') || p.includes('node_modules/@dimforge/rapier3d-compat/');
 }
 
-/** Check every module in the export bundle's metafile input graph. */
-export function checkBundleGraphM3(metafile: { inputs: Record<string, unknown> }, bootstrapEntry: string): GraphReport {
+/**
+ * Check every module in the export bundle's metafile input graph against the
+ * engine packages plus the packages of the manifest's modules (`moduleIds`).
+ */
+export function checkBundleGraphM3(metafile: { inputs: Record<string, unknown> }, bootstrapEntry: string, moduleIds: readonly string[]): GraphReport {
   const boot = toRepoRel(normalize(bootstrapEntry));
+  const packages = [...new Set([...ENGINE_PACKAGES, ...modulePackagesOf(moduleIds)])];
   const forbidden: string[] = [];
   const reject = (p: string): void => {
     if (forbidden.length < MAX_REPORTED) forbidden.push(p);
@@ -65,7 +82,7 @@ export function checkBundleGraphM3(metafile: { inputs: Record<string, unknown> }
       reject(p); // only the bootstrap file of the exporter may enter the graph
       continue;
     }
-    if (allowed(p)) continue;
+    if (allowed(p, packages)) continue;
     reject(p);
   }
   return { ok: forbidden.length === 0, forbidden };

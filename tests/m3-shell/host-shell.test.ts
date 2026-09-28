@@ -27,6 +27,7 @@ import {
   type HostDom,
   type HostDomNode,
 } from '@thirdlight/game-host';
+import { withGameModules } from '../game-modules';
 
 // ---------------------------------------------------------------------------
 // The course (the m3-gameplay builder pattern: flat floor + checkpoint + goal).
@@ -363,7 +364,7 @@ async function startShell(): Promise<Shell> {
   const physics = physicsInit.port;
 
   const container = new FakeNode();
-  const host = createGameHost({
+  const host = createGameHost(withGameModules({
     snapshot: courseSnapshot() as RuntimeSnapshot,
     settings: SETTINGS,
     physics,
@@ -380,7 +381,7 @@ async function startShell(): Promise<Shell> {
     buildId: 'shell-build-1',
     assetPaths: Object.fromEntries(Object.entries(CUE_PATHS).map(([id, file]) => [id, file])),
     document: fakeDom,
-  } as GameHostConfig);
+  } as GameHostConfig));
 
   const mounted = host.mount();
   if (!mounted.ok) {
@@ -671,7 +672,7 @@ describe('the full local shell over real parts (delivery.md §3.1/§4)', () => {
       if (!init.ok) throw new Error('second physics init failed');
       return init.port;
     })();
-    const host2 = createGameHost({
+    const host2 = createGameHost(withGameModules({
       snapshot: courseSnapshot() as RuntimeSnapshot,
       settings: SETTINGS,
       physics: physics2,
@@ -686,7 +687,7 @@ describe('the full local shell over real parts (delivery.md §3.1/§4)', () => {
       buildId: 'shell-build-1',
       assetPaths: Object.fromEntries(Object.entries(CUE_PATHS).map(([id, file]) => [id, file])),
       document: fakeDom,
-    } as GameHostConfig);
+    } as GameHostConfig));
     const m2 = host2.mount();
     expect(m2.ok).toBe(true);
     host2.runtime.tick(1 / 120); // the second host's pre-roll

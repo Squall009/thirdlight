@@ -34,6 +34,7 @@ import {
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
 import { createRecordedActionSource, type ActionFrame, type Runtime } from '@thirdlight/runtime';
+import { MODULE_SPECS, modulesOf } from '../../game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -154,6 +155,8 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     audioCommands.push(c);
     if (c.op === 'play') sounds.push(c.assetId);
   };
+  // Phase 24.3: the manifest modules the snapshot references (the host has no default set).
+  const modules = cfg.modules ?? modulesOf(cfg.snapshot, cfg.settings);
   const baseConfig: Any = {
     snapshot: cfg.snapshot,
     settings: cfg.settings,
@@ -166,7 +169,8 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     assetPaths: {},
     document: { createElement: () => new FakeNode() },
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),
-    ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
+    modules,
+    moduleSpecs: MODULE_SPECS,
     ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
     ...(cfg.startMode !== undefined ? { start: { mode: cfg.startMode } } : {}),
     ...(cfg.host ?? {}),
@@ -214,7 +218,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       behaviors: { rows, urls, enginePins: pins },
       ...(cfg.replay !== undefined ? { replay: cfg.replay } : {}),
       ...(cfg.digestSteps === true ? { digestSteps: true } : {}),
-      ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
+      modules,
       ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
       ...(cfg.startMode !== undefined ? { startMode: cfg.startMode } : {}),
     },

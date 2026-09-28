@@ -46,15 +46,19 @@ describe('packet 33 — cold builds in fresh processes (deployed esbuild-externa
     const declarationPath = join(outDir, 'declaration.json');
     const expected = JSON.parse(readFileSync(join(BUILD_FIXTURES, 'expected.json'), 'utf8')) as {
       declaration: unknown;
+      pinnedModules: unknown;
       cases: { container: string; expect: Record<string, unknown> }[];
     };
     writeFileSync(declarationPath, JSON.stringify(expected.declaration));
+    // Phase 24.3: the digests were recorded under the fixture's own pin table (the live one no longer pins the platformer).
+    const pinsPath = join(outDir, 'pins.json');
+    writeFileSync(pinsPath, JSON.stringify(expected.pinnedModules));
     const expectedSample = expected.cases.find((c) => c.container === 'valid/sample.json')?.expect as Record<string, unknown>;
 
     const { spawnSync } = await import('node:child_process');
     const results: { run: number; status: number | null; stdout: string; stderr: string; parsed?: Record<string, unknown> }[] = [];
     for (let i = 0; i < RUNS; i++) {
-      const proc = spawnSync(process.execPath, [harnessOut, containerPath, declarationPath], {
+      const proc = spawnSync(process.execPath, [harnessOut, containerPath, declarationPath, pinsPath], {
         cwd: REPO_ROOT,
         encoding: 'utf8',
         timeout: 60_000,

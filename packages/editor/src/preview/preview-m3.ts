@@ -61,6 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
+import { PREVIEW_MODULE_SPECS } from './module-specs';
 import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
@@ -482,9 +483,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // without it.
   // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
   const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
-  if (physicsConfig === null && (snapshot.game ?? null) !== null) {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the game requires a player controller entity');
-  }
+  // (no controller: no physics world; a module that needs one says so when the host composes — phase 24.3)
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
   const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
   // Phase 21.5: what this composition attaches to the page is released with it
@@ -632,6 +631,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       settings,
       behaviorModules,
       modules: moduleIds,
+      moduleSpecs: PREVIEW_MODULE_SPECS,
       ...(physics !== undefined ? { physics } : {}),
       ...(remote !== null ? { runtimeFactory: remote.runtimeFactory } : {}),
       adapter: (runtime) => {

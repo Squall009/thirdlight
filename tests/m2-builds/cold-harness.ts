@@ -18,7 +18,7 @@ import process from 'node:process';
 import { M2_PINNED_MODULES, compileBehavior } from '../../packages/behavior-build/src/index';
 
 async function main(): Promise<number> {
-  const [arg1, arg2] = process.argv.slice(2);
+  const [arg1, arg2, arg3] = process.argv.slice(2);
   if (arg1 === 'sentinel') {
     const sentinel = '__thirdlight_cold_sentinel_executed__';
     (globalThis as Record<string, unknown>)[sentinel] = undefined;
@@ -51,12 +51,14 @@ async function main(): Promise<number> {
   }
   const containerBytes = new Uint8Array(readFileSync(arg1));
   const declaration = JSON.parse(readFileSync(arg2, 'utf8')) as { properties: readonly unknown[] };
+  // Phase 24.3: an optional pin table (the fixture's recorded one; absent: the live table).
+  const pinnedModules = arg3 !== undefined ? (JSON.parse(readFileSync(arg3, 'utf8')) as typeof M2_PINNED_MODULES) : M2_PINNED_MODULES;
   const start = Date.now();
   const result = await compileBehavior({
     behaviorId: 'behavior-0100',
     declaration: declaration as never,
     containerBytes,
-    pinnedModules: M2_PINNED_MODULES,
+    pinnedModules,
     limits: { timeoutMs: 30_000 },
   });
   const elapsedMs = Date.now() - start;

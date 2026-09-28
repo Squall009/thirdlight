@@ -8,6 +8,7 @@
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { playerCapsuleOf, playerPhysicsOf, type ModelBounds } from '@thirdlight/runtime';
+import { withGameModules } from '../../game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Any = any;
@@ -105,7 +106,7 @@ export async function level(o: LevelOptions): Promise<Level> {
     dispose: () => undefined,
   };
   const audio: Any = createGameAudioOwner({ contextFactory: () => null } as Any);
-  const host = createGameHost({
+  const host = createGameHost(withGameModules({
     snapshot: {
       snapshotId: 'tuning@r1',
       projectId: 'tuning',
@@ -124,7 +125,7 @@ export async function level(o: LevelOptions): Promise<Level> {
     buildId: 'b',
     assetPaths: {},
     document: { createElement: () => new FakeNode() },
-  } as Any);
+  } as Any));
   const mounted = host.mount();
   if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
   let now = 0;

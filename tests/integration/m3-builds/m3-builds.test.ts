@@ -175,7 +175,7 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
         'packages/runtime/src/runtime.ts': {},
       },
     };
-    const flagged = checkBundleGraphM3(forbiddenMetafile, M3_BOOTSTRAP);
+    const flagged = checkBundleGraphM3(forbiddenMetafile, M3_BOOTSTRAP, []);
     expect(flagged.ok).toBe(false);
     expect(flagged.forbidden.some((f) => f.startsWith('node:'))).toBe(true);
     expect(flagged.forbidden.some((f) => f.includes('packages/backend/'))).toBe(true);
@@ -197,7 +197,11 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
         'thirdlight-export:export-artifacts': {},
       },
     };
-    expect(checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP).ok).toBe(true);
+    expect(checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, ['thirdlight.platformer-game:session']).ok).toBe(true);
+    // Phase 24.3: a manifest that names no platformer module may not link its package.
+    const without = checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, []);
+    expect(without.ok).toBe(false);
+    expect(without.forbidden).toEqual(['packages/platformer-game/src/session.ts']);
 
     // The emitted bundle (from the successful first export) carries no
     // forbidden content (the pipeline's §5.4 forbidden-pattern gate passed):

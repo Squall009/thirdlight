@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { createGameHost } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { createBehaviorModuleSpec } from '@thirdlight/runtime';
+import { withGameModules } from '../../game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -94,7 +95,7 @@ describe('sounds (real host, Rapier)', () => {
     });
     let move = 0;
     const audio = spyAudio();
-    const host = createGameHost({
+    const host = createGameHost(withGameModules({
       snapshot: {
         snapshotId: 'snd@r1',
         projectId: 'snd',
@@ -119,7 +120,7 @@ describe('sounds (real host, Rapier)', () => {
       container: new FakeNode(),
       buildId: 'b',
       document: { createElement: () => new FakeNode() },
-    } as Any);
+    } as Any));
     const mounted = host.mount();
     if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
     const rt: Any = host.runtime;

@@ -35,6 +35,7 @@ import {
   type GameHostConfig,
 } from '@thirdlight/game-host';
 import { createSceneAdapter } from '@thirdlight/three-adapter';
+import { withGameModules } from '../../game-modules';
 import type { GameplaySettings, RuntimeSnapshot } from '@thirdlight/runtime';
 
 // --- the course (the tests/m3-shell harness pattern) -----------------------
@@ -212,7 +213,8 @@ async function main(): Promise<void> {
     assetPaths: Object.fromEntries(Object.entries(CUE_PATHS).map(([id, file]) => [id, file])),
     document: document as never,
   };
-  const host = createGameHost(config);
+  // Phase 24.3: the modules the snapshot references and the spec table (the host has no default set).
+  const host = createGameHost(withGameModules(config));
   const mount = host.mount();
   if (!mount.ok) throw new Error(`mount failed: ${JSON.stringify(mount.error)}`);
   note('mounted: HUD + runtime + adapter (the host composition)');

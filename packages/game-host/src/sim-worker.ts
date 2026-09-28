@@ -18,7 +18,7 @@
  * between frames, in order, and apply at the next step boundary — the same
  * boundary they reach in single-thread mode.
  */
-import { createRecordedActionSource, type ActionSource, type PhysicsPort, type PhysicsPort3D, type Runtime } from '@thirdlight/runtime';
+import { createRecordedActionSource, type ActionSource, type PhysicsPort, type PhysicsPort3D, type Runtime, type SimulationModuleSpec } from '@thirdlight/runtime';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -33,6 +33,12 @@ export interface SimWorkerDeps {
   createPhysicsPort(config: never): Promise<{ ok: true; port: PhysicsPort } | { ok: false; error: { code: string; message?: string } }>;
   /** Import one compiled script module by URL. */
   importModule(url: string): Promise<unknown>;
+  /**
+   * Phase 24.3: the simulation module specs the worker entry provides
+   * (keyed by manifest module id, in dependency order); the manifest's
+   * `modules` pick from them. The entry imports only what its build ships.
+   */
+  moduleSpecs?: readonly SimulationModuleSpec[];
   /** The physics engine's WebAssembly memory in bytes (null: unknown). */
   physicsMemoryBytes?(): number | null;
   /**
@@ -179,6 +185,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         ...(port !== undefined ? { physics: port } : {}),
         behaviorModules,
         ...(m.modules !== undefined ? { modules: m.modules } : {}),
+        ...(deps.moduleSpecs !== undefined ? { moduleSpecs: deps.moduleSpecs } : {}),
         actions: relay,
         driver: { kind: 'manual' },
         ...(m.variables !== undefined ? { variables: m.variables } : {}),

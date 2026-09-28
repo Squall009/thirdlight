@@ -147,13 +147,13 @@ describe('phase 23.5: block layers in the running game (page and worker)', () =>
       expect(stepsBefore[stepsBefore.length - 1]!.grounded).toBe(true);
       expect(events[removal + 2]).toEqual({ kind: 'step', grounded: false });
       // In digests: the marker script moves its entity in the digging step (its first differing digest
-      // names that step); the player's position first differs one step later — the 3D character phase
-      // (phase 23.0) starts a fall from rest at the step after its support went away, as when it walks
-      // off an edge.
+      // names that step); the player's position differs in that same step — the 3D character module
+      // (the manifest's `thirdlight.character3d:controller`, which the harness now registers as Play and
+      // export do; phase 24.3) sweeps after the collider rebuild and finds no support.
       const firstDiff = (x: string[]): number => x.slice(0, Math.min(x.length, idle.digests.length)).findIndex((d, k) => d !== idle.digests[k]);
       const digStepDigest = firstDiff(marker.digests);
       expect(digStepDigest).toBeGreaterThan(0);
-      expect(firstDiff(a.digests)).toBe(digStepDigest + 1);
+      expect(firstDiff(a.digests)).toBe(digStepDigest);
       // Page and worker agree step by step.
       const m = Math.min(a.digests.length, w.digests.length);
       expect(a.digests.slice(0, m)).toEqual(w.digests.slice(0, m));

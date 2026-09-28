@@ -13,6 +13,7 @@ import { createBehaviorModuleSpec } from '@thirdlight/runtime';
 import type { BehaviorScriptEnv, GraphData, GraphNode } from '@thirdlight/project-model';
 
 import { canonicalContainerText, compileBehaviorGraph, createBehaviorCompiler, type BehaviorCompileResult } from '../../packages/behavior-build/src/index';
+import { withGameModules } from '../game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Any = any;
@@ -104,7 +105,7 @@ export async function level(compiled: Compiled, opts: LevelOptions = {}) {
       namespace: { default: evaluate(compiled.outputBytes) },
     },
   });
-  const host = createGameHost({
+  const host = createGameHost(withGameModules({
     snapshot: {
       snapshotId: 'visual@r1',
       projectId: 'visual',
@@ -129,7 +130,7 @@ export async function level(compiled: Compiled, opts: LevelOptions = {}) {
     buildId: 'b',
     assetPaths: {},
     document: { createElement: () => new FakeNode() },
-  } as Any);
+  } as Any));
   const mounted = host.mount();
   if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
   const rt: Any = host.runtime;

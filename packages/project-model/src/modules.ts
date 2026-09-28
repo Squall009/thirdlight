@@ -3,11 +3,12 @@
  * derive required modules from declared dependencies and referenced content;
  * unresolved dependencies fail validation).
  *
- * The declared dependencies of a project are:
- *   - the game block (`content.game !== null`): the platformer game set;
- *   - referenced content: a `controller` component needs the platformer
- *     controller (which needs physics + input); a `model` component needs
- *     the glTF loader;
+ * Phase 24.3: modules come only from what the project declares or
+ * references — there is no module set a project gets for being a game. The
+ * dependencies are:
+ *   - referenced content: each component or content block references the
+ *     modules it needs ({@link COMPONENT_MODULES}, {@link CONTENT_BLOCK_MODULES});
+ *     a module's own needs follow from its `requires`;
  *   - each behavior's `requiredModules` (engine package ids);
  *   - explicitly declared module ids (a template's `requiredModules`).
  *
@@ -27,6 +28,13 @@ export interface EngineModule {
   kind: 'simulation' | 'port';
   /** Modules this one needs (closed transitively at resolution). */
   requires: readonly string[];
+  /**
+   * Phase 24.3: a simulation module outside the runtime — the name its
+   * package exports its `SimulationModuleSpec` under. A composition (the
+   * export build, a Play preview) imports exactly the specs its manifest's
+   * modules name; the runtime's own built-ins have none.
+   */
+  spec?: string;
 }
 
 export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
@@ -37,9 +45,11 @@ export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.physics-rapier:3d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   // Phase 23.2: the 3D kinematic character controller (a runtime built-in, like the demo module).
   { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: ['thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad'] },
-  { id: 'thirdlight.platformer:controller', package: '@thirdlight/platformer', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'] },
-  { id: 'thirdlight.platformer-game:session', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer:controller'] },
-  { id: 'thirdlight.platformer-game:camera', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer-game:session'] },
+  // Listed in dependency order (a module after the modules it needs): a
+  // composition registers the selected specs in this order.
+  { id: 'thirdlight.platformer:controller', package: '@thirdlight/platformer', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'], spec: 'platformerSpec' },
+  { id: 'thirdlight.platformer-game:session', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer:controller'], spec: 'platformerGameSessionSpec' },
+  { id: 'thirdlight.platformer-game:camera', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer-game:session'], spec: 'platformerGameCameraSpec' },
   { id: 'thirdlight.three-adapter:gltf-loader', package: '@thirdlight/three-adapter', kind: 'port', requires: [] },
 ] as EngineModule[]).map((m) => Object.freeze(m)));
 
@@ -51,15 +61,40 @@ export const ENGINE_MODULE_IDS: readonly string[] = Object.freeze([...BY_ID.keys
 /**
  * What a behavior may require, by engine package id → the modules that
  * dependency implies. `@thirdlight/runtime` is the behavior API itself
- * (always present).
+ * (always present). Phase 24.3: the platformer packages are not a behavior
+ * dependency (the compiler no longer pins them); a script that needs the
+ * character controller references it through a `controller` component.
  */
 export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   '@thirdlight/runtime': [],
-  '@thirdlight/platformer': ['thirdlight.platformer:controller'],
   '@thirdlight/physics-rapier': ['thirdlight.physics-rapier:2d'],
   '@thirdlight/input': ['thirdlight.input:keyboard-gamepad'],
-  '@thirdlight/platformer-game': ['thirdlight.platformer-game:session', 'thirdlight.platformer-game:camera'],
   '@thirdlight/three-adapter': ['thirdlight.three-adapter:gltf-loader'],
+});
+
+/**
+ * Phase 24.3: the module a scene component references, by the project's
+ * physics dimension. Presence of the component is the reference; nothing
+ * else about a project selects a module.
+ */
+export const COMPONENT_MODULES: Readonly<Record<string, { readonly plane2d: string | null; readonly world3d: string | null }>> = Object.freeze({
+  // The character controller (2D: the plane controller; 3D: the kinematic character controller).
+  controller: Object.freeze({ plane2d: 'thirdlight.platformer:controller', world3d: 'thirdlight.character3d:controller' }),
+  // A glTF model needs the loader port.
+  model: Object.freeze({ plane2d: 'thirdlight.three-adapter:gltf-loader', world3d: 'thirdlight.three-adapter:gltf-loader' }),
+  // Phase 23.3: in 3D a collider alone needs the backend (rays and picks without a character); the 2D plane builds its world from the controller.
+  collider: Object.freeze({ plane2d: null, world3d: 'thirdlight.physics-rapier:3d' }),
+  blockLayer: Object.freeze({ plane2d: null, world3d: 'thirdlight.physics-rapier:3d' }),
+});
+
+/**
+ * Phase 24.3: the modules a content block references. The `game` block
+ * (the session with its run states and camera) references the session and
+ * camera modules — a block like any component, not "a game". It exists until
+ * phases 24.6/24.7 remove it; on the 3D path it has no module.
+ */
+export const CONTENT_BLOCK_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  game: Object.freeze(['thirdlight.platformer-game:session', 'thirdlight.platformer-game:camera']),
 });
 
 export interface ResolveModulesInput {
@@ -76,8 +111,7 @@ export interface ResolveModulesInput {
   /**
    * Phase 23.0: the project's physics dimension (absent: 2, the 2D plane). In
    * 3D a `controller` needs the 3D backend (`thirdlight.physics-rapier:3d`),
-   * not the 2D platformer controller; the platformer game set (a game block)
-   * is 2D-plane only until 3D game modes exist (phase 23.10).
+   * not the 2D plane controller; the game block's modules are 2D-plane only.
    */
   physicsDimension?: 2 | 3;
 }
@@ -103,24 +137,23 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
 
   if (input.demo === true) want('thirdlight.demo:box-motion', 'declared');
   const threeD = input.physicsDimension === 3;
-  if (threeD && input.game !== null && input.game !== undefined) {
-    return {
-      ok: false,
-      unresolved: [{ id: 'thirdlight.platformer-game:session', requiredBy: 'game' }],
-      message: 'the platformer game block runs on the 2D plane (physics_dimension 2); a 3D project plays its scenes without one until 3D game modes exist',
-    };
-  }
   if (input.game !== null && input.game !== undefined) {
-    want('thirdlight.platformer-game:session', 'game');
-    want('thirdlight.platformer-game:camera', 'game');
+    if (threeD) {
+      return {
+        ok: false,
+        unresolved: [{ id: CONTENT_BLOCK_MODULES['game']![0]!, requiredBy: 'game' }],
+        message: 'the game block runs on the 2D plane (physics_dimension 2); a 3D project plays its scenes without one',
+      };
+    }
+    for (const id of CONTENT_BLOCK_MODULES['game'] ?? []) want(id, 'game');
   }
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
-    // Phase 23.2: in 3D the character controller module (which needs the 3D backend and input).
-    if (c['controller'] !== undefined) want(threeD ? 'thirdlight.character3d:controller' : 'thirdlight.platformer:controller', 'scene');
-    // Phase 23.3: in 3D a collider alone needs the backend too (a scene without a player still answers rays and picks).
-    else if (threeD && (c['collider'] !== undefined || c['blockLayer'] !== undefined)) want('thirdlight.physics-rapier:3d', 'scene');
-    if (c['model'] !== undefined) want('thirdlight.three-adapter:gltf-loader', 'scene');
+    for (const [component, refs] of Object.entries(COMPONENT_MODULES)) {
+      if (c[component] === undefined) continue;
+      const id = threeD ? refs.world3d : refs.plane2d;
+      if (id !== null) want(id, 'scene');
+    }
   }
   for (const b of input.behaviors ?? []) {
     for (const pkg of b.requiredModules) {

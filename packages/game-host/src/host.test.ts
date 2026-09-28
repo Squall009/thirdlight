@@ -31,6 +31,10 @@ import {
   type HostRenderAdapter,
 } from './host';
 import { createHud, type HudState, type HostDom, type HostDomNode } from "./hud";
+// Phase 24.3: the host imports no module package; like a composition entry,
+// the test injects the spec table and names the modules its snapshot references.
+import { platformerSpec } from '@thirdlight/platformer';
+import { platformerGameCameraSpec, platformerGameSessionSpec } from '@thirdlight/platformer-game';
 import { createSaveStore } from './save';
 
 // ---------------------------------------------------------------------------
@@ -162,6 +166,10 @@ const T = {
   rotation: [0, 0, 0, 1] as [number, number, number, number],
   scale: [1, 1, 1] as [number, number, number],
 };
+
+const MODULE_SPECS = [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
+/** The manifest modules of the game snapshot (a controller entity + the game block). */
+const GAME_MODULES = ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.platformer-game:camera', 'thirdlight.platformer-game:session', 'thirdlight.platformer:controller'];
 
 function hostSnapshot(overrides: { cues?: Partial<Record<'start' | 'jump' | 'checkpoint' | 'death' | 'goal', string | null>> } = {}): unknown {
   const cues = {
@@ -382,6 +390,8 @@ function harness(options: HarnessOptions = {}): Harness {
   const config: GameHostConfig = {
     snapshot: hostSnapshot({ cues: options.cues }) as RuntimeSnapshot,
     settings: SETTINGS,
+    modules: GAME_MODULES,
+    moduleSpecs: MODULE_SPECS,
     physics: physics.port,
     adapter: () => adapter,
     input,
@@ -781,6 +791,8 @@ describe('viewport and disposal (B15 lifecycle)', () => {
     const h2 = createGameHost({
       snapshot: hostSnapshot() as RuntimeSnapshot,
       settings: SETTINGS,
+      modules: GAME_MODULES,
+      moduleSpecs: MODULE_SPECS,
       physics: fakePhysics({ x: 3, y: 0.9 }).port,
       adapter: () => null,
       input,
@@ -854,15 +866,50 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
-  it('the derived game set mounts and plays like the default', () => {
+  it('phase 24.3: no module list, no modules — there is no default set, even with a game block', () => {
     const h = harness();
-    const base = h.config;
-    const host = createGameHost({
-      ...base,
-      modules: ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.platformer-game:camera', 'thirdlight.platformer-game:session', 'thirdlight.platformer:controller'],
-    });
+    const { modules: _m, ...rest } = h.config;
+    void _m;
+    const host = createGameHost(rest);
     expect(host.mount().ok).toBe(true);
+    // No session module was registered: the runtime has no run states to observe.
+    expect(host.observe().ok).toBe(false);
     host.dispose();
     h.host.dispose();
+  });
+
+  it('phase 24.3: a manifest module the injected spec table lacks is unresolved', () => {
+    const h = harness();
+    const { moduleSpecs: _s, ...rest } = h.config;
+    void _s;
+    const host = createGameHost(rest);
+    const res = host.mount();
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('host_module_unresolved');
+      expect(res.error.message).toContain('thirdlight.platformer-game:camera');
+    }
+    host.dispose();
+    h.host.dispose();
+  });
+
+  it('phase 24.3: the entity a module needs is its own declaration (the session needs a controller)', () => {
+    const h = harness();
+    const snapshot = hostSnapshot() as { scene: { entities: { components: Record<string, unknown> }[] } };
+    for (const e of snapshot.scene.entities) delete e.components['controller'];
+    const host = createGameHost({ ...h.config, snapshot: snapshot as unknown as RuntimeSnapshot });
+    const res = host.mount();
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('host_config_invalid');
+      expect(res.error.reason).toBe('controller');
+      expect(res.error.message).toContain('thirdlight.platformer-game:session');
+    }
+    host.dispose();
+    h.host.dispose();
+    // A scene with no module that needs one mounts without a controller.
+    const plain = createGameHost({ ...h.config, snapshot: snapshot as unknown as RuntimeSnapshot, modules: [] });
+    expect(plain.mount().ok).toBe(true);
+    plain.dispose();
   });
 });

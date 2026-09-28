@@ -30,6 +30,7 @@ import {
   type HostDomNode,
 } from '@thirdlight/game-host';
 import { createSceneAdapter } from '@thirdlight/three-adapter';
+import { withGameModules } from '../../../game-modules';
 import type { GameplaySettings, RuntimeSnapshot } from '@thirdlight/runtime';
 
 interface ProbeManifest {
@@ -142,7 +143,8 @@ async function main(): Promise<void> {
     buildId: 'probe-build',
     assetPaths: assetPathsById,
   };
-  const host = createGameHost(config);
+  // Phase 24.3: the modules the snapshot references and the spec table (the host has no default set).
+  const host = createGameHost(withGameModules(config));
   const mount = host.mount();
   if (!mount.ok) {
     document.body.innerHTML = `<div style="color:red">host mount failed: ${JSON.stringify(mount.error)}</div>`;

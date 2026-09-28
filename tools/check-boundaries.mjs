@@ -178,16 +178,17 @@ export const NODE_SIDE_ALLOWED = {
   // Packet 55 (delivery.md §3.1/§3.2, dependencies.md §4.1 row): the local
   // composition. runtime (the accepted instantiateRuntime/
   // createSimulationRegistry/registerSimulationModule values + BUILTIN_MODULES
-  // for the §3.2 registry + types), platformer (platformerSpec),
-  // platformer-game (session/camera specs), input (types only — the injected
+  // for the §3.2 registry + types), input (types only — the injected
   // owner's MenuSample seam; the attachBrowserInput VALUE edge is permission,
   // not obligation: the owner is injected). three-adapter is NOT imported
   // (the host defines the structural HostRenderAdapter surface; the adapter
   // instance is injected) — the §4.1 types-only row entry stays unexercised.
   // The concrete physics-rapier port, three canvas and audio context are
-  // injected (no value edge to them).
+  // injected (no value edge to them). Phase 24.3: no platformer edges — the
+  // simulation module specs are injected by the composition entries (the
+  // preview's module-specs.ts, the export's generated thirdlight:export-modules).
   'game-host': {
-    packages: ['runtime', 'platformer', 'platformer-game', 'input'],
+    packages: ['runtime', 'input'],
     external: [],
     node: [],
     typesOnly: { input: true },
@@ -379,9 +380,11 @@ const BUNDLE_ENTRY_EDGES = {
   // generates in memory (`thirdlight:export-artifacts` — it has no package;
   // the esbuild metafile check allows exactly that key for M3). The M2
   // bootstrap (`export-bootstrap-m2.ts`) stays byte-stable above.
+  // Phase 24.3: no platformer edge — the module specs come from the generated
+  // `thirdlight:export-modules` (only those the manifest names).
   'packages/exporter/src/export-bootstrap-m3.ts': {
-    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'platformer-game', 'physics-rapier', 'game-host'],
-    external: ['three', 'thirdlight:export-artifacts'],
+    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier', 'game-host'],
+    external: ['three', 'thirdlight:export-artifacts', 'thirdlight:export-modules'],
     node: [],
     // Behavior outputs load from manifest-declared `behaviors/<digest>.js` next to index.html.
     computedDynamicImport: 'locator',
@@ -392,7 +395,8 @@ const BUNDLE_ENTRY_EDGES = {
   // resolves from manifest-declared `behaviors/<digest>.js` paths.
   'packages/exporter/src/export-sim-worker.ts': {
     packages: ['physics-rapier', 'game-host'],
-    external: [],
+    // Phase 24.3: the generated module specs the manifest names.
+    external: ['thirdlight:export-modules'],
     node: [],
     computedDynamicImport: 'locator',
   },
@@ -403,6 +407,21 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
     computedDynamicImport: 'locator',
+  },
+  // Phase 24.3: the host's unit test composes like an entry (it injects the
+  // platformer specs its game snapshot's modules name).
+  'packages/game-host/src/host.test.ts': {
+    packages: ['runtime', 'input', 'platformer', 'platformer-game'],
+    external: [],
+    node: [],
+    typesOnly: { input: true },
+  },
+  // Phase 24.3: the preview's simulation module spec table (the composition
+  // registers module specs; the game host imports no module package).
+  'packages/editor/src/preview/module-specs.ts': {
+    packages: ['runtime', 'platformer', 'platformer-game'],
+    external: [],
+    node: [],
   },
   // Phase 23.0: the 3D physics backend entries (`js/physics-3d.js` of a 3D
   // project's export; `dist/preview/physics-3d.js` on the preview origin):

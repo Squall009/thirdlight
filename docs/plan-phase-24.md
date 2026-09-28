@@ -103,7 +103,7 @@ keeps the gate green.
 | 24.0 | done 2026-09-27 |
 | 24.1 | done 2026-09-27: Sprout tests deleted; `animator-skinned`, `lightmaps-kit` on generated GLBs (browser bake always, Blender bake when Blender is there) |
 | 24.2 | done 2026-09-28: `templates/starter` (no game block, plays as a scene); 35 e2e files, the template unit test and 5 project-model tests off `beacon-reach`; the rest listed below for 24.7 |
-| 24.3 | — |
+| 24.3 | done 2026-09-28: modules resolve from component/block references only; the platformer is unpinned; the host has no default set and no module import (specs injected by the composition entries); an export links only the specs its manifest names |
 | 24.4 | — |
 | 24.5 | — |
 | 24.6 | — |
@@ -160,3 +160,28 @@ keeps the gate green.
   `auto`; on the GPU host `auto` is WebGPU (the compute executor). The test
   now follows the backend (a stale test expectation since the gate moved to
   the GPU, not a product bug).
+- 2026-09-28 (24.3): module resolution is table data — `COMPONENT_MODULES`
+  (component → module per dimension) and `CONTENT_BLOCK_MODULES` (the `game`
+  block references the session and camera until 24.6/24.7 remove it). The
+  platformer packages are no longer a behavior dependency
+  (`BEHAVIOR_PACKAGE_MODULES`), matching the unpinned compiler table.
+- 2026-09-28 (24.3): the host takes an ordered spec table (`moduleSpecs`,
+  keyed by `spec.id`, dependency order from `ENGINE_MODULES`, which now names
+  each non-runtime spec's export). Runtime built-ins (character3d) stay in the
+  host. No `modules` means no modules. The session declares its own
+  `requiresEntityWith: ['controller']`; the preview/export "game requires a
+  controller" throws are gone (the host reports the module's requirement).
+- 2026-09-28 (24.3): the export generates `thirdlight:export-modules` for the
+  page and the worker bundle; `checkBundleGraphM3` allows a module package
+  only when the manifest names one of its modules. The preview registers all
+  specs (`editor/src/preview/module-specs.ts`). The manifest `enginePins`
+  table still lists `@thirdlight/platformer-game`: it is identity data in
+  every buildId, left for 24.7/24.8.
+- 2026-09-28 (24.3): the packet-33 behavior fixtures keep their recorded
+  digests by compiling under the fixture's own pin table
+  (`expected.json` `pinnedModules`); the live table no longer matches it.
+  Test compositions derive `modules` from their snapshot with the product
+  resolver (`tests/game-modules.ts`). One expectation changed:
+  `m23-3d/block-layers` ran a 3D scene without the character module the
+  manifest names; with it the fall starts in the dig step itself (the test
+  had asserted one step later). No recorded replay changed.

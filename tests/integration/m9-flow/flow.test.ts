@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
+import { withGameModules } from '../../game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -110,7 +111,7 @@ async function game() {
   const audio = fakeAudio();
   await audio.unlock();
   const container = new FakeNode();
-  const host = createGameHost({
+  const host = createGameHost(withGameModules({
     snapshot: {
       snapshotId: 'flow@r1',
       projectId: 'flow',
@@ -137,7 +138,7 @@ async function game() {
       return LEVEL2 as Any;
     },
     flow: FLOW,
-  } as Any);
+  } as Any));
   const mounted = host.mount();
   if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
   let now = 0;

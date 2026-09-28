@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { playerCapsuleOf } from '@thirdlight/runtime';
+import { withGameModules } from '../../game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -70,7 +71,7 @@ async function level(spawn: [number, number], controller: Record<string, unknown
     dispose: () => undefined,
   };
   const audio: Any = createGameAudioOwner({ contextFactory: () => null } as Any);
-  const host = createGameHost({
+  const host = createGameHost(withGameModules({
     snapshot: {
       snapshotId: 'capsule@r1',
       projectId: 'capsule',
@@ -88,7 +89,7 @@ async function level(spawn: [number, number], controller: Record<string, unknown
     buildId: 'b',
     assetPaths: {},
     document: { createElement: () => new FakeNode() },
-  } as Any);
+  } as Any));
   const mounted = host.mount();
   if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
   let now = 0;

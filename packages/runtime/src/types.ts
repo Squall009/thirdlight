@@ -2078,6 +2078,12 @@ export interface SimulationModuleSpec {
    * (runtime.md §12.1: the demo owns every `box` entity).
    */
   legacyTransformOwners?: (snapshot: RuntimeSnapshot) => readonly string[];
+  /**
+   * Phase 24.3: components the module needs on at least one scene entity (a
+   * composition refuses to start the module without one, naming the
+   * component). The module declares it; no host assumes it.
+   */
+  requiresEntityWith?: readonly string[];
   create(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationModule | SimulationPhaseModule;
 }
 

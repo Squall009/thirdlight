@@ -1,11 +1,12 @@
 /**
- * The declared-dependency module resolver (D17): modules come from the game
- * block, the referenced content and what behaviors require; anything this
- * engine does not provide is unresolved.
+ * The declared-dependency module resolver (D17): modules come from the
+ * referenced content (components and content blocks), what behaviors require
+ * and explicit declarations (phase 24.3); anything this engine does not
+ * provide is unresolved.
  */
 import { describe, expect, it } from 'vitest';
 
-import { ENGINE_MODULE_IDS, resolveRequiredModules } from './modules';
+import { COMPONENT_MODULES, CONTENT_BLOCK_MODULES, ENGINE_MODULES, ENGINE_MODULE_IDS, resolveRequiredModules } from './modules';
 import { requiredModuleIds } from './manifest';
 
 const entity = (components: Record<string, unknown>): Record<string, unknown> => ({ id: 'e', components });
@@ -37,6 +38,24 @@ describe('resolveRequiredModules', () => {
         'thirdlight.three-adapter:gltf-loader',
       ],
     });
+  });
+
+  it('phase 24.3: modules come only from references — no component, no module; the platformer packages are no behavior dependency', () => {
+    // A camera, lights, boxes and a spawn (the starter's shape) reference nothing.
+    expect(resolveRequiredModules({ scene: { entities: [entity({ camera: {} }), entity({ light: {} }), entity({ box: {} }), entity({ playerSpawn: {} })] }, game: null })).toEqual({ ok: true, moduleIds: [] });
+    // A controller references the controller only (no session or camera without the block that references them).
+    const ctl = resolveRequiredModules({ scene: { entities: [entity({ controller: {} })] }, game: null });
+    expect(ctl.ok && ctl.moduleIds.some((id) => id.startsWith('thirdlight.platformer-game:'))).toBe(false);
+    // Each reference is table data: component → module, content block → modules.
+    expect(COMPONENT_MODULES['controller']).toEqual({ plane2d: 'thirdlight.platformer:controller', world3d: 'thirdlight.character3d:controller' });
+    expect(CONTENT_BLOCK_MODULES['game']).toEqual(['thirdlight.platformer-game:session', 'thirdlight.platformer-game:camera']);
+    // A script may not pull the platformer in by package (it is not pinned).
+    const pkg = resolveRequiredModules({ scene: { entities: [] }, game: null, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/platformer'] }] });
+    expect(pkg).toMatchObject({ ok: false, unresolved: [{ id: '@thirdlight/platformer', requiredBy: 'behavior:b1' }] });
+    // Module specs outside the runtime name their export; the table lists modules after those they need.
+    const order = ENGINE_MODULES.map((m) => m.id);
+    for (const m of ENGINE_MODULES) for (const dep of m.requires) expect(order.indexOf(dep)).toBeLessThan(order.indexOf(m.id));
+    expect(ENGINE_MODULES.filter((m) => m.spec !== undefined).map((m) => m.spec)).toEqual(['platformerSpec', 'platformerGameSessionSpec', 'platformerGameCameraSpec']);
   });
 
   it("a behavior's required package maps to modules; an unknown package is unresolved", () => {

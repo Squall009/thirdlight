@@ -29,6 +29,13 @@ import { containerBytes, containerText, expectMatches, fixtureDeclaration, index
 const DECLARATION = fixtureDeclaration();
 const BEHAVIOR_ID = index.behaviorId;
 
+/**
+ * The pin table the packet-33 digests were recorded under (the fixture's own
+ * `pinnedModules`). Phase 24.3 unpinned `@thirdlight/platformer` from the
+ * live table; the fixture keeps reproducing byte-identically under its record.
+ */
+const FIXTURE_PINS = index.pinnedModules;
+
 /** A generous timeout so the fixture runs are not the timeout case. */
 const RUN_LIMITS = { timeoutMs: 30_000 };
 
@@ -37,7 +44,7 @@ async function compileFixture(rel: string, overrides: Record<string, unknown> = 
     behaviorId: BEHAVIOR_ID,
     declaration: DECLARATION,
     containerBytes: containerBytes(rel),
-    pinnedModules: M2_PINNED_MODULES,
+    pinnedModules: FIXTURE_PINS,
     limits: RUN_LIMITS,
     ...overrides,
   });
@@ -48,9 +55,17 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
     expect(esbuildPinMatches()).toBe(true);
     expect(COMPILER_ID).toBe('thirdlight.behavior-compiler');
     // The recorded recipe digest is the COMPILER_LIMITS-based one.
-    expect(compileRecipeDigest(DECLARATION, M2_PINNED_MODULES, COMPILER_LIMITS)).toBe(
+    expect(compileRecipeDigest(DECLARATION, FIXTURE_PINS, COMPILER_LIMITS)).toBe(
       index.validSample.recipeDigest,
     );
+  });
+
+  it('phase 24.3: the live pin table is the generic engine only — a script that requires the platformer is refused', async () => {
+    expect(M2_PINNED_MODULES.map((p) => p.id)).toEqual(['@thirdlight/physics-rapier', '@thirdlight/runtime']);
+    const container = { graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/platformer'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: 'export default { step() {} };\n' }] };
+    const r = await compileBehavior({ behaviorId: BEHAVIOR_ID, declaration: DECLARATION, containerBytes: new TextEncoder().encode(`${JSON.stringify(container, null, 2)}\n`), pinnedModules: M2_PINNED_MODULES, limits: RUN_LIMITS });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('behavior_import_unpinned');
   });
 
   it('compiles the valid sample reproducibly with the committed digests', async () => {
@@ -58,7 +73,7 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
       behaviorId: BEHAVIOR_ID,
       declaration: DECLARATION,
       containerBytes: containerBytes('valid/sample.json'),
-      pinnedModules: M2_PINNED_MODULES,
+      pinnedModules: FIXTURE_PINS,
       limits: COMPILER_LIMITS,
     });
     if (!first.ok) throw new Error(`compile failed: ${JSON.stringify(first)}`);
@@ -66,7 +81,7 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
       behaviorId: BEHAVIOR_ID,
       declaration: DECLARATION,
       containerBytes: containerBytes('valid/sample.json'),
-      pinnedModules: M2_PINNED_MODULES,
+      pinnedModules: FIXTURE_PINS,
       limits: COMPILER_LIMITS,
     });
     if (!second.ok) throw new Error(`second compile failed: ${JSON.stringify(second)}`);

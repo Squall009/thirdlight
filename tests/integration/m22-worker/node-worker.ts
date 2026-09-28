@@ -8,6 +8,7 @@ import { parentPort } from 'node:worker_threads';
 
 import { runSimWorker } from '@thirdlight/game-host';
 import { createPhysicsPort, physicsMemoryBytes } from '@thirdlight/physics-rapier';
+import { MODULE_SPECS } from '../../game-modules';
 
 const port = parentPort;
 if (port === null) throw new Error('node-worker.ts must run in a worker thread');
@@ -19,6 +20,8 @@ runSimWorker(
   {
     createPhysicsPort: (config) => createPhysicsPort(config as never),
     importModule: (url) => import(/* @vite-ignore */ url),
+    // Phase 24.3: the spec table (as the preview's and the export's worker entries inject theirs).
+    moduleSpecs: MODULE_SPECS,
     physicsMemoryBytes,
     // Phase 23.0: the 3D backend (bundled in here; a browser worker loads physics-3d.js instead).
     loadPhysics3D: async () => {
