@@ -310,10 +310,12 @@ describe('fixes built on the helpers', () => {
     expect(sharedDisposed).toBe(0);
   });
 
-  it('the auto-batcher disposes a released batch mesh and frees its node-made buffers', () => {
+  it('the auto-batcher disposes a released batch (its mesh and its own geometry, never the shared attributes)', async () => {
     const scene = new THREE.Scene();
     const geometry = new THREE.BoxGeometry();
     const material = new THREE.MeshLambertMaterial();
+    let sourceDisposed = 0;
+    geometry.addEventListener('dispose', () => void (sourceDisposed += 1));
     const members = Array.from({ length: 4 }, (_, i) => {
       const m = new THREE.Mesh(geometry, material);
       m.position.x = i;
@@ -323,42 +325,51 @@ describe('fixes built on the helpers', () => {
     });
     const batcher = createAutoBatcher(scene);
     const camera = new THREE.PerspectiveCamera();
+    const batchMesh = (): THREE.Mesh | null => {
+      let found: THREE.Mesh | null = null;
+      scene.traverse((o) => {
+        if (o.userData['tlBatch'] === true) found = o as THREE.Mesh;
+      });
+      return found;
+    };
+    /** Phase 25.24d: the batch's object and geometry disposals, and what its geometry held when it went. */
+    const watch = (mesh: THREE.Mesh): { object: number; geometry: number; heldAtDispose: string[][] } => {
+      const w = { object: 0, geometry: 0, heldAtDispose: [] as string[][] };
+      mesh.addEventListener('dispose' as never, () => void (w.object += 1));
+      const g = mesh.geometry;
+      g.addEventListener('dispose', () => {
+        w.geometry += 1;
+        w.heldAtDispose.push([...Object.keys(g.attributes), ...(g.index !== null ? ['index'] : [])]);
+      });
+      return w;
+    };
     batcher.update(camera);
     expect(batcher.diagnostics().groups).toBe(1);
-    let batch: THREE.InstancedMesh | null = null;
-    scene.traverse((o) => {
-      if ((o as THREE.InstancedMesh).isInstancedMesh === true) batch = o as THREE.InstancedMesh;
-    });
-    expect(batch).not.toBeNull();
-    const extra = [{}];
-    const r = stubRenderer([{ object: batch, geometry, extra }]);
-    const untrack = trackRenderer(r.renderer);
-    const batchDisposals = disposals(batch!);
+    const first = batchMesh()!;
+    expect(first).not.toBeNull();
+    expect(first.geometry).not.toBe(geometry);
+    expect(first.geometry.getAttribute('position')).toBe(geometry.getAttribute('position'));
+    const w1 = watch(first);
     // One member hidden: the group falls under four and is released.
     members[0]!.visible = false;
     batcher.update(camera);
     expect(batcher.diagnostics().groups).toBe(0);
-    expect(batchDisposals.n).toBe(1);
-    expect(r.deleted).toEqual(extra);
-    // The group forms again; its material disposed before the next frame (the last box went) releases it at once,
-    // while its render objects — the way to its instance buffers — still exist.
+    expect(w1).toEqual({ object: 1, geometry: 1, heldAtDispose: [[0, 1, 2, 3].map((i) => `tlInstanceMatrix${i}`)] });
+    expect(sourceDisposed).toBe(0);
+    // The group forms again; its material disposed before the next frame (the last box went) takes it out at
+    // once and disposes it after the material's own listeners ran (the renderer's render objects go by those).
     members[0]!.visible = true;
     batcher.update(camera);
     expect(batcher.diagnostics().groups).toBe(1);
-    let again: THREE.InstancedMesh | null = null;
-    scene.traverse((o) => {
-      if ((o as THREE.InstancedMesh).isInstancedMesh === true) again = o as THREE.InstancedMesh;
-    });
-    const extra2 = [{}];
-    const r2 = stubRenderer([{ object: again, geometry, extra: extra2 }]);
-    const untrack2 = trackRenderer(r2.renderer);
+    const again = batchMesh()!;
+    const w2 = watch(again);
     material.dispose();
-    expect(r2.deleted).toEqual(extra2);
-    let left = 0;
-    scene.traverse((o) => void ((o as THREE.InstancedMesh).isInstancedMesh === true && (left += 1)));
-    expect(left).toBe(0);
-    untrack();
-    untrack2();
+    expect(batchMesh()).toBeNull();
+    expect(w2.object).toBe(0);
+    await Promise.resolve();
+    expect(w2).toEqual({ object: 1, geometry: 1, heldAtDispose: [[0, 1, 2, 3].map((i) => `tlInstanceMatrix${i}`)] });
+    expect(sourceDisposed).toBe(0);
     batcher.dispose();
   });
+
 });

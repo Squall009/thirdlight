@@ -67,4 +67,22 @@ describe('start timings', () => {
     expect(load!.after).toMatchObject({ frames: 2, over50: 1, over250: 0 });
     expect(failed).toMatchObject({ sceneId: 'missing', readMs: null, error: 'scene "missing" is not part of this build' });
   });
+
+  it('phase 25.24d: splits the wait for the first frame into renderer start, precompile and the first render; a scene load keeps its precompile', () => {
+    let t = 500;
+    const tm = createStartTimings({ now: () => t, epochMs: 0 });
+    // First render call at 100, renderer ready and precompile from 160 to 400, the first drawn frame's call 400–430.
+    t = 430;
+    tm.frame({ renderMs: 30, firstCallAt: 100, precompile: { startedAt: 160, ms: 240 } });
+    const r = tm.report();
+    expect(r.stages).toEqual([
+      { name: 'rendererInit', startMs: 100, endMs: 160 },
+      { name: 'precompile', startMs: 160, endMs: 400 },
+      { name: 'firstRender', startMs: 400, endMs: 430 },
+    ]);
+    tm.sceneRequested('level-2');
+    t = 700;
+    tm.frame({ realizedScenes: ['level-2'], precompile: { startedAt: 600, ms: 90 } });
+    expect(tm.report().sceneLoads[0]).toMatchObject({ attachedMs: 700, precompileMs: 90 });
+  });
 });

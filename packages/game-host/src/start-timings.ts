@@ -56,6 +56,8 @@ export interface SceneLoadTiming {
   attachedMs: number | null;
   /** That frame's time since the previous frame. */
   attachFrameMs: number | null;
+  /** Phase 25.24d: the precompile that frame waited for (ms; null: none). */
+  precompileMs?: number | null;
   /** Frames in the FRAME_WATCH_MS after the attach. */
   after: FrameWatch;
   error?: string;
@@ -88,7 +90,7 @@ export interface StartTimings {
    * frame adds the stages `rendererInit` (first call → the first drawn
    * frame's call) and `firstRender` (that call).
    */
-  frame(info?: { readonly realizedScenes?: readonly string[]; readonly renderMs?: number; readonly firstCallAt?: number }): void;
+  frame(info?: { readonly realizedScenes?: readonly string[]; readonly renderMs?: number; readonly firstCallAt?: number; readonly precompile?: { readonly startedAt: number; readonly ms: number } }): void;
   /** The game asked for a scene / its file is read / the read failed. */
   sceneRequested(sceneId: string): void;
   sceneRead(sceneId: string, entities: number): void;
@@ -157,9 +159,13 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
       lastFrameMs = t;
       if (firstFrameMs === null) {
         firstFrameMs = round1(t);
-        if (info?.renderMs !== undefined && info.firstCallAt !== undefined && stages.size < MAX_STAGES - 1) {
+        if (info?.renderMs !== undefined && info.firstCallAt !== undefined && stages.size < MAX_STAGES - 2) {
           const callStart = t - info.renderMs;
-          stages.set('rendererInit', { name: 'rendererInit', startMs: round1(Math.min(info.firstCallAt, callStart)), endMs: round1(callStart) });
+          // Phase 25.24d: the renderer was ready when the precompile began (it waits for an initialised renderer).
+          const pre = info.precompile;
+          const readyAt = pre !== undefined ? Math.min(pre.startedAt, callStart) : callStart;
+          stages.set('rendererInit', { name: 'rendererInit', startMs: round1(Math.min(info.firstCallAt, readyAt)), endMs: round1(readyAt) });
+          if (pre !== undefined) stages.set('precompile', { name: 'precompile', startMs: round1(pre.startedAt), endMs: round1(pre.startedAt + pre.ms) });
           stages.set('firstRender', { name: 'firstRender', startMs: round1(callStart), endMs: round1(t) });
         }
       } else if (t - firstFrameMs <= FRAME_WATCH_MS) {
@@ -173,6 +179,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
         if (l !== undefined && l.attachedMs === null) {
           l.attachedMs = round1(t);
           l.attachFrameMs = round1(gap);
+          l.precompileMs = info?.precompile !== undefined ? round1(info.precompile.ms) : null;
         }
       }
     },

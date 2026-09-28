@@ -32,14 +32,18 @@
  * mesh a shared draw geometry and a scale (`{ geometry, scale }`): every box
  * draws the one unit box scaled by its size, so boxes of any size batch.
  *
- * An `InstancedMesh` is kept for its group across frames (three builds its
- * node program per instanced object, so recreating it would recompile);
- * it grows by doubling and is released when the group is gone.
+ * Phase 25.24d: a group is drawn through instance-matrix columns of its own
+ * geometry (`attribute-instancing.ts`), not a `THREE.InstancedMesh`: three
+ * builds a node program for every instanced object on its own, while groups
+ * drawn through columns share one per material and vertex layout (the large
+ * benchmark's 573 groups built 573 programs before its first frame). A
+ * group's mesh is kept across frames; it grows by doubling (a new geometry,
+ * the same program) and is released when the group is gone.
  */
 import * as THREE from 'three';
 
+import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
-import { disposeObjectTree, releaseNodeAttributes } from './dispose';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
 export const BATCHED_LAYER = 30;
@@ -92,6 +96,8 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (Array.isArray(mat) || mat === undefined || mat === null) return 'several materials';
   if (mat.transparent === true) return 'transparent';
   if (mat.visible === false) return 'material hidden';
+  // Phase 25.24d: the columns are applied before three's displacement (batches draw no displaced mesh).
+  if ((mat as { displacementMap?: unknown }).displacementMap != null) return 'displacement map';
   if (mesh.renderOrder !== 0) return 'render order';
   if (mesh.onBeforeRender !== DEFAULT_ON_BEFORE_RENDER) return 'custom onBeforeRender';
   const layers = (mesh.userData[LAYERS_KEY] as number | undefined) ?? mesh.layers.mask;
@@ -145,18 +151,30 @@ export function batchKey(parts: BatchKeyParts, worldPosition: readonly [number, 
 }
 
 /**
- * Fewest instance slots of a batch: one more than three's 64 KiB uniform
- * buffer holds (1024 matrices; the WebGL 2 and default WebGPU limit). Below
- * it three reads the matrices from a uniform array named after the node, so
- * every instanced mesh would compile its own shader program; above it they
- * are instanced vertex attributes and every batch of a material shares one
- * program. The price is 64 KiB of matrices per batch.
+ * Fewest instance slots of a chunked instance set's `InstancedMesh`: one more
+ * than three's 64 KiB uniform buffer holds (1024 matrices; the WebGL 2 and
+ * default WebGPU limit). Below it three reads the matrices from a uniform
+ * array named after the node, so every instanced mesh would compile its own
+ * shader program; above it they are instanced vertex attributes and every
+ * chunk of a material shares one shader. The price is 64 KiB of matrices
+ * per chunk. (Automatic batches draw through instance-matrix columns and
+ * start at {@link MIN_BATCH_CAPACITY}.)
  */
 export const MIN_INSTANCE_CAPACITY = 1025;
 
-/** The instance slots a group of `n` gets: at least {@link MIN_INSTANCE_CAPACITY}, doubling beyond it. */
+/** The instance slots a chunk of `n` gets: at least {@link MIN_INSTANCE_CAPACITY}, doubling beyond it. */
 export function instanceCapacity(n: number): number {
   let c = MIN_INSTANCE_CAPACITY;
+  while (c < n) c *= 2;
+  return c;
+}
+
+/** Phase 25.24d: fewest slots of an automatic batch (its columns share the program at any size). */
+export const MIN_BATCH_CAPACITY = 16;
+
+/** The slots a batch of `n` gets: at least {@link MIN_BATCH_CAPACITY}, doubling beyond it. */
+export function batchCapacity(n: number): number {
+  let c = MIN_BATCH_CAPACITY;
   while (c < n) c *= 2;
   return c;
 }
@@ -204,7 +222,7 @@ export interface AutoBatcher {
 
 interface Group {
   readonly key: string;
-  mesh: THREE.InstancedMesh;
+  inst: AttributeInstancedMesh;
   members: THREE.Mesh[];
   scales: (readonly number[] | null)[];
   seen: number;
@@ -249,9 +267,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
   };
   const release = (g: Group): void => {
     g.unlisten();
-    g.mesh.removeFromParent();
-    // Phase 21.5: its render objects and its instance-matrix buffers (≥ 1025 slots: node-made) go too.
-    disposeObjectTree(g.mesh);
+    // Phase 21.5: its render objects and its instance buffer go too (the source geometry stays its owner's).
+    g.inst.dispose();
   };
 
   const visit = (o: THREE.Object3D, camera: THREE.Camera): void => {
@@ -325,31 +342,29 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         let g = groups.get(key);
         const n = p.members.length;
         let membershipChanged = false;
-        if (g === undefined || g.mesh.instanceMatrix.count < n) {
-          const capacity = instanceCapacity(n);
-          const mesh = new THREE.InstancedMesh(p.parts.geometry, p.parts.material, capacity);
+        if (g === undefined || g.inst.capacity < n) {
+          const inst = createAttributeInstancedMesh(p.parts.geometry, p.parts.material, batchCapacity(n));
+          const mesh = inst.mesh;
           mesh.name = `tl-batch:${key}`;
           mesh.castShadow = p.parts.castShadow;
           mesh.receiveShadow = p.parts.receiveShadow;
           mesh.userData['tlBatch'] = true;
           // Picking goes to the members (they keep their entity ids); the batch is drawn only.
           mesh.raycast = () => undefined;
-          mesh.matrixAutoUpdate = false;
           if (g !== undefined) release(g);
-          // Phase 21.5: a material disposed before the next frame (its last box went) would take the
-          // batch's render objects with it, and with them the only way to its instance buffers: the
-          // batch goes first (this listener runs before the renderer's, added at the first draw).
+          // Phase 21.5: a material disposed before the next frame (its last box went) takes the batch's
+          // render objects with it; the batch's own geometry and instance buffer go right after.
           const material = p.parts.material;
-          const created: Group = { key, mesh, members: [], scales: [], seen: frame, unlisten: () => undefined };
+          const created: Group = { key, inst, members: [], scales: [], seen: frame, unlisten: () => undefined };
           const onMaterialDispose = (): void => {
             if (groups.get(key) !== created) return;
-            // Only the instance buffers here: the material's own `dispose` event disposes the batch's
-            // render objects (a second dispose from here — the object's — would release their shared
-            // bindings twice: three calls every listener of an event, also one removed meanwhile).
+            // The batch goes with its material. Its render objects go by the material's own event, which
+            // is still being dispatched (three calls every listener, also one removed meanwhile): the
+            // object and its geometry are disposed after it, so no render object is released twice.
             created.unlisten();
-            releaseNodeAttributes(new Set([created.mesh]));
-            created.mesh.removeFromParent();
+            created.inst.mesh.removeFromParent();
             groups.delete(key);
+            queueMicrotask(() => created.inst.dispose());
           };
           material.addEventListener('dispose', onMaterialDispose);
           created.unlisten = () => material.removeEventListener('dispose', onMaterialDispose);
@@ -363,7 +378,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         else for (let i = 0; i < n && !membershipChanged; i += 1) if (g.members[i] !== p.members[i] || g.scales[i] !== p.scales[i]) membershipChanged = true;
         g.members = p.members;
         g.scales = p.scales;
-        const array = g.mesh.instanceMatrix.array as Float32Array;
+        const array = g.inst.array;
         let changed = membershipChanged;
         for (let i = 0; i < n; i += 1) {
           const m = p.members[i]!;
@@ -375,9 +390,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
           next.add(m);
         }
         if (changed) {
-          g.mesh.count = n;
-          g.mesh.instanceMatrix.needsUpdate = true;
-          g.mesh.computeBoundingSphere();
+          g.inst.count = n;
+          g.inst.markChanged();
         }
         batched += n;
       }

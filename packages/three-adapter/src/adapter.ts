@@ -32,6 +32,7 @@ import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type Lightm
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
+import { compileIntoTarget } from './environment-nodes';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
@@ -167,6 +168,13 @@ export interface SceneAdapterOptions {
   };
 }
 
+/**
+ * Phase 25.24d: the longest a present waits for its precompile (ms). A
+ * device that never answers must not hold the picture: past it the frame is
+ * drawn and builds what is left itself.
+ */
+export const PRECOMPILE_WAIT_MS = 20_000;
+
 /** Phase 25.24a: what `onFrameDrawn` reports for a drawn frame. */
 export interface FrameDrawnInfo {
   /** The scenes this frame attached (loaded scenes realized in it). */
@@ -175,6 +183,8 @@ export interface FrameDrawnInfo {
   readonly renderMs: number;
   /** When the first render call of this adapter began (ms, `performance.now()`); frames before the renderer was ready were skipped. */
   readonly firstCallAt: number;
+  /** Phase 25.24d: the precompile this frame waited for (the first present, a scene attached): when it began (`performance.now()`) and how long it ran (ms). */
+  readonly precompile?: { readonly startedAt: number; readonly ms: number };
 }
 
 /** Adapter diagnostics block (runtime.md §8, separate block; the M3
@@ -214,8 +224,11 @@ export interface SceneAdapterDiagnostics {
   gpu?: RendererMemoryCounts;
   /** Phase 20.2: the effect player — the executor (webgpu | cpu) and its caps, what plays; ABSENT without the `effects` option. */
   effects?: EffectsDiagnostics;
-  /** Phase 21.3: the automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame. */
-  batching?: AutoBatcherDiagnostics;
+  /**
+   * Phase 21.3: the automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame.
+   * Phase 25.24d: `programs` — the node programs the batches are drawn with (every pass; groups of one material and vertex layout share one).
+   */
+  batching?: AutoBatcherDiagnostics & { programs?: number };
   /** Phase 23.5: the block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
   /**
@@ -228,6 +241,13 @@ export interface SceneAdapterDiagnostics {
   frame?: { drawCalls: number; triangles: number };
   /** Phase 25.3: the environment renderer — image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one. */
   environment?: { iblRebakes: number };
+  /**
+   * Phase 25.24d: the precompiles (`renderer.compileAsync` before the first
+   * present and after each scene attach): settled, failed (the frame then
+   * built its programs itself), given up after PRECOMPILE_WAIT_MS, the last
+   * one's time (ms), and whether one runs now; ABSENT before the first.
+   */
+  precompile?: { runs: number; failed: number; gaveUp: number; lastMs: number; running: boolean };
 }
 
 export interface ScreenshotResult {
@@ -1053,6 +1073,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     effects?.setRenderer(r as unknown as import('three/webgpu').WebGPURenderer, inf.api === 'webgpu' ? 'webgpu' : 'webgl2');
     rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
     if (shadowState.shadows === 'on') shadowProbeDone = false;
+    // Phase 25.24d: a new renderer (a lost device) builds its programs ahead of its first present too.
+    precompileRun = null;
+    precompileWanted = 'start';
     // Phase 23.4: the depth buffer the renderer draws with (reversed Z falls back to standard without support).
     const depth = r as { reversedDepthBuffer?: boolean; logarithmicDepthBuffer?: boolean };
     if (typeof canvasLike?.setAttribute === 'function') canvasLike.setAttribute('data-tl-depth', depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard');
@@ -1126,6 +1149,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realizedScenes.set(b.sceneId, new Set(entities.map((e) => e.id)));
       realization?.addEntities(modelRefsOf(entities));
       frameRealized.push(b.sceneId);
+      // Phase 25.24d: the attached scene's programs are built before it is presented.
+      precompileWanted ??= 'scene';
     }
     syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
   }
@@ -1276,7 +1301,65 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
 
   /** Phase 25.24a: when the first render call began (for `onFrameDrawn`). */
   let firstRenderCallAt: number | null = null;
+
+  // --- Phase 25.24d: pipelines precompiled ahead of a present -----------------
+  /** Wanted before the next present: the first one, and after a scene attached (or a new renderer). */
+  let precompileWanted: 'start' | 'scene' | null = 'start';
+  /** The precompile running (frames are skipped until it settles, at most PRECOMPILE_WAIT_MS). */
+  let precompileRun: { readonly startedAt: number; readonly reason: 'start' | 'scene' } | null = null;
+  /** The last precompile that settled, reported with the next drawn frame. */
+  let precompileSettled: { readonly startedAt: number; readonly ms: number; readonly reason: 'start' | 'scene' } | null = null;
+  const precompileStats = { runs: 0, failed: 0, gaveUp: 0, lastMs: 0 };
+  /**
+   * Whether this frame waits for a precompile (and starts one when it is
+   * wanted): the scene as the frame would draw it, compiled with
+   * `compileAsync` — the environment renderer's scene pass, or the canvas.
+   */
+  /** A precompile runs (and is still waited for). */
+  function precompileRunning(now: number): boolean {
+    if (precompileRun === null) return false;
+    if (now - precompileRun.startedAt < PRECOMPILE_WAIT_MS) return true;
+    // Too long (a device that never answers): draw; the frame builds what is left.
+    precompileRun = null;
+    precompileStats.gaveUp += 1;
+    return false;
+  }
+  function precompileHolds(renderer: AnyRenderer): boolean {
+    const now = performance.now();
+    if (precompileRunning(now)) return true;
+    if (precompileWanted === null || camera === null) return false;
+    const reason = precompileWanted;
+    precompileWanted = null;
+    let job: Promise<void>;
+    try {
+      const r = renderer as unknown as import('three/webgpu').WebGPURenderer;
+      job = environmentRenderer !== null ? environmentRenderer.compileAsync(camera) : compileIntoTarget(r, scene, camera, r.getRenderTarget(), r.getMRT());
+    } catch {
+      precompileStats.failed += 1;
+      return false;
+    }
+    const run = { startedAt: now, reason };
+    precompileRun = run;
+    const settle = (failed: boolean): void => {
+      if (precompileRun !== run) return;
+      precompileRun = null;
+      if (disposed) return;
+      const ms = performance.now() - run.startedAt;
+      precompileStats.runs += 1;
+      if (failed) precompileStats.failed += 1;
+      precompileStats.lastMs = Math.round(ms);
+      precompileSettled = { startedAt: run.startedAt, ms, reason };
+    };
+    job.then(() => settle(false), () => settle(true));
+    return true;
+  }
+
   function renderFrame(): { ok: true } | { ok: false; error: AdapterError } {
+    return drawFrame(false);
+  }
+
+  /** One frame; `force`: drawn even while a precompile runs (a capture needs this frame's picture). */
+  function drawFrame(force: boolean): { ok: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
     const renderStart = opts.onFrameDrawn !== undefined ? performance.now() : 0;
     if (firstRenderCallAt === null) firstRenderCallAt = renderStart;
@@ -1308,6 +1391,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return { ok: true };
     }
     adoptRenderer(handle, live);
+    // Phase 25.24d: while a precompile runs, a skipped frame does none of the frame's work (the transform
+    // sync, the batches): the compile gets the main thread, and the frame after it starts from now.
+    if (!force && precompileRunning(performance.now())) {
+      lastFrameSkipped = true;
+      return { ok: true };
+    }
     // The runtime is the single frame driver: this runs after the step
     // update (runtime.md §6 frame ordering: step → onFrame → render).
     // Phase 21.2: a runtime that hands out its interpolated transforms in
@@ -1443,47 +1532,45 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
     // Phase 21.3: regroup the repeated objects and copy their matrices (after every transform and look change).
     batcher?.update(camera!);
+    const disableShadows = (): void => {
+      try {
+        renderer.shadowMap.enabled = false;
+      } catch {
+        /* best effort */
+      }
+      for (const l of keyLights) l.castShadow = false;
+      shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
+    };
+    // §41.1.4 shadow capability probe (packet 52), phase 25.24d: the first frame of a scene with shadows is
+    // the probe — shadows go on before it (and before the precompile below, so the programs are built
+    // with them); if that frame throws, they go off (soft degradation) and it is drawn again without.
+    // (Before, the probe was an extra full render in the first frame, drawn over by the real one.)
+    let probing = false;
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
       shadowProbeDone = true;
-      // WebGPURenderer has no `capabilities`: WebGPU guarantees 8192² textures and WebGL 2
-      // 2048²; a larger map than the device takes fails the probe render below (soft degradation).
-      let probeOk = true;
-      if (probeOk) {
-        try {
-          renderer.shadowMap.enabled = true;
-          // §41.1.2: three's `THREE.PCFShadowMap` (the frozen profile row).
-          renderer.shadowMap.type = THREE.PCFShadowMap;
-          renderer.render(scene, camera!);
-        } catch {
-          probeOk = false;
-        }
-      }
-      if (!probeOk) {
-        try {
-          renderer.shadowMap.enabled = false;
-        } catch {
-          /* best effort */
-        }
-        for (const l of keyLights) l.castShadow = false;
-        shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
+      probing = true;
+      try {
+        renderer.shadowMap.enabled = true;
+        // §41.1.2: three's `THREE.PCFShadowMap` (the frozen profile row).
+        renderer.shadowMap.type = THREE.PCFShadowMap;
+      } catch {
+        probing = false;
+        disableShadows();
       }
     }
-    const frameInfo = (renderer as { info?: { render?: { drawCalls: number; triangles: number } } }).info?.render ?? { drawCalls: 0, triangles: 0 };
-    const drawsBefore = frameInfo.drawCalls;
-    const trianglesBefore = frameInfo.triangles;
     try {
       // Phase 21.3: a player's quality level also applies without a project environment (the low
       // level draws without MSAA), so the environment renderer draws then too.
-      if (opts.environment !== undefined || playerQuality !== null) {
-        if (environmentRenderer === null) {
-          environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment?.loadTexture ?? (async () => null) });
-          environmentRenderer.set(effectiveEnvironment());
-          if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
-          // Phase 23.18: a blend already running goes onto the new environment renderer.
-          envAppliedKey = '';
-          envBlendActive = false;
-          applyEnvironmentBlend();
-        }
+      if ((opts.environment !== undefined || playerQuality !== null) && environmentRenderer === null) {
+        environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment?.loadTexture ?? (async () => null) });
+        environmentRenderer.set(effectiveEnvironment());
+        if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
+        // Phase 23.18: a blend already running goes onto the new environment renderer.
+        envAppliedKey = '';
+        envBlendActive = false;
+        applyEnvironmentBlend();
+      }
+      if (environmentRenderer !== null) {
         const key = keyLight;
         const keyDir = keyDirectionNow ?? key?.direction;
         environmentRenderer.setKeyLightDirection(keyDir !== undefined ? [keyDir[0], keyDir[1], keyDir[2]] : null);
@@ -1492,9 +1579,32 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           environmentSize = [w, h];
           environmentRenderer.resize(w, h);
         }
-        environmentRenderer.render(camera!);
-      } else {
-        renderer.render(scene, camera!);
+      }
+    } catch (e) {
+      return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
+    }
+    // Phase 25.24d: no present that would build programs in the frame — they are built ahead
+    // (renderer.compileAsync) before the first present and after a scene attached; frames are
+    // skipped meanwhile (the last picture stays). A capture draws regardless.
+    if (!force && precompileHolds(renderer)) {
+      if (probing) shadowProbeDone = false;
+      lastFrameSkipped = true;
+      return { ok: true };
+    }
+    const frameInfo = (renderer as { info?: { render?: { drawCalls: number; triangles: number } } }).info?.render ?? { drawCalls: 0, triangles: 0 };
+    const drawsBefore = frameInfo.drawCalls;
+    const trianglesBefore = frameInfo.triangles;
+    const draw = (): void => {
+      if (environmentRenderer !== null) environmentRenderer.render(camera!);
+      else renderer.render(scene, camera!);
+    };
+    try {
+      try {
+        draw();
+      } catch (e) {
+        if (!probing) throw e;
+        disableShadows();
+        draw();
       }
       // Phase 21.3: the MSAA samples the frame was drawn with (the export has no other in-page diagnostics surface).
       const samples = environmentRenderer !== null ? environmentRenderer.samples() : renderer.samples;
@@ -1516,7 +1626,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (opts.onFrameDrawn !== undefined) {
       const realized = frameRealized.splice(0);
       try {
-        opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart });
+        const pre = precompileSettled;
+        precompileSettled = null;
+        opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}) });
       } catch {
         /* a timing hook never breaks a frame */
       }
@@ -1542,7 +1654,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // `screenshot_failed` with the reason (the relay would otherwise wait for its timeout).
     let frame: { ok: true } | { ok: false; error: AdapterError };
     try {
-      frame = renderFrame();
+      frame = drawFrame(true);
     } catch (e) {
       return { ok: false, error: adapterError('screenshot_failed', `the frame for the capture failed: ${reasonOf(e)}`) };
     }
@@ -1599,7 +1711,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    */
   function captureThumbnail(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null {
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 4096 || height > 4096) return null;
-    const frame = renderFrame();
+    const frame = drawFrame(true);
     if (!frame.ok || lastFrameSkipped || typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
     const sw = Math.max(1, Math.floor(canvasLike?.width ?? 0));
     const sh = Math.max(1, Math.floor(canvasLike?.height ?? 0));
@@ -1630,6 +1742,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       pixelRatio,
       shadows: shadowState.shadows,
     };
+    if (precompileRun !== null || precompileStats.runs + precompileStats.failed + precompileStats.gaveUp > 0) d.precompile = { ...precompileStats, running: precompileRun !== null };
     const choice = owned.renderer !== null && !disposed ? owned.renderer.info() : lastRendererInfo;
     if (choice !== null) d.renderer = choice;
     // §41.1.4: `shadowReason` is present iff `shadows === 'off'`.
@@ -1645,7 +1758,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
     if (effects !== null && !disposed) d.effects = effects.diagnostics();
-    if (batcher !== null && !disposed && lastFrameDrawn) d.batching = batcher.diagnostics();
+    if (batcher !== null && !disposed && lastFrameDrawn) {
+      d.batching = batcher.diagnostics();
+      // Phase 25.24d: distinct node programs of the batch meshes' render objects (three 0.186 internals, guarded).
+      const ros = (liveRenderer as unknown as { _objects?: { _renderObjects?: Iterable<{ object?: THREE.Object3D; _nodeBuilderState?: unknown }> } } | null)?._objects?._renderObjects;
+      if (ros !== undefined) {
+        const states = new Set<unknown>();
+        for (const ro of ros) if (ro.object?.userData['tlBatch'] === true && ro._nodeBuilderState != null) states.add(ro._nodeBuilderState);
+        d.batching = { ...d.batching, programs: states.size };
+      }
+    }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...runtimeMaterials.diagnostics() };
     if (environmentRenderer !== null && !disposed) d.environment = { iblRebakes: environmentRenderer.diagnostics().iblRebakes };

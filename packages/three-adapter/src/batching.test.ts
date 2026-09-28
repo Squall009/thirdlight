@@ -7,7 +7,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { BATCH_KEY, BATCHED_LAYER, batchingFromUrl, batchKey, batchKeyParts, batchRefusal, createAutoBatcher, instanceCapacity, markBatchable, triangleCount, unitBoxGeometry } from './batching';
+import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
+import { BATCH_KEY, BATCHED_LAYER, batchCapacity, batchingFromUrl, batchKey, batchKeyParts, batchRefusal, createAutoBatcher, instanceCapacity, markBatchable, triangleCount, unitBoxGeometry } from './batching';
 import { addBoxLightmapUv } from './lightmaps';
 import { OVERRIDES_KEY } from './material-graph';
 
@@ -17,10 +18,35 @@ const camera = (): THREE.PerspectiveCamera => {
   return c;
 };
 
-function batchesOf(scene: THREE.Scene): THREE.InstancedMesh[] {
-  const out: THREE.InstancedMesh[] = [];
+/** Phase 25.24d: a batch as drawn — a plain mesh whose geometry carries instance-matrix columns. */
+interface BatchView {
+  readonly mesh: THREE.Mesh;
+  /** Instances drawn. */
+  readonly count: number;
+  /** Slots. */
+  readonly capacity: number;
+  /** The instance buffer's upload version. */
+  readonly version: number;
+  getMatrixAt(i: number, m: THREE.Matrix4): void;
+  /** Whether it draws `g` (the source geometry's attributes, shared). */
+  draws(g: THREE.BufferGeometry): boolean;
+}
+
+function batchesOf(scene: THREE.Scene): BatchView[] {
+  const out: BatchView[] = [];
   scene.traverse((o) => {
-    if ((o as THREE.InstancedMesh).isInstancedMesh === true && o.userData['tlBatch'] === true) out.push(o as THREE.InstancedMesh);
+    if (o.userData['tlBatch'] !== true) return;
+    const mesh = o as THREE.Mesh;
+    const geometry = mesh.geometry as THREE.InstancedBufferGeometry;
+    const column = geometry.getAttribute(`${INSTANCE_MATRIX_ATTRIBUTE}0`) as THREE.InterleavedBufferAttribute;
+    out.push({
+      mesh,
+      count: geometry.instanceCount,
+      capacity: column.data.count,
+      version: column.data.version,
+      getMatrixAt: (i, m) => void m.fromArray(column.data.array as Float32Array, i * 16),
+      draws: (g) => geometry.getAttribute('position') === g.getAttribute('position') && geometry.index === g.index,
+    });
   });
   return out;
 }
@@ -117,9 +143,10 @@ describe('auto batcher', () => {
     const { scene, meshes } = scene3();
     const b = createAutoBatcher(scene, { minGroup: 2 });
     b.update(camera());
-    const batches = batchesOf(scene);
+    let batches = batchesOf(scene);
     expect(batches).toHaveLength(1);
     expect(batches[0]!.count).toBe(3);
+    expect(batches[0]!.mesh).not.toBeInstanceOf(THREE.InstancedMesh);
     expect(meshes.every((m) => m.layers.isEnabled(BATCHED_LAYER) && !m.layers.isEnabled(0))).toBe(true);
     const m = new THREE.Matrix4();
     batches[0]!.getMatrixAt(2, m);
@@ -128,17 +155,18 @@ describe('auto batcher', () => {
     // Moving a member (a gizmo drag, the game's transform sync) moves its instance on the next frame.
     meshes[1]!.position.y = 5;
     b.update(camera());
+    batches = batchesOf(scene);
     batches[0]!.getMatrixAt(1, m);
     expect(m.elements[13]).toBe(5);
-    // The same instanced mesh is kept (three compiles per instanced object).
-    expect(batchesOf(scene)[0]).toBe(batches[0]);
+    // The same batch mesh is kept.
+    expect(batchesOf(scene)[0]!.mesh).toBe(batches[0]!.mesh);
     // Nothing moved: the matrices are not uploaded again (float32 compare, not float64).
     meshes[0]!.rotation.set(0.3, 0.7, 0.1);
     b.update(camera());
-    const version = batches[0]!.instanceMatrix.version;
+    const version = batchesOf(scene)[0]!.version;
     b.update(camera());
     b.update(camera());
-    expect(batches[0]!.instanceMatrix.version).toBe(version);
+    expect(batchesOf(scene)[0]!.version).toBe(version);
   });
 
   it('children of a hidden object and hidden objects leave the group', () => {
@@ -179,7 +207,7 @@ describe('auto batcher', () => {
     }
     createAutoBatcher(scene, { minGroup: 2 }).update(camera());
     const [batch] = batchesOf(scene);
-    expect(batch!.geometry).toBe(unit);
+    expect(batch!.draws(unit)).toBe(true);
     const m = new THREE.Matrix4();
     batch!.getMatrixAt(0, m);
     const s = new THREE.Vector3();
@@ -208,10 +236,10 @@ describe('auto batcher', () => {
     const cam = camera();
     const b = createAutoBatcher(scene, { minGroup: 2 });
     b.update(cam);
-    expect(batchesOf(scene).map((x) => x.geometry)).toEqual([near]);
+    expect(batchesOf(scene).map((x) => x.draws(near))).toEqual([true]);
     cam.position.z = 500;
     b.update(cam);
-    expect(batchesOf(scene).map((x) => x.geometry)).toEqual([far]);
+    expect(batchesOf(scene).map((x) => x.draws(far))).toEqual([true]);
     expect(lods.every(([a]) => drawnAlone(a!))).toBe(true);
   });
 
@@ -230,8 +258,8 @@ describe('auto batcher', () => {
     }
     createAutoBatcher(scene, { minGroup: 2 }).update(camera());
     const batches = batchesOf(scene);
-    expect(batches.filter((x) => x.geometry === detailed).map((x) => x.count)).toEqual([2, 2]);
-    expect(batches.filter((x) => x.geometry === cheap).map((x) => x.count)).toEqual([4]);
+    expect(batches.filter((x) => x.draws(detailed)).map((x) => x.count)).toEqual([2, 2]);
+    expect(batches.filter((x) => x.draws(cheap)).map((x) => x.count)).toEqual([4]);
   });
 
   it('disabling or disposing restores every member', () => {
@@ -249,7 +277,7 @@ describe('auto batcher', () => {
     expect(scene.children.some((c) => c.name === 'tl-batches')).toBe(false);
   });
 
-  it('by default a group needs four members; slots above the uniform-buffer limit (one shader program per material)', () => {
+  it('by default a group needs four members; slots double from 16 (instance sets: above the uniform-buffer limit)', () => {
     const { scene, meshes, mat, geo } = scene3();
     const b = createAutoBatcher(scene);
     b.update(camera());
@@ -261,7 +289,8 @@ describe('auto batcher', () => {
     b.update(camera());
     const [batch] = batchesOf(scene);
     expect(batch!.count).toBe(4);
-    expect(batch!.instanceMatrix.count).toBe(1025);
+    expect(batch!.capacity).toBe(16);
+    expect([1, 16, 17, 100].map(batchCapacity)).toEqual([16, 16, 32, 128]);
     expect([1, 100, 1025, 1026, 3000].map(instanceCapacity)).toEqual([1025, 1025, 1025, 2050, 4100]);
   });
 

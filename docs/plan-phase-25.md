@@ -159,7 +159,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
 | 25.24a | done 2026-09-28: stage timings in Play diagnostics (`startTimings`: bundle, manifest, start scenes, worker, assets, mount, models, ready, renderer init, first render, slow frames after; per scene load) and the backend's (`buildTimings`, `closure.*`); perf harness `--plays N --gpu`, an asset-heavy class; before split in §6 |
 | 25.24b, g | done 2026-09-28: Play and the export read only the start scenes' assets before the start (at most 8 at a time, each checked once), the rest when asked for (a later scene, a texture, a sound); the game bundle is read and hashed once per build, not per Play; the preview no longer re-serializes and hashes the scene; after split in §6 |
-| 25.7–25.23, 25.24c–f, h | — |
+| 25.24d | done 2026-09-28: pipelines built ahead of a present (`compileAsync` into the pass the frame draws, before the first present and after each scene attach, both backends; `precompile` stage and counters in diagnostics); automatic batches drawn through instance-matrix columns so batches of one material share one node program (three r186 built one per instanced mesh: 573 on the large bench); the shadow probe is the first frame, not an extra render; large first frame 7.1 → 3.7–3.9 s; after split in §6 |
+| 25.7–25.23, 25.24c, e, f, h | — |
 
 ## 6. Decision log
 
@@ -386,3 +387,70 @@ boundary it changes (Playwright for any editor surface).
   1.1–5.2 s across runs while the backend's own part stayed ~1 s: the rest is
   spent before the request reaches the route (the editor and backend just
   opened a 16 000-entity project); not investigated here.
+- 2026-09-28 (25.24d): the large bench's 4.5 s first render call was not
+  GPU pipelines but three's node building in JavaScript: 573 node builds for
+  583 draws (counted with call coverage), because three r186 keys the node
+  program of every `InstancedMesh` by its object id (its matrices are bound
+  into the program; a TODO upstream), and the automatic batches were
+  instanced meshes (50 materials × kit pieces × LOD levels × cells). So a
+  precompile alone would only have moved those 4.5 s. Two changes:
+  - **Batches share node programs.** A batch is now a plain mesh whose own
+    `InstancedBufferGeometry` shares the source geometry's attributes and
+    index and adds the instance matrices as four `vec4` columns of one
+    interleaved instanced buffer (`attribute-instancing.ts`). Every node
+    material, the renderer's shadow-pass material included, applies the
+    columns when the geometry it draws carries them — a hook on
+    `NodeMaterial.prototype.setupPosition`, idempotent, active only for
+    that geometry, applied where three applies an `InstancedMesh`'s
+    matrices (before `positionNode`; batches take no morphed, skinned or
+    displaced mesh). The render object's key then holds no object id:
+    batches of one material and vertex layout share one program (573 → 79
+    builds on the large bench). A batch starts at 16 slots (the 1 025 floor
+    was there to force three's attribute path) and grows by doubling; its
+    geometry and instance buffer are disposed with it, never the shared
+    attributes. `instanceOrigin` (kit/graph world UVs) reads the columns.
+    Instance sets (`instances` component) keep their chunked instanced
+    meshes (their chunks are culled and LOD-switched per chunk; a later
+    item may move them over).
+  - **Precompile.** The adapter holds a present that would build programs:
+    before the first present and after a frame that attached a scene (and
+    after a new renderer), it calls `compileAsync` for the scene as the
+    frame will draw it — into the post stack's scene pass (its target and
+    outputs, set only around compileAsync's synchronous collect: three's
+    `PassNode.compileAsync` leaves them set across its awaits, which a
+    capture drawn meanwhile would inherit) or the canvas — and skips frames
+    until it settles (at most 20 s, then the frame builds what is left). A
+    skipped frame does none of the frame's work: measured on the large
+    bench, a precompile competing with the per-frame transform sync of
+    16 000 objects took 2.4 s instead of 0.65 s. A capture (screenshot,
+    save thumbnail) draws regardless. Shadows go on before the precompile,
+    and the §41.1.4 shadow probe is now the first real frame (a throw turns
+    shadows off and draws it again) instead of an extra full render in it.
+    Diagnostics: `renderer.precompile {runs, failed, gaveUp, lastMs,
+    running}`, `renderer.batching.programs`, the `precompile` start stage
+    and a scene load's `precompileMs`. On small scenes compileAsync's
+    per-object yields cost ~30–60 ms over a synchronous first render;
+    accepted for no multi-second task and pipelines built in parallel.
+  - **The slow first start response** (large bench, first Play in a fresh
+    editor page: 1.1–5.2 s while the backend's part was ~1 s) had the same
+    cause: the editor's Scene view draws the same automatic batches and
+    built a node program per batch right after the project opened, holding
+    its main thread for seconds, and the click on Play waited for it. With
+    shared programs the first response is 1.2 s (backend 1.1 s).
+  **After split** (same command as §6's before split, GPU host, Plays 2–3,
+  Play 1 in brackets; `--classes small,large,asset-heavy --surfaces play
+  --renderers auto --gpu --plays 3`):
+
+  | Stage | small | large | asset-heavy |
+  |---|---|---|---|
+  | Play-start response | 93–96 [134] | 1 203–1 236 [1 204] (was 1 110–1 170 [4 941]) | 179–210 [427] |
+  | precompile | 114–120 [152] | 632–644 [660] | 194–232 [331] |
+  | first drawn frame's own call | 33–36 (was 123–127) | 386–403 (was 4 464–4 546) | 38–41 (was 304–327) |
+  | first frame | 580–595 [659] (was 548–552) | **3 718–3 930 [3 745]** (was 7 000–7 244) | 778–902 [1 261] (was 838–886 [1 284]) |
+  | frames > 50 ms in the 10 s after (worst) | 0 | 10–21 of 214–232 (59–95 [135]; was 91–102 of 102–111, 366–385) | 0 |
+  | scene load (scene 2 of 4): attach frame | — | — | 59 (was 57) |
+
+  The large class now waits ~1.2 s for the backend (25.24c's), ~0.5 s for
+  the simulation worker, ~0.3 s for the models and ~1 s for the precompile
+  and first draw.
+

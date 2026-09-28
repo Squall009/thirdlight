@@ -532,6 +532,13 @@ after). The reply's `buildTimings` is the backend's part (session, state,
 capture, bundle, `closure.*`, publish, total); the play-start reply carries
 the same as `timings`.
 
+A Play (and an exported game) builds its shaders before it shows the first
+picture and before it shows a scene loaded later (phase 25.24d): the
+`precompile` stage above, and `renderer.precompile` in the diagnostics
+(runs, failed, gave up, the last one's ms). Meanwhile the previous picture
+stays. Repeated objects of one material are drawn with one shader however
+many batches they form (`renderer.batching.programs`).
+
 A Play (and an exported game) reads only its start scenes' files before it
 starts (phase 25.24b): the models, textures and bakes its start scenes use,
 eight at a time, each checked against the build. A scene loaded later reads

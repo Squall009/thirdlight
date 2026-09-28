@@ -20,6 +20,7 @@
  * a renderer builds the nodes.
  */
 import * as THREE from 'three';
+import { buildHasInstanceColumns, instanceOriginFromColumns } from './attribute-instancing';
 import { buffer, Fn, instancedBufferAttribute, instanceIndex, mat4, OnBeforeFrameUpdate, vec3, vec4 } from 'three/tsl';
 import {
   MeshBasicNodeMaterial,
@@ -144,12 +145,14 @@ const interleavedMatrices = new WeakMap<THREE.InstancedBufferAttribute, THREE.In
 
 /**
  * The instance's translation (object space) when the mesh drawn is an
- * `InstancedMesh`, else (0,0,0). Reads the instance matrices the way three's
+ * `InstancedMesh` or an automatic batch (instance-matrix columns), else (0,0,0). Reads the instance matrices the way three's
  * instancing does (a uniform buffer while they fit, else an instanced
  * attribute kept in step with the matrices), so moving an instance moves its
  * UV shift. Vertex stage.
  */
 export const instanceOrigin = Fn((builder: NodeBuilder) => {
+  // Phase 25.24d: an automatic batch's instances (instance-matrix columns of its geometry).
+  if (buildHasInstanceColumns(builder)) return instanceOriginFromColumns();
   const o = (builder as unknown as { object: THREE.Object3D }).object as THREE.InstancedMesh;
   const im = o !== null && o !== undefined && o.isInstancedMesh === true ? o.instanceMatrix : null;
   if (im === null || im.isInstancedBufferAttribute !== true) return vec3(0, 0, 0);

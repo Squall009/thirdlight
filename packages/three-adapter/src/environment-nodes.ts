@@ -203,6 +203,12 @@ export interface PostPipeline {
   /** Phase 23.18: new grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
   setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
+  /**
+   * Phase 25.24d: build the scene pass's node programs and pipelines ahead of
+   * its first draw (`renderer.compileAsync` into the pass's own target and
+   * outputs, so the programs are the ones the pass draws with).
+   */
+  compileAsync(camera: THREE.Camera): Promise<void>;
   dispose(): void;
 }
 
@@ -460,6 +466,9 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       void height;
       if (dofPlan !== null) bokehScale.value = 0.4 * dofPlan.maxBlur * width * pixelRatio * plan.resolutionScale;
     },
+    compileAsync(cam) {
+      return compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());
+    },
     render() {
       if (bgScene === null) {
         pipeline.render();
@@ -492,4 +501,25 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       releaseMrtContexts(renderer, sceneMrt);
     },
   };
+}
+
+/**
+ * Phase 25.24d: `renderer.compileAsync(scene, camera)` for a pass that draws
+ * into `target` with `mrt`. Once the renderer is initialised, compileAsync
+ * collects its work (with the render context of the current target) before
+ * its first await, so the target and outputs are set only around that call —
+ * a frame drawn while the compile runs sees the renderer as it was.
+ */
+export function compileIntoTarget(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, target: THREE.RenderTarget | null, mrt: unknown): Promise<void> {
+  const r = renderer as unknown as { getRenderTarget(): THREE.RenderTarget | null; setRenderTarget(t: THREE.RenderTarget | null): void; getMRT(): unknown; setMRT(m: unknown): void; compileAsync(s: THREE.Object3D, c: THREE.Camera): Promise<void> };
+  const target0 = r.getRenderTarget();
+  const mrt0 = r.getMRT();
+  r.setRenderTarget(target);
+  r.setMRT(mrt);
+  try {
+    return r.compileAsync(scene, camera);
+  } finally {
+    r.setRenderTarget(target0);
+    r.setMRT(mrt0);
+  }
 }
