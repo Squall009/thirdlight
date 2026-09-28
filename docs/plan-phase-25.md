@@ -154,7 +154,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.1 | done 2026-09-28: every-optional-key unit test (all 23 keys, strict reader) and `manifest-keys.e2e.ts` (Play and static export); found and fixed D45 |
 | 25.2 | done 2026-09-28: screenshots always answer (a throw or an over-bound PNG becomes `screenshot_failed` with the reason, relayed in the backend's message); WebGPU capture checked in pixels (GPU and headless SwiftShader), image textures in a GLB and a material upload there |
 | 25.3 | done 2026-09-28: blended skies re-bake their lighting only past a threshold (colour 0.01, 1 %, sun 0.5°), into the same target from a kept bake scene; `iblRebakes` in Play diagnostics; `environment-blend-cost.e2e.ts`: a new t every step at 120 Hz, 0 dropped steps in 10 s on WebGPU and WebGL 2 (GPU host), 0 re-bakes when only fog/exposure/lights change |
-| 25.4–25.5 | — |
+| 25.4 | done 2026-09-28: static colliders sharing a face or overlapping act as one surface for the 2D character (no ground or hang at seams: port, integration and Play tests); D46 (left-wall hold) and D47 (polygon mover push fail-stop) fixed; replay fixtures unchanged |
+| 25.5 | — |
 | 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
 | 25.7–25.24 | — |
 
@@ -251,3 +252,27 @@ boundary it changes (Playwright for any editor surface).
   separately measurable here (frame gaps were already at vsync); a large
   scene's gain is unmeasured. Cross-fades between different sky structures
   are unchanged (their bakes happen once per layer).
+- 2026-09-28 (25.4): internal edges are handled in the 2D port, not by
+  merging colliders. Rapier grounds on any contact whose normal tilts up; a
+  contact is internal when its point on collider A is inside another fixed
+  collider B, or on B's boundary with a normal outside B's normal cone there
+  (for convex B: the point pushed out along the normal projects back onto B
+  elsewhere). Rapier's ground flag is refused only when an internal contact
+  is found and no real one, at the sweep's end (or its start, where Rapier
+  also snaps; an airborne sweep starting on internal-only ground is made
+  without the snap). A level without shared faces moves exactly as before,
+  and every replay fixture is unchanged. Merging colliders into one outline
+  was not done: it needs a polygon union, and the port rule covers every
+  measured case.
+  Left as is: a landing right on a seam, or a head bump under a tiled
+  ceiling, can differ from the one-collider path by a few millimetres (the
+  sweep's corner contact; measured ≤ 5 mm per landing, ≤ 2 cm over 4 s of
+  repeated head bumps); nothing stops or catches.
+- 2026-09-28 (25.4): the Play test found D46 (a falling player creeps down
+  any fixed wall on its left, stacked or not). Fixed in the same item since
+  it is the same symptom (held at a wall); the retry sweep is limited to
+  fixed colliders, so a rising mover's side keeps its phase 14.7 behavior
+  and the recorded non-default replay (a player beside a rising lift) is
+  bit-for-bit unchanged. Checking §2's note found D47 (a polygon mover
+  moving into the player fail-stopped); the runtime push now clips the
+  polygon to the player's box, and a box keeps its old rule exactly.

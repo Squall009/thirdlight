@@ -1476,8 +1476,8 @@ view icons come from the descriptors too. Any object can get these in the Inspec
 - **Mover** — a path of offsets from where the object stands (waypoints, x/y/z each),
   speed, ping-pong / loop / once, a wait at each stop, smooth easing, and
   "waits for signal" (a door or a lift that starts when a switch or trigger
-  fires). With a box collider it carries the player standing on it and
-  pushes a player it moves into. A mover rising beside or under the player
+  fires). With a box or polygon collider it carries the player standing on
+  it and pushes a player it moves into (a polygon by its exact shape). A mover rising beside or under the player
   (a gate opening, a pillar) pushes the player aside, never up: only a player
   above it rides it up. The Scene view draws its path.
 - **Trigger** — an area that sends a signal when the player enters it
@@ -1493,6 +1493,9 @@ view icons come from the descriptors too. Any object can get these in the Inspec
 - A collider's **one-way** flag: jump up through it, land on it from above,
   Down + Jump drops through. A spawn inside one is not blocked (the player
   drops to what is below).
+- Colliders that share a face or overlap (a floor of tiles, a wall of
+  stacked blocks, a slope cut in pieces) act as one surface for the 2D
+  player: it does not stand on or catch at the seams between them.
 
 A HUD document shows counters and health through its bindings (see "The
 game shell"). `tl_game_observe` reports `counters` and `health`. Scripts use

@@ -81,3 +81,20 @@ export const OFF_AXIS_TOLERANCE = 1e-6 as const;
 
 /** Unit scale: the only scale a physics-bearing entity may carry. */
 export const UNIT_SCALE: readonly [number, number, number] = [1, 1, 1];
+
+/**
+ * Phase 25.4 (internal edges): the ground-contact search reaches the skin and
+ * the snap distance plus this slack; a contact normal counts as ground-like
+ * when its up component exceeds `GROUND_UP_EPS`; a point is on another
+ * collider's boundary within `INTERNAL_EDGE_TOUCH_EPS` (f32 collider
+ * coordinates); the normal-cone probe pushes the point out by
+ * `INTERNAL_EDGE_PROBE` and calls the normal outside the cone when the
+ * projection back lands farther than `INTERNAL_EDGE_CONE_EPS` from it.
+ */
+export const INTERNAL_EDGE_PREDICTION_SLACK = 0.05 as const;
+export const GROUND_UP_EPS = 1e-3 as const;
+export const INTERNAL_EDGE_TOUCH_EPS = 1e-4 as const;
+export const INTERNAL_EDGE_PROBE = 1 as const;
+export const INTERNAL_EDGE_CONE_EPS = 1e-3 as const;
+/** Phase 25.4 (D46): a contact normal whose up part is within this (about 3°) is a vertical wall (a polygon near a seam reports 0.003). */
+export const WALL_NORMAL_EPS = 0.05 as const;

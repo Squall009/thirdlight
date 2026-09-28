@@ -57,8 +57,10 @@ interface Mover extends PathState {
   startOn: string | null;
   // state
   started: boolean;
-  /** The box collider's half extents (a mover without one never pushes). */
+  /** The box collider's half extents (a mover without a box or polygon collider never pushes). */
   half: Vec2 | null;
+  /** Phase 25.4: a polygon collider's vertices, turned by its rotation, around the mover's position. */
+  poly: readonly Vec2[] | null;
   /** Phase 15.3: the most it pushes a player per step (its `maxPush` m/s over the step rate). */
   pushStep: number;
   /** Phase 23.0: its collider's rotation about Z (the entity's; a mover translates, it does not turn). */
@@ -195,6 +197,47 @@ function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min: Vec3; 
 function boxHalf(col: Record<string, unknown> | undefined): Vec2 | null {
   const shape = col?.['shape'] as { type?: string; hx?: number; hy?: number } | undefined;
   return shape?.type === 'box' && typeof shape.hx === 'number' && typeof shape.hy === 'number' ? { x: shape.hx, y: shape.hy } : null;
+}
+
+/** Phase 25.4: a polygon collider's vertices turned by `rotationZ`, or null for another shape. */
+function polygonAround(col: Record<string, unknown> | undefined, rotationZ: number): Vec2[] | null {
+  const shape = col?.['shape'] as { type?: string; vertices?: unknown } | undefined;
+  if (shape?.type !== 'polygon' || !Array.isArray(shape.vertices)) return null;
+  const c = Math.cos(rotationZ);
+  const s = Math.sin(rotationZ);
+  const out: Vec2[] = [];
+  for (const v of shape.vertices as unknown[]) {
+    if (!Array.isArray(v) || typeof v[0] !== 'number' || typeof v[1] !== 'number') return null;
+    out.push({ x: v[0] * c - v[1] * s, y: v[0] * s + v[1] * c });
+  }
+  return out.length >= 3 ? out : null;
+}
+
+/**
+ * Phase 25.4: the extent of a convex polygon along one axis inside a slab of
+ * the other (`axis` 'x': the x range of the part with lo <= y <= hi), or null
+ * when the polygon misses the slab.
+ */
+function slabExtent(poly: readonly Vec2[], axis: 'x' | 'y', lo: number, hi: number): { min: number; max: number } | null {
+  const other = axis === 'x' ? 'y' : 'x';
+  let min = Infinity;
+  let max = -Infinity;
+  const take = (v: number): void => {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  };
+  for (let i = 0; i < poly.length; i += 1) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    if (a[other] >= lo && a[other] <= hi) take(a[axis]);
+    const d = b[other] - a[other];
+    if (d === 0) continue;
+    for (const edge of [lo, hi]) {
+      const t = (edge - a[other]) / d;
+      if (t > 0 && t < 1) take(a[axis] + (b[axis] - a[axis]) * t);
+    }
+  }
+  return min <= max ? { min, max } : null;
 }
 
 /** The margin a pushing mover keeps beyond the controller's skin (0.01 + 0.001 = the old 0.011 m gap). */
@@ -344,6 +387,7 @@ export class GameplayBlocks {
           done: false,
           pos: [...base],
           half: boxHalf(col),
+          poly: polygonAround(col, colliderRotationZ(e.components.transform.rotation)),
           pushStep: num(m['maxPush'], D.maxPush) / this.host.hz,
           rotationZ: colliderRotationZ(e.components.transform.rotation),
           ...this.mover3(e, col),
@@ -634,7 +678,11 @@ export class GameplayBlocks {
     // from the mover, never up — a rising gate or pillar does not lift a
     // player pressing against it; only a player above it is scooped up.
     const push = (m: Mover, before: Vec3): void => {
-      if (player === null || m.half === null) return;
+      if (player === null) return;
+      if (m.half === null) {
+        if (m.poly !== null) pushPolygon(m, before);
+        return;
+      }
       const px = player.x + this.pc.ox + pushed.x;
       const py = player.y + this.pc.oy + pushed.y;
       const ox = m.half.x + this.pc.hw + this.pushSkin - Math.abs(px - m.pos[0]);
@@ -645,6 +693,30 @@ export class GameplayBlocks {
       const sideways = dy > 0 && dy >= Math.abs(dx) && py < m.pos[1] + m.half.y;
       if (oy <= ox && !sideways) pushed.y += Math.min(m.pushStep, oy) * (py >= m.pos[1] ? 1 : -1);
       else pushed.x += Math.min(m.pushStep, ox) * (px >= m.pos[0] ? 1 : -1);
+    };
+    // Phase 25.4: the same rule for a polygon collider, with its exact extent
+    // across the character's box (the part of the polygon beside the box for
+    // the horizontal overlap, the part above or below it for the vertical one)
+    // instead of a box's half extents. A box keeps the rule above unchanged.
+    const pushPolygon = (m: Mover, before: Vec3): void => {
+      if (player === null || m.poly === null) return;
+      const px = player.x + this.pc.ox + pushed.x;
+      const py = player.y + this.pc.oy + pushed.y;
+      const hw = this.pc.hw + this.pushSkin;
+      const hh = this.pc.hh + this.pushSkin;
+      const xs = slabExtent(m.poly, 'x', py - hh - m.pos[1], py + hh - m.pos[1]);
+      const ys = slabExtent(m.poly, 'y', px - hw - m.pos[0], px + hw - m.pos[0]);
+      if (xs === null || ys === null) return;
+      const right = px >= m.pos[0] + (xs.min + xs.max) / 2;
+      const up = py >= m.pos[1] + (ys.min + ys.max) / 2;
+      const ox = right ? m.pos[0] + xs.max - (px - hw) : px + hw - (m.pos[0] + xs.min);
+      const oy = up ? m.pos[1] + ys.max - (py - hh) : py + hh - (m.pos[1] + ys.min);
+      if (ox <= 0 || oy <= 0) return;
+      const dx = m.pos[0] - before[0];
+      const dy = m.pos[1] - before[1];
+      const sideways = dy > 0 && dy >= Math.abs(dx) && py < m.pos[1] + ys.max;
+      if (oy <= ox && !sideways) pushed.y += Math.min(m.pushStep, oy) * (up ? 1 : -1);
+      else pushed.x += Math.min(m.pushStep, ox) * (right ? 1 : -1);
     };
     for (const m of this.movers.values()) {
       const before: Vec3 = [...m.pos];

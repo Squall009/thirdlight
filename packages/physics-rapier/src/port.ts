@@ -28,6 +28,12 @@ import {
   DEFAULT_CAPSULE_RADIUS,
   ONE_WAY_LANDING_TOLERANCE,
   PHYSICS_IMPLEMENTATION,
+  INTERNAL_EDGE_PREDICTION_SLACK,
+  GROUND_UP_EPS,
+  INTERNAL_EDGE_TOUCH_EPS,
+  INTERNAL_EDGE_PROBE,
+  INTERNAL_EDGE_CONE_EPS,
+  WALL_NORMAL_EPS,
 } from './constants';
 import { correctionError, disposedError, resetError } from './errors';
 import { polygonVertexBuffer, validateColliderShape } from './shape';
@@ -375,6 +381,94 @@ function createAdapter(
     const len = Math.hypot(hit.normal.x, hit.normal.y);
     return len > 0 ? { x: hit.normal.x / len, y: hit.normal.y / len } : null;
   };
+  // Phase 25.4: internal edges. Rapier grounds the character on any contact
+  // within its ground prediction whose normal points up at all, collider by
+  // collider. Where static colliders share a face (tiles in a row, boxes
+  // stacked into a wall) a collider's corner on that shared face is not on
+  // the surface of the union, yet its contact normal tilts up: a character
+  // sliding down a stacked wall is "grounded" at every seam and hangs there.
+  // A contact is internal when its point on collider A lies inside another
+  // static collider B, or on B's boundary with a normal outside B's normal
+  // cone there (B is convex, so the point pushed out along the normal then
+  // projects back onto B somewhere else). The union's real surface near that
+  // point belongs to B, and B's own contact speaks for it. Rapier's grounding
+  // is refused only when an internal contact is found and no real one is, so
+  // a level without shared faces moves exactly as before.
+  const edgeCapsule = new RAPIER.Capsule(cap.halfHeight, cap.radius);
+  const groundPrediction = config.controller.offsetSkin + config.controller.groundSnap + INTERNAL_EDGE_PREDICTION_SLACK;
+  const edgeCandidates: RAPIER.Collider[] = [];
+  const solidStatic = (collider: RAPIER.Collider): boolean => {
+    const info = colliderInfo.get(collider.handle);
+    return info !== undefined && !info.oneWay && !info.kinematic;
+  };
+  const isInternalPoint = (a: RAPIER.Collider, p: Vec2, n: Vec2): boolean => {
+    const tol = Math.max(INTERNAL_EDGE_TOUCH_EPS, 4e-7 * Math.max(Math.abs(p.x), Math.abs(p.y)));
+    for (let j = 0; j < edgeCandidates.length; j += 1) {
+      const b = edgeCandidates[j]!;
+      if (b === a || !solidStatic(b)) continue;
+      const touch = b.projectPoint(p, false);
+      if (touch === null) continue;
+      const off = Math.hypot(touch.point.x - p.x, touch.point.y - p.y);
+      if (touch.isInside && off > tol) return true; // buried inside B: overlapping colliders
+      if (off > tol) continue; // B does not touch p
+      // p is on B's boundary (or inside it): is n in B's normal cone at p?
+      const q = { x: p.x + n.x * INTERNAL_EDGE_PROBE, y: p.y + n.y * INTERNAL_EDGE_PROBE };
+      const back = b.projectPoint(q, true);
+      if (back === null) continue;
+      if (back.isInside) return true;
+      if (Math.hypot(back.point.x - p.x, back.point.y - p.y) > INTERNAL_EDGE_CONE_EPS) return true;
+    }
+    return false;
+  };
+  /**
+   * The ground-like contacts (normal up, within the ground prediction) of the
+   * capsule centred at `center`: 1 when one is real, -1 when all are
+   * internal (and there is one), 0 when there is none.
+   */
+  const groundContacts = (center: Vec2): -1 | 0 | 1 => {
+    const c = at2(center);
+    edgeCandidates.length = 0;
+    const half = { x: cap.radius + groundPrediction + 0.01, y: cap.halfHeight + cap.radius + groundPrediction + 0.01 };
+    world.collidersWithAabbIntersectingAabb(c, half, (collider) => {
+      if (collider !== characterCollider) edgeCandidates.push(collider);
+      return true;
+    });
+    let internal = false;
+    for (let i = 0; i < edgeCandidates.length; i += 1) {
+      const a = edgeCandidates[i]!;
+      const k = a.contactShape(edgeCapsule, c, 0, groundPrediction);
+      if (k === null || k.distance > groundPrediction) continue;
+      const len = Math.hypot(k.normal1.x, k.normal1.y);
+      if (!(len > 0) || !(k.normal1.y / len > GROUND_UP_EPS)) continue;
+      const n = { x: k.normal1.x / len, y: k.normal1.y / len };
+      if (solidStatic(a) && isInternalPoint(a, { x: k.point1.x, y: k.point1.y }, n)) internal = true;
+      else return 1;
+    }
+    return internal ? -1 : 0;
+  };
+  /**
+   * Phase 25.4 (D46): the move to sweep again when Rapier held a falling
+   * character against a wall (see the step), or null. Reads the result of
+   * the `computeColliderMovement` just run for (`requestedX`, `commandedY`).
+   */
+  const wallSlideRetry = (requestedX: number, commandedY: number): Vec2 | null => {
+    if (!(commandedY < -1e-6)) return null;
+    const moved = controller.computedMovement();
+    if (moved.y < commandedY * 0.5) return null;
+    const n = controller.numComputedCollisions();
+    if (n === 0) return null;
+    let x = requestedX;
+    for (let i = 0; i < n; i += 1) {
+      const hit = controller.computedCollision(i);
+      // Only fixed level colliders: a mover's side keeps Rapier's own response (phase 14.7 decides what it may carry).
+      if (!hit || hit.collider === null || !solidStatic(hit.collider)) return null;
+      const len = Math.hypot(hit.normal1.x, hit.normal1.y);
+      if (!(len > 0) || Math.abs(hit.normal1.y / len) > WALL_NORMAL_EPS) return null;
+      const nx = hit.normal1.x / len;
+      if (x * nx < 0) x = 0; // the part into this wall
+    }
+    return x === requestedX ? null : { x, y: commandedY };
+  };
   const climbCos = Math.cos(config.controller.maxSlopeClimbRad);
   const snapDistance = config.controller.groundSnap;
   // Phase 15.3: the skin (the correction bound's ground-offset part) and the autostep lift.
@@ -597,7 +691,34 @@ function createAdapter(
         body.setAngvel(0, false);
         stilled.push(body);
       }
+      // Phase 25.4: Rapier also grounds (and snaps down) from where the sweep
+      // starts. An airborne character whose only ground-like contacts there
+      // are internal edges (sliding down a stacked wall past a seam) sweeps
+      // without the snap, so the seam neither catches nor pulls it.
+      const startGround = grounded ? 1 : groundContacts(before);
+      if (startGround === -1) controller.disableSnapToGround();
       controller.computeColliderMovement(characterCollider, { x: requested.x, y: commandedY }, undefined, undefined, oneWayFilter);
+      // Phase 25.4 (D46): a falling character pressed against a wall on its
+      // left is held there by Rapier 0.20.0: the sweep hits the wall and
+      // keeps almost none of the fall (on the right the same wall lets it
+      // slide). When a falling sweep keeps less than half its fall and every
+      // contact is a fixed vertical wall the move presses into, the move is swept
+      // again with the part into the wall taken out: the slide along it the
+      // wall allows. Nothing else changes, so every other sweep is as before.
+      const wallSlide = wallSlideRetry(requested.x, commandedY);
+      if (wallSlide !== null) {
+        // The slide is swept with the capsule narrowed by half the skin (and
+        // as tall), so it cannot graze the wall it slides along (Rapier's
+        // larger normal nudge helps less and pushes the capsule off the wall);
+        // the capsule is restored right after.
+        const narrow = Math.min(skin / 2, cap.radius / 4);
+        characterCollider.setRadius(cap.radius - narrow);
+        characterCollider.setHalfHeight(cap.halfHeight + narrow);
+        controller.computeColliderMovement(characterCollider, wallSlide, undefined, undefined, oneWayFilter);
+        characterCollider.setRadius(cap.radius);
+        characterCollider.setHalfHeight(cap.halfHeight);
+      }
+      if (startGround === -1) controller.enableSnapToGround(snapDistance);
       for (let i = 0; i < stilled.length; i += 1) stilled[i]!.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
       const movement = controller.computedMovement();
       const next = { x: before.x + movement.x, y: before.y + movement.y };
@@ -617,7 +738,7 @@ function createAdapter(
       // obstacle's outward normal (`normal1`) is the support normal: (0, 1)
       // on flat ground. Grounding is never derived from `position.y` or `vy`.
       let bestNormal: Vec2 | null = null;
-      let wall = false;
+      let wall = wallSlide !== null; // the held sweep's wall (the retry slides along it without touching)
       let head = false;
       const collisions = controller.numComputedCollisions();
       for (let i = 0; i < collisions; i += 1) {
@@ -630,7 +751,16 @@ function createAdapter(
         if (Math.abs(unit.x) > climbCos) wall = true;
         if (unit.y < -climbCos) head = true;
       }
-      const rawGrounded = controller.computedGrounded();
+      // Rapier's ground flag (its snap correction is what `snapped` describes),
+      // then the same flag with internal-edge contacts removed (phase 25.4).
+      const rapierGrounded = controller.computedGrounded();
+      // Refused when the capsule has no real ground-like contact where the
+      // sweep ended, and an internal one there or where it started.
+      let rawGrounded = rapierGrounded;
+      if (rawGrounded) {
+        const endGround = groundContacts(next);
+        if (endGround === -1 || (endGround === 0 && startGround === -1)) rawGrounded = false;
+      }
       // The measured 0.20.0 behavior: the one-time ground-offset/penetration
       // push-out is NOT reported in `numComputedCollisions()` (it is not a
       // sweep collision), but its direction is the surface normal. Recover it
@@ -683,7 +813,7 @@ function createAdapter(
       const verticalExtra = movement.y - commandedY;
       const bound = snapDistance + skin + 1e-6;
       const snapped =
-        rawGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= bound;
+        rapierGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= bound;
 
       const correction = Math.max(
         Math.abs(movement.x - requested.x),
