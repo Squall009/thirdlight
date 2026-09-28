@@ -1,5 +1,15 @@
 # Audit — engine/game separation
 
+> **Resolved by phase 24** (2026-09-28, `docs/plan-phase-24.md`). The genre
+> layer described below is deleted, not kept as a kit: enemies, pickups,
+> zones, the game session, the level flow, lives, score, the classic HUD and
+> Beacon Reach are gone; `packages/platformer` is `packages/character`.
+> Generic primitives (collectible, health, patrol, hitbox, trigger scene
+> transitions, camera track, look overrides, event sounds, the game shell)
+> replace them; old game data is refused on load by name. Tests no longer
+> read any game repo, and `tools/check-boundaries.mjs` fails the build on
+> genre vocabulary in package sources. What follows is the record as found.
+
 2026-09-27, at `da5773c` (phase 23 done). Read-only analysis; no product code
 changed.
 

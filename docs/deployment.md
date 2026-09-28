@@ -117,20 +117,21 @@ one; the picker has "Forget the access token in this browser").
 Open `http://127.0.0.1:8501/` for the picker: it lists every project under
 `~/thirdlight/projects/` and every registered folder project (see "Projects
 in a game's own folder"), and creates new ones, empty or from a template.
-Templates are directories under the engine's `templates/` or `samples/`
+Templates are directories under the engine's `templates/`
 holding `captured/project.json` (+ `assets/`, optional `template.json` with
 `name`, `description`, `requiredModules`). `templates/starter` ("Starter")
 is the neutral one: a ground, three boxes, a character with the controller,
 a spawn point, a camera, two lights and a pillar model, with no game rules
-(no game block, so it plays as a scene). It is rebuilt by
-`templates/starter/tools/build-template.mts`. `samples/beacon-reach` is
-still shipped until phase 24.7 removes it.
+(it plays as a scene). It is rebuilt by
+`templates/starter/tools/build-template.mts`. The engine ships no sample
+games (phase 24.7): games live in their own repositories.
 
 A project directory holds:
 
-- `project.json`: id, name, engine version (schemaVersion 2);
-- `content.json`: assets, prefabs, scripts, settings, the game block, tags,
-  the scene list and the start scenes;
+- `project.json`: id, name, engine version (schemaVersion 3);
+- `content.json`: assets, prefabs, scripts, settings, tags, UI documents,
+  the game shell, event sounds, the save schema, the scene list and the
+  start scenes;
 - `scenes/<sceneId>.json`: one file per scene;
 - `sources/sha256/<digest>`: imported asset and script sources, and
   instance-set buffers. A folder project's assets can instead stay in the
@@ -150,10 +151,48 @@ derived caches, the journal); it is not part of a backup.
 **Older projects upgrade automatically** the first time the backend opens
 them. A v3 project (one `scenes/main.json` envelope) becomes one scene,
 "Main" (`scenes/scene-main.json`); the old envelope is kept as
-`.thirdlight/migrated-v3/main.json`. The level bounds are dropped. A kill
-height becomes a "Fall zone" hazard zone below the old level. Falls are game
-rules now: a hazard zone, or a script (see "Scenes"). Take a backup first if
-you want the old files outside `.thirdlight/`.
+`.thirdlight/migrated-v3/main.json`. The level bounds and a kill height
+are dropped: falls are game rules, a project script's (for example a
+trigger below the level whose `enter` event a script answers with
+`ctx.lifecycle.respawn`). Take a backup first if you want the old files
+outside `.thirdlight/`.
+
+### What you can do now (phase 24: engine and game kept apart)
+
+Thirdlight holds generic capabilities only; a game's rules are its own
+project scripts (in its own repository when it has one).
+
+- **Start from the Starter template**: ground, boxes, a character with the
+  controller, a spawn, a camera and lights, no game rules.
+- **Build a game from primitives and scripts**: collectibles adding to named
+  counters, health on any object with `damaged`/`died` events, patrols,
+  hitboxes with contact events and damage, triggers with enter/exit events
+  and scene transitions, movers, switches, a camera track, look overrides,
+  event sounds, and `ctx.lifecycle` (respawn, restart). What a collected item,
+  a hit or 0 health *means* is decided by the project's scripts. A tested
+  example: `tests/e2e/starter-game.e2e.ts` builds a small game in the
+  editor (a collectible counted in a HUD, a patroller whose hit a script
+  turns into a respawn, a door to a second scene, a title screen) and plays
+  it.
+- **Menus and HUD** are the game shell's UI documents (title, pause,
+  settings, controls, save and load screens, HUDs, the scene list).
+- **Saves**: project save slots, save format version 2 (the save carries
+  the loaded scenes, the spawn and where the character stands).
+- **Input**: named actions only (input frame version 2); the character
+  controller reads the actions it names (`moveAction`, `jumpAction`;
+  defaults `move`, `jump`).
+- **Older projects**: a schemaVersion 2 project is upgraded on open (a
+  pickup becomes a collectible and its counter, a spawn's left/right facing
+  a yaw, a pickup's sound an event sound) and written back once. Game data
+  the engine no longer has — a game block, a level flow, enemies, game
+  zones, the session camera follow, and pickup rules such as healing or
+  "back on death" — is refused: the project does not open; the open error names each
+  problem and the picker shows the first ("component "enemy" (…) was removed
+  in phase 24: build it as project scripts"). Rebuild those parts as
+  project scripts on the primitives, then open it again.
+- The build fails when a package's source uses genre words (coin, enemy,
+  checkpoint, score, platformer, …; `tools/check-boundaries.mjs`, with a
+  short reviewed allowlist for the upgrade code).
 
 ## Workspace tabs
 
@@ -252,13 +291,13 @@ hold exactly one active camera") and changes nothing.
 
 **+ Add component** (and the Component menu, the same list) offers every
 component by category, with its presets (Light: directional, ambient, point,
-spot, hemisphere; Zone: hazard, goal; Collider: box, polygon). A component
+spot, hemisphere; Patrol: edge to edge, waypoints; Collider: box, polygon). A component
 that needs a choice first — a model's asset, a script, an animator's
 controller, an audio source's sound, a material mapping — opens a small form
 with just that choice and **Add**. Components that cannot be added are
 listed greyed with the reason: already on the object, excluded by another
 one ("an object shows one model, box or camera"), needing another one (a
-surface needs a box or a model; camera follow needs the camera), or made by
+surface needs a box or a model), or made by
 a tool (instance sets, prefab copies, folders). Each section has **remove**;
 box, camera and model are added and removed like any other component
 (`setComponent` with a complete value / `null`).
@@ -266,10 +305,7 @@ box, camera and model are added and removed like any other component
 Some sections have extra tools next to the generic fields: the player
 controller's capsule (**Fit to model**, **Default**), a surface (presets), an object's materials (the mapping
 editor, which knows the model's own material names) and a script (its
-declared properties). A project that still has a game block (Gameplay →
-game session: texts, the player, camera and start spawn, and the sound cues
-as sound pickers; phase 24.5: the editor no longer creates one) sees it
-built the same way, and so is Gameplay → Settings (every project setting, the engine
+declared properties). Gameplay → Settings is built the same way (every project setting, the engine
 settings included; the step rate is a choice of 60, 120 or 240 Hz; each
 change is saved at once); the Gameplay tab's Camera page points to the camera object, whose
 lens and follow settings are Inspector sections. The Media tab is for
@@ -280,7 +316,7 @@ listening to the project's sounds.
 - **Folders** (GameObject → Folder, or `createEntity {kind: "folder"}`)
   only organise. A folder has no transform and sits at the root or inside
   another folder, never under an object. Filing something into a folder keeps
-  it where it is in the world. Zones, spawns and physics bodies may sit in
+  it where it is in the world. Triggers, spawns and physics bodies may sit in
   folders (they still may not sit under a transformed object).
 - **The tree.** The arrow collapses a row. Which rows are collapsed is
   remembered in this browser, per project; it is not written to the project.
@@ -303,7 +339,7 @@ listening to the project's sounds.
   - The inspector shows the entity's own value, and next to it any value it
     inherits and from where.
   - Inactive: hidden in the Scene view and left out of Play and the export.
-    The scene camera and an active checkpoint's safe spawn must stay active.
+    The scene camera must stay active.
   - Locked: editor only. The object cannot be picked or moved in the Scene
     view, but can still be selected in the hierarchy.
   - Static: stored and inherited; nothing uses it yet.
@@ -377,27 +413,25 @@ unique across the whole project. One command edits one scene.
   - `unload(sceneId)` removes the scene at the next boundary.
   - `status(sceneId)` returns `unloaded`, `loading` or `loaded`.
   - `loaded()` lists the loaded scenes.
-  - A loaded scene brings its colliders, script instances, tags and zones.
+  - A loaded scene brings its colliders, script instances, tags and triggers.
     An unload releases them: colliders leave the physics world, scripts get
     `dispose`, meshes and textures are freed, and a model no loaded object
     uses any more is released.
   - A scene holding the camera, the player, the start spawn or a light
     cannot be unloaded.
   - A replay returns to the start scenes.
-  - A checkpoint whose scene was unloaded no longer counts.
-- **Exit zones** (phase 24.5: no longer created in the editor; a scene
-  transition trigger does this generically). An exit zone lists scenes to load and scenes to unload
-  when the player enters it. It can also name a spawn: once those scenes are
-  loaded, the player is moved there.
+- **Scene transitions**: a trigger's scene transition loads and unloads
+  scenes when the character enters it and can name a spawn it arrives at
+  (see "Scene transitions, impulses, …").
 - **Game rules in scripts.** There are no level bounds or kill heights any
   more.
   - `ctx.world.transform(entityId)` reads any loaded object's current
     position, rotation and scale.
-  - `ctx.emit({kind: 'respawn'})` (intent phase) kills the player.
+  - `ctx.lifecycle.respawn(spawnId?)` puts the character back at a spawn.
   - `ctx.emit({kind: 'pose', entityId, rotation: {yaw, pitch, roll}, scale})`
     (transform phase, an entity the script owns; degrees, applied yaw then
     pitch then roll; `scale` is a number or `[x, y, z]`; either may be left
-    out) turns or scales it — a spinning coin, a pulsing gem. It is visual:
+    out) turns or scales it — a spinning sign, a pulsing light. It is visual:
     colliders keep their shape.
   - Camera bounds are optional (Gameplay → Camera → "Keep the camera
     inside bounds").
@@ -913,8 +947,8 @@ public parameter is drawn for that object only (one shared material, the
 value read per object); a texture parameter an object overrides gets its own
 compiled copy. Problems found while compiling (a missing texture, a pixel-
 only input such as Screen UV used in a Vertex offset, which reads a fixed
-stand-in there) show on the node. Selected objects and the active
-checkpoint still glow (the object's own emissive is added to the graph's).
+stand-in there) show on the node. Selected objects and look overrides
+(`ctx.look`) still glow (the object's own emissive is added to the graph's).
 
 **Custom-lit surfaces** (phase 23.15): a **Custom-lit output** takes a
 colour the graph computes itself (plus emissive, a tangent-space normal,
@@ -1325,12 +1359,8 @@ it whenever that signal is sent (a switch, trigger or script) and **Stop on
 signal** stops its spawning (living particles finish) — turn Play on start
 off for an effect that waits for its signal.
 
-**Gameplay hooks** name an effect too (optional *Effect* fields in the
-Inspector): a **Pickup**'s effect plays where it was when it is collected,
-an **Enemy**'s *Hit effect* when a stomp hurts it and its *Defeat effect
-(particles)* when it is defeated, the player's **Health** *Hit effect* when
-it takes a hit, and a checkpoint or goal **Zone**'s *Effect when reached*.
-Scripts play and stop effects: `ctx.effects.play(effectId, {position?,
+The removed game components' effect hooks went with them in phase 24.7: a
+project script plays an effect where a game event happens. Scripts play and stop effects: `ctx.effects.play(effectId, {position?,
 entityId?, params?})` returns a handle (0 when refused: a bad id or more
 than 32 plays in one step) — with `entityId` the effect follows that object
 and `position` is an offset from it, else `position` is a world point —
@@ -1392,10 +1422,8 @@ creates or replaces an effect (settings, parameters, systems with their
 graphs — adding or removing a system is a `setEffect`), `deleteEffect
 {effectId}`, `renameEffect {effectId, name}`; the component is
 `setComponent "effect" {effectId, playOnStart?, params?, signal?,
-stopSignal?}`; the hooks are plain component fields (`pickup.effect`,
-`enemy.hitEffect` / `defeatEffect`, `health.hitEffect`, `gameZone.effect`;
-naming no effect of the project is refused, and so is deleting an effect
-something names). The effects travel in `queryGameConfig` (`effects`) and
+stopSignal?}` (naming no effect of the project is refused, and so is
+deleting an effect something names). The effects travel in `queryGameConfig` (`effects`) and
 `tl_content_query target="game"`. Limits: 128 effects, 16 systems and 32
 parameters per effect, 256 nodes per system graph, up to 1 048 576 max
 particles per system (capped by the executor, see above).
@@ -1414,11 +1442,12 @@ pad A), `cancel` (Backspace, pad B), `navigate` (arrows/WASD, stick). "+ key"
 listens for the next key (an axis asks for two or four keys), "+ pad" for
 the next gamepad button; × removes a binding; new actions can be added. The
 first edit makes the controls the project's own; "Reset to defaults" goes
-back. The platformer moves and jumps with the `move` and `jump` bindings:
+back. The character controller moves and jumps with the actions it names
+(`moveAction`, `jumpAction`; defaults the `move` and `jump` bindings):
 their keys, and their pad buttons and stick axis (`jump`'s pad buttons,
 `move`'s button pair and axis; a part with no pad binding of its kind keeps
 the standard layout — A jumps, D-pad and left stick move). Players rebind
-the pad in the game's Settings (see Game flow). Scripts read
+the pad on the game shell's Controls screen (see "The game shell"). Scripts read
 `ctx.input.value(name)`, `.vector(name)`, `.pressed(name)`, `.held(name)`,
 `.released(name)`; the actions are part of the recorded input, so replays
 match. MCP: `setInput {input}` through `tl_command`; `tl_input_exercise`
@@ -1435,9 +1464,7 @@ to another scene; needs a second scene), a switch (2D plane), an object
 with health, a collectible, a patrolling object and a hitbox; **Cameras**
 → a camera track; **Light** → a fog volume. A 3D project gets the 3D forms
 (colliders, hitboxes and triggers with a depth). The hierarchy and Scene
-view icons come from the descriptors too. Zones, pickups and enemies are no
-longer offered (game rules; a project that has them still edits them in
-the Inspector until phase 24.7). Any object can get these in the Inspector
+view icons come from the descriptors too. Any object can get these in the Inspector
 ("+ Add component", Gameplay):
 
 - **Mover** — a path of offsets from where the object stands (waypoints, x/y/z each),
@@ -1457,31 +1484,12 @@ the Inspector until phase 24.7). Any object can get these in the Inspector
   its radius (5 cm snapping, Shift for exact, one undo per drag).
 - **Switch** — `interact` (the interact action while inside) or `stand`
   (a pressure plate); sends a signal.
-- **Health** — on the player: max health, the health a level starts with,
-  invulnerability after a hit and a knockback (the player is pushed away
-  from what hurt it). Without it an enemy touch or a hazard is a death, as
-  before.
-- **Pickup** — coin, gem, heart (heals), extra life, key or a custom counter;
-  collected pickups disappear; "comes back" on death if wanted; a collect
-  sound (an audio asset) if wanted.
-- **Enemy** — walks between two x offsets or until a ledge/wall, hurts on
-  contact, can be defeated by jumping on it (the player bounces; the enemy
-  squashes, then vanishes). With "chases the player within" it goes after a
-  player that near; **chase speed** is how fast it runs (0: its walking
-  speed), **needs sight** only notices a player nothing solid stands between
-  it and, **in front only** only one in the direction it is walking, **chase
-  memory** keeps it coming for that long after it last noticed the player,
-  and **leaves its post** lets it leave its patrol range (it walks back when
-  it gives up). It never walks through a wall or off a ledge, chasing or not.
-  Its Animator gets `speed` (its current speed), `attacking` (chasing), `hurt`
-  and `defeated`.
 - A collider's **one-way** flag: jump up through it, land on it from above,
-  Down + Jump drops through. A spawn or checkpoint inside one is not
-  blocked (the player drops to what is below). A hazard zone's **damage** takes health instead
-  of a life.
+  Down + Jump drops through. A spawn inside one is not blocked (the player
+  drops to what is below).
 
-The HUD shows the counters and health ("Coins 2 · Health 3/3").
-`tl_game_observe` reports `counters` and `health`. Scripts use
+A HUD document shows counters and health through its bindings (see "The
+game shell"). `tl_game_observe` reports `counters` and `health`. Scripts use
 `ctx.signals.emit(name)` / `.on(name)` (seen the next step),
 `ctx.game.counter(name)` / `.add(name, n)` / `.health()` /
 `.setVisible(entityId, visible)` (until the next run; it still collides),
@@ -1492,8 +1500,8 @@ all).
 
 ### Generic primitives (phase 24.4)
 
-Four components that work the same on the 2D plane and in 3D, with or
-without a game session (the Inspector's "+ Add component", Gameplay). They
+Four components that work the same on the 2D plane and in 3D (the
+Inspector's "+ Add component", Gameplay). They
 carry no game rules: what a collected item, a hit or 0 health *means* is the
 project's scripts' decision.
 
@@ -1505,8 +1513,9 @@ project's scripts' decision.
 - **Health** — on any object: **maximum** and **start**. Scripts:
   `ctx.health.get(id)` → `{current, max}`, `ctx.health.damage(id, n, source?)`,
   `ctx.health.heal(id, n)`, `ctx.health.events()` (every object's events of
-  the last step). There is no grace time, knockback or death rule (the game
-  session's player keeps its old fields until 24.7).
+  the last step). There is no grace time, knockback or death rule: a script
+  decides what `died` means (for example `ctx.lifecycle.respawn()` and a
+  heal).
 - **Patrol** — the object walks by itself at **speed**: **Edge to edge**
   (straight ahead from its **start direction**; turns at a wall ahead or a
   ledge past its front, probing from its **body** box with the wall and ledge
@@ -1528,20 +1537,19 @@ Their events (`damaged`, `healed`, `died`, `collected`, `restored`,
 `ctx.events` in the step after they happened, for the objects a script owns
 (its own, those below it, and those its object properties name). A save
 schema's **components** section keeps health, collected collectibles,
-patrollers and switched-off hitboxes. A scene's play observation
-(`tl_game_observe`) now reports the named `counters` too.
+patrollers and switched-off hitboxes. The play observation
+(`tl_game_observe`) reports the named `counters` and every object's `health`.
 
 ### Scene transitions, impulses, facing, camera tracking, looks and event sounds (phase 24.4e–i)
 
-Generic again: both dimensions, with or without a game session.
+Generic again: both dimensions.
 
 - **Trigger → Scene transition** (Inspector, a trigger's "+ add"): entering
   the trigger loads **Load scene**, unloads **Unload scenes**, and once the
   scene is loaded moves the character to **Arrive at** (a player spawn in
   that scene or the trigger's own; it becomes the spawn `ctx.lifecycle`
   respawns at). A trigger's `enter`/`exit` events reach the scripts that own
-  it (`ctx.events`), now also in a 2D scene without a game session. It
-  replaces the exit zone, which stays until phase 24.7.
+  it (`ctx.events`).
 - **Character impulse**: `ctx.character.impulse([x, y, z])` adds a velocity
   (m/s) at the character's next move (a push, a launch, a bounce; up lifts it
   off the ground; the 2D plane ignores z).
@@ -1563,13 +1571,11 @@ Generic again: both dimensions, with or without a game session.
   sent (by name) or an **event** happens (`enter`, `exit`, `collected`,
   `damaged`, `died`, `contact`, … or an animator clip event's name;
   optionally only one object's), at a volume on a bus. The export carries
-  their sounds. MCP: `setEventCues {cues}`. They replace the game block's
-  fixed cue slots, which stay until phase 24.7.
+  their sounds. MCP: `setEventCues {cues}`.
 
 ### The game shell: menus and HUD as UI documents (phase 24.4j)
 
-For a game that plays as a scene (no game block and no flow — a project from
-the starter template), the **Game shell** tab (MCP: `setShell {shell}`) draws
+The **Game shell** tab (MCP: `setShell {shell}`) draws
 the menus and HUD with the project's own UI documents (make them in the UI
 tab):
 
@@ -1591,10 +1597,9 @@ tab):
 - **Pause allowed**, and a debug **Status line** (screen, scene, prompts).
 
 A save from the shell includes the named counters in the `components`
-section. It does not yet carry which scenes are loaded or where the character
-stands. `tl_game_observe` reports `shell {screen, scene, hud, note}`. The
-flow's levels, lives and score and the classic HUD keep working until phase
-24.7.
+section and, since save format version 2, which scenes are loaded and where
+the character stands. `tl_game_observe` reports `shell {screen, scene, hud,
+note}`.
 
 ### Timers and trigger events in scripts
 
@@ -1638,9 +1643,10 @@ into the project): projectiles, dropped coins, falling crates, enemies from
 a spawner. Make the prefab as usual (select an object → Prefabs → create);
 in a v4 project a prefab now keeps the object's collider (on its root),
 surface, materials, animator and gameplay blocks (mover, trigger, switch,
-pickup, enemy, audio source, face movement), so a copy collides, is
-collected, patrols or flies like the original. The player controller and
-level wiring (camera, lights, zones, spawn markers) never go into a prefab.
+collectible, health, patrol, hitbox, audio source, face movement), so a copy
+collides, is collected, patrols or flies like the original. The player
+controller and level wiring (camera, lights, spawn markers) never go into a
+prefab.
 
 - `ctx.spawn(prefabId, { position, rotation?, scale? })` — `position` is
   `[x, y]` (the root keeps the prefab's own z) or `[x, y, z]`; `rotation` a
@@ -1666,7 +1672,7 @@ level wiring (camera, lights, zones, spawn markers) never go into a prefab.
   write its own transform and pose with `ctx.emit({ kind: "transform",
   entityId: ctx.entityId, position: { x } })` in the transform phase (never
   another object's; not on the camera or an object with a collider or the
-  player controller). A mover or an enemy component moves objects too.
+  player controller). A mover or a patrol component moves objects too.
 
 `tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
 and the export carry the project's prefabs with the game.
@@ -1786,65 +1792,21 @@ public and private — read-only, refreshed twice a second (read from the
 running game over the game-observe relay; the editor runs no game code).
 `tl_game_observe {entityId}` returns the same values as `behaviors`.
 
-## Game flow, menus and music
+## Music, fonts and audio
 
-Bottom dock → **Game flow** turns a scene into a game with levels (v4
-projects). "Set up levels and menus" makes level 1 from the start scenes;
-then:
-
-- **Levels** play in the listed order. Each level loads the scenes ticked
-  for it (every level must also load the scene holding the player and the
-  camera — usually the start scene) and starts at the chosen player spawn. A
-  closed scene's spawns appear once the scene is opened in the Hierarchy.
-  Each level can loop a music track.
-- **Lives** (no longer offered in the editor since phase 24.5; a flow that
-  has them keeps them until phase 24.7): a death costs one, an extra-life
-  pickup gives one (up to the maximum); at 0 the game shows *Game over*.
-  Without limited lives a death only respawns.
-- **Title screen** (always shown with a flow): the game title, a subtitle,
-  the instructions and title music; *New game*, *Settings*.
-- **HUD and menus**: layout (classic, minimal, corners), a level timer, the
-  menu font, colours and an optional logo (a texture asset), the *Level
-  complete* / *Game over* texts and credits for the end screen, default
-  music, sound and menu-sound volumes.
-- **Title screen background**: *the first level's start* (as before) or any
-  scene of the project. The chosen scene is loaded while the title shows
-  (like a level scene: it may not hold the camera, the player or lights —
-  the start scenes' lights shine on it) and unloaded when a level starts;
-  the game camera frames its first player spawn (else the middle of its
-  objects) the way it frames the player, so keep it away from the levels'
-  space. *Slow camera pan* slides the camera sideways by the given metres
-  over the given seconds and back (default 4 m, 20 s; works with either
-  background).
-- **Menu sounds**: an audio asset each for *move* (the selection or a value
-  changes), *confirm* (an item is chosen) and *back* (leaving a menu, a
-  cancelled rebinding). They play on their own `ui` sound bus; the game's
-  Settings then offer *Menu sounds volume*.
-- **Ambience** per level: up to four audio or music assets looped together
-  on the sound-effects bus while the level plays (and while it is paused);
-  they stop on the title, *Level complete*, *Game over* and end screens.
-
-In the game: Esc (or the pad's Start) pauses — *Resume*, *Restart level*,
-*Settings*, *Quit to title*. Arrow keys / W-S / D-pad move through a menu,
-Enter or pad A chooses, left/right change a volume. **Settings** has music
-and sound volume (and the menu-sound volume when the game has menu sounds),
-quality (low/medium/high), the jump/attack/interact keys (choose one, press
-the new key) and the pad buttons for jump, attack, interact, move left and
-move right (choose one, press the new button on the pad; Esc cancels). A
-rebound pad button replaces that action's pad button (the keys stay); the
-platformer jumps and moves with it at once. Reaching a goal shows *Level
-complete* (time, counters, deaths) and goes on to the next level; after the
-last one the end screen shows the totals and credits.
+The level flow (levels, lives, the built-in title/pause/end menus, per-level
+music, ambience and looks) was deleted in phase 24.7: a game's menus and HUD
+are the **game shell**'s UI documents (see "The game shell"), its scene
+order the shell's scene list, and anything like lives or a level timer is
+the game's own scripts over named counters. A project that still has a
+`content.flow` is refused on open, naming it (see "What you can do now").
 
 **Music** assets are Ogg (Vorbis or Opus) or MP3 files, up to 10 minutes and
 16 MB (import them like other assets; a long WAV can be imported with kind
 `music` through MCP). Music starts with the first key press or click (the
-browser's sound rule), loops, and crossfades between the title and the
-levels. `tl_game_observe` reports `flow` (screen, level, lives, music, the
-volumes, `menuSounds` {played, last}, `ambience`, the rebound `pad`
-buttons), `loops` (each audio source's current gain; a level's ambience as
-`ambience:<n>`) and, while the title shows, `titleView` (its scene and the
-camera's offset).
+browser's sound rule) and plays through scripts (`ctx.audio.music`) or an
+audio source. `tl_game_observe` reports `loops` (each audio source's current
+gain).
 
 **Font** assets are TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF files up
 to 4 MiB, at most 16 per project (8 versions each). Choose or drop the file in
@@ -1858,9 +1820,8 @@ Inspector → "+ Add component" → **Audio source** loops an audio or music ass
 the object is: full volume within a quarter of its range, fading to silent
 at the range (measured along X from the player); the Scene view draws both
 distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
-(an audio asset; it is presentation only and never changes the game). MCP: `setFlow {flow}` through `tl_command`; with a flow,
-`tl_game_control` *start* begins a new game and *replay* restarts the
-level. Settings last until the page is reloaded (saving them is phase 9.11).
+(an audio asset; it is presentation only and never changes the game).
+`tl_game_control` *replay* restarts the run.
 
 **Script audio and 3D audio (phase 23.13).** `ctx.audio.play(assetId,
 {volume, loop, pitch, bus, fadeIn, entityId, position, distanceModel,
@@ -1871,7 +1832,7 @@ step after a sound ended or its stop fade finished (computed in the
 simulation from the asset's recorded length, so replays and the worker agree).
 Buses: sfx, music, voice, ui (`setBusVolume(bus, v, seconds)` mixes on top of
 the player's volume). Music: `music(id | null, fade)` crossfades and holds
-the music over the game flow's level/title track until `releaseMusic(fade)`;
+the music over any other track until `releaseMusic(fade)`;
 `stinger(id, {duck, fade})` plays once over the music, ducked to 0.3 under it;
 `duck(level, seconds)` / `unduck` — the deepest duck alive wins. A sound with
 `entityId` or `position` is panned (equal-power) around the listener, the
@@ -1891,23 +1852,25 @@ sounds is owner look pending.
 
 ## Saves
 
-A game with a game flow saves in the player's browser (localStorage): an
-**autosave** when a checkpoint is reached and at the start of each next level,
-and three **slots** (pause menu → *Save game*). The title screen offers
-*Continue* (the autosave) and *Load game*; a game continues at the saved
-level and checkpoint with the lives, health, counters, collected pickups and
-defeated enemies it had, and with the scripts' saved values
-(`ctx.save.get/set/remove/keys`, at most 64 keys of 4 KB JSON each).
-Settings (volumes, quality, rebound keys and pad buttons) are saved as soon
-as they change.
-Each save is versioned, checksummed and at most 64 KB; a damaged one is
-named on the title screen and ignored. Play keeps its saves apart from
-exported games (and each project apart from the others); **Game flow →
-Clear Play save** forgets Play's (MCP: `tl_game_control` `clearSave`).
+Saves are the project's own (below): the game shell's Save and Load screens
+and scripts write and read project save slots in the player's browser. The
+level flow's autosave, its three slots and its checkpoint saves went with
+the flow in phase 24.7. Play keeps its saves apart from exported games (and
+each project apart from the others); **Saves → Clear Play save** forgets
+Play's (MCP: `tl_game_control` `clearSave`).
+
+**Save format version 2** (phase 24.8): every save also carries where the
+play stands (`world`): the loaded scenes, the active spawn, the scene-list
+entry and the character's position and velocity. Loading unloads the scenes
+the save did not have, loads the ones it had, and puts the character back
+where it stood (from rest, its velocity given back at its next move). A
+version 1 save (no `world`) still loads and leaves the play where it is; a
+version 2 save without `world`, or naming a scene the game does not have, is
+refused.
 
 ### Project save documents (phase 23.19)
 
-Any game (with or without a game flow) can declare its own save format in
+Any game can declare its own save format in
 the **Saves** tab (MCP: `setSaveSchema {schema | null}`):
 
 - **Version** of the save document, and **migrations**: for each older
@@ -1959,11 +1922,9 @@ first step and migrated) or `saveSlot` 1–99 (a project slot of the Play page).
 **Play from…** (the toolbar button next to *play*) starts Play somewhere
 other than the game's start:
 
-- **Scene** — a game with levels (a game flow) starts a new game at the
-  first level that loads the scene, skipping the title; a game without levels
-  loads the scene together with its start scenes (they hold the camera and
-  the player) and the player starts at the scene's first player spawn (else
-  the game's own). A scene-only project (no game block) loads it as well.
+- **Scene** — loads the scene together with its start scenes (they hold the
+  camera and the player), skipping the title, and the player starts at the
+  scene's first player spawn (else the game's own).
 - **Variables** — a JSON object the scripts read with `ctx.save.get(key)`
   from the very first step (the save's rules: at most 64 keys of 4 KB JSON
   each). With a save they are added on top of the save's values.
@@ -2010,51 +1971,9 @@ Run one from:
   settings → Engine → Debug console in export** (`debug_console`) is on —
   off by default, so a release build never ships a console by accident.
 
-## Score
+## Grading and fog volumes
 
-Score rules are a flow field (`setFlow` `score`; phase 24.5: the Game flow
-window no longer offers them, and phase 24.7 removes them — a game keeps
-score in its own scripts over named counters): the counters that earn
-points and how many each. The
-names are the game's own counters: pickups count into `coins`, `gems`,
-`keys`, `lives` or a custom pickup's counter, stomped enemies into
-`defeated` (the field suggests these and the open scenes' custom counters);
-negative points are a penalty. *Time bonus* adds points for every second a
-level takes under a target time (default 60 s and 10 points a second;
-rounded down, nothing over the target).
-
-In the game the HUD shows the game's score so far ("Score 1230": the
-levels completed plus the current level's counters); *Level complete* adds
-the time bonus and shows the level's score and its best (or *New best
-score!*), the end screen shows the game's total. The best score per level
-is kept in the player's browser apart from the save slots, so it survives a
-new game (the pause menu shows it); the save slots keep the game's score so
-far. Without score rules nothing about score is shown (projects from before
-stay as they were). MCP: `setFlow` with `flow.score: { points?: { counter:
-points }, timeBonus?: { targetSeconds, perSecond } }`; `tl_game_observe`
-reports `flow.score` (game, level, best per level id).
-
-## Level look (per-level environment)
-
-**Game flow → Level look…** on a level opens the **Environment** window for
-that level's look. Tick *this level has its own sky / fog /
-post-processing / wind* for each part the level changes: the part starts as
-a copy of the project's and is edited with the usual controls; everything
-not ticked stays the project's. While the level plays (Play and the
-exported game) its own sky, fog and wind replace the project's, and its
-post-processing settings replace the project's effect by effect (e.g. only
-the grading). The title screen shows level 1's look. Levels without a look
-(and projects from before) look exactly as before. *project environment*
-(or choosing another window) goes back to editing the project environment.
-
-The Scene view shows the look of the level being edited, otherwise of the
-level the active scene belongs to (the first level that loads it), with game
-lighting; the toolbar's **level look: on/off** (beside *light: game*,
-present when that level has a look) switches between it and the project
-environment. MCP: `setFlow` with `flow.levels[].environment: { sky?, fog?,
-post?, wind? }` (quality stays project-wide).
-
-Also in the Environment window, post-processing grading has **lift**
+In the Environment window, post-processing grading has **lift**
 (raises the blacks, −0.5–0.5), **gamma** (mid-tones, 0.2–5; above 1
 brightens) and **gain** (scales the whites, 0–4); the defaults (0, 1, 1)
 leave the image unchanged. A **fog volume** (Inspector) has *thins with
@@ -2142,14 +2061,13 @@ volume, a patrol, a mover, a switch, a collectible, a trigger, a hitbox or
 health; the most specific wins). The **Gizmos** menu turns the helpers on and off: icons,
 light ranges (point spheres, spot cones), **collider outlines** (every box
 and polygon collider on the game plane — a kit piece's `_COL` shape too;
-one-way platforms in a softer green), and gameplay paths and areas (an
-enemy's chase distance is drawn as the band it notices the player in). A
+one-way platforms in a softer green), and gameplay paths and areas (a patrol's waypoints, hitboxes, collect areas). A
 selected camera shows its real frustum (its field of view, near and far, at
 the game view's aspect — the Game preview while it plays, else the window).
 Handles for sizes, ranges, directions and paths: see **Scene handles**.
 
-Inspector → "+ Add component" → **Face movement** on a model under the player or an
-enemy turns it to face where its parent goes (a yaw for moving right and for
+Inspector → "+ Add component" → **Face movement** on a model under the player or a
+patroller turns it to face where its parent goes (a yaw for moving right and for
 moving left, reached over a short turn time); it keeps its facing while the
 parent stands still.
 
@@ -2175,9 +2093,8 @@ sizes). Every other sized object has handles too — see **Scene handles**.
 Everything uses the capsule: physics (walls, ceilings, slopes, one-way
 platforms), spawn and respawn placement (the object's origin goes to the
 spawn marker; with the offset at half the height the origin is the feet, so
-a spawn on the ground puts the feet on the ground), hazard, checkpoint, goal
-and exit zones, pickups, triggers, switches, stomps, enemies' chase height
-and moving platforms' push-out. MCP: `setComponent` `controller`
+a spawn on the ground puts the feet on the ground), collectibles, hitboxes,
+triggers, switches and moving platforms' push-out. MCP: `setComponent` `controller`
 `{capsule: {radius, height, offset?} | null}`; `tl_inspect` shows it.
 
 ## Scene handles
@@ -2223,8 +2140,8 @@ field's range.
   setting one stores this object's own starting value, × goes back to the
   controller's default.
 
-The v4 game block has no level bounds or kill height (games state those
-rules in scripts), so there is nothing of that kind to draw.
+v4 projects have no level bounds or kill height (games state those rules in
+scripts), so there is nothing of that kind to draw.
 
 ## Tuning values
 
@@ -2242,27 +2159,14 @@ puts an optional value back to its default).
   skin 0.01 m, autostep off (on: climbs steps up to its height, default
   0.25 m, without jumping). The steepest walkable slope, run speed, jump
   speed and gravity stay project settings (`max_slope_climb_deg` …).
-- **Health** — hit bounce 5 m/s, knockback time 0.25 s, grace time 1 s.
-- **Enemy** — stomp bounce 9 m/s, stomp tolerance 0.2 m (how far below its
-  top the player's feet may be for a stomp), defeat effect squash / fade /
-  none over a defeat time of 0.3 s (fade draws the enemy fading out), chase
-  height 2 m, and for edge walkers the wall probe (0.05 m ahead) and ledge
-  probe (0.4 m down from 0.1 m above its feet).
+- **Patrol** — for edge walkers the wall probe (0.05 m ahead) and ledge
+  probe (0.4 m down from 0.1 m above its underside).
 - **Mover** — max push 60 m/s: how hard it shoves a player out of its way
   (0.5 m per step at 120 Hz; a safety limit). The gap it keeps is the
   player's skin plus 1 mm.
-- **Pickup without a size** — collects over its model's recorded bounds (its
-  own model, else its first model child, scaled by their transforms); models
-  imported from now on record their bounds (from the glTF position bounds,
-  collision `_COL` nodes left out). Without bounds (no model, or one
-  imported before) the area is a neutral 1 × 1 m.
-- **Camera follow** — distance: absent, the camera stays at the depth it is
-  placed (its z minus the player's); set, it keeps that distance in front of
-  the player plane. Max speed 480 m/s (the per-axis cap while smoothing; 4 m
-  per step at 120 Hz).
-- **Game block (session)** — respawn delay 0.25 s, drop-through time
-  0.125 s (down + jump on a one-way platform), settle time 0.1 s (the world
-  settles before the first frame).
+- **Collectible without a size** — a 1 m area centred on the object.
+- **Engine timing** — drop-through time 0.125 s (down + jump on a one-way
+  platform), settle time 0.1 s (the world settles before the first frame).
 - **Project settings (engine)** — fixed step 60 / 120 / 240 Hz (default
   120; times in seconds keep their length, a replay is recorded at one
   rate), sound voices 8 (at most 32), music fade 1 s, animation blend 0.2 s
@@ -2277,7 +2181,6 @@ These protect the runtime and are not tuning values:
 |---|---|
 | Fixed-step catch-up per frame | 8 steps (the rest are dropped) |
 | Script physics queries | 32 per step |
-| Zones per scene | 64 |
 | Game-view events kept | 32 |
 | Sound voices | 32 at most (the `audio_voices` setting's range) |
 | Registered sound assets / music tracks | 16 / 64 |
@@ -2299,15 +2202,13 @@ its reason next to it in the code (`project-model/src/descriptors.ts` and the
 constants it names). The GameObject menu's camera and lights are the same
 values as "+ Add component" and a new project's starter camera and lights
 (a white key light at 1.2 with shadows and a cool fill at 0.6, a 60° camera).
-A new checkpoint glows plain white; a gradient sky is grey below the
-horizon; an instance scatter starts as a 20 × 20 m square. Samples (Beacon
-Reach) keep their own values in their own data. The classic HUD's prompts name the game's
-actual move and jump bindings (the player's rebinding included), with pad
-button names while a pad is in use; a saved rebinding also applies in a game
-without a game flow. Scene validation now refuses
-negative camera-follow dead zones and smoothing, directional/ambient light
-intensities, surface roughness/metalness/glow and checkpoint glow (they were
-accepted before although the range said `0 ≤ v`).
+A gradient sky is grey below the horizon; an instance scatter starts as a
+20 × 20 m square. Games keep their own values in their own data. HUD prompts
+(`$flow.prompts`) name the game's actual bindings (the player's rebinding
+included), with pad button names while a pad is in use. Scene validation
+refuses negative directional/ambient light intensities and surface
+roughness/metalness/glow (they were accepted before although the range said
+`0 ≤ v`).
 
 ## Renderer backends
 
@@ -2356,8 +2257,8 @@ Project materials draw the same on both backends: the material library
 builds node materials (TSL) for each shader type —
 standard, foliage wind (COLOR_0 + the global wind), kit (world-X UVs, the
 UV1 macro normal), unlit, water — and lightmaps (UV1, the bake's range, the
-lights a bake holds left out), the Scene view's selection tint and the
-checkpoint glow work there too. A pixel test compares each against the
+lights a bake holds left out), the Scene view's selection tint and look
+overrides work there too. A pixel test compares each against the
 reference images the old WebGL renderer drew (`tests/e2e/shader-parity/`).
 
 The environment draws the same on both backends too (phase 17.3): every sky
@@ -2416,7 +2317,7 @@ sound requests, and the project's scripts — runs in a dedicated **worker**,
 in Play and in exported games. The page keeps what needs the page: input
 (keyboard, pads; sampled once per frame and sent with the frame), sound (the
 worker sends the sound requests; the page's audio owner plays them), the
-HUD, menus, game flow and saves (`localStorage`), and rendering (the worker
+HUD, menus, the game shell and saves (browser storage), and rendering (the worker
 sends each frame's interpolated transforms, visibility, fades, animator
 poses, counters and effect requests). A long simulation step no longer
 delays a frame or an input event. Results are identical to running in the
@@ -2523,9 +2424,8 @@ In a 3D project:
   a **sphere** or a **capsule** (radius and height), turned with their
   object and tested exactly against the player's capsule — enter and exit
   signals, `mode: stay`, `once` and scripts' trigger events work as in 2D.
-  Switches, pickups and enemies are 2D-plane blocks and are refused in a 3D
-  project (their 3D forms come with game modes, 23.10); one-way colliders
-  too;
+  Switches are 2D-plane blocks and are refused in a 3D project; one-way
+  colliders too;
 - **movers** move 3D colliders (box, sphere, capsule, hull) along their
   waypoints and carry the player standing on them; a script may drive a
   collider no mover moves through its transform intents (the runtime turns
@@ -2533,10 +2433,8 @@ In a 3D project:
 - colliders may be rotated about any axis; the player controller stays
   upright; the capsule's **Offset** may have a z component;
 - in Play and the export the player is a kinematic **3D character**
-  (phase 23.2, below; cameras: see *Cameras* below). A 3D project plays its
-  scenes without a game block for now (the platformer game set is 2D-plane
-  only until 3D game modes, 23.10);
-- `tl_game_observe` reports such a scene play with `state: "scene"`, its
+  (phase 23.2, below; cameras: see *Cameras* below);
+- `tl_game_observe` reports such a play with `state: "running"`, its
   step and `player: { x, y, z }`; an exported page has the same observation
   in `window.__thirdlightObserve()`.
 
@@ -2600,8 +2498,7 @@ blends to. Add one to any object with **+ Add component → Virtual camera**
 (Camera group; presets: follow/orbit, orbit a point, top-down, fixed). The
 scene camera (the object with the Camera component) still draws the game;
 with an enabled virtual camera it shows that camera's view instead. A
-project without virtual cameras draws exactly what it drew before — its
-`cameraFollow` and framing are untouched.
+project without virtual cameras draws the scene camera as placed.
 
 **Which camera is live.** The enabled virtual camera with the highest
 **Priority** (on a tie the one activated last, then the first in the scene).
@@ -2691,8 +2588,8 @@ nothing), so one timeline serves any actors.
   between keys (from its first key on). A 3D character's body moves with it.
 - **Animator** — set a parameter, fire a trigger, or go to a state (with a
   crossfade) on the target's animator.
-- **Audio** — music change (crossfade; no asset: silence), give the music back
-  to the game flow, a stinger, an SFX (optional loop, length, position of a
+- **Audio** — music change (crossfade; no asset: silence), give the music back,
+  a stinger, an SFX (optional loop, length, position of a
   bound object). The track can give the music back when the timeline ends.
 - **Dialogue** — run a dialogue node and wait for it (needs the dialogue
   system of phase 23.16; until it is in the engine a dialogue key is skipped
@@ -3068,7 +2965,7 @@ measures:
   change, the bytes and files the backend writes (stat diff of the project
   folder, plus the process's `/proc` write counter), and the bytes one
   material edit puts on the socket;
-- the **simulation** in Node (runtime, platformer, Rapier and the project's
+- the **simulation** in Node (runtime, character controller, Rapier and the project's
   scripts, headless, `--expose-gc`): step cost percentiles and the bytes
   allocated per steady step.
 
@@ -3097,8 +2994,8 @@ overwritten in place (one pass over index-aligned arrays), the motion segments
 are numbers (the frozen segment objects are made only when a module asks for
 one), and the state views, step contexts and script contexts are made once
 per module, phase and script instance and read the step's values live. Intent
-checks, action frames, timers, trigger events, messages, zone decisions, the
-camera follow and the committed game view avoid per-step collections; the
+checks, action frames, timers, trigger events, messages, trigger decisions and
+the committed game view avoid per-step collections; the
 physics port visits only its one-way and moving colliders. Garbage per steady
 step went from ~1.4 KiB per entity (2.6 MiB at 2000 entities, 21 MiB at 16 000)
 to a constant 13–60 KiB whatever the size (what is left: Rapier's JS glue,
@@ -3182,7 +3079,7 @@ page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
   same colour or surface values share one material). Nothing to set up and
   nothing changes in the picture: every object stays an object — selection,
   picking, the gizmo, bounds, bakes and per-object looks (the selection
-  tint, a checkpoint's glow, a fade, a lightmap, per-object graph material
+  tint, a look override, a fade, a lightmap, per-object graph material
   parameters) work as before; an object with its own look is drawn on its
   own. A group needs at least four members; transparent, skinned and morphed
   objects are always drawn on their own; detailed geometry (256 triangles
@@ -3234,7 +3131,7 @@ time, stay at the memory they started with.
   simulation worker ends with the play.
 - *Scene unloads, level restarts and destroyed spawns* release their objects
   in the renderer (render objects, shadow maps, instancing buffers, per-object
-  material copies of fades and checkpoint glows) as well as the objects
+  material copies of fades and look overrides) as well as the objects
   themselves; a project material's built copy goes with its last object.
 - *The Scene view* releases what a closed editor scene or a removed object
   used (also lightmapped material copies) and the edit-mode effect preview's
@@ -3331,10 +3228,9 @@ exported games.
   map (`actionMap: "ui"`: the character does not move while a menu is open).
 - World-anchored widgets follow an entity or a point, clamped to the screen
   edge with an indicator when off screen.
-- `setFlow` `flow.screens` replaces the built-in title, pause, settings,
-  level-complete, game-over, finished, load and save screens with documents;
-  their buttons use engine actions (resume, quit to title, save, load, a
-  setting…). Without it the built-in screens stay.
+- The game shell (`setShell`) shows documents as the title, pause,
+  settings, controls, save and load screens and as HUDs; their buttons use
+  engine actions (resume, quit to title, save, load, a setting…).
 - Fonts (TTF, OTF, WOFF2, WOFF) import as `font` assets and are used by name
   in a style's `font`.
 - Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
@@ -3362,16 +3258,15 @@ through MCP. The first mode is the one a run starts in.
   next step; `ctx.modes.events()` / `entered()` / `exited()` report the switch
   in that step), or a UI button runs `{ "do": "mode", "mode": "explore" }`.
   Nothing is loaded: the switch happens in one step and replays exactly.
-- Pause: a game with modes and no platformer flow pauses with the pause key
-  when its mode allows it — the mode's pause screen document (buttons with
-  the engine actions resume and restartLevel) or the engine's small pause
-  panel. A game with the platformer flow keeps its own pause menu; a mode
-  that does not allow the pause keeps it closed.
-- A game without the platformer game block (a 3D game) has the run lifecycle
-  as script calls: `ctx.lifecycle.respawn(spawnId?)` puts the character at a
+- Pause: a game with modes pauses with the pause key when its mode allows
+  it — the mode's pause screen document (buttons with the engine actions
+  resume and restartLevel), the game shell's pause screen or the engine's
+  small pause panel; a mode that does not allow the pause keeps it closed.
+- Every game has the run lifecycle as script calls: `ctx.lifecycle.respawn(spawnId?)` puts the character at a
   Player spawn object (from rest), `setSpawn` picks the spawn respawns use,
   `restart()` starts the run over (objects at their authored place, scripts
-  fresh, the start mode). Lives, scores and goals are the game's own scripts.
+  fresh, the start mode). What winning, losing or a death means is the
+  game's own scripts.
 - Play from a mode: "Play from…" / MCP `tl_play_start` `mode`; the Play
   toolbar shows the mode the running game is in; `tl_game_observe` reports
   `mode` and `paused`.
@@ -3403,8 +3298,8 @@ through MCP. The first mode is the one a run starts in.
   in this browser; they are not project data.
 - Every change is one command with undo/redo; a drag is one command when you
   let go.
-- **Game flow → Screens** replaces a built-in screen (title, pause, settings,
-  level complete, game over, finished, load, save) with a UI document.
+- **Game shell** (bottom dock) picks the UI documents shown as the title,
+  pause, settings, controls, save and load screens and as HUDs.
 
 ## Dialogue (phase 23.16)
 

@@ -6,14 +6,15 @@ Version: 0.1 · 2026-09-16 · Planning draft; no implementation started.
 
 Build a personal, self-hostable, browser-based game editor using three.js. Human visual editing and external AI tools must operate on the same project through well-defined interfaces. Keep implementation tasks small enough for local models to understand, implement, and verify independently.
 
-The long-term ambition includes scene authoring, prefabs, gameplay systems, UI, material and shader graphs, asset previews, efficient rendering, and genre templates. The initial proving ground was one short side-scrolling 2.5D platformer; since phase 23 (2026-09-26, owner) the scope is 3D games of any genre, with 2D/2.5D as a constrained case of the same 3D simulation. Features stay generic capabilities; genre rules (RPG, tactics, platformer) remain project content.
+The long-term ambition includes scene authoring, prefabs, gameplay systems, UI, material and shader graphs, asset previews, efficient rendering, and project templates. Since phase 23 (2026-09-26, owner) the scope is 3D games of any genre, with 2D/2.5D as a constrained case of the same 3D simulation. The engine holds generic capabilities only (physics, input, cameras, rendering, UI, audio, scripting APIs, data formats, editor tools); the rules of a game (winning and losing, lives, currencies, scores, enemy behaviour, level order) are that game's project scripts, in its own repository (phase 24, owner rule 2026-09-27). History: the first proving ground was a short side-scrolling 2.5D platformer; its rules now live in game repos.
 
 ## 2. Decisions and status
 
 | Decision | Status |
 |---|---|
 | Export targets the web, not exclusively WebGL | Confirmed |
-| First game is a side-scrolling 2.5D platformer | Confirmed |
+| Engine = generic capabilities; game rules are project scripts in game repos, never engine code (phase 24; the first proving ground, a 2.5D platformer, was moved out) | Confirmed (owner, 2026-09-27) |
+| 3D games of any genre; 2D/2.5D is a constrained case of the same simulation | Confirmed (owner, phase 23) |
 | Desktop editor; desktop gameplay with keyboard and controller first | Confirmed |
 | Personal self-hosting; others may clone the repository and host their own instances | Confirmed |
 | Browser authoring may use a transparent backend | Confirmed |
@@ -35,7 +36,9 @@ Hosting is an implementation detail for the user: opening the editor should not 
 - Explicit component properties and isolated play mode.
 - Basic reusable prefabs; advanced nesting/variants added only after semantics are specified.
 - GLB/glTF-oriented initial asset workflow with model/material/animation previews and stable asset identities.
-- Platformer movement, collisions, keyboard/controller actions, camera, simple animation, audio, and HUD.
+- A generic character controller (walk, jump, slopes, 2D plane or 3D), collisions, named input actions for keyboard/controller, cameras, simple animation, audio, and project UI documents (HUDs, menus).
+- Genre-neutral gameplay primitives a project combines with its own scripts: triggers and scene transitions, movers, switches, collectibles with named counters, health with damage/death events, patrols, hitboxes, the run lifecycle (respawn/restart), a game shell (title, pause, settings, saves) and saves.
+- A neutral starter template (ground, boxes, a character, a spawn, a camera, lights; no game rules).
 - Material presets, lights/shadows, and conservative rendering defaults.
 - Diagnostics and AI access to project queries, edits, errors, and connected play sessions.
 - Standalone web export independent of the editor server.
@@ -46,7 +49,7 @@ Full shader graph authoring, probe-volume baking, dynamic GI, advanced occlusion
 
 These are deferred, not prohibited. Their future requirements must not justify speculative frameworks in the first milestone.
 
-### Genre templates
+### Project templates
 
 A template declares required modules, starter content, presets, and editor layouts. Panel visibility and runtime module inclusion are separate settings. Existing content cannot silently lose behavior when a panel is hidden. Builds derive required modules from declared dependencies and referenced content; unresolved dependencies fail validation.
 
@@ -162,10 +165,10 @@ Exact budgets and selected libraries remain evaluation items, not invented guara
 |---|---|---|
 | M0: Contracts | Schema v1, command protocol, runtime lifecycle, workspace persistence, module dependency rules | Reviewed contracts and fixtures; decisions recorded |
 | M1: End-to-end authoring loop | Primitive scene, inspector transform edit, undo/redo, save/reopen, isolated play, simple export, same edit through MCP | Browser edit and AI edit converge; restart retains data; stale writes rejected; exported scene runs without backend |
-| M2: Content and behavior | Asset identity/import preview, basic prefabs, declared script properties, input, physics, platformer controller | Reimport preserves agreed references; prefab behavior verified; keyboard/controller play works |
-| M3: Complete sample game | Short level, camera, hazards, respawn/checkpoint, collectible or goal, HUD, sound | Complete start-to-finish playthrough in editor and standalone export |
-| M4: Reliability and templates | Recovery, diagnostics, reference-device budgets, platformer template, independent project | New project created from template; recovery and export gates pass |
-| Later: Advanced authoring | Graphs, baking/probes, richer optimization, Metroidvania progression, RPG modules | Separate specifications and representative projects for each expansion |
+| M2: Content and behavior | Asset identity/import preview, basic prefabs, declared script properties, input, physics, character controller | Reimport preserves agreed references; prefab behavior verified; keyboard/controller play works |
+| M3: Complete sample game | A short game built from the primitives and project scripts: camera, damage and respawn, a collectible, a scene transition, HUD, sound | Complete start-to-finish playthrough in editor and standalone export (phase 24.9: `tests/e2e/starter-game.e2e.ts` builds and plays one from the starter template) |
+| M4: Reliability and templates | Recovery, diagnostics, reference-device budgets, a neutral starter template, independent project | New project created from template; recovery and export gates pass |
+| Later: Advanced authoring | Graphs, baking/probes, richer optimization; genre systems as project libraries in game repos | Separate specifications and representative projects for each expansion |
 
 M1 is an architectural proof, not a finished game. Prefer acceptance tests at meaningful boundaries: transaction conflicts/recovery, save/reopen, play isolation, export independence, and lifecycle cleanup. Avoid exhaustive tests of trivial wrappers.
 
