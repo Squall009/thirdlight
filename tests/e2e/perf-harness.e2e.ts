@@ -50,6 +50,20 @@ test('the harness measures the small benchmark in Play, the export, the editor a
   expect(play.gpuMiBEstimate).toBeGreaterThan(0);
   expect(play.three?.programs).toBeGreaterThan(0);
   expect(play.heapMiB).toBeGreaterThan(1);
+  // Phase 25.24a: the Play start split into stages (the backend's and the preview's), and the frames after the first.
+  const split = play.starts![0]!;
+  expect(split.backend?.['total']).toBeGreaterThan(0);
+  expect(split.backend?.['closure']).toBeGreaterThanOrEqual(0);
+  expect(split.responseMs).toBeGreaterThanOrEqual(split.backend!['total']!);
+  const stage = (name: string) => split.stages.find((st) => st.name === name);
+  for (const name of ['manifest', 'assets', 'mount', 'ready']) expect(stage(name)?.endMs, name).not.toBeNull();
+  expect(stage('bundleFetch') ?? stage('bundle')).toBeDefined();
+  expect(split.pageMs).toBeGreaterThan(0);
+  expect(stage('manifest')!.startMs).toBeGreaterThanOrEqual(split.pageMs!);
+  expect(split.readyMs).toBeGreaterThanOrEqual(stage('assets')!.endMs!);
+  expect(split.firstFrameMs).toBeGreaterThan(stage('mount')!.startMs);
+  expect(split.afterFirstFrame!.frames).toBeGreaterThan(10);
+  expect(split.counts['startAssetReads']).toBe(1);
 
   const exported = await be.post('/api/v1/admin/projects/bench/export', {});
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);

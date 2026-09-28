@@ -30,6 +30,17 @@ export interface BehaviorPlan {
   declaration: { properties: Record<string, unknown>[] };
 }
 
+/** Phase 25.24a: one generated file (a textured sphere model, or a noise texture). */
+export interface FilePlan {
+  assetId: string;
+  displayName: string;
+  seed: number;
+  /** Models: sphere segments; textures: 0. */
+  segments: number;
+  /** The texture's edge (pixels). */
+  size: number;
+}
+
 export interface BufferPlan {
   key: string;
   count: number;
@@ -57,6 +68,10 @@ export interface BenchPlan {
   buffers: BufferPlan[];
   /** The model kit: pieces with LODs and collision boxes (tests/e2e/multi-piece-glb.ts builds the GLB). */
   model: { assetId: string; displayName: string; pieces: { name: string; lods: [number, number, number][]; col?: [number, number, number] }[] };
+  /** Phase 25.24a: the class's own model and texture files (tools/perf/assets.ts makes them from the seeds). */
+  files: { models: FilePlan[]; textures: FilePlan[] };
+  /** Phase 25.24a: the scenes the game starts with (the rest load on demand). */
+  startScenes: string[];
   /** The fixed objects made with createEntity in the first scene (the camera track follows the player). */
   player: { position: [number, number, number]; size: [number, number, number] };
   spawn: [number, number, number];
@@ -286,12 +301,16 @@ function scatter(count: number, x0: number, rnd: () => number): Float32Array {
 export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan {
   const spec = CLASS_SPECS[className];
   const rnd = prng(seed * 7919 + spec.entities);
+  // Phase 25.24a: the class's own files (none for the classes before it: their plans are unchanged).
+  const fileRnd = prng(seed * 104729 + spec.entities);
+  const modelFiles: FilePlan[] = Array.from({ length: spec.modelFiles ?? 0 }, (_, i) => ({ assetId: `bench-model-${String(i + 1).padStart(3, '0')}`, displayName: `Bench model ${i + 1}`, seed: Math.floor(fileRnd() * 2 ** 31), segments: spec.modelSegments ?? 32, size: spec.modelTextureSize ?? 128 }));
+  const textureFiles: FilePlan[] = Array.from({ length: spec.textureFiles ?? 0 }, (_, i) => ({ assetId: `bench-tex-${String(i + 1).padStart(3, '0')}`, displayName: `Bench texture ${i + 1}`, seed: Math.floor(fileRnd() * 2 ** 31), segments: 0, size: spec.textureSize ?? 256 }));
   const materials = Array.from({ length: spec.materials }, (_, i) => ({
     materialId: `bench-mat-${String(i + 1).padStart(3, '0')}`,
     name: `Bench material ${i + 1}`,
     shader: 'standard',
     params: { color: hex(0x303030 + rnd() * 0xcfcfcf), roughness: round3(0.3 + rnd() * 0.7), metalness: round3(rnd() < 0.2 ? 0.8 : 0) },
-    textures: {},
+    textures: textureFiles.length > 0 ? { map: textureFiles[i % textureFiles.length]!.assetId } : {},
   }));
   const effects = Array.from({ length: spec.effects }, (_, i) => effectDef(i, spec.particlesPerEffect, rnd));
   const behaviors = BENCH_BEHAVIORS.map((b) => ({ ...b, ownedTransforms: [...b.ownedTransforms], declaration: { properties: b.declaration.properties.map((p) => ({ ...p })) } }));
@@ -306,7 +325,10 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
       for (let n = 0; n < count; n += 1) perScene[cursor++ % spec.scenes]!.push(kind);
     };
     add('instances', spec.instanceSets);
-    add('light', spec.pointLights);
+    if (spec.startScenes !== undefined) {
+      // Phase 25.24a: a scene loaded later may not hold lights until 25.8, so they stay in the start scenes.
+      for (let n = 0; n < spec.pointLights; n += 1) perScene[n % spec.startScenes]!.push('light');
+    } else add('light', spec.pointLights);
     add('effect', spec.effects);
     add('script', spec.scriptInstances);
     add('model', spec.models);
@@ -331,10 +353,18 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
     let colliders = 0;
     let floors = 0;
     let local = 0;
+    // Phase 25.24a: with files of its own, a scene uses the files and materials dealt to it (so a start
+    // scene needs only its share of them); the other classes keep their plans.
+    const picks = new Map<readonly unknown[], number>();
+    const dealt = <T>(list: readonly T[]): T => {
+      const n = picks.get(list) ?? 0;
+      picks.set(list, n + 1);
+      return list[(s + spec.scenes * n) % list.length]!;
+    };
     for (const kind of list) {
       const id = `${kind}-${values.length}`;
       const x = x0 - 10 + rnd() * (SCENE_WIDTH - 5);
-      const matId = materials.length > 0 ? materials[(counts.block! + counts.model! + counts.script!) % materials.length]!.materialId : undefined;
+      const matId = materials.length === 0 ? undefined : textureFiles.length > 0 ? dealt(materials).materialId : materials[(counts.block! + counts.model! + counts.script!) % materials.length]!.materialId;
       const mat = matId !== undefined ? { materials: { '*': matId } } : {};
       switch (kind) {
         case 'block': {
@@ -371,6 +401,11 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
         }
         case 'model': {
           counts.model! += 1;
+          if (modelFiles.length > 0) {
+            // A file of its own, drawn with its own (embedded) texture.
+            values.push({ id, name: `Prop ${counts.model}`, components: { transform: T(x, 0, -2 - rnd() * 30, rnd() * 360), model: { asset: { assetId: dealt(modelFiles).assetId } } } });
+            break;
+          }
           const piece = KIT.pieces[counts.model! % KIT.pieces.length]!.name;
           values.push({ id, name: `Prop ${counts.model}`, components: { transform: T(x, 0, -2 - rnd() * 30, rnd() * 360), model: { asset: { assetId: KIT.assetId }, piece }, ...mat } });
           break;
@@ -460,6 +495,8 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
     behaviors,
     buffers,
     model: KIT,
+    files: { models: modelFiles, textures: textureFiles },
+    startScenes: scenes.slice(0, spec.startScenes ?? scenes.length).map((sc) => sc.sceneId),
     player: { position: [0, 1, 0], size: [0.6, 1.8, 0.6] },
     spawn: [0, 1, 0],
     camera: { position: [0, 4, 14], far: 300 },

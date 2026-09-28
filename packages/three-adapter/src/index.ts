@@ -15,7 +15,7 @@
  * path (packet 26). Node-side dependencies (dependencies.md §4.1):
  * @thirdlight/runtime, three.
  */
-export { createSceneAdapter, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions, type ScreenshotResult } from './adapter';
+export { createSceneAdapter, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions, type ScreenshotResult, type FrameDrawnInfo } from './adapter';
 export { ERROR_CODES, type AdapterError, type AdapterErrorCode } from './errors';
 // Phase 17.1: the one renderer factory (Play/export, the Scene view, previews).
 export {

@@ -70,6 +70,8 @@ export interface BuildPlayContentM3Input {
   /** Phase 12 (c), a v4 project: every scene, and the start set. */
   scenes?: readonly unknown[];
   startScenes?: readonly string[];
+  /** Phase 25.24a: the closure's stage times (ms) are added here. */
+  timings?: Record<string, number>;
 }
 
 export interface BuiltPlayContentM3 {
@@ -128,6 +130,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     scene: input.scene,
     content: input.content,
     ...(input.scenes !== undefined ? { scenes: input.scenes, startScenes: input.startScenes ?? [] } : {}),
+    ...(input.timings !== undefined ? { timings: { now: () => performance.now(), add: (stage: string, ms: number) => void (input.timings![stage] = Math.round(ms)) } } : {}),
   });
   if (!built.ok) {
     return { ok: false, error: sessionErrorFromM3Closure(built.error) };

@@ -28,6 +28,8 @@ export interface PerfBackend {
   get(path: string): Promise<{ status: number; body: Buffer }>;
   /** Upload bytes into a new stage in frames of at most 1 MiB; returns the stage id. */
   stage(projectId: string, bytes: Uint8Array): Promise<string>;
+  /** Phase 25.24a: close a stage once its file is published (at most 8 are open at once). */
+  discardStage(projectId: string, stageId: string): Promise<void>;
   project(projectId: string): ProjectClient;
   stop(): Promise<void>;
 }
@@ -163,6 +165,9 @@ export async function startPerfBackend(dataRoot: string, exportRoot = join(dataR
       return { status: r.status, body: Buffer.from(await r.arrayBuffer()) };
     },
     stage,
+    discardStage: async (projectId, stageId) => {
+      await fetch(`${origin}/api/v1/projects/${projectId}/content/stages/${stageId}`, { method: 'DELETE', headers });
+    },
     project,
     stop: async () => {
       if (child.exitCode !== null) return;

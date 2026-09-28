@@ -516,7 +516,21 @@ project over from the headless editor) and the reason in the message. A play
 that ended before it was presented (other than by a Stop or a reported
 preview failure) is also listed in the project's problems
 (`tl_diagnostics` without a play id). An id the backend never had (for
-example after a backend restart) stays a plain `play_not_found`.
+example after a backend restart) stays a plain `play_not_found`. The
+backend keeps the last 64 ended plays for an hour (their end, not their
+scene); an older one answers a plain `play_not_found` too.
+
+Where a Play's start time went (phase 25.24a): `tl_diagnostics` on a play
+has `startTimings` — stages in ms from the preview page's time origin
+(`epochMs`): `bundleFetch`/`bundleEval` (the game bundle), `handshake`,
+`snapshot`, `manifest`, `startScenes`, `worker` (overlaps the reads),
+`assets`, `mount`, `models`, `ready`, `rendererInit` and `firstRender` (the
+first drawn frame's own call), then `firstFrameMs` and the frames in the
+10 s after it (how many over 50/100/250 ms, the worst eight), and each scene
+loaded during play (request, read, the frame that attached it, the frames
+after). The reply's `buildTimings` is the backend's part (session, state,
+capture, bundle, `closure.*`, publish, total); the play-start reply carries
+the same as `timings`.
 
 `tl_content_query {target:"game", includeDescriptors:true}` also returns the
 component and content descriptor registry: for every component and content
@@ -2975,7 +2989,12 @@ node tools/perf/run.mjs --compare tests/perf/baseline.json   # exit 1 on a regre
 Options: `--classes`, `--renderers webgl2,webgpu,auto` (`legacy` is accepted and draws with WebGL 2, as `?renderer=legacy` does since phase 17.4), `--surfaces
 play,export,editor,sim`, `--threads worker,off` (phase 22: Play and the export in the worker and/or with `?threads=off`), `--record-ms`, `--warmup-ms`, `--commands`,
 `--sim-steps`, `--viewport WxH` (default 1280x720), `--seed`, `--keep`,
-`--out FILE`, `--write-baseline FILE`. For each class and renderer it
+`--out FILE`, `--write-baseline FILE`, `--plays N` (phase 25.24a: N Plays in
+the same editor page, each start split into its stages in the report and the
+log; a class with scenes that do not start also loads one during the first
+Play) and `--gpu` (draw on the host's GPU instead of SwiftShader). The
+`asset-heavy` class (25.24a) has 48 distinct model files and 24 textures over
+four scenes, one of which starts. For each class and renderer it
 measures:
 
 - **Play** (the editor's preview iframe) and the **export** (served by a

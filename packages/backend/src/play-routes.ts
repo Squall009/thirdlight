@@ -116,6 +116,15 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     const scope = tokenScope(bearerToken(req), req);
+    // Phase 25.24a: where the backend's part of a Play start goes (ms per stage; the closure's stages are `closure.*`).
+    const buildTimings: Record<string, number> = {};
+    const tStart = performance.now();
+    let tMark = tStart;
+    const mark = (stage: string): void => {
+      const t = performance.now();
+      buildTimings[stage] = Math.round(t - tMark);
+      tMark = t;
+    };
     const body = await readBody(req);
     if (!body.ok) {
       sendError(res, body.error);
@@ -142,6 +151,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       const opened = await headless.ensure(projectId);
       if (!opened.ok) logStartup(`headless: ${opened.reason}`);
     }
+    mark('session');
     const session = sessions.sessionForProject(projectId);
     if (session === undefined) {
       sendError(res, unavailableError(undefined, 'connect the editor browser: no registered authoring session for this project (and no headless editor could start)'), 503);
@@ -209,7 +219,9 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayArtifact[] };
     let startNotes: string[] = [];
     {
+      mark('state');
       const captured = service.readCapturedV3(projectId);
+      mark('capture');
       if (!captured.ok) {
         sendError(res, workspaceError(captured.error), statusFor(captured.error.cls));
         return;
@@ -240,6 +252,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       // The v3 play bundle (the M3 preview wrapper entry — the single shared
       // createGameHost composition), served as the locator's game.js.
       const gameBundleM3 = readGameBundle('preview-m3.js');
+      mark('bundle');
       if (gameBundleM3 === null) {
         sendError(
           res,
@@ -254,6 +267,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       // every scene for on-demand loading.
       const v4 = captured.read.scenes !== undefined;
       if (v4) snapshot.scene = captured.read.scene as RuntimeSnapshotDoc['scene'];
+      const closureTimings: Record<string, number> = {};
       const builtM3 = await buildPlayContentM3({
         service,
         compiler: behaviorCompiler,
@@ -271,7 +285,10 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         content: captured.read.content as Record<string, unknown>,
         gameBundle: gameBundleM3,
         ...(v4 ? { scenes: captured.read.scenes!, startScenes: captured.read.startScenes ?? [] } : {}),
+        timings: closureTimings,
       });
+      mark('closure');
+      for (const [k, v] of Object.entries(closureTimings)) buildTimings[`closure.${k}`] = v;
       if (!builtM3.ok) {
         recordProblem(projectId, 'play', builtM3.error.code, `Play build failed: ${builtM3.error.message}`);
         sendError(res, builtM3.error, statusFor(builtM3.error.cls));
@@ -298,11 +315,14 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       manifestBytes: builtCore.manifestBytes,
       artifacts: builtCore.artifacts,
     });
+    mark('publish');
     if (!published.ok) {
       sendError(res, published.error, statusFor(published.error.cls));
       return;
     }
+    buildTimings['total'] = Math.round(performance.now() - tStart);
     const rec = plays.add(playSessionId, projectId, session.sessionId, snapshot, parsedReq.request.demo, builtCore.buildId, now);
+    rec.buildTimings = buildTimings;
     session.playSessionId = playSessionId;
     // `startedBy` = who started the play. The one owner token is used by the
     // browser and by tools alike; a browser request carries an Origin
@@ -343,6 +363,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       // Phase 23.8: the resolved start (and what was ignored, e.g. a mode before the project has modes).
       ...(snapshot.start !== undefined ? { start: { ...snapshot.start, ...(startNotes.length > 0 ? { notes: startNotes } : {}) } } : {}),
       expiresAt: new Date(rec.expiresAt).toISOString(),
+      // Phase 25.24a: the backend's part of the start (ms per stage).
+      timings: buildTimings,
       playContent: {
         contentId: published.contentId,
         buildId: builtCore.buildId,
@@ -468,6 +490,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         snapshotId: rec.snapshotId,
         revision: rec.revision,
         diagnostics: outcome.diagnostics,
+        // Phase 25.24a: the backend's part of this play's start (the preview's is diagnostics.startTimings).
+        ...(rec.buildTimings !== undefined ? { buildTimings: rec.buildTimings } : {}),
       });
       return;
     }

@@ -88,12 +88,14 @@ import {
   RelayActionSource,
   startRemoteSimulation,
   threadingLogLine,
+  createStartTimings,
   type RemoteSimulation,
   type SimAccess,
+  type StartTimings,
 } from '@thirdlight/game-host';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EffectDefLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
+import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { answerScreenshot } from './screenshot-answer';
@@ -196,6 +198,8 @@ export interface M3PreviewConfig {
   readonly container: HTMLElement;
   /** Truthful load progress (the bridge's `tl.load.progress`, ≤ 1 KiB). */
   readonly onProgress?: (phase: string, loadedBytes: number, totalBytes: number) => void;
+  /** Phase 25.24a: the page's start timings (stages, frames, scene loads); absent: none recorded. */
+  readonly timings?: StartTimings;
 }
 
 export interface M3PreviewHandle {
@@ -254,6 +258,7 @@ async function readDeclaredAssets(
   manifest: PreviewManifestV2,
   contentRoot: string,
   onProgress: (phase: string, loadedBytes: number, totalBytes: number) => void,
+  timings?: StartTimings,
 ): Promise<Map<string, ArrayBuffer>> {
   const bytesByKey = new Map<string, ArrayBuffer>();
   const totalBytes = manifest.assets.reduce((s, a) => s + (a.sourceByteLength ?? 0), 0);
@@ -269,6 +274,8 @@ async function readDeclaredAssets(
       throw new PreviewM3Error('asset_source_invalid', 'assets', `${row.assetId}: digest ${digest} !== manifest ${row.sourceDigest}`);
     }
     bytesByKey.set(`${row.assetId}@${row.version}`, res);
+    timings?.count('startAssetReads', 1);
+    timings?.count('startAssetBytes', raw.byteLength);
     loadedBytes += row.sourceByteLength ?? 0;
     onProgress('assets', loadedBytes, totalBytes);
   }
@@ -389,9 +396,11 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
  */
 export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHandle> {
   const onProgress = cfg.onProgress ?? (() => undefined);
+  const timings = cfg.timings;
 
   // 1. The manifest v2 (buildId-verified via WebCrypto; must also equal the
   //    handshake's expected build). L1 — phase `manifest`.
+  timings?.begin('manifest');
   const manifestRes = await readPreviewArtifact(cfg.contentRoot, 'manifest.json');
   const manifest = JSON.parse(new TextDecoder().decode(manifestRes)) as PreviewManifestV2;
   if (manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_3 || manifest.type !== 'thirdlight-runtime-content') {
@@ -404,6 +413,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const recomputed = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(preimage, null, 2)}\n`));
   if (recomputed !== manifest.buildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the verified capture');
   if (manifest.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
+  timings?.end('manifest', `${manifestRes.byteLength} B`);
 
   // 2. The bridge-delivered snapshot: verify its scene re-hashes to
   //    manifest.sceneDigest (§17.6). Phase 24.8: no game block to compare.
@@ -412,19 +422,42 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const authored: RuntimeSnapshot = bridged;
   const startOptions = startBlock !== undefined ? hostStartOf(startBlock) : undefined;
   const startVariables = startBlock?.variables;
+  timings?.begin('sceneCheck');
   const sceneDigest = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(authored.scene, null, 2)}\n`));
   if (sceneDigest !== manifest.sceneDigest) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot scene digest does not match manifest.sceneDigest');
   }
+  timings?.end('sceneCheck');
   // Phase 12 (b): the tag registry is the manifest's (bound by the buildId).
   if (!deepEqual(authored.tags ?? [], manifest.tags ?? [])) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot tags do not match the manifest tags');
   }
   // Phase 12 (c): the scene catalog (start scenes read once for their
   // members; the others load on demand through the host).
-  const catalog = manifest.scenes !== undefined
+  timings?.begin('startScenes');
+  const catalog0 = manifest.scenes !== undefined
     ? await prepareSceneCatalog(manifest.scenes, { read: (path) => readPreviewArtifact(cfg.contentRoot, path), sha256Hex })
     : null;
+  timings?.end('startScenes');
+  // Phase 25.24a: each scene loaded during play is timed (request, read, the frame that attaches it).
+  const catalog = catalog0 === null || timings === undefined
+    ? catalog0
+    : {
+        rows: catalog0.rows,
+        loadScene: (sceneId: string) => {
+          timings.sceneRequested(sceneId);
+          return catalog0.loadScene(sceneId).then(
+            (entities) => {
+              timings.sceneRead(sceneId, entities.length);
+              return entities;
+            },
+            (e: unknown) => {
+              timings.sceneFailed(sceneId, e instanceof Error ? e.message : String(e));
+              throw e;
+            },
+          );
+        },
+      };
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   // Phase 9.7: the animator controllers come from the verified manifest.
@@ -509,6 +542,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
         threadReason = 'the browser refused to start the worker: single thread';
       } else {
         // The worker composes the simulation while the page reads the assets (below).
+        timings?.begin('worker');
         remoteStart = startRemoteSimulation({
             worker,
             init: {
@@ -530,7 +564,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
             ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
             driver: 'raf',
           });
-        remoteStart.catch(() => undefined); // awaited below
+        remoteStart.then(() => timings?.end('worker'), () => timings?.end('worker', 'failed'));
       }
     }
 
@@ -539,7 +573,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     //    unverified bytes).
     let assetBytes: Map<string, ArrayBuffer>;
     try {
-      assetBytes = await readDeclaredAssets(manifest, cfg.contentRoot, onProgress);
+      timings?.begin('assets');
+      assetBytes = await readDeclaredAssets(manifest, cfg.contentRoot, onProgress, timings);
+      timings?.end('assets');
     } catch (e) {
       void remoteStart?.then((r) => r.dispose(), () => undefined);
       remoteStart = null;
@@ -566,6 +602,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       releases.push(() => void r.dispose());
     }
     let physics: RapierPhysicsPort | PhysicsPort3D | undefined;
+    if (remote === null && physicsConfig !== null) timings?.begin('physics');
     if (remote === null && physicsConfig !== null && 'dimension' in physicsConfig) {
       // Phase 23.0: the 3D backend (a separate script, loaded only for a 3D project).
       const backend = await loadPhysics3D(new URL(PREVIEW_PHYSICS_3D_PATH, location.href).href);
@@ -581,6 +618,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       const p = init.port;
       releases.push(() => p.dispose());
     }
+    if (physics !== undefined) timings?.end('physics');
     const relay = new RelayActionSource(browserInput);
     const input = {
       sample: (stepIndex: number) => relay.sample(stepIndex),
@@ -615,7 +653,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     // `current`, which the settle gate below reads after the mount.
     const adapterRef: { current: SceneAdapter | null } = { current: null };
     // The project's compiled behaviors (same-origin modules under the locator); in worker mode the worker links them.
+    if (remote === null && behaviorRows.length > 0) timings?.begin('behaviors');
     const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ `${cfg.contentRoot}${path}`));
+    if (remote === null && behaviorRows.length > 0) timings?.end('behaviors');
     const config: GameHostConfig = {
       snapshot,
       settings,
@@ -632,6 +672,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
           renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings) },
           // Phase 21.3: repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
+          // Phase 25.24a: the first frame, slow frames and scene attaches for the start timings.
+          ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           ...(models !== null
             ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
             : {}),
@@ -691,7 +733,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       globalThis.removeEventListener?.('keydown', unlockOnce);
     });
     releases.push(() => host.dispose());
+    timings?.begin('mount');
     const mount = host.mount();
+    timings?.end('mount');
     if (!mount.ok) {
       throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
     }
@@ -703,7 +747,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     //    `PreviewM3Error` carrying the adapter's accepted code — the host +
     //    physics are disposed so the in-flight/late loads are discarded (L9).
     if (models !== null && adapterRef.current !== null) {
+      timings?.begin('models');
       const settle = await adapterRef.current.modelsSettled?.();
+      timings?.end('models');
       if (settle === undefined || settle.ok === false) {
         const code = settle?.code ?? 'models_config_invalid';
         throw new PreviewM3Error(code, 'assets', `the model prepare hard-failed (${code}): ${settle?.message ?? 'no settle result'}`);
@@ -766,6 +812,9 @@ interface PreviewM3PageConfig {
  * Browser-only; the in-container-verified half is the Node play build.
  */
 export function bootstrapPreviewM3(): void {
+  // Phase 25.24a: the page's start timings, from its time origin (the bundle's download and evaluation first).
+  const timings = createStartTimings();
+  recordBundleTimings(timings);
   const cfg = (window as { __thirdlightPreview?: PreviewM3PageConfig }).__thirdlightPreview;
   const contentRoot = (window as { __thirdlightContentRoot?: string }).__thirdlightContentRoot ?? '/play-content/';
   if (!cfg || cfg.v !== 2 || cfg.playSessionId === null) {
@@ -816,6 +865,7 @@ export function bootstrapPreviewM3(): void {
   // sequence is handshake → ack → playContent.expect → snapshot; the editor
   // sends the snapshot only after the ack).
   bridge.on('tl.handshake', (m, event) => {
+    timings.end('handshake');
     trustedSource = event.source;
     const bid = (m as Record<string, unknown>).buildId;
     if (typeof bid === 'string') expectedBuildId = bid;
@@ -827,6 +877,7 @@ export function bootstrapPreviewM3(): void {
   bridge.on('tl.snapshot', (m) => {
     const snapshot = (m as { snapshot?: RuntimeSnapshot }).snapshot;
     if (snapshot === undefined) return;
+    timings.end('snapshot');
     const gen = ++generation;
     // A re-snapshot for the same play disposes the previous composition first
     // (the single active composition — delivery.md §3.2).
@@ -837,6 +888,7 @@ export function bootstrapPreviewM3(): void {
       snapshot,
       canvas,
       container,
+      timings,
       onProgress: (phase, loadedBytes, totalBytes) => {
         if (gen === generation) bridge.sendLoadProgress(playId, phase, loadedBytes, totalBytes);
       },
@@ -855,6 +907,7 @@ export function bootstrapPreviewM3(): void {
         // manifest contentDigest (64-hex), runtime stepIndex after the settle
         // pre-roll.
         const id = h.identity;
+        timings.end('ready');
         bridge.sendReady(playId, id.snapshotId, id.revision, id.buildId, id.contentDigest, id.stepIndex);
       })
       .catch((e) => {
@@ -924,6 +977,8 @@ export function bootstrapPreviewM3(): void {
           simulation: { ...h.threading },
           // Phase 23.10: the current game mode (the Play toolbar shows it).
           ...modeDiagnostics(h),
+          // Phase 25.24a: where this play's start went (stages, first frame, slow frames, scene loads).
+          startTimings: timings.report(),
         },
       });
     });
@@ -1072,6 +1127,22 @@ export function bootstrapPreviewM3(): void {
 // `game.js` for a v3 play is this bundle — the same role as the M2
 // `preview.js`/`preview-bootstrap.ts`).
 bootstrapPreviewM3();
+
+/**
+ * Phase 25.24a: the game bundle's own part of the start, from the browser's
+ * resource timing: its download (`bundleFetch`, with its size) and its parse
+ * and evaluation up to this bootstrap (`bundleEval`).
+ */
+function recordBundleTimings(timings: StartTimings): void {
+  const now = performance.now();
+  const entry = (performance.getEntriesByType?.('resource') ?? []).find((e) => /\/game\.js(\?|$)/.test(e.name)) as PerformanceResourceTiming | undefined;
+  if (entry === undefined) {
+    timings.record('bundle', 0, now);
+    return;
+  }
+  timings.record('bundleFetch', entry.startTime, entry.responseEnd, `${entry.transferSize} B over the wire, ${entry.decodedBodySize} B`);
+  timings.record('bundleEval', entry.responseEnd, now);
+}
 
 /** Phase 23.8: the resolved start block the backend puts on the bridged snapshot. */
 interface PlayStartBlock {

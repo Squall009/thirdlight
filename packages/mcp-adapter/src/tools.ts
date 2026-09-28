@@ -574,6 +574,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview; its renderer block names the backend ' +
       'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason); renderer.effects is the ' +
       'visual-effect player: executor webgpu|cpu with its caps, what plays, refused plays, unknown effect ids, per-effect executor and why an effect runs on the CPU on WebGPU. ' +
+      'startTimings is where the start went (stages in ms from the page\'s time origin, the first frame, slow frames after it, each scene loaded since) and buildTimings the backend\'s part. ' +
       'A play that ended answers play_not_found with ended {reason, presented, at, detail?} and why in the message; one that ended before it was presented is also in the problems.',
     inputSchema: {
       type: 'object',

@@ -119,6 +119,8 @@ export { PHYSICS_MEMORY_CAP_BYTES, TRANSFORM_STRIDE, type FrameState, type SimEn
 export { resolveThreadingMode, resolveTransport, threadingFromUrl, threadingLogLine, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
 export { TickInputSource, continueFrame, mergePhase } from './tick-input';
 export { stepDigest } from './step-digest';
+// Phase 25.24a: where a game page's start time goes (stages, first frame, slow frames, scene loads).
+export { createStartTimings, FRAME_WATCH_MS, SLOW_FRAME_MS, type FrameWatch, type SceneLoadTiming, type SlowFrame, type StartStage, type StartTimings, type StartTimingsReport } from './start-timings';
 export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, type DebugConsole, type DebugConsoleDeps } from './debug-console';
 export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
 export { RelayActionSource } from './relay-input';

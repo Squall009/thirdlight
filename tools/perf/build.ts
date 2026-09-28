@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto';
 
 import { multiPieceGlb } from '../../tests/e2e/multi-piece-glb';
+import { noisePng, sphereGlb } from './assets';
 import type { BenchPlan, EntityValue } from './generate';
 import type { PerfBackend } from './backend';
 
@@ -59,26 +60,35 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
     return p.command(op, args);
   };
 
+  // A file: staged, inspected and published like an imported file.
+  const publishFile = async (assetId: string, kind: 'model' | 'texture', displayName: string, bytes: Uint8Array): Promise<void> => {
+    const stageId = await be.stage(projectId, bytes);
+    const inspected = await be.post(`/api/v1/projects/${projectId}/content/stages/${stageId}/inspect`, { kind });
+    const proposal = inspected.json['proposal'] as Record<string, unknown> | undefined;
+    if (proposal === undefined) throw new Error(`${kind} inspect failed: ${JSON.stringify(inspected.json).slice(0, 400)}`);
+    await cmd('publishAsset', {
+      mode: 'create',
+      assetId,
+      kind,
+      displayName,
+      sourceDigest: proposal['sourceDigest'],
+      sourceByteLength: proposal['sourceByteLength'],
+      importRecipe: proposal['importRecipe'],
+      metrics: proposal['metrics'],
+      importedAt: importedAt(),
+    });
+    await be.discardStage(projectId, stageId);
+  };
+  // Phase 25.24a: the class's own texture and model files (before the materials that use them).
+  for (const f of plan.files.textures) await publishFile(f.assetId, 'texture', f.displayName, noisePng(f.seed, f.size));
+  for (const f of plan.files.models) await publishFile(f.assetId, 'model', f.displayName, sphereGlb(f.seed, f.segments, f.size));
+  if (plan.files.models.length + plan.files.textures.length > 0) log(`${plan.className}: ${plan.files.models.length} model files, ${plan.files.textures.length} textures`);
+
   for (const material of plan.materials) await cmd('setMaterial', { material });
   log(`${plan.className}: ${plan.materials.length} materials`);
 
-  // The model kit: staged, inspected and published like an imported file.
-  const glb = multiPieceGlb(plan.model.pieces);
-  const modelStage = await be.stage(projectId, glb);
-  const inspected = await be.post(`/api/v1/projects/${projectId}/content/stages/${modelStage}/inspect`, { kind: 'model' });
-  const proposal = inspected.json['proposal'] as Record<string, unknown> | undefined;
-  if (proposal === undefined) throw new Error(`model inspect failed: ${JSON.stringify(inspected.json).slice(0, 400)}`);
-  await cmd('publishAsset', {
-    mode: 'create',
-    assetId: plan.model.assetId,
-    kind: 'model',
-    displayName: plan.model.displayName,
-    sourceDigest: proposal['sourceDigest'],
-    sourceByteLength: proposal['sourceByteLength'],
-    importRecipe: proposal['importRecipe'],
-    metrics: proposal['metrics'],
-    importedAt: importedAt(),
-  });
+  // The model kit.
+  await publishFile(plan.model.assetId, 'model', plan.model.displayName, multiPieceGlb(plan.model.pieces));
 
   // Scripts: declaration, trust for the source digest, then the published source.
   for (const b of plan.behaviors) {
@@ -112,7 +122,7 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
   }
 
   for (const scene of plan.scenes.slice(1)) await cmd('createScene', { sceneId: scene.sceneId, name: scene.name });
-  if (plan.scenes.length > 1) await cmd('setStartScenes', { sceneIds: plan.scenes.map((s) => s.sceneId) });
+  if (plan.scenes.length > 1) await cmd('setStartScenes', { sceneIds: plan.startScenes });
 
   // Camera, player, spawn and a camera track following the player (phase 24.7: the game plays as a scene; the
   // track rig replaced the deleted game block's following camera).

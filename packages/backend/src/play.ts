@@ -136,6 +136,8 @@ export interface PlayRecord {
    * answer, not the scene.
    */
   snapshot: RuntimeSnapshotDoc | null;
+  /** Phase 25.24a: the backend's part of the start (ms per stage: session, state, capture, bundle, closure.*, publish, total). */
+  buildTimings?: Record<string, number>;
   /** Phase 21.4: the snapshot as JSON bytes, serialized once for the snapshot route (released with the snapshot). */
   snapshotBytes?: Uint8Array;
   demo: boolean;

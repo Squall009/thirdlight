@@ -14,7 +14,8 @@ import { extname, join, normalize } from 'node:path';
 
 import { chromium, type Browser, type Frame, type Page } from '@playwright/test';
 
-import { browserLaunchEnv } from '../../tests/e2e/browser-env.mjs';
+import { browserLaunchEnv, GPU_ARGS } from '../../tests/e2e/browser-env.mjs';
+import type { FrameWatch, SceneLoadTiming, StartTimingsReport } from '../../packages/game-host/src/start-timings';
 import type { PerfBackend } from './backend';
 import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
 import { measureEditorOps, type EditorOpsResult } from './editor-ops';
@@ -66,12 +67,67 @@ export interface SurfaceResult {
   threads?: 'worker' | 'off';
   /** Phase 22.0: the page's main-thread task time per rendered frame (ms) and its share of the window. */
   mainThread?: { taskMsPerFrame: number; busyShare: number };
+  /** Phase 25.24a (Play): where each Play's start went, the first Play first (a later one runs in the same editor page). */
+  starts?: PlayStartSplit[];
+  /** Phase 25.24a (Play): a scene loaded during the first Play (a class with scenes that do not start). */
+  sceneLoad?: SceneLoadTiming & { sceneId: string };
   notes: string[];
   loadavg: number[];
 }
 
-export async function launch(renderer: RendererName): Promise<Browser> {
-  return chromium.launch({ env: browserLaunchEnv() as Record<string, string>, args: [...GL_ARGS, ...(renderer === 'webgpu' || renderer === 'auto' ? WEBGPU_ARGS : []), ...MEASURE_ARGS] });
+/** Phase 25.24a: `gpu` draws on the host's GPU (ANGLE on Vulkan, a real WebGPU adapter) instead of SwiftShader. */
+export async function launch(renderer: RendererName, gpu = false): Promise<Browser> {
+  const args = gpu ? [...GPU_ARGS, ...MEASURE_ARGS] : [...GL_ARGS, ...(renderer === 'webgpu' || renderer === 'auto' ? WEBGPU_ARGS : []), ...MEASURE_ARGS];
+  return chromium.launch({ env: browserLaunchEnv() as Record<string, string>, args });
+}
+
+/**
+ * Phase 25.24a: one Play start split into its stages, every time in ms from
+ * the click on Play: the request to the backend (its own stages in
+ * `backend`), the editor handing the play to a new preview page, and the
+ * preview's stages (bundle, manifest, assets, worker, mount, models, ready),
+ * then the first frame and the slow frames after it.
+ */
+export interface PlayStartSplit {
+  /** Click → the play-start response. */
+  responseMs: number;
+  /** The backend's stages (ms each: session, state, capture, bundle, closure.*, publish, total). */
+  backend: Record<string, number> | null;
+  /** Click → the preview page's time origin (its navigation start). */
+  pageMs: number | null;
+  /** The preview's stages, from the click. */
+  stages: { name: string; startMs: number; endMs: number | null; note?: string }[];
+  readyMs: number | null;
+  firstFrameMs: number | null;
+  /** Frames in the 10 s after the first frame (over 50/100/250 ms, the worst). */
+  afterFirstFrame: FrameWatch | null;
+  counts: Record<string, number>;
+}
+
+function splitOf(clickEpoch: number, responseEpoch: number, backend: Record<string, number> | null, t: StartTimingsReport | undefined): PlayStartSplit {
+  const r1 = (v: number): number => Math.round(v * 10) / 10;
+  if (t === undefined) return { responseMs: responseEpoch - clickEpoch, backend, pageMs: null, stages: [], readyMs: null, firstFrameMs: null, afterFirstFrame: null, counts: {} };
+  const off = t.epochMs - clickEpoch;
+  const at = (v: number | null): number | null => (v === null ? null : r1(v + off));
+  const ready = t.stages.find((s) => s.name === 'ready')?.endMs ?? null;
+  return {
+    responseMs: responseEpoch - clickEpoch,
+    backend,
+    pageMs: r1(off),
+    stages: t.stages.map((s) => ({ name: s.name, startMs: r1(s.startMs + off), endMs: at(s.endMs), ...(s.note !== undefined ? { note: s.note } : {}) })),
+    readyMs: at(ready),
+    firstFrameMs: at(t.firstFrameMs),
+    afterFirstFrame: t.afterFirstFrame,
+    counts: { ...t.counts },
+  };
+}
+
+/** Phase 25.24a: the split in one line for the log. */
+export function splitLine(s: PlayStartSplit): string {
+  const d = (x: { startMs: number; endMs: number | null }): string => (x.endMs === null ? `${x.startMs}…` : `${Math.round(x.endMs - x.startMs)}`);
+  const stages = s.stages.map((x) => `${x.name} ${d(x)}${x.endMs !== null ? `@${Math.round(x.endMs)}` : ''}`).join(', ');
+  const f = s.afterFirstFrame;
+  return `response ${s.responseMs} (backend ${s.backend === null ? '-' : Object.entries(s.backend).map(([k, v]) => `${k} ${v}`).join(', ')}), page ${s.pageMs ?? '-'}, ${stages}; ready ${s.readyMs ?? '-'}, first frame ${s.firstFrameMs ?? '-'}; after it ${f === null ? '-' : `${f.frames} frames, ${f.over50} > 50 ms, ${f.over250} > 250 ms, worst ${f.worst.map((w) => w.ms).join('/')}`}`;
 }
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.bin': 'application/octet-stream' };
@@ -163,8 +219,12 @@ async function recordWithMainThread(page: Page, target: Page | Frame, opts: Surf
   return { sample, mainThread: { taskMsPerFrame: Math.round((taskMs / frames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 } };
 }
 
-/** Play: the editor's isolated preview (iframe), started through the play relay. */
-export async function measurePlay(browser: Browser, be: PerfBackend, projectId: string, renderer: RendererName, opts: SurfaceOptions, threads: 'worker' | 'off' = 'worker'): Promise<SurfaceResult> {
+/**
+ * Play: the editor's isolated preview (iframe), started through the play relay.
+ * Phase 25.24a: `plays` Plays in the same editor page (each one's start split
+ * in `starts`), and `sceneLoad`: a scene loaded during the first one.
+ */
+export async function measurePlay(browser: Browser, be: PerfBackend, projectId: string, renderer: RendererName, opts: SurfaceOptions, threads: 'worker' | 'off' = 'worker', extra: { plays?: number; sceneLoad?: string } = {}): Promise<SurfaceResult> {
   const context = await browser.newContext({ viewport: opts.viewport });
   await context.addInitScript(installPerfInstrumentation);
   const page = await context.newPage();
@@ -173,28 +233,73 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
   try {
     await page.goto(`${be.origin}/?project=${projectId}&renderer=${renderer}${threads === 'off' ? '&threads=off' : ''}#token=${be.token}`);
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 120_000 });
-    const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 60_000 });
-    const t0 = Date.now();
-    await page.getByTitle('Start an isolated play preview').click();
-    const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
-    // The editor mounts the preview iframe once the backend's play.started message (with the snapshot) arrives.
-    const frame = await poll(async () => page.frames().find((f) => f.url().startsWith(be.previewOrigin)), (f) => f !== undefined, 90_000, 'the preview iframe (the play.started message never reached the editor)');
-    await poll(async () => (await relay(`${psid}/observe`)).json['state'], (s) => s === 'running', 180_000, 'the play preview');
-    const readyMs = Date.now() - t0;
-    const firstEpoch = await poll(async () => frame!.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the first Play frame');
+    type Diag = { diagnostics?: { renderer?: { gpu?: { geometries: number; textures: number; programs: number } }; startTimings?: StartTimingsReport }; buildTimings?: Record<string, number> };
+    /** Start a Play and wait for its first frame (the preview frame, its id, when it was clicked and answered). */
+    const startPlay = async (): Promise<{ frame: Frame; psid: string; t0: number; responseEpoch: number; readyMs: number; firstEpoch: number }> => {
+      const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 120_000 });
+      const before = new Set(page.frames());
+      const t0 = Date.now();
+      await page.getByTitle('Start an isolated play preview').click();
+      const response = await started;
+      const responseEpoch = Date.now();
+      const psid = String(((await response.json()) as { playSessionId: string }).playSessionId);
+      // The editor mounts the preview iframe once the backend's play.started message (with the snapshot) arrives.
+      const frame = await poll(async () => page.frames().find((f) => !before.has(f) && f.url().startsWith(be.previewOrigin)), (f) => f !== undefined, 90_000, 'the preview iframe (the play.started message never reached the editor)');
+      await poll(async () => (await relay(`${psid}/observe`)).json['state'], (s) => s === 'running', 180_000, 'the play preview');
+      const readyMs = Date.now() - t0;
+      const firstEpoch = await poll(async () => frame!.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the first Play frame');
+      return { frame: frame!, psid, t0, responseEpoch, readyMs, firstEpoch: firstEpoch! };
+    };
+    /** The start split, once the 10 s frame watch after the first frame is over. */
+    const splitFor = async (p: { psid: string; t0: number; responseEpoch: number; firstEpoch: number }): Promise<{ split: PlayStartSplit; diag: Diag }> => {
+      const wait = p.firstEpoch + 10_500 - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      const diag = (await relay(`${p.psid}/diagnostics`)).json as Diag;
+      return { split: splitOf(p.t0, p.responseEpoch, diag.buildTimings ?? null, diag.diagnostics?.startTimings), diag };
+    };
+    const stopPlay = async (psid: string): Promise<void> => {
+      await page.getByTitle('Stop the play preview').click().catch(() => undefined);
+      await poll(async () => (await relay(`${psid}/observe`)).status, (st) => st === 404, 30_000, 'the play to stop').catch(() => undefined);
+    };
+
+    const first = await startPlay();
     await new Promise((r) => setTimeout(r, opts.warmupMs));
-    const { sample, mainThread } = await recordWithMainThread(page, frame!, opts);
+    const { sample, mainThread } = await recordWithMainThread(page, first.frame, opts);
     const la = await loadavg();
-    const diag = (await relay(`${psid}/diagnostics`)).json['diagnostics'] as { renderer?: { gpu?: { geometries: number; textures: number; programs: number } } } | undefined;
+    const { split, diag: firstDiag } = await splitFor(first);
     // Phase 24.7: the benchmark plays as a scene (the play state: running).
-    const observed = (await relay(`${psid}/observe`)).json as { state?: string };
+    const observed = (await relay(`${first.psid}/observe`)).json as { state?: string };
     const state = String(observed.state);
-    const out = result('play', renderer, sample, { firstFrameMs: firstEpoch! - t0, readyMs }, notes, la);
+    const out = result('play', renderer, sample, { firstFrameMs: first.firstEpoch - first.t0, readyMs: first.readyMs }, notes, la);
+    const diag = firstDiag.diagnostics;
     if (diag?.renderer?.gpu !== undefined) out.three = diag.renderer.gpu;
     out.state = state;
     out.threads = threads;
     if (mainThread !== undefined) out.mainThread = mainThread;
-    await page.getByTitle('Stop the play preview').click().catch(() => undefined);
+    out.starts = [split];
+    if (extra.sceneLoad !== undefined) {
+      // Phase 25.24a: a scene that does not start, loaded like a script's ctx.scenes.load.
+      const sceneId = extra.sceneLoad;
+      const asked = await relay(`${first.psid}/control`, { command: 'loadScene', sceneId });
+      if (asked.status !== 200) notes.push(`loadScene ${sceneId} refused: ${JSON.stringify(asked.json).slice(0, 200)}`);
+      else {
+        await poll(async () => ((await relay(`${first.psid}/observe`)).json as { scenes?: { loaded?: string[] } }).scenes?.loaded ?? [], (l) => l.includes(sceneId), 120_000, `scene ${sceneId} to load`).catch((e: Error) => notes.push(e.message));
+        await new Promise((r) => setTimeout(r, 6_000));
+        const d = (await relay(`${first.psid}/diagnostics`)).json as Diag;
+        const load = d.diagnostics?.startTimings?.sceneLoads.find((l) => l.sceneId === sceneId);
+        if (load !== undefined) {
+          // From the request (ms), like the start split.
+          const rel = (v: number | null): number | null => (v === null ? null : Math.round((v - load.requestedMs) * 10) / 10);
+          out.sceneLoad = { ...load, readMs: rel(load.readMs), attachedMs: rel(load.attachedMs), after: load.after };
+        }
+      }
+    }
+    await stopPlay(first.psid);
+    for (let n = 1; n < (extra.plays ?? 1); n += 1) {
+      const again = await startPlay();
+      out.starts.push((await splitFor(again)).split);
+      await stopPlay(again.psid);
+    }
     return out;
   } finally {
     await context.close();

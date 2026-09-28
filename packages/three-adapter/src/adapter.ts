@@ -152,6 +152,12 @@ export interface SceneAdapterOptions {
    * draw per object, as before (tests compare the two).
    */
   batching?: boolean;
+  /**
+   * Phase 25.24a: called after each drawn frame, with the scenes that frame
+   * attached (loaded scenes realized in it). The page's start and scene-load
+   * timings read it; absent: nothing is called.
+   */
+  onFrameDrawn?: (info: FrameDrawnInfo) => void;
   effects?: {
     readonly defs: readonly EffectDefLike[];
     readonly wind?: EffectsPlayerOptions['wind'];
@@ -159,6 +165,16 @@ export interface SceneAdapterOptions {
     /** A model asset's scene (mesh particles, mesh-surface shapes). */
     readonly loadModel?: (assetId: string) => Promise<THREE.Object3D | null>;
   };
+}
+
+/** Phase 25.24a: what `onFrameDrawn` reports for a drawn frame. */
+export interface FrameDrawnInfo {
+  /** The scenes this frame attached (loaded scenes realized in it). */
+  readonly realizedScenes: readonly string[];
+  /** How long this frame's render call took (sync, update, draw; ms). */
+  readonly renderMs: number;
+  /** When the first render call of this adapter began (ms, `performance.now()`); frames before the renderer was ready were skipped. */
+  readonly firstCallAt: number;
 }
 
 /** Adapter diagnostics block (runtime.md §8, separate block; the M3
@@ -1087,6 +1103,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realizedRevision = set.revision;
     }
   }
+  /** Phase 25.24a: the scenes realized since the last drawn frame (for `onFrameDrawn`). */
+  const frameRealized: string[] = [];
   function syncSceneSet(): void {
     const set = opts.runtime.sceneSet?.();
     if (set === undefined || set.revision === realizedRevision) return;
@@ -1107,6 +1125,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const e of entities) realizeEntity(e);
       realizedScenes.set(b.sceneId, new Set(entities.map((e) => e.id)));
       realization?.addEntities(modelRefsOf(entities));
+      frameRealized.push(b.sceneId);
     }
     syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
   }
@@ -1255,8 +1274,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera.far = lens.far;
   }
 
+  /** Phase 25.24a: when the first render call began (for `onFrameDrawn`). */
+  let firstRenderCallAt: number | null = null;
   function renderFrame(): { ok: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
+    const renderStart = opts.onFrameDrawn !== undefined ? performance.now() : 0;
+    if (firstRenderCallAt === null) firstRenderCallAt = renderStart;
     if (contextLost) {
       // The context is currently lost: render nothing (three.js re-initializes
       // its own GL state on `webglcontextrestored`, which clears this flag).
@@ -1490,6 +1513,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
     lastFrameDrawn = true;
+    if (opts.onFrameDrawn !== undefined) {
+      const realized = frameRealized.splice(0);
+      try {
+        opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart });
+      } catch {
+        /* a timing hook never breaks a frame */
+      }
+    }
     return { ok: true };
   }
 

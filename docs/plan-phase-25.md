@@ -157,7 +157,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.4 | done 2026-09-28: static colliders sharing a face or overlapping act as one surface for the 2D character (no ground or hang at seams: port, integration and Play tests); D46 (left-wall hold) and D47 (polygon mover push fail-stop) fixed; replay fixtures unchanged |
 | 25.5 | done 2026-09-28: `ended` reproduced as seen by scripts (main thread, worker, no physics/2D/3D, modes, real Play) — TL-17 did not reproduce, tests kept as guards; an ended play's routes answer `play_not_found` with `ended {reason, presented, at, detail?}`, unpresented ends listed in problems |
 | 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
-| 25.7–25.24 | — |
+| 25.24a | done 2026-09-28: stage timings in Play diagnostics (`startTimings`: bundle, manifest, start scenes, worker, assets, mount, models, ready, renderer init, first render, slow frames after; per scene load) and the backend's (`buildTimings`, `closure.*`); perf harness `--plays N --gpu`, an asset-heavy class; before split in §6 |
+| 25.7–25.23, 25.24b–h | — |
 
 ## 6. Decision log
 
@@ -295,3 +296,55 @@ boundary it changes (Playwright for any editor surface).
   evicts the headless editor. Not done: a socket replaced by a re-attach
   still leaves its play running (the backend can't tell a page reload from
   the same page reconnecting); it ends by the present timeout or the TTL.
+- 2026-09-28 (25.24a): the start is measured, not guessed. The preview
+  records stages from its page's time origin (`diagnostics.startTimings`:
+  stages that may overlap, the first frame, the frames in the 10 s after it,
+  and each scene loaded during play: request, read, the frame that attached
+  it, the frames after); the backend records its part of the start
+  (`buildTimings`, also in the play-start response as `timings`). The
+  renderer reports each drawn frame through an optional adapter hook
+  (`onFrameDrawn`), which also splits the wait for the first frame into
+  `rendererInit` (the first render call until the renderer is ready) and
+  `firstRender` (the first drawn frame's own call). The perf harness runs
+  Plays in the same editor page (`--plays N`; the second and later are the
+  "warm" case of the acceptance), draws on the host's GPU with `--gpu`, and
+  has an asset-heavy class (48 distinct model files of ~0.5 MB, each with
+  its own texture, and 24 textures of ~1 MB on 24 materials; four scenes,
+  one starts). **Before split** (GPU host, Iris Xe, renderer `auto` =
+  WebGPU, simulation worker; ms from the click on Play, Plays 2–3; Play 1
+  in brackets where it differs; `tools/perf/run.mjs --classes
+  small,large,asset-heavy --surfaces play --renderers auto --gpu --plays 3`):
+
+  | Stage | small | large (16 000 entities, 10 scenes) | asset-heavy |
+  |---|---|---|---|
+  | Play-start response (backend total) | 105–111 (36–47) | 1 110–1 170 (980–1 060) | 185–200 (118–134) |
+  | backend: closure view / scenes / manifest / assets / behaviors | 8–13 / 3–4 / 3 / 0 / 12 | 273–278 / 333–366 / 340–379 / 0 / 12–14 | 29–36 / 25–28 / 9–10 / 33–34 / 11–14 |
+  | click → preview page starts | 104–112 | 1 155–1 203 | 185–203 |
+  | bundle fetch + eval (8.8 MB `game.js`, per-Play URL) | 48–55 + 57–61 | 50–76 + 56–64 | 51 + 56–58 |
+  | manifest read + verify | 3–4 | 5–9 | 4–8 |
+  | scene re-serialize + hash (`sceneCheck`, 25.24g) | 0 | 66–67 | 1 |
+  | start scene files | 3–4 | 91–94 | 3–8 |
+  | worker start (overlaps the reads) | 105–115 | 455–474 | 126–141 |
+  | asset reads (every asset, one at a time) | 3–4 (1 file) | 6–7 (1 file) | 267–295 [408] (73 files, 35 MB) |
+  | host mount | 8–9 | 152–200 | 15 |
+  | models settle | 7 | 262–329 | 38–46 |
+  | ready | 373–376 | 2 480–2 485 | 664–693 [1 211] |
+  | renderer init (first render call → ready) | 23–25 | 31–38 | 32–33 |
+  | first drawn frame's own call | 123–127 | **4 464–4 546** | 304–327 |
+  | first frame | 551–552 | **7 123–7 221** | 1 035–1 044 [1 535] |
+  | frames > 50 ms in the 10 s after (worst) | 0 | 91–102 of 102–111 (366–385) | 1 (56–60) |
+  | scene load (scene 2 of 4, 294 entities): read / attach frame / slow after | — | — | 8 / 63 / 0 |
+
+  What it says for the next steps: the large project's first frame waits
+  4.5 s on its own first render call (pipeline and first-draw work), which
+  is 63 % of its 7.2 s; that is 25.24d's target (and f's). The backend's
+  closure is the next second (view, scenes and manifest serialization and
+  hashing each ~0.3 s), 25.24c's target; the worker start (0.45 s) overlaps
+  the reads. Asset reads matter only where there are many assets (asset
+  heavy: 0.27–0.4 s of ~1.04 s, all 73 files though only a quarter belong to
+  the start scene), which is 25.24b's target. The bundle costs ~0.1 s per
+  Play on this host (localhost; more over a LAN), 25.24c/g. The large
+  class's frames after the first are its steady frame time on this GPU
+  (~50 ms at 583 draws), not a start effect; the start's own stall shows as
+  the one 370–385 ms frame. A scene loaded later is cheap here (its assets
+  were already read at start).

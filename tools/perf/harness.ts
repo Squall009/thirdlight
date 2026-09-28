@@ -16,7 +16,7 @@ import { join } from 'node:path';
 
 import { BENCH_CLASSES, BUDGETS, type BenchClass } from './classes';
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
-import { launch, measureCalibration, measureEditor, measureExport, measurePlay, type RendererName, type SurfaceOptions, type SurfaceResult } from './browser';
+import { launch, measureCalibration, measureEditor, measureExport, measurePlay, splitLine, type RendererName, type SurfaceOptions, type SurfaceResult } from './browser';
 import { buildBenchmark, type BuildResult } from './build';
 import type { EditorOpsResult } from './editor-ops';
 import { DEFAULT_SEED, GENERATOR_VERSION, generate } from './generate';
@@ -39,6 +39,10 @@ export interface HarnessOptions {
   commands: number;
   simSteps: number;
   viewport: { width: number; height: number };
+  /** Phase 25.24a: Plays per class and renderer (the second and later reuse the editor page); each start is split into stages. */
+  plays: number;
+  /** Phase 25.24a: draw on the host's GPU instead of SwiftShader. */
+  gpu: boolean;
   keep: boolean;
   out?: string;
   log: (s: string) => void;
@@ -100,6 +104,8 @@ export function parseArgs(argv: readonly string[]): Omit<HarnessOptions, 'log'> 
     commands: Number(get('commands') ?? (quick ? 10 : 40)),
     simSteps: Number(get('sim-steps') ?? (quick ? 240 : 1200)),
     viewport: { width: vw ?? 1280, height: vh ?? 720 },
+    plays: Number(get('plays') ?? 1),
+    gpu: argv.includes('--gpu'),
     keep: argv.includes('--keep'),
     ...(get('out') !== undefined ? { out: get('out') } : {}),
   };
@@ -222,7 +228,7 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
   try {
     if (needBrowser) {
       for (const r of opts.renderers) {
-        const b = await launch(r);
+        const b = await launch(r, opts.gpu);
         browsers.set(r, b);
         calibration.browser[r] = await measureCalibration(b, surf);
         opts.log(`perf: browser calibration (${r}) frame mean ${calibration.browser[r]!.frameMs.mean} ms`);
@@ -265,9 +271,16 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
           for (const threads of opts.threads) {
             if (opts.surfaces.includes('play')) {
               await attempt(`play threads=${threads}`, async () => {
-                const s = await measurePlay(browser, be, 'bench', r, surf, threads);
+                // Phase 25.24a: a scene that does not start is loaded once during the first Play.
+                const later = plan.scenes.find((sc) => !plan.startScenes.includes(sc.sceneId))?.sceneId;
+                const s = await measurePlay(browser, be, 'bench', r, surf, threads, { plays: opts.plays, ...(later !== undefined ? { sceneLoad: later } : {}) });
                 bench.surfaces.push(s);
                 opts.log(`perf: ${cls} play (${r}, threads=${threads}) frame mean ${s.frameMs.mean} ms p95 ${s.frameMs.p95} ms, ${s.drawCalls.p50} draws${mt(s)}, load ${s.loadavg[0]}`);
+                (s.starts ?? []).forEach((st, i) => opts.log(`perf: ${cls} play start ${i + 1} (${r}): ${splitLine(st)}`));
+                if (s.sceneLoad !== undefined) {
+                  const l = s.sceneLoad;
+                  opts.log(`perf: ${cls} scene load ${l.sceneId} (${r}): read ${l.readMs ?? '-'} ms (${l.entities ?? '-'} entities), attached ${l.attachedMs ?? '-'} ms in a ${l.attachFrameMs ?? '-'} ms frame; after it ${l.after.frames} frames, ${l.after.over50} > 50 ms, ${l.after.over250} > 250 ms, worst ${l.after.worst.map((w) => w.ms).join('/')}`);
+                }
               });
             }
             if (opts.surfaces.includes('export') && exportDir !== null) {
@@ -316,7 +329,7 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
       reportVersion: 1,
       startedAt,
       finishedAt: new Date().toISOString(),
-      machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length, memGiB: Math.round(totalmem() / 2 ** 30), node: process.version, gpu: 'none: Chromium SwiftShader (CPU) for WebGL 2 and WebGPU', loadavgStart: loadStart, loadavgEnd: la() },
+      machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length, memGiB: Math.round(totalmem() / 2 ** 30), node: process.version, gpu: opts.gpu ? 'the host GPU (ANGLE on Vulkan; WebGPU on the same device)' : 'none: Chromium SwiftShader (CPU) for WebGL 2 and WebGPU', loadavgStart: loadStart, loadavgEnd: la() },
       commit,
       generatorVersion: GENERATOR_VERSION,
       options,

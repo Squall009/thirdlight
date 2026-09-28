@@ -147,6 +147,12 @@ export interface ContentClosureM3Input {
   scenes?: readonly unknown[];
   /** Phase 12 (c): the scenes the game starts with. */
   startScenes?: readonly string[];
+  /**
+   * Phase 25.24a: where the build's time goes (Play's start timings). The
+   * caller's clock: the closure itself reads none, and the output never
+   * depends on it. Stages: view, behaviors, assets, scenes, rigs, manifest.
+   */
+  timings?: { readonly now: () => number; readonly add: (stage: string, ms: number) => void };
 }
 
 export interface ContentClosureM3 {
@@ -337,6 +343,14 @@ async function compileReachableBehaviors(
  */
 export async function buildContentClosureM3(input: ContentClosureM3Input): Promise<{ ok: true; closure: ContentClosureM3 } | { ok: false; error: ContentClosureError }> {
   const { service, projectId } = input;
+  // Phase 25.24a: stage times on the caller's clock (none when it gives none).
+  let stageAt = input.timings?.now() ?? 0;
+  const stage = (name: string): void => {
+    if (input.timings === undefined) return;
+    const t = input.timings.now();
+    input.timings.add(name, t - stageAt);
+    stageAt = t;
+  };
 
   // 1. The captured v3 content view (project-model §19 v3) — reachable
   //    kind-tagged assets, the resolved settings, contentDigest.
@@ -379,11 +393,13 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
   const moduleIds = modulesRes.moduleIds;
 
+  stage('view');
   // 4. The reachable source-bearing behaviors (compiled like the M2 closure);
   //    the game host links them as runtime modules.
   const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId, ((input.content as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries ?? []) as ScriptLibrary[]);
   if (!compiledBehaviors.ok) return compiledBehaviors;
   const { behaviorArtifacts, behaviorInputs, behaviors } = compiledBehaviors;
+  stage('behaviors');
 
   // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
   const assetArtifacts: ClosureArtifact[] = [];
@@ -442,6 +458,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     });
   }
 
+  stage('assets');
   // 5b. Phase 12 (c): every scene of a v4 project as its own artifact, and the
   //     instance-set buffers (verified digest-addressed reads).
   const sceneArtifacts: ClosureArtifact[] = [];
@@ -472,10 +489,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     }
   }
 
+  stage('scenes');
   // 5c. Phase 23.11: the model rigs, only when the project uses sockets (a socketAttach component in a scene
   //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
   const rigs = usesSockets(input.scenes, prefabDefs, behaviorArtifacts) ? modelRigs(view.assets, modelBytes) : undefined;
 
+  stage('rigs');
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneDoc = input.scene;
   const sceneBytes = new TextEncoder().encode(`${JSON.stringify(sceneDoc, null, 2)}\n`);
@@ -542,6 +561,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     return { ok: false, error: { code: 'export_manifest_invalid', cls: 'validation', message: captured.error.message, reason: captured.error.reason } };
   }
 
+  stage('manifest');
   assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviors.sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));

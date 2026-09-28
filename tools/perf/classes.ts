@@ -3,11 +3,13 @@
  * numbers as docs/plan-phase-21.md §2 "Budgets"). Classes are generic scene
  * sizes — a small level, a medium level, a large multi-scene world, a
  * script-heavy and an effect-heavy scene — never a particular game.
+ * Phase 25.24a: and an asset-heavy world (many distinct model files and
+ * textures, one start scene of four), for Play-start and scene-load timings.
  */
 
-export type BenchClass = 'small' | 'medium' | 'large' | 'script-heavy' | 'effect-heavy';
+export type BenchClass = 'small' | 'medium' | 'large' | 'script-heavy' | 'effect-heavy' | 'asset-heavy';
 
-export const BENCH_CLASSES: readonly BenchClass[] = ['small', 'medium', 'large', 'script-heavy', 'effect-heavy'];
+export const BENCH_CLASSES: readonly BenchClass[] = ['small', 'medium', 'large', 'script-heavy', 'effect-heavy', 'asset-heavy'];
 
 export interface ClassSpec {
   name: BenchClass;
@@ -27,6 +29,19 @@ export interface ClassSpec {
   models: number;
   /** Point lights (the sun and the ambient light come with every project); the loaded scenes together hold at most 16. */
   pointLights: number;
+  /**
+   * Phase 25.24a: distinct model files (absent: the one benchmark kit). Each is
+   * a textured sphere of `modelSegments`² quads with a `modelTextureSize`²
+   * embedded texture; a scene's props use the files dealt to that scene.
+   */
+  modelFiles?: number;
+  modelSegments?: number;
+  modelTextureSize?: number;
+  /** Phase 25.24a: texture files (`textureSize`²), one per material (absent: untextured materials). */
+  textureFiles?: number;
+  textureSize?: number;
+  /** Phase 25.24a: how many scenes start (absent: all); the others load on demand. */
+  startScenes?: number;
 }
 
 export const CLASS_SPECS: Readonly<Record<BenchClass, ClassSpec>> = {
@@ -37,6 +52,8 @@ export const CLASS_SPECS: Readonly<Record<BenchClass, ClassSpec>> = {
   large: { name: 'large', entities: 16000, scenes: 10, materials: 50, effects: 20, particlesPerEffect: 500, scriptInstances: 50, instanceSets: 4, copiesPerSet: 50000, models: 5500, pointLights: 16 },
   'script-heavy': { name: 'script-heavy', entities: 600, scenes: 1, materials: 8, effects: 1, particlesPerEffect: 200, scriptInstances: 500, instanceSets: 1, copiesPerSet: 1000, models: 20, pointLights: 2 },
   'effect-heavy': { name: 'effect-heavy', entities: 100, scenes: 1, materials: 4, effects: 20, particlesPerEffect: 2500, scriptInstances: 4, instanceSets: 1, copiesPerSet: 1000, models: 10, pointLights: 2 },
+  // 48 model files (~0.6 MB each) and 24 textures (~1 MB each) over four scenes; only the first starts.
+  'asset-heavy': { name: 'asset-heavy', entities: 1200, scenes: 4, materials: 24, effects: 1, particlesPerEffect: 200, scriptInstances: 4, instanceSets: 1, copiesPerSet: 1000, models: 400, pointLights: 4, modelFiles: 48, modelSegments: 96, modelTextureSize: 256, textureFiles: 24, textureSize: 512, startScenes: 1 },
 };
 
 /**
@@ -65,4 +82,6 @@ export const BUDGETS: Readonly<Record<BenchClass, ClassBudget>> = {
   large: { playFrameP95Ms: 16.6, editorOrbitFrameP95Ms: 16.6, playHeapMiB: 384, editorHeapMiB: 768, gpuMiB: 512, exportFirstFrameMs: 6000, editorFirstFrameMs: 15000, playDrawCalls: 1500, simStepP95Ms: 2, simBytesPerStep: 0, commandP95Ms: 250 },
   'script-heavy': { playFrameP95Ms: 16.6, editorOrbitFrameP95Ms: 16.6, playHeapMiB: 128, editorHeapMiB: 192, gpuMiB: 128, exportFirstFrameMs: 2000, editorFirstFrameMs: 4000, playDrawCalls: 700, simStepP95Ms: 2, simBytesPerStep: 0, commandP95Ms: 75 },
   'effect-heavy': { playFrameP95Ms: 16.6, editorOrbitFrameP95Ms: 16.6, playHeapMiB: 128, editorHeapMiB: 192, gpuMiB: 256, exportFirstFrameMs: 2000, editorFirstFrameMs: 4000, playDrawCalls: 200, simStepP95Ms: 1, simBytesPerStep: 0, commandP95Ms: 50 },
+  // Phase 25.24a: the files dominate (heap and GPU memory hold the decoded meshes and textures).
+  'asset-heavy': { playFrameP95Ms: 16.6, editorOrbitFrameP95Ms: 16.6, playHeapMiB: 256, editorHeapMiB: 384, gpuMiB: 512, exportFirstFrameMs: 4000, editorFirstFrameMs: 6000, playDrawCalls: 700, simStepP95Ms: 1, simBytesPerStep: 0, commandP95Ms: 75 },
 };
