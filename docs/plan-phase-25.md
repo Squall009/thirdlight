@@ -93,8 +93,9 @@ services.
 
 ## 4. Items
 
-Order: bugs → limits → scene lighting → scripting → movement → tools →
-rendering and terrain. Each item keeps the gate green and has tests at the
+Order: bugs → Play-start speed (25.24) → limits → scene lighting →
+scripting → movement → tools → rendering and terrain → the project window
+(25.23). Each item keeps the gate green and has tests at the
 boundary it changes (Playwright for any editor surface).
 
 | Item | What | Requests |
@@ -129,6 +130,9 @@ boundary it changes (Playwright for any editor surface).
 | 25.20 | Block layers: sloped terrain (corner heights, slope and wall meshing, `ctx.grid` surface queries, height and smooth brushes, a `maxSlope` setting); lightmaps and chunk LOD on block layers (phase 23 leftovers). | E39, E8 |
 | 25.21 | A painted terrain material: 4 height-blended PBR slots packed into 3 compressed texture arrays, paint and wetness stored with the layer, and an editor Paint mode. Needs 25.19 and 25.20. | E40 |
 | 25.22 | Small UI and content items: a bindable `startAngle` and `size` on UI widgets, and an art-factory import route. The route reads a job's export, not the art-factory repo. | E32, E18 |
+| **Editor quality of life** | | |
+| 25.23 | **A project window with folders.** Today the asset browser is one flat list with no search, filter or sort. Materials, prefabs, scripts, UI documents, timelines, dialogue, effects and animators each live in their own panel.<br>• **Folders** for every project resource kind (assets, prefabs, materials and functions, behaviors and libraries, graphs, UI documents and themes, timelines, dialogue, effects, animators). They are nested and can be renamed.<br>• **Drag and drop:** resources and folders can be dragged between folders; multi-select, cut, paste and "new folder" work too. The existing drop targets stay: Scene view, Inspector fields, Hierarchy.<br>• **Browsing:** search by name, filter by kind, sort, grid or list view with a tile-size slider, a breadcrumb, and a virtualized list so thousands of items scroll smoothly.<br>• **Opening items:** a double-click opens the resource's editor (material, timeline, UI document and so on); the per-kind panels remain as views.<br>• **Imports** from a game folder default to a folder mirroring the file's path.<br>• **Storage:** folders are organization data only. They live in the project content and change through commands (`setResourceFolders` and a `moveResources` op) with undo, so MCP can organize them too. They are left out of the play manifest and the buildId, so moving an item never changes a build.<br>A Playwright test covers creating a folder, dragging an asset into it, search, and reload. | owner |
+| 25.24 | **Faster Play start and scene loads.** Today every Play starts cold. The backend recompiles every behavior with esbuild and re-reads and re-hashes every asset. A new iframe re-downloads the 8.8 MB game bundle under a per-Play URL. `readDeclaredAssets` (`preview-m3.ts:252`) fetches and hashes **every asset of every scene, one at a time**, before mount. No pipelines are precompiled (no `compileAsync`), so the first frames stall; the large bench shows a 3.3 s frame. A runtime scene load does all its `addBatch` work in one step, then parses GLBs and compiles pipelines on first draw, with no preloading and no loading state. The large bench measured 4.5 s to first frame; asset-heavy real projects are unmeasured and likely much worse. In order:<br>a. **Stage timings** in play diagnostics and the perf harness: backend build, bundle load, asset read, worker start, mount, models settled, first frame, and the slow frames after it. Timings per scene load too. Add an asset-heavy class to the perf harness (many distinct GLBs and textures; the bench has one model). Measure before any fix, and record the split in §6.<br>b. **Asset reads:** only the start scenes' assets, read in parallel (bounded, e.g. 8 at a time). Other scenes' assets load when their scene does.<br>c. **Caching across Plays:** compiled behaviors keyed by source, compiler and library digests; blobs kept by digest instead of copied per Play; the bundle, worker and physics scripts and content served at stable, digest-keyed URLs with `immutable`/`ETag` headers, so the browser's HTTP and code caches hit. The digests are still verified.<br>d. **Pipeline precompile:** `renderer.compileAsync` before the first present and after each scene attach, in both renderers.<br>e. **Scene loads:** preload the scenes named in the shell scene list and in trigger targets (fetch, parse, colliders prepared); spread `addBatch` over steps when it is over budget; a loading state scripts and UI can read, and an optional fade, so a transition never shows an empty world.<br>f. **Progressive presentation:** present once the start scene's blocking assets are in, and stream the rest. The 15 s present-timeout counts from the last progress, not from the start.<br>g. **Small items:** read the game bundle from disk once, not per Play; drop the page's second pretty-JSON serialize and hash of the scene (the buildId already binds it).<br>h. **Warm preview page:** keep a preloaded iframe (bundles parsed, worker and physics started) for the next Play. Only done if (a)'s split shows boot is still a large share after (b)–(g).<br>Acceptance: the before/after split in §6. On the GPU host, Play of an unchanged large project reaches its first frame in under 3 s from the second Play on, with no frame over 250 ms after it. A scene transition shows no empty frames. The exact targets are fixed from (a)'s numbers. | owner |
 
 **Done when:**
 - Every item above is done with its tests, and `tools/gate.sh full` is green.
@@ -160,3 +164,12 @@ boundary it changes (Playwright for any editor surface).
   covers the common case (a director moving units).
 - 2026-09-28: Sprout's platformer bot stays in Sprout (principle 1b). The
   engine runner only runs input and scripts and returns observations.
+- 2026-09-28: the owner added the project window (25.23). Folders cover
+  every resource kind, not only imported files, as Unity's Project window
+  does. They are organization data only and stay out of the manifest and
+  the buildId.
+- 2026-09-28: the owner added Play-start and scene-load speed (25.24), after
+  seeing 10–20 s starts on larger scenes. The code trace found no stage
+  timings, so 25.24a measures first and the fixes follow the measured split.
+  25.24 may run right after the bug items, since every other item's testing
+  pays for slow Play starts.

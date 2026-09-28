@@ -57,7 +57,8 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 22 | `docs/plan-phase-22.md` | Multithreading: simulation worker, optional render worker |
 | 23 | `docs/plan-phase-23.md` | 3D game foundations: 3D physics and character controller, cameras, pointer and 3D queries, block layers, project UI, game modes, dialogue, sequencer, audio, saves (gap list from the Skyforge Tactics dogfooding project) |
 | 24 | `docs/plan-phase-24.md` | Engine/game separation: tests off Sprout, neutral starter, modules from the manifest, generic primitives, genre layer and Beacon Reach deleted, a vocabulary guard (`docs/audit-engine-game-separation.md`) |
-| 25 | `docs/plan-phase-25.md` | Requests from Sprout and Skyforge Tactics: bugs, scale limits, lights per scene, generic component access and shared libraries, movement, test tools, terrain |
+| 25 | `docs/plan-phase-25.md` | Requests from Sprout and Skyforge Tactics: bugs, scale limits, lights per scene, generic component access and shared libraries, movement, test tools, terrain, a project window with folders, faster Play start and scene loads |
+| 26 | `docs/plan-phase-26.md` | Documentation and AI onboarding: a generated reference, a manual with how-to guides, `tl_docs` and MCP instructions, a Thirdlight skill installed into game folders, a hand-built dogfood project |
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).
