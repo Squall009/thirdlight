@@ -22,22 +22,9 @@ import {
   type SimulationRegistry,
 } from './types';
 
-/** The accepted M2 controller module ID (runtime.md §12.1 inventory; phase 24.7: renamed from `thirdlight.platformer:controller`). */
+/** The accepted M2 controller module ID (runtime.md §12.1 inventory; phase 24.7: renamed, phase 24.8: the old id no longer resolves). */
 export const CHARACTER_MODULE_ID = 'thirdlight.character:controller';
 
-/**
- * Phase 24.7: module ids renamed since a manifest may have named them (old id
- * → current id). A resolver reading a manifest maps an id through
- * `canonicalModuleId` before it looks the spec up.
- */
-export const MODULE_ID_ALIASES: Readonly<Record<string, string>> = Object.freeze({
-  'thirdlight.platformer:controller': CHARACTER_MODULE_ID,
-});
-
-/** Phase 24.7: the current id of a module id (itself unless it was renamed). */
-export function canonicalModuleId(id: string): string {
-  return Object.prototype.hasOwnProperty.call(MODULE_ID_ALIASES, id) ? MODULE_ID_ALIASES[id]! : id;
-}
 
 /**
  * The built-in M1 demo spec. Its `excludes`/`legacyTransformOwners` metadata

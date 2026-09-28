@@ -465,10 +465,10 @@
     {
       "caseId": "O1-single-owner",
       "modules": [
-        "thirdlight.platformer:controller"
+        "thirdlight.character:controller"
       ],
       "owners": {
-        "thirdlight.platformer:controller": [
+        "thirdlight.character:controller": [
           "char-0001"
         ]
       },
@@ -478,13 +478,13 @@
       "caseId": "O2-duplicate-writer",
       "modules": [
         "thirdlight.demo:box-motion",
-        "thirdlight.platformer:controller"
+        "thirdlight.character:controller"
       ],
       "owners": {
         "thirdlight.demo:box-motion": [
           "char-0001"
         ],
-        "thirdlight.platformer:controller": [
+        "thirdlight.character:controller": [
           "char-0001"
         ]
       },
@@ -494,10 +494,10 @@
     {
       "caseId": "O3-missing-entity",
       "modules": [
-        "thirdlight.platformer:controller"
+        "thirdlight.character:controller"
       ],
       "owners": {
-        "thirdlight.platformer:controller": [
+        "thirdlight.character:controller": [
           "char-9999"
         ]
       },
@@ -534,14 +534,14 @@
       "caseId": "O6-module-combination",
       "modules": [
         "thirdlight.demo:box-motion",
-        "thirdlight.platformer:controller"
+        "thirdlight.character:controller"
       ],
       "code": "module_combination_unsupported"
     },
     {
       "caseId": "O7-controller-count",
       "modules": [
-        "thirdlight.platformer:controller"
+        "thirdlight.character:controller"
       ],
       "scene": {
         "controllerCount": 0
@@ -552,7 +552,7 @@
     {
       "caseId": "O7b-controller-count-two",
       "modules": [
-        "thirdlight.platformer:controller"
+        "thirdlight.character:controller"
       ],
       "scene": {
         "controllerCount": 2
@@ -564,7 +564,7 @@
     {
       "caseId": "O8-m2-module-on-v1-scene",
       "modules": [
-        "thirdlight.platformer:controller"
+        "thirdlight.character:controller"
       ],
       "scene": {
         "schemaVersion": 1

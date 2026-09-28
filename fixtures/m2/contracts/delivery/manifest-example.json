@@ -84,7 +84,7 @@
     ],
     "modules": [
       {
-        "id": "thirdlight.platformer:controller",
+        "id": "thirdlight.character:controller",
         "apiVersion": 1,
         "package": "@thirdlight/platformer",
         "version": "0.2.0"

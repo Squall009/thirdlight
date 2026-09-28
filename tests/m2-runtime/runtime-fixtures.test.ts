@@ -16,7 +16,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_MODULES,
-  canonicalModuleId,
   CHARACTER_MODULE_ID,
   createRecordedActionSource,
   createSimulationRegistry,
@@ -238,9 +237,9 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
   it('ownership/combination table (O1–O8)', () => {
     for (const c of doc.ownershipCases) {
       const specs: SimulationModuleSpec[] = [];
-      // Phase 24.7: the fixture names the controller by its pre-24.7 id; a resolver maps it (canonicalModuleId).
-      const owners = Object.fromEntries(Object.entries((c.owners ?? {}) as Record<string, string[]>).map(([k, v]) => [canonicalModuleId(k), v]));
-      const caseModules = (c.modules as string[]).map(canonicalModuleId);
+      // Phase 24.8: the fixture names the controller by its current id (rewritten when the alias was dropped).
+      const owners = (c.owners ?? {}) as Record<string, string[]>;
+      const caseModules = c.modules as string[];
       for (const [moduleId, entityIds] of Object.entries(owners)) {
         const isController = moduleId === CHARACTER_MODULE_ID;
         specs.push({

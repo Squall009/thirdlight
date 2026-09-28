@@ -160,9 +160,7 @@ export {
 export {
   BUILTIN_MODULES,
   CHARACTER_MODULE_ID,
-  canonicalModuleId,
   createSimulationRegistry,
-  MODULE_ID_ALIASES,
   registerSimulationModule,
   validatePhaseList,
 } from './registry';

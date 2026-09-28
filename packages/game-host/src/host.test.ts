@@ -701,16 +701,14 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
-  it('phase 24.7: the controller\'s pre-24.7 id (thirdlight.platformer:controller) resolves to the character controller', () => {
+  it('phase 24.8: the controller\'s pre-24.7 id (thirdlight.platformer:controller) is not resolved (the alias was dropped)', () => {
     const h = harness();
     const renamed = (h.config.modules ?? []).map((id) => (id === 'thirdlight.character:controller' ? 'thirdlight.platformer:controller' : id));
     expect(renamed).toContain('thirdlight.platformer:controller');
-    const host = createGameHost({ ...h.config, modules: renamed, input: { ...h.config.input, sample: (stepIndex: number) => ({ stepIndex, moveX: 1, jump: 'none' as const }) } });
-    expect(host.mount()).toEqual({ ok: true });
-    for (let i = 0; i < 30; i += 1) host.runtime.tick(i / 60);
-    const o = host.observe();
-    // The controller runs: the character walks right from x 3.
-    expect(o.ok && (o.observation.player?.x ?? 0) > 3).toBe(true);
+    const host = createGameHost({ ...h.config, modules: renamed });
+    const mounted = host.mount();
+    expect(mounted.ok).toBe(false);
+    if (!mounted.ok) expect(mounted.error.code).toBe('host_module_unresolved');
     host.dispose();
     h.host.dispose();
   });
