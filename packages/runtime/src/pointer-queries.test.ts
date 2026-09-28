@@ -35,8 +35,8 @@ const snap = (entities: unknown[], tags?: unknown[]) => ({ snapshotId: 'pq@r1', 
 
 describe('pointer samples in the frame', () => {
   it('old frames stay valid; a pointer sample is checked strictly', () => {
-    expect(validateActionFrame({ stepIndex: 1, moveX: 0, jump: 'none' }).ok).toBe(true);
-    const ok = validateActionFrame({ stepIndex: 1, moveX: 0, jump: 'none', pointer: { x: 0.25, y: 1, dx: -0.5, wheel: 3, buttons: 5, pressed: 1, over: true, locked: false } });
+    expect(validateActionFrame({ stepIndex: 1 }).ok).toBe(true);
+    const ok = validateActionFrame({ stepIndex: 1, pointer: { x: 0.25, y: 1, dx: -0.5, wheel: 3, buttons: 5, pressed: 1, over: true, locked: false } });
     expect(ok.ok && ok.frame.pointer).toEqual({ x: 0.25, y: 1, dx: -0.5, wheel: 3, buttons: 5, pressed: 1, over: true, locked: false });
     for (const [bad, field] of [
       [{ x: 1.5, y: 0 }, 'pointer/x'],
@@ -47,25 +47,25 @@ describe('pointer samples in the frame', () => {
       [{ x: 0, y: 0, z: 1 }, 'pointer/z'],
       [[0, 0], 'pointer'],
     ] as const) {
-      const r = validateActionFrame({ stepIndex: 1, moveX: 0, jump: 'none', pointer: bad });
+      const r = validateActionFrame({ stepIndex: 1, pointer: bad });
       expect(r.ok, JSON.stringify(bad)).toBe(false);
       if (!r.ok) expect(r.field).toBe(field);
     }
     // An action value may mark a per-sample amount (i: 1), nothing else.
-    expect(validateActionFrame({ stepIndex: 1, moveX: 0, jump: 'none', actions: { look: { v: 1, x: 1, y: 0, p: 'pressed', i: 1 } } }).ok).toBe(true);
-    expect(validateActionFrame({ stepIndex: 1, moveX: 0, jump: 'none', actions: { look: { v: 1, p: 'pressed', i: 2 } } }).ok).toBe(false);
+    expect(validateActionFrame({ stepIndex: 1, actions: { look: { v: 1, x: 1, y: 0, p: 'pressed', i: 1 } } }).ok).toBe(true);
+    expect(validateActionFrame({ stepIndex: 1, actions: { look: { v: 1, p: 'pressed', i: 2 } } }).ok).toBe(false);
   });
 
   it('the runtime keeps the pointer between samples and derives the edges; the input view reads them', () => {
     const frames: ActionFrame[] = [
-      { stepIndex: S + 2, moveX: 0, jump: 'none', pointer: { x: 0.5, y: 0.5 } },
-      { stepIndex: S + 3, moveX: 0, jump: 'none', pointer: { x: 0.6, y: 0.5, dx: 0.1, buttons: 1 } },
+      { stepIndex: S + 2, pointer: { x: 0.5, y: 0.5 } },
+      { stepIndex: S + 3, pointer: { x: 0.6, y: 0.5, dx: 0.1, buttons: 1 } },
       // S + 4: no sample — held
-      { stepIndex: S + 5, moveX: 0, jump: 'none', pointer: { x: 0.6, y: 0.5, buttons: 0 } },
+      { stepIndex: S + 5, pointer: { x: 0.6, y: 0.5, buttons: 0 } },
       // a click between two samples, then leaving the view
-      { stepIndex: S + 6, moveX: 0, jump: 'none', pointer: { x: 0.6, y: 0.5, pressed: 2, released: 2 } },
-      { stepIndex: S + 7, moveX: 0, jump: 'none', pointer: { x: 0.6, y: 0.5, over: false } },
-      { stepIndex: S + 8, moveX: 0, jump: 'none', pointer: { x: 0.7, y: 0.5 } },
+      { stepIndex: S + 6, pointer: { x: 0.6, y: 0.5, pressed: 2, released: 2 } },
+      { stepIndex: S + 7, pointer: { x: 0.6, y: 0.5, over: false } },
+      { stepIndex: S + 8, pointer: { x: 0.7, y: 0.5 } },
     ];
     const seen = new Map<number, ActionFrame>();
     const probe = probeSpec({ id: 'thirdlight.test:pointer', phases: ['intent'], step: (_p, ctx) => seen.set(ctx.stepIndex, ctx.action) });
@@ -118,7 +118,7 @@ describe('pointer samples in the frame', () => {
     expect(at).toContain('locked');
     expect(at[at.length - 1]).toBeNull();
     // The input view's channel refuses anything else.
-    const v = inputView({ stepIndex: 0, moveX: 0, jump: 'none' }, (m) => calls.push(m));
+    const v = inputView({ stepIndex: 0 }, (m) => calls.push(m));
     v.setCursor('locked');
     expect(calls[calls.length - 1]).toBe('locked');
     expect(() => v.setCursor('hidden' as never)).toThrow(/setCursor/);
@@ -258,8 +258,8 @@ describe('3D script queries', () => {
   it('pickAt casts the scene camera\'s ray through a screen point; pickAtPointer the pointer\'s (null before a sample or off the view)', () => {
     const picks: unknown[] = [];
     const frames: ActionFrame[] = [
-      { stepIndex: S + 2, moveX: 0, jump: 'none', pointer: { x: 0.5, y: 0.5 } },
-      { stepIndex: S + 3, moveX: 0, jump: 'none', pointer: { x: 0.75, y: 0.5, over: false } },
+      { stepIndex: S + 2, pointer: { x: 0.5, y: 0.5 } },
+      { stepIndex: S + 3, pointer: { x: 0.75, y: 0.5, over: false } },
     ];
     const port = runQueries((ctx, n) => {
       if (n === 1) picks.push(ctx.physics.pickAtPointer!(), ctx.physics.pickAt!(0.5, 0.5)?.entityId);

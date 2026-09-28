@@ -93,7 +93,7 @@ function consumerSpec(): SimulationModuleSpec {
         transformOwners: ['box-0001'],
         step(phase, ctx): void {
           if (phase !== 'transform') return;
-          const move = ctx.intents.move ?? ctx.action.moveX;
+          const move = ctx.intents.move ?? (ctx.action.actions?.['move']?.v ?? 0);
           const t = ctx.state.curr.get('box-0001');
           if (t) t.position[0] = t.position[0] + move * DT;
         },

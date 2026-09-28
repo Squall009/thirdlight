@@ -46,7 +46,7 @@ export default {
       state.made += 1;
       ctx.audio && ctx.audio.play('asset-drop', { volume: 0.5 });
     }
-    if (ctx.action.jump === 'pressed') ctx.audio && ctx.audio.play('asset-hop');
+    if (ctx.input.pressed('jump')) ctx.audio && ctx.audio.play('asset-hop');
   },
 };
 `;

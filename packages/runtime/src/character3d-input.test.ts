@@ -13,9 +13,10 @@ import { inputView } from './behavior';
 
 describe('phase 23.2: action frames carry an optional move-Y', () => {
   it('a frame without moveY validates exactly as before; with it, moveY follows moveX\'s rules', () => {
-    expect(validateActionFrame({ stepIndex: 3, moveX: 0.5, jump: 'none' })).toEqual({ ok: true, frame: { stepIndex: 3, moveX: 0.5, jump: 'none' } });
+    // Phase 24.8: a version 1 frame reads as the move/jump actions (version 2).
+    expect(validateActionFrame({ stepIndex: 3, moveX: 0.5, jump: 'none' })).toEqual({ ok: true, frame: { stepIndex: 3, actions: { move: { v: 0.5, p: 'none' }, jump: { v: 0, p: 'none' } } } });
     const withY = validateActionFrame({ stepIndex: 3, moveX: 0.5, moveY: -1, jump: 'held', actions: { run: { v: 1, p: 'held' } } });
-    expect(withY.ok && withY.frame).toEqual({ stepIndex: 3, moveX: 0.5, moveY: -1, jump: 'held', actions: { run: { v: 1, p: 'held' } } });
+    expect(withY.ok && withY.frame).toEqual({ stepIndex: 3, actions: { run: { v: 1, p: 'held' }, move: { v: 0.5, x: 0.5, y: -1, p: 'none' }, jump: { v: 1, p: 'held' } } });
     expect(validateActionFrame({ stepIndex: 3, moveX: 0, moveY: 1.5, jump: 'none' })).toMatchObject({ ok: false, field: 'moveY' });
     expect(validateActionFrame({ stepIndex: 3, moveX: 0, moveY: 0.12345, jump: 'none' })).toMatchObject({ ok: false, field: 'moveY' });
     expect(validateActionFrame({ stepIndex: 3, moveX: 0, moveY: 'up', jump: 'none' })).toMatchObject({ ok: false, field: 'moveY' });
@@ -24,11 +25,11 @@ describe('phase 23.2: action frames carry an optional move-Y', () => {
   });
 
   it('a recorded run replays moveY; a script reads the move as a vector', () => {
-    const src = createRecordedActionSource([{ stepIndex: 0, moveX: 0, moveY: 1, jump: 'none' }, { stepIndex: 1, moveX: 1, jump: 'none' }]);
-    expect(src.sample(0)).toEqual({ stepIndex: 0, moveX: 0, moveY: 1, jump: 'none' });
-    expect(src.sample(1)).toEqual({ stepIndex: 1, moveX: 1, jump: 'none' });
-    expect(inputView({ stepIndex: 0, moveX: 0.5, moveY: -0.25, jump: 'none' }).vector('move')).toEqual([0.5, -0.25]);
-    expect(inputView({ stepIndex: 0, moveX: 0.5, jump: 'none' }).vector('move')).toEqual([0.5, 0]);
+    const src = createRecordedActionSource([{ stepIndex: 0, moveX: 0, moveY: 1, jump: 'none' }, { stepIndex: 1, moveX: 1, jump: 'none' }] as never);
+    expect(src.sample(0)).toEqual({ stepIndex: 0, actions: { move: { v: 0, x: 0, y: 1, p: 'none' }, jump: { v: 0, p: 'none' } } });
+    expect(src.sample(1)).toEqual({ stepIndex: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } });
+    expect(inputView({ stepIndex: 0, actions: { move: { v: 0.5, x: 0.5, y: -0.25, p: 'none' } } }).vector('move')).toEqual([0.5, -0.25]);
+    expect(inputView({ stepIndex: 0, actions: { move: { v: 0.5, p: 'none' } } }).vector('move')).toEqual([0.5, 0]);
   });
 });
 

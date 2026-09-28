@@ -881,7 +881,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.input.request', (m) => {
-    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>; pointer?: ActionFrame['pointer']; }> };
+    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>; pointer?: ActionFrame['pointer']; }> };
     if (handle === null) {
       bridge.sendInputResult(playId, body.requestId, notReady);
       return;

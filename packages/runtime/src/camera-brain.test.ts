@@ -32,7 +32,7 @@ function world(positions: Record<string, number[]>, raycast?: CameraWorld['rayca
 }
 
 const cam = (id: string, data: VirtualCameraData) => ({ id, components: { transform: {}, virtualCamera: data } });
-const frame = (stepIndex: number, actions: ActionFrame['actions'] = {}): ActionFrame => ({ stepIndex, moveX: 0, jump: 'none', actions });
+const frame = (stepIndex: number, actions: ActionFrame['actions'] = {}): ActionFrame => ({ stepIndex, actions });
 
 function run(b: CameraBrain, steps: number, w: CameraWorld, actions?: (i: number) => ActionFrame['actions']): void {
   for (let i = 0; i < steps; i += 1) b.step(BASE, frame(i, actions?.(i)), w);

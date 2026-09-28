@@ -673,8 +673,26 @@ export const CHARACTER_3D_LIMITS: Readonly<Record<Character3DNumberKey, { readon
 export const CONTROLLER_3D_FIELDS = ['walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'] as const;
 const CONTROLLER_3D_BOOLEANS: readonly string[] = ['jump', 'ledgeClimb', 'faceMovement'];
 
+/**
+ * Phase 24.8: the input actions the controller reads (frame version 2 has no
+ * fixed move/jump channels). Defaults `move` and `jump`: the names of the
+ * default input actions every new project has (any genre's walking
+ * character moves and jumps with them); a project may point its character at
+ * other actions.
+ */
+export const CONTROLLER_ACTION_FIELDS = ['moveAction', 'jumpAction'] as const;
+export const CONTROLLER_ACTION_DEFAULTS = Object.freeze({ moveAction: 'move', jumpAction: 'jump' });
+const CONTROLLER_ACTION_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+
+/** Phase 24.8: the action names a controller reads (each absent field at its default). */
+export function controllerActionsOf(controller: unknown): { move: string; jump: string } {
+  const c = isPlainObject(controller) ? controller : {};
+  const name = (k: 'moveAction' | 'jumpAction'): string => (typeof c[k] === 'string' && CONTROLLER_ACTION_RE.test(c[k] as string) ? (c[k] as string) : CONTROLLER_ACTION_DEFAULTS[k]);
+  return { move: name('moveAction'), jump: name('jumpAction') };
+}
+
 /** Every v4 controller field, in canonical order. */
-export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS];
+export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS, ...CONTROLLER_ACTION_FIELDS];
 
 /** Phase 23.2: the resolved 3D character settings (the controller's data, else the defaults and the project settings). */
 export interface Character3DSettings {
@@ -784,6 +802,8 @@ export function canonicalController(controller: unknown): ControllerComponent {
   for (const k of CONTROLLER_TUNING_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   // Phase 23.2: the 3D character fields (absent keeps the old canonical bytes).
   for (const k of CONTROLLER_3D_FIELDS) if (src[k] !== undefined) out[k] = src[k];
+  // Phase 24.8: the action names (absent keeps the old canonical bytes).
+  for (const k of CONTROLLER_ACTION_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   return out as ControllerComponent;
 }
 
@@ -815,6 +835,11 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     }
   }
   for (const key of CONTROLLER_3D_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
+  // Phase 24.8: the input actions it reads.
+  for (const key of CONTROLLER_ACTION_FIELDS) {
+    const v = c[key];
+    if (v !== undefined && (typeof v !== 'string' || !CONTROLLER_ACTION_RE.test(v))) errors.push(fieldValue(`${path}/${key}`, v, 'an input action name (a letter or _, then up to 31 letters, digits or _)', `controller ${key} names an input action`));
+  }
   const capsule = c['capsule'];
   if (capsule === undefined) return;
   const cp = `${path}/capsule`;

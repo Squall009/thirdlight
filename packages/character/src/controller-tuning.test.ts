@@ -5,7 +5,8 @@
  * controller without them gets exactly the packet-32 values (the replays).
  */
 import { describe, expect, it } from 'vitest';
-import type { ActionFrame, CharacterMoveResult, GameplaySettings, PhysicsStepClient } from '@thirdlight/runtime';
+import type { ControllerInput } from './controller';
+import type { JumpPhase, CharacterMoveResult, GameplaySettings, PhysicsStepClient } from '@thirdlight/runtime';
 
 import { CONTROLLER_CONSTANTS } from './constants';
 import { DEFAULT_STEP_TUNING, controllerStep, controllerStepTuning, createControllerState } from './controller';
@@ -25,7 +26,7 @@ const ground = (grounded: boolean): CharacterMoveResult => ({
   snapped: false,
 });
 
-function run(tuningSource: unknown, hz: number, frames: { moveX: number; jump: ActionFrame['jump']; grounded: boolean }[]): { vx: number; vy: number; dy: number }[] {
+function run(tuningSource: unknown, hz: number, frames: { moveX: number; jump: JumpPhase; grounded: boolean }[]): { vx: number; vy: number; dy: number }[] {
   const tuning = controllerStepTuning(tuningSource, hz);
   const state = createControllerState(0, 0.91, tuning.coyoteSteps);
   const out: { vx: number; vy: number; dy: number }[] = [];

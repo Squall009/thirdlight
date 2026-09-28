@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { STARTER, startBackend, type E2EBackend } from './backend';
+import { STARTER, startBackend, type E2EBackend, controls } from './backend';
 import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';
 
 const shots = process.env['TL_ANIM_SHOTS'];
@@ -91,7 +91,7 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
 
   // One relay (it answers when its last frame has run): run right for a second, then jump while
   // running; the animator states are observed while the frames play.
-  const frames = Array.from({ length: 100 }, (_, i) => ({ stepOffset: i, moveX: 1, jump: i < 60 ? 'none' : i === 60 ? 'pressed' : 'held' }));
+  const frames = Array.from({ length: 100 }, (_, i) => ({ stepOffset: i, ...controls(1, i < 60 ? 'none' : i === 60 ? 'pressed' : 'held') }));
   const done = relay(`${psid}/input`, { mode: 'exclusive-test', frames });
   await expect.poll(animState, { timeout: 3_000, intervals: [30] }).toBe('Run');
   await shot(page, 'run');

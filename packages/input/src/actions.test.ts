@@ -4,6 +4,7 @@
  * with a project's bindings (fake window, synthetic key events; no gamepad).
  */
 import { describe, expect, it } from 'vitest';
+import { viewSource } from './test-frame-view';
 
 import { createActionEvaluator, DEFAULT_INPUT_CONFIG, characterKeys, type InputConfigLike, type RawDeviceState } from './actions';
 import { attachBrowserInput } from './browser';
@@ -60,7 +61,7 @@ describe('input actions', () => {
     const fire = (type: string, code: string): void => {
       for (const h of listeners.get(type) ?? []) h({ type, code, repeat: false, target, preventDefault: () => undefined } as unknown as Event);
     };
-    const source = attachBrowserInput(target as unknown as EventTarget, { window: null, document: null, navigator: null, getGamepads: null, inputConfig: cfg });
+    const source = viewSource(attachBrowserInput(target as unknown as EventTarget, { window: null, document: null, navigator: null, getGamepads: null, inputConfig: cfg }));
     fire('keydown', 'Space');
     expect(source.sample(0).jump).toBe('none'); // Space no longer jumps
     fire('keyup', 'Space');
@@ -82,7 +83,7 @@ describe('input actions', () => {
     const fire = (type: string, code: string, repeat = false): void => {
       for (const h of listeners.get(type) ?? []) h({ type, code, repeat, target, preventDefault: () => undefined } as unknown as Event);
     };
-    const source = attachBrowserInput(target as unknown as EventTarget, { window: null, document: null, navigator: null, getGamepads: null, inputConfig: DEFAULT_INPUT_CONFIG });
+    const source = viewSource(attachBrowserInput(target as unknown as EventTarget, { window: null, document: null, navigator: null, getGamepads: null, inputConfig: DEFAULT_INPUT_CONFIG }));
     fire('keydown', 'ArrowDown');
     fire('keydown', 'ArrowDown', true); // held: navigation repeats
     fire('keydown', 'Escape');

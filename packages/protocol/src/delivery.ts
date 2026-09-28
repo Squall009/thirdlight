@@ -192,13 +192,10 @@ export function redactContentId(text: string, contentId: string | undefined): st
 // ---- bounded input-exercise relay (§18.1) -------------------------------------
 
 export type RelayJumpPhase = 'none' | 'pressed' | 'held' | 'released';
+/** Phase 24.8: frame version 2 — named actions and the pointer (no fixed moveX/moveY/jump channels). */
 export interface RelayFrame {
   stepOffset: number;
-  moveX: number;
-  /** Phase 23.2: the move vector's second axis (forward; −1..1, quantized like moveX). */
-  moveY?: number;
-  jump: RelayJumpPhase;
-  /** Phase 9.8: named input actions this step (`{ v, x?, y?, p }` each). */
+  /** Phase 9.8: named input actions this step (`{ v, x?, y?, p }` each; the character reads `move` and `jump` by default). */
   actions?: Record<string, { v: number; x?: number; y?: number; p: RelayJumpPhase }>;
   /** Phase 23.3: the pointer this step (a frame without one keeps the last position and buttons). */
   pointer?: RelayPointer;
@@ -251,9 +248,6 @@ export interface InputRelayRequest {
 
 const RELAY_FRAME_FIELDS = new Map<string, string>([
   ['stepOffset', 'integer 0..2^53-1'],
-  ['moveX', 'finite number -1..1 (quantized to 1e-4)'],
-  ['moveY', 'optional: finite number -1..1 (quantized to 1e-4; phase 23.2, the forward axis)'],
-  ['jump', 'none | pressed | held | released'],
   ['actions', 'optional: { <action name>: { v, x?, y?, p } } (phase 9.8 named actions)'],
   ['pointer', 'optional: { x, y (0-1 of the view), dx?, dy?, wheel?, buttons?, pressed?, released? (masks: 1 left, 2 right, 4 middle), over?, locked? } (phase 23.3)'],
 ]);
@@ -262,18 +256,13 @@ const RELAY_BODY_FIELDS = new Map<string, string>([
   ['frames', '1–600 ascending step-indexed frames'],
 ]);
 const JUMP_SET: readonly string[] = ['none', 'pressed', 'held', 'released'];
-const MOVE_QUANTUM = 1e-4;
 const MAX_STEP_OFFSET = 2 ** 53 - 1;
-
-function quantize(v: number): number {
-  return Math.round(v / MOVE_QUANTUM) * MOVE_QUANTUM;
-}
 
 /**
  * Strict parse of one relay body. Applies the §18.1.1 bounds: exactly the
  * accepted mode, 1–600 frames, strictly ascending `stepOffset` with no
- * duplicates, `moveX` finite in [−1,1] quantized like the recorded source, and
- * a body ≤ 16 384 bytes.
+ * duplicates, named actions and the pointer only (phase 24.8: frame version
+ * 2 — no moveX/moveY/jump), and a body ≤ 16 384 bytes.
  */
 export function parseInputRelayRequest(
   value: unknown,
@@ -309,7 +298,7 @@ export function parseInputRelayRequest(
   let previous = -1;
   for (let i = 0; i < framesRaw.length; i += 1) {
     const entry = framesRaw[i];
-    const frameShape = checkShape(entry, `/frames/${i}`, RELAY_FRAME_FIELDS, ['stepOffset', 'moveX', 'jump']);
+    const frameShape = checkShape(entry, `/frames/${i}`, RELAY_FRAME_FIELDS, ['stepOffset']);
     if (!frameShape.ok) return { ok: false, error: frameShape.error };
     const offset = checkField(frameShape.value, 'stepOffset', `/frames/${i}`, 'integer 0..2^53-1', (v) =>
       typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_STEP_OFFSET
@@ -332,21 +321,6 @@ export function parseInputRelayRequest(
       };
     }
     previous = stepOffset;
-    const moveX = checkField(frameShape.value, 'moveX', `/frames/${i}`, 'finite number -1..1', (v) =>
-      typeof v === 'number' && Number.isFinite(v) && v >= -1 && v <= 1
-        ? null
-        : { problem: 'moveX must be a finite number in [-1, 1]', kind: 'value' },
-    );
-    if (!moveX.ok) return { ok: false, error: moveX.error };
-    // Phase 23.2: the optional second move axis.
-    const rawMoveY = (frameShape.value as Record<string, unknown>)['moveY'];
-    if (rawMoveY !== undefined && (typeof rawMoveY !== 'number' || !Number.isFinite(rawMoveY) || rawMoveY < -1 || rawMoveY > 1)) {
-      return { ok: false, error: { code: 'field_value', cls: 'validation', message: 'moveY must be a finite number in [-1, 1]', path: `/frames/${i}/moveY`, found: String(rawMoveY), expected: 'finite number -1..1' } };
-    }
-    const jump = checkField(frameShape.value, 'jump', `/frames/${i}`, 'none | pressed | held | released', (v) =>
-      typeof v === 'string' && JUMP_SET.includes(v) ? null : { problem: 'jump must be one of none | pressed | held | released', kind: 'value' },
-    );
-    if (!jump.ok) return { ok: false, error: jump.error };
     const rawActions = (frameShape.value as Record<string, unknown>)['actions'];
     let actions: RelayFrame['actions'];
     if (rawActions !== undefined) {
@@ -376,7 +350,7 @@ export function parseInputRelayRequest(
       }
       pointer = parsed;
     }
-    frames.push({ stepOffset, moveX: quantize(moveX.value as number), ...(typeof rawMoveY === 'number' ? { moveY: quantize(rawMoveY) } : {}), jump: jump.value as RelayJumpPhase, ...(actions !== undefined ? { actions } : {}), ...(pointer !== undefined ? { pointer } : {}) });
+    frames.push({ stepOffset, ...(actions !== undefined ? { actions } : {}), ...(pointer !== undefined ? { pointer } : {}) });
   }
   const bodyBytes = new TextEncoder().encode(JSON.stringify({ mode: INPUT_RELAY_MODE, frames })).length;
   if (bodyBytes > INPUT_RELAY_MAX_BODY_BYTES) {

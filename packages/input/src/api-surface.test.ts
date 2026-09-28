@@ -9,6 +9,7 @@
  * the packet-30 evidence manifest); this suite checks the runtime surface.
  */
 import { describe, expect, it } from 'vitest';
+import { viewSource } from './test-frame-view';
 import type { ActionSource } from '@thirdlight/runtime';
 
 import * as input from './index';
@@ -49,6 +50,7 @@ describe('public exports (dependencies.md §3 input row)', () => {
       'focusGameSurface',
       'mapRawInput',
       'readCharacterPad',
+      'toActionFrame',
     ]);
   });
 
@@ -64,12 +66,12 @@ describe('public exports (dependencies.md §3 input row)', () => {
 
 describe('browser owner lifecycle surface', () => {
   it('returns the ActionSource hooks plus detach/dispose/unavailable/attached', () => {
-    const source = attachBrowserInput(null, {
+    const source = viewSource(attachBrowserInput(null, {
       window: null,
       document: null,
       navigator: null,
       getGamepads: null,
-    });
+    }));
     expect(typeof source.sample).toBe('function');
     expect(typeof source.reset).toBe('function');
     expect(typeof source.diagnostics).toBe('function');
@@ -82,12 +84,12 @@ describe('browser owner lifecycle surface', () => {
   });
 
   it('counters start at zero and only move on the contracted events', () => {
-    const source = attachBrowserInput(null, {
+    const source = viewSource(attachBrowserInput(null, {
       window: null,
       document: null,
       navigator: null,
       getGamepads: null,
-    });
+    }));
     expect(source.diagnostics?.()).toEqual({
       suspendCount: 0,
       activateCount: 0,
@@ -110,7 +112,7 @@ describe('step source satisfies the runtime ActionSource shape', () => {
     const asActionSource: ActionSource = source;
     expect(typeof asActionSource.sample).toBe('function');
     expect(typeof asActionSource.reset).toBe('function');
-    expect(asActionSource.sample(12).jump).toBe('pressed');
-    expect(asActionSource.sample(12).jump).toBe('pressed');
+    expect(asActionSource.sample(12).actions?.['jump']?.p).toBe('pressed');
+    expect(asActionSource.sample(12).actions?.['jump']?.p).toBe('pressed');
   });
 });

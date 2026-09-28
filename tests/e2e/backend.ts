@@ -208,3 +208,18 @@ export async function publishWav(be: E2EBackend, file: string, assetId: string, 
   if (r['ok'] !== true) throw new Error(`publishWav publish: ${JSON.stringify(r).slice(0, 400)}`);
   return assetId;
 }
+
+/**
+ * Phase 24.8: an input-exercise frame's character controls as named actions
+ * (input frame version 2 has no fixed moveX/moveY/jump channels): `move`
+ * ({v}, or {v, x, y} with a forward axis) and `jump` ({v, p}), the actions
+ * the character controller reads by default.
+ */
+export function controls(moveX: number, jump: 'none' | 'pressed' | 'held' | 'released' = 'none', moveY?: number): { actions: Record<string, { v: number; x?: number; y?: number; p: string }> } {
+  return {
+    actions: {
+      move: moveY !== undefined ? { v: moveX, x: moveX, y: moveY, p: 'none' } : { v: moveX, p: 'none' },
+      jump: { v: jump === 'pressed' || jump === 'held' ? 1 : 0, p: jump },
+    },
+  };
+}

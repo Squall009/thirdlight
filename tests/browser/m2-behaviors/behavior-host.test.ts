@@ -194,7 +194,7 @@ function consumerSpec(ownerId: string, sampleLimit = Number.POSITIVE_INFINITY): 
           if (phase !== 'transform') return;
           if (steps >= sampleLimit) return;
           steps += 1;
-          const move = ctx.intents.move ?? ctx.action.moveX;
+          const move = ctx.intents.move ?? (ctx.action.actions?.['move']?.v ?? 0);
           const t = ctx.state.curr.get(ownerId);
           if (t) t.position[0] = t.position[0] + move * DT;
         },

@@ -7,7 +7,7 @@
  * unsupported-combination rejection at instantiate (no partial start).
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, instantiateRuntime, registerSimulationModule, type SimulationModuleSpec } from './index';
+import { BUILTIN_MODULES, instantiateRuntime, registerSimulationModule, type SimulationModuleSpec, type ActionFrame } from './index';
 import {
   makeFakePort,
   makeM2Runtime,
@@ -100,7 +100,7 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
   });
 
   it('ctx.action is the identical sampled frame in every phase; ctx and non-curr state are frozen', () => {
-    const seen: Array<{ stepIndex: number; moveX: number; jump: string }> = [];
+    const seen: ActionFrame[] = [];
     const spec = probeSpec({
       id: 'thirdlight.test:frame-probe',
       phases: ['intent', 'transform'],
@@ -126,13 +126,13 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
     const h = makeM2Runtime({
       modules: [spec.id],
       specs: [spec],
-      actions: recordingSource([{ stepIndex: 12, moveX: 1, jump: 'pressed' }]),
+      actions: recordingSource([{ stepIndex: 12, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } }]),
     });
     h.boot();
     seen.length = 0;
     h.tick(DT);
     expect(seen).toHaveLength(2);
-    for (const frame of seen) expect(frame).toEqual({ stepIndex: 12, moveX: 1, jump: 'pressed' });
+    for (const frame of seen) expect(frame).toEqual({ stepIndex: 12, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } });
     h.rt.dispose();
   });
 

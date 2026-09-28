@@ -79,11 +79,7 @@ function defaultNonce(): string {
 /** One bounded relay frame as the editor forwards it (§18.1.1). */
 export interface BridgeRelayFrame {
   stepOffset: number;
-  moveX: number;
-  /** Phase 23.2: the second move axis. */
-  moveY?: number;
-  jump: string;
-  /** Phase 23.2: named input actions this step. */
+  /** Named input actions this step (phase 24.8: frame version 2, no fixed move/jump channels). */
   actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>;
 }
 

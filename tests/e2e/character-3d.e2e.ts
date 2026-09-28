@@ -8,7 +8,7 @@
  * - Play (the simulation worker): holding D walks the character right up onto
  *   the riser (the default 0.3 m step-up), holding A walks it back down and
  *   into the wall, which stops it; a `tl_input_exercise` relay with the move
- *   vector's forward axis (moveY) walks it along −Z (world axes: no camera
+ *   vector's forward axis (the move action's y) walks it along −Z (world axes: no camera
  *   rig yet) — positions read through tl_game_observe;
  * - the static export, with the backend stopped: D walks it up the riser too
  *   (read through `window.__thirdlightObserve`);
@@ -24,7 +24,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, controls } from './backend';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -180,8 +180,8 @@ test('3D character: keyboard walks it up a riser and into a wall in Play, tl_inp
   expect(wall.x).toBeLessThan(-2.6);
   expect(wall.y, 'back on the floor').toBeLessThan(STAND + 0.03);
 
-  // tl_input_exercise: 120 steps of the move vector's forward axis (moveY) — along −Z at world axes (1 s at 2 m/s).
-  const frames = Array.from({ length: 120 }, (_, k) => ({ stepOffset: k, moveX: 0, moveY: 1, jump: 'none' }));
+  // tl_input_exercise: 120 steps of the move vector's forward axis (the move action's y) — along −Z at world axes (1 s at 2 m/s).
+  const frames = Array.from({ length: 120 }, (_, k) => ({ stepOffset: k, ...controls(0, 'none', 1) }));
   const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames });
   expect(r.status, JSON.stringify(r.json)).toBe(200);
   const fwd = await rest(read, 'after the input exercise');

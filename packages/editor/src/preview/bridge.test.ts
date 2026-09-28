@@ -156,7 +156,7 @@ describe('Bridge — v2 relay messages (delivery §7)', () => {
     });
     editor.beginHandshake(PLAY_ID, false, CONTENT_ID, BUILD_ID);
     deliver(preview, { origin: EDITOR_ORIGIN, source: editorWin, data: HANDSHAKE });
-    editor.requestInput(PLAY_ID, 'req-' + '1'.repeat(32), [{ stepOffset: 0, moveX: 1, jump: 'pressed' }]);
+    editor.requestInput(PLAY_ID, 'req-' + '1'.repeat(32), [{ stepOffset: 0, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } }]);
     const forwarded = postedEditorToPreview[postedEditorToPreview.length - 1]!;
     expect((forwarded.data as { type: string }).type).toBe('tl.input.request');
     deliver(preview, { origin: EDITOR_ORIGIN, source: editorWin, data: forwarded.data });

@@ -15,7 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test } from '@playwright/test';
 
-import { type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend, controls } from './backend';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -67,7 +67,7 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   await expect.poll(async () => (await call('tl_game_observe', { playSessionId })).body.state, { timeout: 15_000 }).toBe('running');
 
   expect((await call('tl_game_control', { playSessionId, command: 'mute' })).isError).toBe(false);
-  const frames = Array.from({ length: 90 }, (_, i) => ({ stepOffset: i, moveX: 1, jump: 'none' }));
+  const frames = Array.from({ length: 90 }, (_, i) => ({ stepOffset: i, ...controls(1) }));
   const input = await call('tl_input_exercise', { playSessionId, frames });
   expect(input.isError, JSON.stringify(input.body)).toBe(false);
   const observed = (await call('tl_game_observe', { playSessionId })).body as { state: string; player: { x: number } };

@@ -1536,14 +1536,8 @@ export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked
     if (d !== 'keyboardMouse' && d !== 'gamepad') throw new Error(`a device is 'keyboardMouse' or 'gamepad' (got ${JSON.stringify(String(d)).slice(0, 40)})`);
     return d;
   };
-  const get = (name: string): { v: number; x?: number; y?: number; p: string } | undefined => {
-    const a = frame.actions?.[name];
-    if (a !== undefined) return a;
-    // Phase 23.2: with a second move axis the move is a vector.
-    if (name === 'move') return frame.moveY !== undefined ? { v: frame.moveX, x: frame.moveX, y: frame.moveY, p: 'none' } : { v: frame.moveX, p: 'none' };
-    if (name === 'jump') return { v: frame.jump === 'pressed' || frame.jump === 'held' ? 1 : 0, p: frame.jump };
-    return undefined;
-  };
+  // Phase 24.8: every action is a named action of the frame (version 2 has no move/jump channels).
+  const get = (name: string): { v: number; x?: number; y?: number; p: string } | undefined => frame.actions?.[name];
   return Object.freeze({
     value: (name: string) => get(String(name))?.v ?? 0,
     vector: (name: string): [number, number] => {

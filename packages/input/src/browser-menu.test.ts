@@ -10,6 +10,7 @@
  * slices of menu state.
  */
 import { describe, expect, it } from 'vitest';
+import { viewSource } from './test-frame-view';
 import { attachBrowserInput } from './browser';
 
 /** A minimal EventTarget stand-in (same pattern as browser.test.ts). */
@@ -65,7 +66,7 @@ function pad(options: PadOptions = {}): Gamepad {
 }
 
 interface Harness {
-  source: ReturnType<typeof attachBrowserInput>;
+  source: ReturnType<typeof viewSource<ReturnType<typeof attachBrowserInput>>>;
   win: FakeTarget;
   doc: FakeTarget;
   key: (code: string, down?: boolean, extra?: Record<string, unknown>) => void;
@@ -82,12 +83,12 @@ function harness(pads: ArrayLike<Gamepad | null> = []): Harness {
     getGamepads: () => padList,
   };
   (win as unknown as { isSecureContext: boolean }).isSecureContext = true;
-  const source = attachBrowserInput(target as unknown as EventTarget, {
+  const source = viewSource(attachBrowserInput(target as unknown as EventTarget, {
     window: win as unknown as Window,
     document: doc as unknown as Document,
     navigator: (win as unknown as { navigator: object }).navigator as unknown as Navigator,
     getGamepads: () => padList,
-  });
+  }));
   const key = (code: string, down = true, extra: Record<string, unknown> = {}): void => {
     const targetLike = { isContentEditable: false, tagName: 'CANVAS' };
     if (down) {
@@ -250,11 +251,11 @@ describe('input-gate rules still apply to the menu channel', () => {
     (win as unknown as { document: FakeTarget }).document = doc;
     (win as unknown as { navigator: object }).navigator = {};
     (win as unknown as { isSecureContext: boolean }).isSecureContext = true;
-    const src = attachBrowserInput(target as unknown as EventTarget, {
+    const src = viewSource(attachBrowserInput(target as unknown as EventTarget, {
       window: win as unknown as Window,
       document: doc as unknown as Document,
       navigator: (win as unknown as { navigator: object }).navigator as unknown as Navigator,
-    });
+    }));
     const editable = { isContentEditable: true, tagName: 'INPUT' };
     target.dispatch('keydown', { code: 'Enter', target: editable });
     target.dispatch('keydown', { code: 'KeyM', target: editable });

@@ -46,7 +46,7 @@ export {
   MENU_MUTE_CODE,
 } from './menu';
 export type { MenuConfirmDevice, MenuController, MenuSample } from './menu';
-export { mapRawInput } from './mapping';
+export { mapRawInput, toActionFrame, type CharacterChannels } from './mapping';
 export { createStepInputSource, type StepInputStep } from './step-source';
 export { DEFAULT_KEYBOARD_MAP, GAMEPAD_DEAD_ZONE } from './types';
 export type { InputBindingOptions, RawInputSnapshot } from './types';

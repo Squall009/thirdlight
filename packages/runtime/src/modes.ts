@@ -287,15 +287,21 @@ export class ModeState {
     return m === undefined || (m.groups === undefined && m.ungrouped !== 'pause');
   }
 
-  /** The frame modules and scripts read: actions of inactive maps read as released (the recorded frame is untouched). */
-  mask(frame: ActionFrame): ActionFrame {
+  /**
+   * The frame modules and scripts read: actions of inactive maps read as
+   * released (the recorded frame is untouched). Phase 24.8: with the gameplay
+   * map off, the character controller's actions (`controllerActions`, its
+   * move and jump) read released too, as its fixed channels did.
+   */
+  mask(frame: ActionFrame, controllerActions: readonly string[] = []): ActionFrame {
     const mask = this.currentId === null ? null : (this.masks.get(this.currentId) ?? null);
     if (mask === null) return frame;
     let actions = frame.actions;
-    if (actions !== undefined && mask.names.size > 0) {
+    const off = (name: string): boolean => mask.names.has(name) || (mask.gameplayOff && controllerActions.includes(name));
+    if (actions !== undefined && (mask.names.size > 0 || mask.gameplayOff)) {
       let copy: Record<string, ActionValue> | null = null;
       for (const name in actions) {
-        if (!mask.names.has(name)) continue;
+        if (!off(name)) continue;
         const a = actions[name]!;
         if (a.v === 0 && a.p === 'none' && (a.x === undefined || a.x === 0) && (a.y === undefined || a.y === 0)) continue;
         if (copy === null) copy = { ...actions };
@@ -303,15 +309,8 @@ export class ModeState {
       }
       if (copy !== null) actions = Object.freeze(copy);
     }
-    const moveOff = mask.gameplayOff && (frame.moveX !== 0 || (frame.moveY ?? 0) !== 0 || frame.jump !== 'none');
-    if (actions === frame.actions && !moveOff) return frame;
-    const out: ActionFrame = { ...frame, ...(actions !== undefined ? { actions } : {}) };
-    if (moveOff) {
-      out.moveX = 0;
-      if (out.moveY !== undefined) out.moveY = 0;
-      out.jump = 'none';
-    }
-    return out;
+    if (actions === frame.actions) return frame;
+    return { ...frame, ...(actions !== undefined ? { actions } : {}) };
   }
 
   /** The simulation speed of the current mode. */

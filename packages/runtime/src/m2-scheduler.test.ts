@@ -89,7 +89,7 @@ describe('M2 scheduling (runtime.md §5/§12.5)', () => {
     expect(d.inputSamples).toBe(0);
     expect(frames.sampled).toEqual([]);
     expect(seen.map((s) => s.stepIndex)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    for (const row of seen) expect(row.frame).toEqual({ stepIndex: row.stepIndex, moveX: 0, jump: 'none' });
+    for (const row of seen) expect(row.frame).toEqual({ stepIndex: row.stepIndex });
 
     seen.length = 0;
     h.tick(0.0167);
@@ -128,7 +128,7 @@ describe('M2 scheduling (runtime.md §5/§12.5)', () => {
 
   it('a jump/action edge delivered inside an 8-step catch-up frame is consumed exactly once', () => {
     const seen: Array<{ stepIndex: number; frame: ActionFrame }> = [];
-    const frames = recordingSource([{ stepIndex: 12, moveX: 1, jump: 'pressed' }]);
+    const frames = recordingSource([{ stepIndex: 12, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } }]);
     const h = makeM2Runtime({
       modules: ['thirdlight.test:trace'],
       specs: [traceSpec(seen)],
@@ -137,10 +137,10 @@ describe('M2 scheduling (runtime.md §5/§12.5)', () => {
     h.boot();
     seen.length = 0;
     h.tick(0.0668); // 8 raw steps, no drop
-    const pressed = seen.filter((s) => s.frame.jump === 'pressed');
+    const pressed = seen.filter((s) => s.frame.actions?.['jump']?.p === 'pressed');
     expect(pressed).toHaveLength(1);
     expect(pressed[0]!.stepIndex).toBe(12);
-    expect(seen.filter((s) => s.frame.moveX === 1)).toHaveLength(1);
+    expect(seen.filter((s) => s.frame.actions?.['move']?.v === 1)).toHaveLength(1);
     expect(h.diag().stepIndex).toBe(20);
     expect(h.diag().droppedSteps).toBe(0);
     h.rt.dispose();

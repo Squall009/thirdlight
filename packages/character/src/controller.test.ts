@@ -13,7 +13,8 @@
  * fixtures is allowed); this file uses no external data.
  */
 import { describe, expect, it } from 'vitest';
-import type { ActionFrame, CharacterMoveResult, GameplaySettings, PhysicsStepClient } from '@thirdlight/runtime';
+import type { ControllerInput } from './controller';
+import type { JumpPhase, CharacterMoveResult, GameplaySettings, PhysicsStepClient } from '@thirdlight/runtime';
 import { CONTROLLER_CONSTANTS, CHARACTER_MODULE_ID } from './constants';
 import {
   approach,
@@ -36,7 +37,7 @@ const COS_MAX = Math.cos((45 * Math.PI) / 180);
 const COS_MIN = Math.cos((30 * Math.PI) / 180);
 const TAN_MIN = Math.tan((30 * Math.PI) / 180);
 
-function frame(moveX: number, jump: ActionFrame['jump'] = 'none', stepIndex = 12): ActionFrame {
+function frame(moveX: number, jump: JumpPhase = 'none', stepIndex = 12): ControllerInput {
   return { stepIndex, moveX, jump };
 }
 
@@ -95,7 +96,7 @@ function harness() {
      * commit the port result exactly as the runtime does (physics phase
      * commits the position; the transform phase records `prevResult`).
      */
-    step(state: State, f: ActionFrame, overrides: ResultOverrides = {}): CharacterMoveResult {
+    step(state: State, f: ControllerInput, overrides: ResultOverrides = {}): CharacterMoveResult {
       controllerStep(state, 'char-0001', f, SETTINGS, DT, COS_MAX, COS_MIN, TAN_MIN, client);
       const requested = staged[staged.length - 1]?.delta ?? { x: 0, y: 0 };
       const r = result(requested, overrides);

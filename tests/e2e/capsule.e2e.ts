@@ -13,7 +13,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, controls } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -148,7 +148,7 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   await expect.poll(async () => (await observe()).state).toBe('running');
   await page.waitForTimeout(400);
   for (let i = 0; i < 40 && ((await observe()).player?.x ?? 0) < 5.3; i++) {
-    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: Array.from({ length: 12 }, (_, k) => ({ stepOffset: k, moveX: 1, jump: 'none' })) });
+    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: Array.from({ length: 12 }, (_, k) => ({ stepOffset: k, ...controls(1) })) });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
   }
   const after = await observe();

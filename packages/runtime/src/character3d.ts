@@ -4,8 +4,8 @@
  * is 3 (the 2D plane keeps `@thirdlight/character` exactly as it was).
  *
  * Pure fixed-step logic over the injected ports, like the character controller module:
- * in the `controller` phase it turns the step's move vector (the input's
- * `moveX`/`moveY`, read relative to the active camera's yaw when a camera
+ * in the `controller` phase it turns the step's move vector (its controller's
+ * move action: x, y — phase 24.8), read relative to the active camera's yaw when a camera
  * provides one, else world axes; or a script's `control_move` /
  * `character_move` intent) into a velocity (walk or run speed, acceleration
  * and deceleration, less of both in the air), adds gravity and jumps, and
@@ -22,7 +22,8 @@
  * (frame, intents, the previous result), so a recorded input run replays the
  * same positions in the page, the simulation worker and the export.
  */
-import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ } from '@thirdlight/project-model';
+import { character3DSettingsOf, controllerActionsOf, controllerCapsuleOf, controllerCapsuleOffsetZ } from '@thirdlight/project-model';
+import { actionAxis, actionPhase } from './actions';
 
 import type { CharacterMoveResult3D, PhysicsVec3 } from './ports';
 import type { ModuleConfig, RuntimeSnapshot, SimulationModuleSpec, SimulationPhaseModule, StepContext } from './types';
@@ -94,6 +95,8 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
   const hz = cfg.fixedStepHz;
   const dt = 1 / hz;
   const S = character3DSettingsOf(controller, cfg.settings);
+  // Phase 24.8: the input actions it reads (frame version 2 has no fixed channels).
+  const names = controllerActionsOf(controller);
   const capsule = controllerCapsuleOf(controller);
   const radius = capsule.radius;
   const halfHeight = Math.max(0, capsule.height / 2 - capsule.radius);
@@ -207,8 +210,9 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       dz = cm.z;
       run = cm.run;
     } else {
-      const mx = intents.move ?? action.moveX;
-      const my = intents.move !== null ? (intents.moveY ?? 0) : (action.moveY ?? 0);
+      const [ax, ay] = actionAxis(action, names.move);
+      const mx = intents.move ?? ax;
+      const my = intents.move !== null ? (intents.moveY ?? 0) : ay;
       const camYaw = typeof ctx.cameraYaw === 'number' && Number.isFinite(ctx.cameraYaw) ? ctx.cameraYaw : 0;
       const c = Math.cos(camYaw);
       const s = Math.sin(camYaw);
@@ -235,7 +239,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     [vx, vz] = approach2(vx, vz, tx, tz, rate * dt);
 
     // Jumping (the character controller's windows: coyote time after an edge, a buffered press, a release cut).
-    const jump = intents.jump ?? action.jump;
+    const jump = intents.jump ?? actionPhase(action, names.jump);
     if (jump === 'pressed') buffer = bufferSteps + 1;
     let jumped = false;
     if (S.jump && buffer > 0 && (walkable || coyote > 0) && S.jumpSpeed > 0) {

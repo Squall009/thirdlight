@@ -24,7 +24,7 @@
  *    state, idempotently.
  */
 import type { ActionFrame, ActionSource, InputStatusEntry } from '@thirdlight/runtime';
-import { mapRawStep, quantizeMove, type StepState } from './mapping';
+import { mapRawStep, quantizeMove, toActionFrame, type StepState } from './mapping';
 import {
   createMenuController,
   type MenuSample,
@@ -107,7 +107,7 @@ function messageOf(error: unknown): string {
 }
 
 function neutral(stepIndex: number): ActionFrame {
-  return { stepIndex, moveX: 0, jump: 'none' };
+  return { stepIndex };
 }
 
 /**
@@ -1007,17 +1007,18 @@ export function attachBrowserInput(
     const pointer = pointerSample();
     const rawPointer = takePointer();
     presentCursor();
+    // Phase 24.8: the mapped controls are the frame's `move` and `jump` actions (frame version 2).
     if (evaluator === null) {
       clearPointerEdges();
-      return pointer === null ? frame : { ...frame, pointer };
+      return toActionFrame(frame, pointer === null ? {} : { pointer });
     }
     const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null, pointer: rawPointer, now: clock() }, activeMaps === null ? undefined : actionActive);
     actionPressed.clear();
     clearPointerEdges();
     // Phase 23.2: a 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the M2 mapping exactly.
     const move = MOVE_2D ? actions['move'] : undefined;
-    if (move !== undefined) return { ...frame, moveX: quantizeMove(move.x ?? 0), moveY: quantizeMove(move.y ?? 0), actions, ...(pointer !== null ? { pointer } : {}) };
-    return { ...frame, actions, ...(pointer !== null ? { pointer } : {}) };
+    if (move !== undefined) return toActionFrame({ ...frame, moveX: quantizeMove(move.x ?? 0), moveY: quantizeMove(move.y ?? 0) }, { actions, ...(pointer !== null ? { pointer } : {}) });
+    return toActionFrame(frame, { actions, ...(pointer !== null ? { pointer } : {}) });
   };
 
   const reset = (reason?: string): void => suspend(reason ?? 'reset');

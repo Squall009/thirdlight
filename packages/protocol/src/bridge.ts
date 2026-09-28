@@ -104,9 +104,6 @@ function tooLarge(m: Record<string, unknown>, max: number): { reason: string } |
 export const LOAD_PHASES = ['shell', 'manifest', 'assets', 'behaviors', 'runtime'] as const;
 export type LoadPhase = (typeof LOAD_PHASES)[number];
 
-/** `jump ∈ {none, pressed, held, released}` (runtime.md §12.5). */
-const JUMP_PHASES: readonly string[] = ['none', 'pressed', 'held', 'released'];
-
 /**
  * Validate one EDITOR → PREVIEW message (sessions.md §13.5, v2).
  * `type` is the discriminator field of the message body.
@@ -175,22 +172,12 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       for (let i = 0; i < frames.length; i += 1) {
         const f = frames[i];
         if (!isPlainObject(f)) return { ok: false, reason: 'every frame must be an object', path: `/frames/${i}` };
-        // Phase 23.2: a frame may carry the second move axis and named actions; phase 23.3 the pointer (validated by the relay parser upstream).
-        const b2 = rejectUnknown(f, ['stepOffset', 'moveX', 'moveY', 'jump', 'actions', 'pointer']);
+        // Phase 24.8: frame version 2 — named actions and (phase 23.3) the pointer (validated by the relay parser upstream).
+        const b2 = rejectUnknown(f, ['stepOffset', 'actions', 'pointer']);
         if (b2) return { ok: false, reason: b2.reason, path: `/frames/${i}${b2.path ?? ''}` };
         if (!int(f['stepOffset'], 0, 2 ** 53 - 1)) return { ok: false, reason: 'stepOffset must be an integer ≥ 0', path: `/frames/${i}/stepOffset` };
         if ((f['stepOffset'] as number) <= previous) return { ok: false, reason: 'frames must be strictly ascending by stepOffset', path: `/frames/${i}/stepOffset` };
         previous = f['stepOffset'] as number;
-        if (typeof f['moveX'] !== 'number' || !Number.isFinite(f['moveX']) || (f['moveX'] as number) < -1 || (f['moveX'] as number) > 1) {
-          return { ok: false, reason: 'moveX must be a finite number in [-1, 1]', path: `/frames/${i}/moveX` };
-        }
-        if (f['moveY'] !== undefined && (typeof f['moveY'] !== 'number' || !Number.isFinite(f['moveY']) || (f['moveY'] as number) < -1 || (f['moveY'] as number) > 1)) {
-          return { ok: false, reason: 'moveY must be a finite number in [-1, 1]', path: `/frames/${i}/moveY` };
-        }
-        if (f['actions'] !== undefined && !isPlainObject(f['actions'])) return { ok: false, reason: 'actions must be an object', path: `/frames/${i}/actions` };
-        if (typeof f['jump'] !== 'string' || !JUMP_PHASES.includes(f['jump'])) {
-          return { ok: false, reason: 'jump must be one of none | pressed | held | released', path: `/frames/${i}/jump` };
-        }
         if (f['actions'] !== undefined && !isPlainObject(f['actions'])) return { ok: false, reason: 'actions must be an object of action values', path: `/frames/${i}/actions` };
         if (f['pointer'] !== undefined && parseRelayPointer(f['pointer']) === null) return { ok: false, reason: 'pointer must be { x, y, dx?, dy?, wheel?, buttons?, pressed?, released?, over?, locked? }', path: `/frames/${i}/pointer` };
       }

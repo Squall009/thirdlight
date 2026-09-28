@@ -18,7 +18,7 @@
  * Deterministic replays do not go through here: a recorded input (a replay,
  * the MCP input exercise) is per step and runs in the worker as recorded.
  */
-import { mergeInputStatus, type ActionFrame, type ActionSource, type ActionValue, type JumpPhase, type PointerSample } from '@thirdlight/runtime';
+import { mergeInputStatus, upgradeActionFrameV1, type ActionFrame, type ActionSource, type ActionValue, type JumpPhase, type PointerSample } from '@thirdlight/runtime';
 
 /**
  * Phase 23.3: the pointer on a further step of the same tick — where it is
@@ -71,8 +71,8 @@ export function continuePhase(p: JumpPhase): JumpPhase {
 
 /** The frame's continuation for a further step in the same tick (no new device events). */
 export function continueFrame(f: ActionFrame): ActionFrame {
-  // Phase 23.2: a frame's second move axis (moveY) is kept as it is (absent stays absent).
-  const out: ActionFrame = { stepIndex: f.stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: continuePhase(f.jump) };
+  // Phase 24.8: frame version 2 — only named actions (and the pointer) continue.
+  const out: ActionFrame = { stepIndex: f.stepIndex };
   if (f.actions !== undefined) {
     const actions: Record<string, ActionValue> = {};
     for (const name of Object.keys(f.actions)) {
@@ -106,8 +106,7 @@ export function mergePhase(pending: JumpPhase, next: JumpPhase): { now: JumpPhas
  */
 export class TickInputSource implements ActionSource {
   private pending: ActionFrame | null = null;
-  /** Edges still owed to the next steps after a merge (jump; per action name). */
-  private owedJump: JumpPhase | null = null;
+  /** Edges still owed to the next steps after a merge (per action name). */
   private owedActions: Map<string, JumpPhase> | null = null;
   private consumed = true;
   private readonly onReset: ((reason?: string) => void) | undefined;
@@ -116,20 +115,19 @@ export class TickInputSource implements ActionSource {
     this.onReset = onReset;
   }
 
-  push(frame: ActionFrame | null): void {
-    if (frame === null) return;
+  push(sampled: ActionFrame | null): void {
+    if (sampled === null) return;
+    // Phase 24.8: a version 1 frame (an older input owner or recording) reads as version 2.
+    const frame = upgradeActionFrameV1(sampled) as ActionFrame;
     if (this.consumed || this.pending === null) {
       this.pending = frame;
-      this.owedJump = null;
       this.owedActions = null;
       this.consumed = false;
       return;
     }
     // The previous tick ran no step: merge, keeping its edges.
     const p = this.pending;
-    const j = mergePhase(p.jump, frame.jump);
-    const merged: ActionFrame = { stepIndex: frame.stepIndex, moveX: frame.moveX, ...(frame.moveY !== undefined ? { moveY: frame.moveY } : {}), jump: j.now };
-    this.owedJump = j.then;
+    const merged: ActionFrame = { stepIndex: frame.stepIndex };
     if (frame.actions !== undefined || p.actions !== undefined) {
       const actions: Record<string, ActionValue> = {};
       const owed = new Map<string, JumpPhase>();
@@ -158,14 +156,10 @@ export class TickInputSource implements ActionSource {
 
   sample(stepIndex: number): ActionFrame {
     const f = this.pending;
-    if (f === null) return { stepIndex, moveX: 0, jump: 'none' };
-    const out: ActionFrame = { stepIndex, moveX: f.moveX, ...(f.moveY !== undefined ? { moveY: f.moveY } : {}), jump: f.jump, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}), ...(f.input !== undefined ? { input: f.input } : {}) };
+    if (f === null) return { stepIndex };
+    const out: ActionFrame = { stepIndex, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}), ...(f.input !== undefined ? { input: f.input } : {}) };
     // The next step of this tick sees the continuation (or the owed edge of a merge).
     const next = continueFrame(f);
-    if (this.owedJump !== null) {
-      next.jump = this.owedJump;
-      this.owedJump = null;
-    }
     if (this.owedActions !== null && next.actions !== undefined) {
       const actions = { ...next.actions };
       for (const [name, p] of this.owedActions) {
@@ -182,7 +176,6 @@ export class TickInputSource implements ActionSource {
 
   reset(reason?: string): void {
     this.pending = null;
-    this.owedJump = null;
     this.owedActions = null;
     this.consumed = true;
     this.onReset?.(reason);

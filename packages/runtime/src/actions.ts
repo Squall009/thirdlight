@@ -7,12 +7,22 @@
  * runtime samples a frame exactly once per executed fixed step
  * (`ActionSource.sample(stepIndex)`), before any module phase.
  *
+ * Phase 24.8: frame version 2. A frame carries only named actions
+ * (`actions`); the fixed `moveX`/`moveY`/`jump` channels of version 1 are
+ * gone — the character controller reads the actions it is configured with
+ * (`move` and `jump` by default). A version 1 frame (one with `moveX` or
+ * `jump`) is upgraded when it is read (`upgradeActionFrameV1`): the channels
+ * become the `move` and `jump` actions, so a recording made before replays
+ * the same.
+ *
  * `createRecordedActionSource` is the engine-level replay source
- * (runtime.md §12.7): construction validates every frame, the strict ascent
- * of `stepIndex` and the jump phase chain, so a recorded fixture replays
- * identically in the Node harness, the preview bundle and the export bundle.
+ * (runtime.md §12.7): construction validates every frame and the strict
+ * ascent of `stepIndex`, so a recorded fixture replays identically in the
+ * Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
+// Phase 24.8: the action names a character controller reads (re-exported for the controller modules).
+export { controllerActionsOf } from '@thirdlight/project-model';
 import { validateSaveEvents, type SaveEvent } from './project-saves';
 import { validateInputStatus, type InputStatusEntry } from './input-status';
 import { validateUiEvents, type UiEventRecord } from './ui';
@@ -24,23 +34,17 @@ export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
 /** Canonical `JumpPhase` order (input.md §2 table order). */
 export const JUMP_PHASES: readonly JumpPhase[] = ['none', 'pressed', 'held', 'released'];
 
-/** One quantized, self-describing action frame (runtime.md §12.5). */
+/** Phase 24.8: the action frame format version (2: named actions only; 1 had the fixed moveX/moveY/jump channels). */
+export const ACTION_FRAME_VERSION = 2;
+
+/** One self-describing action frame (runtime.md §12.5; phase 24.8: version 2). */
 export interface ActionFrame {
   /** Integer, `0 ≤ v ≤ 2^53−1` — the executed fixed-step index. */
   stepIndex: number;
-  /** Finite, `−1 ≤ v ≤ 1`, quantized to 1e-4 (`round(v·1e4)/1e4`). */
-  moveX: number;
-  /**
-   * Phase 23.2, optional: the move vector's second axis (forward / up on a
-   * stick, like `moveX` quantized to 1e-4 in [−1, 1]) — from a 2D `move`
-   * action; a 3D character walks along it. Absent: 0 (every older frame).
-   */
-  moveY?: number;
-  jump: JumpPhase;
   /**
    * Phase 9.8, optional: every named input action this step — `v` its value
    * (a button 0/1, an axis −1..1 after its processors), `x`/`y` for a 2D
-   * axis, `p` the button phase. Absent: only move and jump exist.
+   * axis, `p` the button phase. Absent: no action has a value (all neutral).
    */
   actions?: Readonly<Record<string, ActionValue>>;
   /**
@@ -158,7 +162,9 @@ const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 export const MOVE_QUANTUM = 1e-4;
 /** `maxRelaySteps`-independent upper bound for a step index. */
 const MAX_STEP_INDEX = 2 ** 53 - 1;
-const FRAME_KEYS = new Set(['stepIndex', 'moveX', 'jump']);
+const FRAME_KEYS = new Set(['stepIndex']);
+/** The version 1 channels (`upgradeActionFrameV1`). */
+const V1_CHANNELS = new Set(['moveX', 'moveY', 'jump']);
 
 /** Input-source lifecycle/diagnostic counters a binding may expose (input.md §5). */
 export interface ActionSourceDiagnostics {
@@ -179,9 +185,68 @@ export interface ActionSource {
   diagnostics?(): ActionSourceDiagnostics;
 }
 
-/** The neutral frame for a step index (input.md §2, normative). */
+/** The neutral frame for a step index (input.md §2, normative; phase 24.8: no action has a value). */
 export function neutralFrame(stepIndex: number): ActionFrame {
-  return { stepIndex, moveX: 0, jump: 'none' };
+  return { stepIndex };
+}
+
+/**
+ * Phase 24.8: read a version 1 frame (one with the fixed `moveX`/`moveY`/
+ * `jump` channels) as version 2. The channels become the `move` action (`v`
+ * = moveX; with moveY also `x`, `y`) and the `jump` action (`v` 1 while
+ * pressed or held, `p` the phase), replacing those actions' values if the
+ * frame had them too — the channels were what the character controller read,
+ * so a recording replays the same. Other fields are kept. A frame without
+ * the channels is returned as it is. The values are not validated here.
+ */
+export function upgradeActionFrameV1(raw: unknown): unknown {
+  if (!isPlainObject(raw) || !(hasOwn.call(raw, 'moveX') || hasOwn.call(raw, 'jump') || hasOwn.call(raw, 'moveY'))) return raw;
+  const { moveX, moveY, jump, ...rest } = raw;
+  const actions: Record<string, unknown> = isPlainObject(rest['actions']) ? { ...(rest['actions'] as Record<string, unknown>) } : {};
+  if (moveX !== undefined || moveY !== undefined) {
+    const prev = isPlainObject(actions['move']) ? (actions['move'] as Record<string, unknown>) : null;
+    const x = moveX ?? 0;
+    actions['move'] =
+      moveY !== undefined
+        ? { v: prev?.['v'] ?? x, x, y: moveY, p: prev?.['p'] ?? 'none' }
+        : prev !== null && (prev['x'] !== undefined || prev['y'] !== undefined)
+          ? { ...prev, x }
+          : { v: x, p: prev?.['p'] ?? 'none' };
+  }
+  if (jump !== undefined) actions['jump'] = { v: jump === 'pressed' || jump === 'held' ? 1 : 0, p: jump };
+  return { ...rest, actions };
+}
+
+/** Phase 24.8: the version 1 channel rules (moveX and jump required together; moveX/moveY in [−1, 1] quantized to 1e-4; jump a phase). */
+function checkV1Channels(raw: unknown): { ok: false; field: string; message: string } | null {
+  if (!isPlainObject(raw) || !(hasOwn.call(raw, 'moveX') || hasOwn.call(raw, 'jump') || hasOwn.call(raw, 'moveY'))) return null;
+  for (const key of ['moveX', 'jump']) {
+    if (!(key in raw)) return { ok: false, field: key, message: `action frame field "${key}" is missing (a version 1 frame has moveX and jump)` };
+  }
+  for (const key of ['moveX', 'moveY'] as const) {
+    const v = raw[key];
+    if (key === 'moveY' && v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < -1 || v > 1) return { ok: false, field: key, message: `${key} must be finite and within [-1, 1]` };
+    if (quantizeMove(v) !== v || Object.is(v, -0)) return { ok: false, field: key, message: `${key} must be quantized to 1e-4 (negative zero normalized)` };
+  }
+  const jump = raw['jump'];
+  if (typeof jump !== 'string' || !JUMP_PHASES.includes(jump as JumpPhase)) return { ok: false, field: 'jump', message: 'jump must be one of none | pressed | held | released' };
+  return null;
+}
+
+/**
+ * Phase 24.8: the move vector of the action `name` in a frame — `x` (a 2D
+ * axis) else `v`, and `y` (0 without a second axis); [0, 0] when absent.
+ */
+export function actionAxis(frame: ActionFrame, name: string): [number, number] {
+  const a = frame.actions?.[name];
+  if (a === undefined) return [0, 0];
+  return [a.x ?? a.v, a.y ?? 0];
+}
+
+/** Phase 24.8: the button phase of the action `name` in a frame ('none' when absent). */
+export function actionPhase(frame: ActionFrame, name: string): JumpPhase {
+  return frame.actions?.[name]?.p ?? 'none';
 }
 
 /**
@@ -219,17 +284,22 @@ export function quantizeMove(v: number): number {
  * at construction, module_error at sample time).
  */
 export function validateActionFrame(
-  value: unknown,
+  raw: unknown,
   expectedStepIndex?: number,
   previous?: ActionFrame,
 ): { ok: true; frame: ActionFrame } | { ok: false; field: string; message: string } {
+  // Phase 24.8: a version 1 frame is read as version 2 (its channels become the move/jump actions),
+  // after its channels pass the version 1 rules.
+  const v1 = checkV1Channels(raw);
+  if (v1 !== null) return v1;
+  const value = upgradeActionFrameV1(raw);
   if (!isPlainObject(value)) {
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'moveY' || key === 'ui' || key === 'input' || key === 'dialogue') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'ui' || key === 'input' || key === 'dialogue') continue;
     if (!FRAME_KEYS.has(key)) {
-      return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
+      return { ok: false, field: key, message: V1_CHANNELS.has(key) ? `action frame field "${key}" is a version 1 channel (upgradeActionFrameV1)` : `unknown action frame field "${key}" (strict shape)` };
     }
   }
   for (const key of FRAME_KEYS) {
@@ -252,27 +322,6 @@ export function validateActionFrame(
       field: 'stepIndex',
       message: `frame stepIndex ${stepIndex} does not match the sampled step ${expectedStepIndex}`,
     };
-  }
-  const moveX = value['moveX'];
-  if (typeof moveX !== 'number' || !Number.isFinite(moveX) || moveX < -1 || moveX > 1) {
-    return { ok: false, field: 'moveX', message: 'moveX must be finite and within [-1, 1]' };
-  }
-  if (quantizeMove(moveX) !== moveX || Object.is(moveX, -0)) {
-    return { ok: false, field: 'moveX', message: 'moveX must be quantized to 1e-4 (negative zero normalized)' };
-  }
-  // Phase 23.2: the optional second move axis (the same rules as moveX).
-  const moveY = value['moveY'];
-  if (moveY !== undefined) {
-    if (typeof moveY !== 'number' || !Number.isFinite(moveY) || moveY < -1 || moveY > 1) {
-      return { ok: false, field: 'moveY', message: 'moveY must be finite and within [-1, 1]' };
-    }
-    if (quantizeMove(moveY) !== moveY || Object.is(moveY, -0)) {
-      return { ok: false, field: 'moveY', message: 'moveY must be quantized to 1e-4 (negative zero normalized)' };
-    }
-  }
-  const jump = value['jump'];
-  if (typeof jump !== 'string' || !JUMP_PHASES.includes(jump as JumpPhase)) {
-    return { ok: false, field: 'jump', message: 'jump must be one of none | pressed | held | released' };
   }
   // Phase 23.3: the pointer sample (optional; old frames have none).
   let pointer: PointerSample | undefined;
@@ -319,9 +368,8 @@ export function validateActionFrame(
   const withExtras = <F extends ActionFrame>(f: F): F => (dialogueInputs === undefined ? withExtras0(f) : { ...withExtras0(f), dialogue: dialogueInputs });
   const withExtras0 = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];
-  // Phase 23.2 / 23.8 / 23.3 / 23.9a: moveY, commands, the pointer and UI events only when present (a frame without them stays as it was).
-  const withMoveY = moveY !== undefined ? { moveY } : {};
-  if (rawActions === undefined) return { ok: true, frame: withExtras({ stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase }) };
+  // Phase 23.8 / 23.3 / 23.9a: commands, the pointer and UI events only when present (a frame without them stays as it was).
+  if (rawActions === undefined) return { ok: true, frame: withExtras({ stepIndex }) };
   if (!isPlainObject(rawActions) || ownKeyCount(rawActions) > MAX_FRAME_ACTIONS) {
     return { ok: false, field: 'actions', message: `actions must map at most ${MAX_FRAME_ACTIONS} action names to values` };
   }
@@ -341,7 +389,7 @@ export function validateActionFrame(
     if (same && !(sameActionValue(prevActions![name], a) && keyAt(prevActions!, index) === name)) same = false;
     index += 1;
   }
-  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: withExtras({ stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, actions: prevActions! }) };
+  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: withExtras({ stepIndex, actions: prevActions! }) };
   const actions: Record<string, ActionValue> = {};
   for (const name in rawActions) {
     if (!hasOwn.call(rawActions, name)) continue;
@@ -352,7 +400,7 @@ export function validateActionFrame(
         ? prev
         : Object.freeze({ v: a['v'] as number, ...(a['x'] !== undefined ? { x: a['x'] as number } : {}), ...(a['y'] !== undefined ? { y: a['y'] as number } : {}), p: a['p'] as JumpPhase, ...(a['i'] === 1 ? { i: 1 as const } : {}) });
   }
-  return { ok: true, frame: withExtras({ stepIndex, moveX, ...withMoveY, jump: jump as JumpPhase, actions: Object.freeze(actions) }) };
+  return { ok: true, frame: withExtras({ stepIndex, actions: Object.freeze(actions) }) };
 }
 
 /**
@@ -444,29 +492,11 @@ function sameActionValue(prev: ActionValue | undefined, a: unknown): boolean {
 }
 
 /**
- * The allowed jump-phase transitions of the source chain (input.md §3.2):
- * `none → pressed → held* → released → none`. A gap between recorded frames
- * inserts neutral frames, which is only valid from `none`/`released`.
- */
-function transitionAllowed(from: JumpPhase, to: JumpPhase): boolean {
-  switch (to) {
-    case 'none':
-      return from === 'none' || from === 'released';
-    case 'pressed':
-      return from === 'none';
-    case 'held':
-      return from === 'pressed' || from === 'held';
-    case 'released':
-      return from === 'pressed' || from === 'held';
-  }
-}
-
-/**
  * Build the engine-level replay source (runtime.md §12.7/`input.md` §6).
  *
- * Construction is strict: every frame is validated, `stepIndex` must strictly
- * ascend, and the jump column must be a valid phase chain (including across
- * index gaps). A violation throws an `InputFrameError` (code
+ * Construction is strict: every frame is validated (a version 1 frame is
+ * upgraded) and `stepIndex` must strictly ascend (phase 24.8: there is no
+ * fixed jump column to chain-check). A violation throws an `InputFrameError` (code
  * `input_frame_invalid`) — the host maps it to `config_invalid` when it
  * builds the config. `sample(n)` is a pure lookup: a recorded frame, else the
  * neutral frame for `n`. `reset()` is a no-op (recorded sequences never
@@ -477,7 +507,6 @@ export function createRecordedActionSource(frames: readonly ActionFrame[]): Acti
     throw new InputFrameError('', 'recorded frames must be an array');
   }
   const byIndex = new Map<number, ActionFrame>();
-  let prevPhase: JumpPhase = 'none';
   let prevIndex: number | null = null;
   for (let i = 0; i < frames.length; i += 1) {
     const check = validateActionFrame(frames[i]);
@@ -492,21 +521,7 @@ export function createRecordedActionSource(frames: readonly ActionFrame[]): Acti
           `frame ${i}: stepIndex ${frame.stepIndex} does not strictly ascend past ${prevIndex}`,
         );
       }
-      if (frame.stepIndex > prevIndex + 1 && !(prevPhase === 'none' || prevPhase === 'released')) {
-        throw new InputFrameError(
-          'jump',
-          `frame ${i}: a gap after a down phase ("${prevPhase}") is not a valid phase chain`,
-        );
-      }
     }
-    const from = prevIndex !== null && frame.stepIndex > prevIndex + 1 ? 'none' : prevPhase;
-    if (!transitionAllowed(from, frame.jump)) {
-      throw new InputFrameError(
-        'jump',
-        `frame ${i}: jump "${frame.jump}" does not follow "${from}" in the phase chain`,
-      );
-    }
-    prevPhase = frame.jump;
     prevIndex = frame.stepIndex;
     byIndex.set(frame.stepIndex, Object.freeze({ ...frame }));
   }

@@ -399,10 +399,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Run a bounded, step-indexed semantic action sequence against an explicitly presented play session in ' +
       'exclusive test-input mode (physical input is suppressed and cleared; it clears on completion/stop/disconnect). ' +
-      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; jump ∈ none|pressed|held|released; optional moveY (−1..1, the move ' +
-      'vector\'s forward axis: a 3D character walks along (moveX, moveY), relative to the camera); optional actions: ' +
-      '{<action name>: {v, x?, y?, p: none|pressed|held|released}} for named input actions (attack, interact, …; scripts read ' +
-      'them with ctx.input); optional pointer: {x, y (0-1 of the view, 0,0 top left), dx?, dy?, wheel?, buttons?, pressed?, released? ' +
+      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; each frame {stepOffset, actions?, pointer?} (input frame version 2: ' +
+      'no fixed move/jump channels): actions {<action name>: {v, x?, y?, p: none|pressed|held|released}} - the character ' +
+      'controller reads its move and jump actions (default names move and jump: move {v: -1..1} walks along x, or {v, x, y} ' +
+      'for a 2D move where a 3D character walks along (x, y) relative to the camera; jump {v: 0|1, p}), scripts read any action ' +
+      'with ctx.input; an action absent from a frame is released. Optional pointer: {x, y (0-1 of the view, 0,0 top left), dx?, dy?, wheel?, buttons?, pressed?, released? ' +
       '(masks: 1 left, 2 right, 4 middle), over?, locked?} (a frame without one keeps the last position and held buttons; a button ' +
       'going down between frames is a click - ctx.input.pointerPressed, ctx.physics.pickAtPointer). Returns the applied ' +
       'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
@@ -419,9 +420,6 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
             type: 'object',
             properties: {
               stepOffset: { type: 'integer', minimum: 0 },
-              moveX: { type: 'number', minimum: -1, maximum: 1 },
-              moveY: { type: 'number', minimum: -1, maximum: 1 },
-              jump: { type: 'string', enum: ['none', 'pressed', 'held', 'released'] },
               actions: {
                 type: 'object',
                 additionalProperties: {
@@ -450,7 +448,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
                 additionalProperties: false,
               },
             },
-            required: ['stepOffset', 'moveX', 'jump'],
+            required: ['stepOffset'],
             additionalProperties: false,
           },
         },
@@ -816,24 +814,19 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
   for (let i = 0; i < a.frames.length; i += 1) {
     const raw = a.frames[i];
     if (!isObj(raw)) return toolError(`frames[${i}] must be an object`);
-    const { stepOffset, moveX, moveY, jump, actions } = raw;
+    const { stepOffset, actions } = raw;
+    // Phase 24.8: frame version 2 has no fixed channels.
+    for (const old of ['moveX', 'moveY', 'jump']) {
+      if (raw[old] !== undefined) return toolError(`frames[${i}].${old} is not a frame field (input frame version 2): use actions {move: {v}, jump: {v, p}}`);
+    }
     if (!isInt(stepOffset) || stepOffset < 0) return toolError(`frames[${i}].stepOffset must be an integer ≥ 0`);
     if (stepOffset <= previous) return toolError('frames must be strictly ascending by stepOffset');
     previous = stepOffset;
-    if (typeof moveX !== 'number' || !Number.isFinite(moveX) || moveX < -1 || moveX > 1) {
-      return toolError(`frames[${i}].moveX must be a finite number in [-1, 1]`);
-    }
-    if (jump !== 'none' && jump !== 'pressed' && jump !== 'held' && jump !== 'released') {
-      return toolError(`frames[${i}].jump must be one of none | pressed | held | released`);
-    }
-    if (moveY !== undefined && (typeof moveY !== 'number' || !Number.isFinite(moveY) || moveY < -1 || moveY > 1)) {
-      return toolError(`frames[${i}].moveY must be a finite number in [-1, 1]`);
-    }
     if (actions !== undefined && !isObj(actions)) return toolError(`frames[${i}].actions must be an object`);
     // Phase 23.3: the pointer too.
     if (raw.pointer !== undefined && !isObj(raw.pointer)) return toolError(`frames[${i}].pointer must be an object { x, y, ... }`);
-    // Phase 23.2: the forward axis and the named actions reach the game (the backend validates them).
-    frames.push({ stepOffset, moveX, ...(moveY !== undefined ? { moveY } : {}), jump, ...(actions !== undefined ? { actions } : {}), ...(raw.pointer !== undefined ? { pointer: raw.pointer } : {}) });
+    // The named actions reach the game (the backend validates them).
+    frames.push({ stepOffset, ...(actions !== undefined ? { actions } : {}), ...(raw.pointer !== undefined ? { pointer: raw.pointer } : {}) });
   }
   const body = JSON.stringify({ mode: 'exclusive-test', frames });
   if (body.length > 16_384) return toolError('the relay body exceeds the 16384-byte bound');

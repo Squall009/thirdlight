@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { attachBrowserInput } from './browser';
 import { DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, type InputConfigLike } from './actions';
 import { DEFAULT_KEYBOARD_MAP } from './types';
+import { viewSource } from './test-frame-view';
 
 type Handler = (event: Event) => void;
 
@@ -109,14 +110,14 @@ function harness(options: HarnessOptions = {}) {
   win.navigator = options.gamepads ? { getGamepads: options.gamepads } : {};
   win.isSecureContext = options.secure ?? true;
   const diagnostics: DiagnosticEvent[] = [];
-  const source = attachBrowserInput(target as unknown as EventTarget, {
+  const source = viewSource(attachBrowserInput(target as unknown as EventTarget, {
     window: win as unknown as Window,
     document: doc as unknown as Document,
     navigator: win.navigator as unknown as Navigator,
     getGamepads: options.gamepads ?? null,
     onDiagnostic: (event) => diagnostics.push({ ...event }),
     ...(options.inputConfig !== undefined ? { inputConfig: options.inputConfig } : {}),
-  });
+  }));
   const keyEvent = (
     code: string,
     overrides: { repeat?: boolean; target?: unknown; preventDefault?: () => void } = {},
@@ -448,13 +449,13 @@ describe('blocked, insecure and absent gamepad APIs (input.md §5.5)', () => {
 
   it('attaches without any browser environment at all', () => {
     const listeners: string[] = [];
-    const source = attachBrowserInput(null, {
+    const source = viewSource(attachBrowserInput(null, {
       window: null,
       document: null,
       navigator: null,
       getGamepads: null,
       onDiagnostic: (event) => listeners.push(event.code),
-    });
+    }));
     expect(source.unavailable()?.reason).toBe('environment');
     expect(source.sample(12)).toEqual(neutralFrame(12));
     expect(listeners).toEqual(['input_unavailable']);
@@ -463,7 +464,7 @@ describe('blocked, insecure and absent gamepad APIs (input.md §5.5)', () => {
   });
 
   it('never throws from a throwing diagnostic sink', () => {
-    const source = attachBrowserInput(null, {
+    const source = viewSource(attachBrowserInput(null, {
       window: null,
       document: null,
       navigator: null,
@@ -471,7 +472,7 @@ describe('blocked, insecure and absent gamepad APIs (input.md §5.5)', () => {
       onDiagnostic: () => {
         throw new Error('sink failed');
       },
-    });
+    }));
     expect(source.unavailable()?.reason).toBe('environment');
     expect(source.sample(1)).toEqual(neutralFrame(1));
   });

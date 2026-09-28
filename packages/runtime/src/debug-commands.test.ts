@@ -166,7 +166,7 @@ describe('phase 23.8: injected variables', () => {
 describe('phase 23.8: debug commands on input frames', () => {
   it('a frame with commands validates to frozen copies; a frame without keeps its exact shape', () => {
     const plain = validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none' });
-    expect(plain.ok && JSON.stringify(plain.frame)).toBe('{"stepIndex":3,"moveX":0,"jump":"none"}');
+    expect(plain.ok && JSON.stringify(plain.frame)).toBe('{"stepIndex":3,"actions":{"move":{"v":0,"p":"none"},"jump":{"v":0,"p":"none"}}}');
     const withCmd = validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none', commands: [{ name: 'give', args: { item: 'key', count: 2, loud: true } }] });
     expect(withCmd.ok).toBe(true);
     if (withCmd.ok) {

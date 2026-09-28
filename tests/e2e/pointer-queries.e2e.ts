@@ -224,11 +224,11 @@ test('pointer: hover lights a box\'s lamp and a click hides it — the mouse in 
   const psid = (observe2 as unknown as { psid: string }).psid;
   const p = { x: Math.round(red.x * 1e4) / 1e4, y: Math.round(red.y * 1e4) / 1e4 };
   const frames = [
-    { stepOffset: 0, moveX: 0, jump: 'none', pointer: { x: 0.5, y: 0.05 } },
-    { stepOffset: 20, moveX: 0, jump: 'none', pointer: { x: p.x, y: p.y } },
-    { stepOffset: 40, moveX: 0, jump: 'none', pointer: { x: p.x, y: p.y, buttons: 1 } },
-    { stepOffset: 52, moveX: 0, jump: 'none', pointer: { x: p.x, y: p.y } },
-    { stepOffset: 60, moveX: 0, jump: 'none' },
+    { stepOffset: 0, pointer: { x: 0.5, y: 0.05 } },
+    { stepOffset: 20, pointer: { x: p.x, y: p.y } },
+    { stepOffset: 40, pointer: { x: p.x, y: p.y, buttons: 1 } },
+    { stepOffset: 52, pointer: { x: p.x, y: p.y } },
+    { stepOffset: 60 },
   ];
   const relayed = await api(`play/${psid}/input`, { mode: 'exclusive-test', frames });
   expect(relayed.status, JSON.stringify(relayed.json)).toBe(200);

@@ -8,7 +8,7 @@
  */
 import type { ActionFrame, Runtime } from '@thirdlight/runtime';
 import { PlayDebugger, type DebugRequest } from './play-debug';
-import type { RelayActionSource } from './relay-input';
+import type { RelayActionSource, RelayTestFrame } from './relay-input';
 import type { ThreadingMode } from './threading';
 
 export interface SimRay {
@@ -30,8 +30,8 @@ export interface SimAccess {
   debugObservation(): Promise<unknown>;
   diagnostics(): Promise<ReturnType<Runtime['getDiagnostics']>>;
   /** Start an exclusive input exercise (per-step frames from the next step); false while one runs. */
-  /** Phase 23.2: frames may carry the second move axis (`moveY`), named actions and (phase 23.3) the pointer. */
-  beginInputTest(frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions']; pointer?: ActionFrame['pointer']; }[], onComplete: (from: number, to: number) => void): boolean;
+  /** Phase 24.8: frames carry named actions and (phase 23.3) the pointer (version 2: no fixed move/jump channels). */
+  beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void): boolean;
   readonly inputTestActive: boolean;
   /** Rays against the scene's colliders (the character excluded), as the physics port answers them. */
   raycast(rays: readonly SimRay[]): Promise<({ distance: number } | null)[]>;

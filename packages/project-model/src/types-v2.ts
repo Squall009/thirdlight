@@ -186,6 +186,10 @@ export interface ControllerComponent {
   turnSpeed?: number;
   /** Phase 23.2 (3D): turn to face the movement direction (absent: true). */
   faceMovement?: boolean;
+  /** Phase 24.8: the input action that moves it (absent: `move`). */
+  moveAction?: string;
+  /** Phase 24.8: the input action that makes it jump (absent: `jump`). */
+  jumpAction?: string;
 }
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */

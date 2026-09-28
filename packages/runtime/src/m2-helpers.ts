@@ -158,7 +158,7 @@ export function recordingSource(frames: readonly ActionFrame[] = []): {
     sampled,
     sample(n: number): ActionFrame {
       sampled.push(n);
-      return byIndex.get(n) ?? { stepIndex: n, moveX: 0, jump: 'none' };
+      return byIndex.get(n) ?? { stepIndex: n };
     },
   };
 }

@@ -9,7 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test } from '@playwright/test';
 
-import { type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend, controls } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config
 import { browserLibs } from './browser-env.mjs';
 
@@ -54,7 +54,7 @@ test('with no editor open, MCP plays, observes, moves and screenshots the game t
   expect(during.filter((s) => s.connected)).toHaveLength(1);
 
   expect((await call('tl_game_control', { playSessionId, command: 'mute' })).isError).toBe(false);
-  const frames = Array.from({ length: 90 }, (_, i) => ({ stepOffset: i, moveX: 1, jump: 'none' }));
+  const frames = Array.from({ length: 90 }, (_, i) => ({ stepOffset: i, ...controls(1) }));
   const input = await call('tl_input_exercise', { playSessionId, frames });
   expect(input.isError, JSON.stringify(input.body)).toBe(false);
   const observed = (await call('tl_game_observe', { playSessionId })).body as { state: string; player: { x: number } };

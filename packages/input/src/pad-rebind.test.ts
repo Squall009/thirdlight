@@ -5,6 +5,7 @@
  * every config without pad bindings of a kind.
  */
 import { describe, expect, it } from 'vitest';
+import { viewSource } from './test-frame-view';
 
 import { DEFAULT_INPUT_CONFIG, characterPad, readCharacterPad, STANDARD_CHARACTER_PAD, type InputConfigLike } from './actions';
 import { attachBrowserInput } from './browser';
@@ -50,13 +51,13 @@ function attach(inputConfig?: InputConfigLike) {
   win.document = new FakeTarget();
   win.isSecureContext = true;
   const pad = fakePad();
-  const source = attachBrowserInput(target as unknown as EventTarget, {
+  const source = viewSource(attachBrowserInput(target as unknown as EventTarget, {
     window: win as unknown as Window,
     document: win.document as unknown as Document,
     navigator: {} as Navigator,
     getGamepads: pad.list,
     ...(inputConfig !== undefined ? { inputConfig } : {}),
-  });
+  }));
   return { target, pad, source };
 }
 

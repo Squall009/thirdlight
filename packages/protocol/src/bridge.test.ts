@@ -108,28 +108,30 @@ describe('editor → preview validators', () => {
   });
 
   it('tl.input.request (1–600 strictly ascending frames)', () => {
-    const ok = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 1, jump: 'pressed' }, { stepOffset: 5, moveX: 0.5, jump: 'held' }] });
+    const ok = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } }, { stepOffset: 5, actions: { move: { v: 0.5, p: 'none' }, jump: { v: 1, p: 'held' } } }] });
     expect(ok.ok).toBe(true);
-    const dup = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 1, moveX: 0, jump: 'none' }, { stepOffset: 1, moveX: 0, jump: 'none' }] });
+    const dup = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 1 }, { stepOffset: 1 }] });
     expect(dup.ok).toBe(false);
     const empty = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [] });
     expect(empty.ok).toBe(false);
-    const tooMany = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: Array.from({ length: 601 }, (_, i) => ({ stepOffset: i, moveX: 0, jump: 'none' })) });
+    const tooMany = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: Array.from({ length: 601 }, (_, i) => ({ stepOffset: i })) });
     expect(tooMany.ok).toBe(false);
     const badJump = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0, jump: 'up' }] });
     expect(badJump.ok).toBe(false);
     // Phase 23.2: the move vector's forward axis and named actions travel with a frame.
-    const vec = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0, moveY: 1, jump: 'none', actions: { run: { v: 1, p: 'held' } } }] });
+    const vec = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 1, p: 'none' }, jump: { v: 0, p: 'none' }, run: { v: 1, p: 'held' } } }] });
     expect(vec.ok).toBe(true);
-    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0, moveY: 2, jump: 'none' }] }).ok).toBe(false);
+    // Phase 24.8: frame version 2 — the fixed channels are refused.
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0.5, jump: 'none' }] }).ok).toBe(false);
+    expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, moveX: 0.5, jump: 'none' }] }).ok).toBe(false);
   });
 
-  it('phase 23.2: the relay body parser and the WS event keep moveY (and actions); older frames are unchanged', () => {
-    const parsed = parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, moveX: 0.25, moveY: -0.5, jump: 'none' }, { stepOffset: 1, moveX: 1, jump: 'none' }] });
-    expect(parsed.ok && parsed.request.frames).toEqual([{ stepOffset: 0, moveX: 0.25, moveY: -0.5, jump: 'none' }, { stepOffset: 1, moveX: 1, jump: 'none' }]);
-    expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, moveX: 0, moveY: 'up', jump: 'none' }] }).ok).toBe(false);
-    const ws = JSON.parse(makeInputRelayRequest('req-1', [{ stepOffset: 0, moveX: 0, moveY: 1, jump: 'none', actions: { run: { v: 1, p: 'held' } } }, { stepOffset: 1, moveX: 1, jump: 'none' }])) as { frames: unknown[] };
-    expect(ws.frames).toEqual([{ stepOffset: 0, moveX: 0, moveY: 1, jump: 'none', actions: { run: { v: 1, p: 'held' } } }, { stepOffset: 1, moveX: 1, jump: 'none' }]);
+  it('the relay body parser and the WS event keep the named actions (a 2D move is { v, x, y }; phase 24.8: frame version 2)', () => {
+    const parsed = parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, actions: { move: { v: 0.25, x: 0.25, y: -0.5, p: 'none' }, jump: { v: 0, p: 'none' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }] });
+    expect(parsed.ok && parsed.request.frames).toEqual([{ stepOffset: 0, actions: { move: { v: 0.25, x: 0.25, y: -0.5, p: 'none' }, jump: { v: 0, p: 'none' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }]);
+    expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 'up', p: 'none' }, jump: { v: 0, p: 'none' } } }] }).ok).toBe(false);
+    const ws = JSON.parse(makeInputRelayRequest('req-1', [{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 1, p: 'none' }, jump: { v: 0, p: 'none' }, run: { v: 1, p: 'held' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }])) as { frames: unknown[] };
+    expect(ws.frames).toEqual([{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 1, p: 'none' }, jump: { v: 0, p: 'none' }, run: { v: 1, p: 'held' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }]);
   });
 
   it('tl.play.stop / tl.ping', () => {

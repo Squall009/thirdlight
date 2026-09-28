@@ -134,9 +134,9 @@ describe('UiState: the view model, shown documents and the step diff (pure)', ()
 
 describe('ActionFrame.ui: the UI events of a step', () => {
   it('validates strictly and keeps older frames unchanged', () => {
-    const plain = validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none' });
+    const plain = validateActionFrame({ stepIndex: 3 });
     expect(plain.ok && !('ui' in plain.frame)).toBe(true);
-    const ok = validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none', ui: [{ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1, index: 2 }] });
+    const ok = validateActionFrame({ stepIndex: 3, ui: [{ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1, index: 2 }] });
     expect(ok.ok && ok.frame.ui).toEqual([{ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1, index: 2 }]);
     const bad = [
       [{ kind: 'poke', doc: 'hud', widget: '', name: '' }],
@@ -147,9 +147,9 @@ describe('ActionFrame.ui: the UI events of a step', () => {
       new Array(MAX_FRAME_UI_EVENTS + 1).fill({ kind: 'click', doc: 'hud', widget: '', name: 'x' }),
       'nope',
     ];
-    for (const ui of bad) expect(validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none', ui }).ok, JSON.stringify(ui).slice(0, 60)).toBe(false);
+    for (const ui of bad) expect(validateActionFrame({ stepIndex: 3, ui }).ok, JSON.stringify(ui).slice(0, 60)).toBe(false);
     // A recording keeps them.
-    const src = createRecordedActionSource([{ stepIndex: 5, moveX: 0, jump: 'none', ui: [{ kind: 'submit', doc: 'hud', widget: 'name', name: 'named', value: 'Ada' }] } as ActionFrame]);
+    const src = createRecordedActionSource([{ stepIndex: 5, ui: [{ kind: 'submit', doc: 'hud', widget: 'name', name: 'named', value: 'Ada' }] } as ActionFrame]);
     expect(src.sample(5).ui).toEqual([{ kind: 'submit', doc: 'hud', widget: 'name', name: 'named', value: 'Ada' }]);
     expect(src.sample(6).ui).toBeUndefined();
   });
@@ -284,7 +284,7 @@ describe('ctx.ui in the runtime', () => {
   it('two runs from the same recorded input publish the same UI at every step; recorded UI events replay exactly', () => {
     const frames: ActionFrame[] = [];
     for (let s = 0; s < 400; s += 1) {
-      const f: ActionFrame = { stepIndex: s, moveX: 0, jump: 'none' };
+      const f: ActionFrame = { stepIndex: s };
       if (s === 150) f.ui = [{ kind: 'toggle', doc: 'menu', widget: 'open', name: '' }];
       if (s === 151) f.ui = [{ kind: 'click', doc: 'menu', widget: 'buy', name: 'buy', value: 1, index: 0 }, { kind: 'focus', doc: 'menu', widget: 'sell', name: '' }];
       if (s === 300) f.ui = [{ kind: 'toggle', doc: 'menu', widget: 'open', name: '' }];

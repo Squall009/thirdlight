@@ -8,6 +8,7 @@
  * representation), a strict ascending index check, and a no-op `reset`.
  */
 import { describe, expect, it } from 'vitest';
+import { viewSource } from './test-frame-view';
 
 import { mapRawInput } from './mapping';
 import { createStepInputSource, type StepInputStep } from './step-source';
@@ -48,7 +49,7 @@ const STEPS: StepInputStep[] = [
 
 describe('createStepInputSource', () => {
   it('replays the same frames as a live binding with threaded state', () => {
-    const source = createStepInputSource(STEPS);
+    const source = viewSource(createStepInputSource(STEPS));
     let down = false;
     let awaitingRelease = false;
     for (const step of STEPS) {
@@ -65,9 +66,9 @@ describe('createStepInputSource', () => {
   });
 
   it('produces exactly one frame per index and neutral frames elsewhere', () => {
-    const source = createStepInputSource([
+    const source = viewSource(createStepInputSource([
       { stepIndex: 12, raw: snap({ keyboardLeft: true, keyboardJump: true }) },
-    ]);
+    ]));
     expect(source.sample(0)).toEqual({ stepIndex: 0, moveX: 0, jump: 'none' });
     expect(source.sample(11)).toEqual({ stepIndex: 11, moveX: 0, jump: 'none' });
     expect(source.sample(12)).toEqual({ stepIndex: 12, moveX: -1, jump: 'pressed' });
@@ -77,14 +78,14 @@ describe('createStepInputSource', () => {
   });
 
   it('represents the settle pre-roll as neutral steps 0–11', () => {
-    const source = createStepInputSource(STEPS);
+    const source = viewSource(createStepInputSource(STEPS));
     for (let n = 0; n < 12; n += 1) {
       expect(source.sample(n)).toEqual({ stepIndex: n, moveX: 0, jump: 'none' });
     }
   });
 
   it('has a no-op reset (recorded sequences never change on focus events)', () => {
-    const source = createStepInputSource(STEPS);
+    const source = viewSource(createStepInputSource(STEPS));
     const before = source.sample(13);
     source.reset?.('blur');
     expect(source.sample(13)).toEqual(before);
@@ -92,22 +93,22 @@ describe('createStepInputSource', () => {
 
   it('rejects non-ascending, duplicate and negative step indexes', () => {
     expect(() =>
-      createStepInputSource([
+      viewSource(createStepInputSource([
         { stepIndex: 12, raw: snap() },
         { stepIndex: 12, raw: snap() },
-      ]),
+      ])),
     ).toThrow(/strictly ascend/);
     expect(() =>
-      createStepInputSource([
+      viewSource(createStepInputSource([
         { stepIndex: 12, raw: snap() },
         { stepIndex: 11, raw: snap() },
-      ]),
+      ])),
     ).toThrow(/strictly ascend/);
-    expect(() => createStepInputSource([{ stepIndex: -1, raw: snap() }])).toThrow(/integer >= 0/);
+    expect(() => viewSource(createStepInputSource([{ stepIndex: -1, raw: snap() }]))).toThrow(/integer >= 0/);
   });
 
   it('rejects malformed entries', () => {
-    expect(() => createStepInputSource([{ stepIndex: 12, raw: null as never }])).toThrow(
+    expect(() => viewSource(createStepInputSource([{ stepIndex: 12, raw: null as never }]))).toThrow(
       /raw must be a snapshot/,
     );
   });

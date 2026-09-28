@@ -29,4 +29,4 @@
  * are the real packet-31 adapter and the real packet-30 binding.
  */
 export { CONTROLLER_CONSTANTS, CHARACTER_MODULE_ID } from './constants';
-export { characterControllerSpec } from './controller';
+export { characterControllerSpec, type ControllerInput } from './controller';

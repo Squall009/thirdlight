@@ -27,6 +27,7 @@ import type {
   ModeView,
 } from '@thirdlight/runtime';
 import type { ManifestBehaviorRow } from './host';
+import type { RelayTestFrame } from './relay-input';
 
 /** A scene's resolved entities (as the runtime loads them). */
 export type SceneEntities = LoadedSceneBatch['entities'];
@@ -122,7 +123,7 @@ export type MainToWorker =
   | SimTickMessage
   | { readonly t: 'cmd'; readonly command: SimCommand }
   | { readonly t: 'scene'; readonly sceneId: string; readonly result: { ok: true; entities: SceneEntities } | { ok: false; message: string } }
-  | { readonly t: 'relay'; readonly frames: readonly { stepOffset: number; moveX: number; moveY?: number; jump: string; actions?: ActionFrame['actions']; pointer?: ActionFrame['pointer']; }[] }
+  | { readonly t: 'relay'; readonly frames: readonly RelayTestFrame[] }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
   | { readonly t: 'dispose' };
 

@@ -19,8 +19,44 @@
  * (input.md §4.1). Jump is the logical OR of the mapped controls across the
  * active sources; its phase chain is computed once, on that OR.
  */
-import type { ActionFrame, JumpPhase } from '@thirdlight/runtime';
+import type { ActionFrame, ActionValue, JumpPhase } from '@thirdlight/runtime';
 import { GAMEPAD_DEAD_ZONE, type RawInputSnapshot } from './types';
+
+/**
+ * Phase 24.8: the character controls a raw snapshot maps to — the move axis
+ * and the jump phase of the `move` and `jump` actions, with the input.md
+ * rules (opposing keys cancel, the stick dead zone, the press latch, a fresh
+ * activation waits for a release). The action frame (version 2) carries them
+ * as those two named actions (`toActionFrame`).
+ */
+export interface CharacterChannels {
+  stepIndex: number;
+  /** −1..1, quantized to 1e-4. */
+  moveX: number;
+  /** A 2D move's forward axis (−1..1), when the move action is a 2D axis. */
+  moveY?: number;
+  jump: JumpPhase;
+}
+
+/**
+ * Phase 24.8: the action frame of mapped character controls plus the
+ * evaluated actions: the controls are the `move` and `jump` actions (their
+ * device rules win over the evaluator's value for those two names).
+ */
+export function toActionFrame(channels: CharacterChannels, extra: Omit<ActionFrame, 'stepIndex'> = {}): ActionFrame {
+  // The same reading as the runtime's upgradeActionFrameV1 (a value import of the runtime is not allowed here).
+  const actions: Record<string, ActionValue> = { ...(extra.actions ?? {}) };
+  const prev = actions['move'];
+  const x = channels.moveX;
+  actions['move'] =
+    channels.moveY !== undefined
+      ? { v: prev?.v ?? x, x, y: channels.moveY, p: prev?.p ?? 'none' }
+      : prev !== undefined && (prev.x !== undefined || prev.y !== undefined)
+        ? { ...prev, x }
+        : { v: x, p: prev?.p ?? 'none' };
+  actions['jump'] = { v: channels.jump === 'pressed' || channels.jump === 'held' ? 1 : 0, p: channels.jump };
+  return { ...extra, stepIndex: channels.stepIndex, actions };
+}
 
 /** The nested gamepad shape, addressed from the public snapshot type. */
 type GamepadSnapshot = NonNullable<RawInputSnapshot['gamepad']>;
@@ -97,7 +133,7 @@ function jumpDownOf(raw: RawInputSnapshot, gp: GamepadSnapshot | null): boolean 
 export function mapRawStep(
   snapshot: RawInputSnapshot,
   options: MapRawOptions,
-): { frame: ActionFrame; next: StepState } {
+): { frame: CharacterChannels; next: StepState } {
   const gp = standardGamepad(snapshot);
   const keyboardDigital = opposing(snapshot.keyboardLeft === true, snapshot.keyboardRight === true);
   const dpadDigital = gp === null ? 0 : opposing(gp.button14 === true, gp.button15 === true);
@@ -129,11 +165,12 @@ export function mapRawStep(
 }
 
 /**
- * The pure mapping entry point (dependencies.md §3 `input` row): one
- * `ActionFrame` for one raw snapshot. `options` carries the executed step
+ * The pure mapping entry point (dependencies.md §3 `input` row): the
+ * character controls of one raw snapshot (phase 24.8: `toActionFrame` makes
+ * them the frame's `move` and `jump` actions). `options` carries the executed step
  * index and the caller's previous sampling state; the caller clears the
  * snapshot's press latch and stores the returned state after the call.
  */
-export function mapRawInput(snapshot: RawInputSnapshot, options: MapRawOptions): ActionFrame {
+export function mapRawInput(snapshot: RawInputSnapshot, options: MapRawOptions): CharacterChannels {
   return mapRawStep(snapshot, options).frame;
 }

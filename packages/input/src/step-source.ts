@@ -17,7 +17,7 @@
  * silently change on focus events (input.md §6).
  */
 import type { ActionFrame, ActionSource } from '@thirdlight/runtime';
-import { mapRawStep, type StepState } from './mapping';
+import { mapRawStep, toActionFrame, type StepState } from './mapping';
 import type { RawInputSnapshot } from './types';
 
 /** One replayable step: the raw snapshot the binding would have produced. */
@@ -29,7 +29,7 @@ export interface StepInputStep {
 }
 
 function neutral(stepIndex: number): ActionFrame {
-  return { stepIndex, moveX: 0, jump: 'none' };
+  return { stepIndex };
 }
 
 function isPlainSnapshot(value: unknown): value is RawInputSnapshot {
@@ -74,7 +74,7 @@ export function createStepInputSource(steps: readonly StepInputStep[]): ActionSo
     });
     previousState = outcome.next;
     previousIndex = stepIndex;
-    frames.set(stepIndex, Object.freeze({ ...outcome.frame }));
+    frames.set(stepIndex, Object.freeze(toActionFrame(outcome.frame)));
   }
 
   return Object.freeze({

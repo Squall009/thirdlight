@@ -17,11 +17,14 @@
  * packet-32 values, so recorded replays are unchanged).
  *
  * Gate I repair R-I-2 (`runtime.md` §14.5, C34-3): the controller phase's input
- * is the **effective frame** `{ stepIndex, moveX: ctx.intents.move ??
- * ctx.action.moveX, jump: ctx.intents.jump ?? ctx.action.jump }`. With an empty
- * `IntentSet` this is bit-identical to the sampled `ctx.action`, so the 178
- * pinned packet-17 trace rows are unchanged; a committed `control_move`/
- * `control_jump` intent replaces only that channel for this phase.
+ * is the **effective input** `{ stepIndex, moveX: ctx.intents.move ?? the move
+ * action's x (else v), jump: ctx.intents.jump ?? the jump action's phase }`.
+ * Phase 24.8: the move and jump actions are the controller's `moveAction` /
+ * `jumpAction` (default `move`, `jump`); the action frame (version 2) has no
+ * fixed channels. With an empty `IntentSet` a version 1 recording (its
+ * channels upgraded to those actions) gives the same input, so the 178 pinned
+ * packet-17 trace rows are unchanged; a committed `control_move`/
+ * `control_jump` intent replaces only that value for this phase.
  *
  * The step-indexed state (`vx`, `vy`, `airborne`, `coyote`, `buffer`,
  * `prevResult`) is private to the module instance and survives `stop()` /
@@ -29,6 +32,7 @@
  */
 import type {
   ActionFrame,
+  JumpPhase,
   CharacterMoveResult,
   GameplaySettings,
   ModuleConfig,
@@ -220,10 +224,44 @@ export function slideDirection(
  * value). `cosMaxSlopeClimb`/`cosMinSlopeSlide` are the resolved settings'
  * angles in radians-precomputed cosine form.
  */
+/**
+ * Phase 24.8: the input actions a `controller` component names (`moveAction`,
+ * `jumpAction`; absent: `move` and `jump`, project-model's
+ * CONTROLLER_ACTION_DEFAULTS — the model validated the names).
+ */
+export function controllerActionNames(controller: unknown): { move: string; jump: string } {
+  const c = (typeof controller === 'object' && controller !== null ? controller : {}) as Record<string, unknown>;
+  return {
+    move: typeof c['moveAction'] === 'string' ? c['moveAction'] : 'move',
+    jump: typeof c['jumpAction'] === 'string' ? c['jumpAction'] : 'jump',
+  };
+}
+
+/** The horizontal move of an action (a 2D axis' x, else its value; 0 when absent). */
+function moveOf(frame: ActionFrame, name: string): number {
+  const a = frame.actions?.[name];
+  return a === undefined ? 0 : (a.x ?? a.v);
+}
+
+/** The button phase of an action ('none' when absent). */
+function phaseOf(frame: ActionFrame, name: string): JumpPhase {
+  return frame.actions?.[name]?.p ?? 'none';
+}
+
+/**
+ * Phase 24.8: the controller's own input for one step — the horizontal move
+ * (−1..1) and the jump phase (the motor contract the packet-17 traces pin).
+ */
+export interface ControllerInput {
+  readonly stepIndex: number;
+  readonly moveX: number;
+  readonly jump: JumpPhase;
+}
+
 export function controllerStep(
   state: ControllerState,
   charId: string,
-  frame: ActionFrame,
+  frame: ControllerInput,
   settings: Readonly<GameplaySettings>,
   dt: number,
   cosMaxSlopeClimb: number,
@@ -335,6 +373,8 @@ export function createControllerModule(
   // Phase 15.3: the player's tuning (its controller data, else the defaults).
   const tuning = controllerStepTuning((entity?.components as { controller?: unknown } | undefined)?.controller, cfg.fixedStepHz);
   const state = createControllerState(transform.position[0], transform.position[1], tuning.coyoteSteps);
+  // Phase 24.8: the input actions it reads.
+  const names = controllerActionNames((entity?.components as { controller?: unknown } | undefined)?.controller);
 
   return {
     transformOwners: [charId],
@@ -363,10 +403,10 @@ export function createControllerModule(
         // runtime.md §14.5 effective input: a committed intent for a channel
         // replaces the sampled channel for this phase only (`ctx.action`
         // itself stays the sampled frame).
-        const effective: ActionFrame = {
+        const effective: ControllerInput = {
           stepIndex: ctx.action.stepIndex,
-          moveX: ctx.intents.move ?? ctx.action.moveX,
-          jump: ctx.intents.jump ?? ctx.action.jump,
+          moveX: ctx.intents.move ?? moveOf(ctx.action, names.move),
+          jump: ctx.intents.jump ?? phaseOf(ctx.action, names.jump),
         };
         controllerStep(
           state,

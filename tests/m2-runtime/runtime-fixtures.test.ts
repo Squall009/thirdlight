@@ -222,7 +222,7 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
       expect(out.sampleCalls).toEqual(c.expect.sampledStepIndices);
       expect(out.droppedInputSteps).toBe(c.expect.droppedSteps);
       if (c.expect.pressedCount !== undefined) {
-        const pressed = out.sampled.filter((f) => f.jump === 'pressed');
+        const pressed = out.sampled.filter((f) => f.actions?.['jump']?.p === 'pressed');
         expect(pressed).toHaveLength(c.expect.pressedCount);
         if (pressed.length > 0) expect(pressed[0]!.stepIndex).toBe(c.expect.pressedAtStepIndex);
       }
@@ -315,7 +315,7 @@ describe('packet-29 scheduler fixtures (fixtures/m2/runtime/scheduler-traces.jso
       expect(out.droppedInputSteps).toBe(c.expect.droppedSteps);
       expect(out.sampleCalls).toEqual(c.expect.sampledStepIndices);
       if (c.expect.pressedCount !== undefined) {
-        const pressed = out.sampled.filter((f) => f.jump === 'pressed');
+        const pressed = out.sampled.filter((f) => f.actions?.['jump']?.p === 'pressed');
         expect(pressed).toHaveLength(c.expect.pressedCount);
         if (pressed.length > 0) expect(pressed[0]!.stepIndex).toBe(c.expect.pressedAtStepIndex);
       }

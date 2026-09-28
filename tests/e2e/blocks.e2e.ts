@@ -15,7 +15,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, controls } from './backend';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -109,7 +109,7 @@ test('a level built from gameplay blocks plays: a collectible, plate and door, o
   await page.waitForTimeout(400);
 
   const drive = async (frames: { moveX: number; jump: 'none' | 'pressed' | 'held' }[]): Promise<void> => {
-    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: frames.map((f, i) => ({ stepOffset: i, ...f })) });
+    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: frames.map((f, i) => ({ stepOffset: i, ...controls(f.moveX, f.jump) })) });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
   };
   const run = (n: number, moveX = 1) => Array.from({ length: n }, () => ({ moveX, jump: 'none' as const }));

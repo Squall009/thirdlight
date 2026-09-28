@@ -125,10 +125,10 @@ describe('ModeState (pure)', () => {
   it('masks the actions of inactive maps (move/jump with gameplay off) and ticks the listed groups', () => {
     const m = new ModeState({ modes: MODES, actionMaps: ACTION_MAPS }, HZ, effects());
     m.beginRun(1);
-    const frame: ActionFrame = { stepIndex: 1, moveX: 0.5, moveY: -1, jump: 'held', actions: { move: { v: 1, x: 0.5, y: -1, p: 'none' }, select: { v: 1, p: 'pressed' }, pause: { v: 0, p: 'none' } } };
+    const frame: ActionFrame = { stepIndex: 1, actions: { move: { v: 1, x: 0.5, y: -1, p: 'none' }, jump: { v: 1, p: 'held' }, select: { v: 1, p: 'pressed' }, pause: { v: 0, p: 'none' } } };
     // Explore: gameplay and ui active — only the tactical action reads as released.
     const e = m.mask(frame);
-    expect(e.moveX).toBe(0.5);
+    expect(e.actions!['move']?.x).toBe(0.5);
     expect(e.actions!['select']).toEqual({ v: 0, p: 'none' });
     expect(e.actions!['move']).toBe(frame.actions!['move']);
     expect(m.ticks('field')).toBe(true);
@@ -137,14 +137,15 @@ describe('ModeState (pure)', () => {
     expect(m.ticksAll).toBe(false);
     m.request('tactical');
     m.beginStep(2);
-    const t = m.mask(frame);
-    expect([t.moveX, t.moveY, t.jump]).toEqual([0, 0, 'none']);
+    // Phase 24.8: the controller's move and jump actions read released with gameplay off.
+    const t = m.mask(frame, ['move', 'jump']);
+    expect(t.actions!['jump']).toEqual({ v: 0, p: 'none' });
     expect(t.actions!['move']).toEqual({ v: 0, x: 0, y: 0, p: 'none' });
     expect(t.actions!['select']).toBe(frame.actions!['select']);
     expect(m.ticks('field')).toBe(false);
     expect(m.ticks('board')).toBe(true);
     // The recorded frame itself is untouched.
-    expect(frame.moveX).toBe(0.5);
+    expect(frame.actions?.['move']?.x).toBe(0.5);
     // A mode without input maps reads every map.
     const all = new ModeState({ modes: [{ modeId: 'only', name: 'Only' }], actionMaps: ACTION_MAPS }, HZ, effects());
     all.beginRun(1);
@@ -261,7 +262,7 @@ function recording(): ActionFrame[] {
   const frames: ActionFrame[] = [];
   const button = (p: 'pressed' | 'held') => ({ v: 1, p });
   for (let s = 0; s < 900; s += 1) {
-    const f: ActionFrame = { stepIndex: s, moveX: 0, jump: 'none', actions: {} };
+    const f: ActionFrame = { stepIndex: s, actions: {} };
     const actions: Record<string, { v: number; p: 'pressed' | 'held' | 'none' }> = {};
     if (s === 100) actions['toggle'] = button('pressed');
     if (s >= 50 && s < 60) actions['select'] = button('held'); // explore: the tactical map is off

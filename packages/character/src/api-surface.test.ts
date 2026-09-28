@@ -69,7 +69,7 @@ describe('module behaviour through the contracted StepContext only', () => {
     return {
       stepIndex: 12,
       phase,
-      action: { stepIndex: 12, moveX, jump: 'none' },
+      action: { stepIndex: 12, actions: { move: { v: moveX, p: 'none' } } },
       settings,
       physics,
       state: {},
@@ -144,6 +144,25 @@ describe('module behaviour through the contracted StepContext only', () => {
     module.step('transform', makeContext(physics, 'transform', 1));
     module.step('controller', makeContext(physics, 'controller', 1));
     expect(staged[1]!.delta.y).toBe(0);
+  });
+
+  it('phase 24.8: reads the move and jump actions its controller names (moveAction / jumpAction), not fixed channels', () => {
+    const staged: { x: number }[] = [];
+    const physics: PhysicsStepClient = { stageCharacterMove: (_id, delta) => staged.push({ x: delta.x }), characterResult: () => undefined };
+    const module = characterControllerSpec.create(
+      snapshotWith([
+        { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
+        { id: 'char-0001', components: { ...TRANSFORM, controller: { moveAction: 'walk', jumpAction: 'hop' } } },
+      ]),
+      { fixedStepHz: 120, settings, sceneVersion: 4 },
+    ) as { step: (p: 'controller' | 'transform', c: StepContext) => void };
+    const ctx = (actions: Record<string, { v: number; p: string }>): StepContext => ({ ...(makeContext(physics, 'controller', 0) as object), action: { stepIndex: 12, actions } }) as unknown as StepContext;
+    // The default names do nothing for this character…
+    module.step('controller', ctx({ move: { v: 1, p: 'none' } }));
+    expect(staged[0]!.x).toBe(0);
+    // …its own move action walks it.
+    module.step('controller', ctx({ walk: { v: 1, p: 'none' } }));
+    expect(staged[1]!.x).toBeGreaterThan(0);
   });
 
   it('uses a committed control intent as the §14.5 effective input', () => {

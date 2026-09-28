@@ -36,6 +36,7 @@ import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   ENGINE_TIMING_DEFAULTS,
+  controllerActionsOf,
   controllerTuningOf,
   controllerCapsuleOffsetZ,
   resolveGameplaySettings,
@@ -45,6 +46,7 @@ import {
   type RuntimeUiDocumentRow,
 } from '@thirdlight/project-model';
 import {
+  actionPhase,
   NEUTRAL_ACTION_SOURCE,
   neutralFrame,
   validateActionFrame,
@@ -1258,6 +1260,9 @@ class RuntimeInstance implements Runtime {
   private scriptCollidersDirty = true;
   private readonly settings: GameplaySettings;
   private readonly controllerEntityId?: string;
+  /** Phase 24.8: the input actions the character's controller reads (its moveAction / jumpAction). */
+  private readonly characterActions: { move: string; jump: string };
+  private readonly characterActionNames: readonly string[];
   private order: readonly string[];
   private entities: Map<string, SimEntityData>;
   private readonly cameraInfo: CameraInfo;
@@ -1756,6 +1761,8 @@ class RuntimeInstance implements Runtime {
     // (phase 24.7: the character is the controller's object in both dimensions).
     const rt = this;
     const characterComponents = args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller;
+    this.characterActions = controllerActionsOf(characterComponents);
+    this.characterActionNames = Object.freeze([this.characterActions.move, this.characterActions.jump]);
     this.blocks = new GameplayBlocks(
       {
         hz: this.hz,
@@ -3040,7 +3047,7 @@ class RuntimeInstance implements Runtime {
     }
     // Phase 23.10: the actions of input maps the game mode does not activate read as released
     // (the sampled frame stays the recorded input).
-    if (this.modes.active) action = this.modes.mask(action);
+    if (this.modes.active) action = this.modes.mask(action, this.characterActionNames);
     // Phase 9.9: movers advance (and are posed for physics), a pending bounce
     // reaches the controller; down + jump on a one-way platform drops through.
     this.raycastsThisStep = 0;
@@ -3050,13 +3057,15 @@ class RuntimeInstance implements Runtime {
     const held = this.modes.physicsHeld;
     if (!held) this.blocks?.beforeStep(ordinal);
     this.stepFacing = null;
+    // Phase 24.8: the character's jump action (its controller's jumpAction; frame version 2 has no jump channel).
+    const jumpName = this.characterActions.jump;
     if (
-      action.jump === 'pressed' &&
+      actionPhase(action, jumpName) === 'pressed' &&
       (action.actions?.['navigate']?.y ?? 0) < -0.5 &&
       this.blocks?.isOneWay(this.lastCharacterResult?.groundEntityId ?? null) === true
     ) {
       this.physics?.dropThrough?.(this.timing.dropThroughSteps);
-      action = { ...action, jump: 'none' };
+      action = { ...action, actions: { ...action.actions, [jumpName]: { v: 0, p: 'none' } } };
     }
     // Phase 21.2: the pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
