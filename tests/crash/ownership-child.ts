@@ -122,7 +122,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const baseRev = Number(baseRevision ?? 5);
-  const entity = entityId ?? 'box-0001';
+  const entity = entityId ?? 'box-000001';
 
   if (mode === 'crash-claim') {
     const point = gateFile;

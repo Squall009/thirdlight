@@ -29,6 +29,8 @@
  * Phase 24.8: a schemaVersion 2 project is upgraded by the model's pure
  * `upgradeProjectDocsV24` before it is validated (the open writes the result
  * back); game data it refuses blocks the load with the model's problems.
+ * Phase 25.7: a schemaVersion 3 project (and a 2 after that upgrade) goes
+ * through `upgradeProjectDocsV25` to 4 (no document changes; written back).
  */
 
 import { mkdirSync } from 'node:fs';
@@ -38,7 +40,10 @@ import {
   migrateProjectV3ToV4,
   PROJECT_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION_UPGRADED,
+  PROJECT_SCHEMA_VERSION_V24,
+  isUpgradedProjectSchemaVersion,
   upgradeProjectDocsV24,
+  upgradeProjectDocsV25,
   parseDocumentBytes,
   serializeCanonical,
   validateContentV3,
@@ -302,16 +307,24 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
   let contentDoc: unknown = content.value['content'];
   let docs: unknown[] = sceneDocs;
   let upgraded: { notes: string[] } | undefined;
-  if (man.value['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED) {
+  const fromVersion = man.value['schemaVersion'];
+  if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED) {
     const u = upgradeProjectDocsV24(contentDoc, sceneDocs);
     if (u.errors.length > 0) {
       const first = u.errors[0] as { document?: string };
       return blocked(first.document === 'scene' ? 'scene_invalid' : 'content_invalid', u.errors as unknown as LoadDetail[]);
     }
+    contentDoc = u.content;
+    docs = u.scenes;
+    upgraded = { notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION_V24} (phase 24: the engine has no game rules)`, ...u.notes] };
+  }
+  // Phase 25.7: a schemaVersion 3 project (or a 2 just upgraded to 3) becomes 4 (no document changes: old ids are kept).
+  if (isUpgradedProjectSchemaVersion(fromVersion)) {
+    const u = upgradeProjectDocsV25(contentDoc, docs);
     manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
     contentDoc = u.content;
     docs = u.scenes;
-    upgraded = { notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION} (phase 24: the engine has no game rules)`, ...u.notes] };
+    upgraded = { notes: [...(upgraded?.notes ?? [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_V24} to ${PROJECT_SCHEMA_VERSION}`]), ...u.notes] };
   }
   const v = validateProjectV4(manifestDoc, contentDoc, docs, revision);
   if (!v.ok) {

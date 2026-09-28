@@ -7,7 +7,7 @@
 //   expected.json index) as byte-exact files with REAL SHA-256 digests, in
 //   the storage-v4 layout (phase 12 c; packages/workspace/src/store-v4.ts):
 //
-//     project.json            manifest schemaVersion 3 (phase 24.8; 2 before)
+//     project.json            manifest schemaVersion 4 (phase 25.7; 3 before, 2 before phase 24.8)
 //     content.json            { storageVersion 4, type "project-content",
 //                               projectId, revision, content, retry }
 //     scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
@@ -145,7 +145,7 @@ function defaultContent() {
 }
 
 function manifestObj(id, name, createdAt) {
-  return { schemaVersion: 3, engineVersion: "0.1.0", id, name, createdAt };
+  return { schemaVersion: 4, engineVersion: "0.1.0", id, name, createdAt };
 }
 
 const RETENTION = 128;
@@ -213,8 +213,9 @@ function closureIds(scene, rootId) {
 
 function nextEntityId(scene, kind) {
   const used = new Set(scene.entities.map((e) => e.id));
-  for (let n = 1; n <= 9999; n++) {
-    const cand = `${kind}-${String(n).padStart(4, "0")}`;
+  // Phase 25.7a: assigned ids have at least six digits (project-model entity-ids.ts).
+  for (let n = 1; n <= 1048576; n++) {
+    const cand = `${kind}-${String(n).padStart(6, "0")}`;
     if (!used.has(cand)) return cand;
   }
   throw new Error(`fixture-tool: id exhaustion for ${kind}`);
@@ -619,9 +620,9 @@ const A = (i) => `req-1${String(i).padStart(31, "0")}`; // req-1...01 .. req-1..
 const mainlineRequests = {
   A1: req("createEntity", P, 0, A(1), browserOrigin, { kind: "box" }),
   A2: req("createEntity", P, 1, A(2), browserOrigin, { kind: "box" }),
-  A3: req("setTransform", P, 2, A(3), mcpOrigin, { entityId: "box-0001", transform: { position: [1.5, 0.25, 0] } }),
+  A3: req("setTransform", P, 2, A(3), mcpOrigin, { entityId: "box-000001", transform: { position: [1.5, 0.25, 0] } }),
   A4: req("createEntity", P, 3, A(4), browserOrigin, { kind: "group", name: "Walls" }),
-  A5: req("setTransform", P, 4, A(5), mcpOrigin, { entityId: "box-0002", transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } }),
+  A5: req("setTransform", P, 4, A(5), mcpOrigin, { entityId: "box-000002", transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } }),
   A6: req("createEntity", P, 5, A(6), browserOrigin, { kind: "box" }),
   A7: req("createEntity", P, 6, A(7), mcpOrigin, { kind: "box" }),
 };
@@ -631,8 +632,8 @@ for (let i = 1; i <= 7; i++) {
   mainlineResults[`A${i}`] = mainline.mutation(deepCopy(r), { op: r.op });
   mainline.snapshot(`T${i}`);
 }
-// sanity: A7 must be box-0004 (after the camera, the two lights, box-0001..3, group-0001)
-if (mainline.scene.entities.at(-1).id !== "box-0004") throw new Error("fixture-tool: A7 != box-0004");
+// sanity: A7 must be box-000004 (after the camera, the two lights, box-000001..3, group-000001)
+if (mainline.scene.entities.at(-1).id !== "box-000004") throw new Error("fixture-tool: A7 != box-000004");
 if (mainline.revision !== 7 || mainline.contentRevision !== 0) throw new Error("fixture-tool: mainline revisions wrong");
 
 const snapT = (i) => mainline.snapshots.get(`T${i}`);
@@ -650,23 +651,23 @@ function s5m(request, mutate) {
   s5.push({ in: request, out: liveAck(recorded) });
 }
 s5m(req("createEntity", P, 0, B(1), browserOrigin, { kind: "box", name: "Ground" }), { op: "createEntity" });
-s5m(req("setTransform", P, 1, B(2), mcpOrigin, { entityId: "box-0001", transform: { position: [0, 0, -0.5] } }), { op: "setTransform" });
+s5m(req("setTransform", P, 1, B(2), mcpOrigin, { entityId: "box-000001", transform: { position: [0, 0, -0.5] } }), { op: "setTransform" });
 s5m(req("createEntity", P, 2, B(3), browserOrigin, { kind: "box", name: "Crate" }), { op: "createEntity" });
-s5m(req("deleteEntity", P, 3, B(4), mcpOrigin, { entityId: "box-0002" }), { op: "deleteEntity" });
+s5m(req("deleteEntity", P, 3, B(4), mcpOrigin, { entityId: "box-000002" }), { op: "deleteEntity" });
 s5m(req("undo", P, 4, B(5), browserOrigin, {}), { undo: true });
 s5m(req("undo", P, 5, B(6), browserOrigin, {}), { undo: true });
 s5m(req("redo", P, 6, B(7), mcpOrigin, {}), { redo: true });
-s5m(req("setTransform", P, 7, B(8), mcpOrigin, { entityId: "box-0001", transform: { position: [0, 0.25, -0.5] } }), { op: "setTransform" });
+s5m(req("setTransform", P, 7, B(8), mcpOrigin, { entityId: "box-000001", transform: { position: [0, 0.25, -0.5] } }), { op: "setTransform" });
 s5m(req("undo", P, 8, B(9), browserOrigin, {}), { undo: true });
 
 (function verifyS5() {
-  if (S5P.scene.entities.map((e) => e.id).join(",") !== "cam-main,light-0001,light-0002,box-0001,box-0002") {
+  if (S5P.scene.entities.map((e) => e.id).join(",") !== "cam-main,light-0001,light-0002,box-000001,box-000002") {
     throw new Error("fixture-tool: S5 final entities wrong");
   }
   if (S5P.revision !== 9) throw new Error("fixture-tool: S5 final revision wrong");
-  const box1 = entityById(S5P.scene, "box-0001").entity;
+  const box1 = entityById(S5P.scene, "box-000001").entity;
   if (JSON.stringify(box1.components.transform.position) !== JSON.stringify([0, 0, -0.5])) {
-    throw new Error("fixture-tool: S5 box-0001 position wrong after undo");
+    throw new Error("fixture-tool: S5 box-000001 position wrong after undo");
   }
   const expected = [[1, 0], [2, 0], [3, 0], [4, 0], [3, 1], [2, 2], [3, 1], [4, 0], [3, 1]];
   s5.forEach((m, i) => {
@@ -682,8 +683,8 @@ s5m(req("undo", P, 8, B(9), browserOrigin, {}), { undo: true });
 
 const C = (i) => `req-3${String(i).padStart(31, "0")}`;
 const s3proj = FixtureProject.fromSnapshot(P, MAIN, snapT(5));
-const s3StaleReq = req("setTransform", P, 4, C(1), browserOrigin, { entityId: "box-0001", transform: { position: [0.75, 0, 0] } });
-const s3ReissueReq = req("setTransform", P, 5, C(2), browserOrigin, { entityId: "box-0001", transform: { position: [0.75, 0, 0] } });
+const s3StaleReq = req("setTransform", P, 4, C(1), browserOrigin, { entityId: "box-000001", transform: { position: [0.75, 0, 0] } });
+const s3ReissueReq = req("setTransform", P, 5, C(2), browserOrigin, { entityId: "box-000001", transform: { position: [0.75, 0, 0] } });
 const s3Result = s3proj.mutation(s3ReissueReq, { op: "setTransform" });
 
 // ---------------------------------------------------------------------------
@@ -692,16 +693,16 @@ const s3Result = s3proj.mutation(s3ReissueReq, { op: "setTransform" });
 
 const D = (i) => `req-5${String(i).padStart(31, "0")}`;
 const d4reqs = {
-  zeroQuat: req("setTransform", P, 5, D(1), mcpOrigin, { entityId: "box-0001", transform: { rotation: [0, 0, 0, 0] } }),
+  zeroQuat: req("setTransform", P, 5, D(1), mcpOrigin, { entityId: "box-000001", transform: { rotation: [0, 0, 0, 0] } }),
   ghostDelete: req("deleteEntity", P, 5, D(2), mcpOrigin, { entityId: "ghost-0001" }),
   ghostParent: req("createEntity", P, 5, D(3), browserOrigin, { kind: "box", parentId: "ghost-0001" }),
-  noChange: req("setTransform", P, 5, D(4), browserOrigin, { entityId: "box-0001", transform: { position: [1.5, 0.25, 0] } }),
+  noChange: req("setTransform", P, 5, D(4), browserOrigin, { entityId: "box-000001", transform: { position: [1.5, 0.25, 0] } }),
 };
 // sanity: the no_change request must equal the current state
-if (!noChange(snapT(5).scene, applySetTransform(snapT(5).scene, "box-0001", { position: [1.5, 0.25, 0] }).scene)) {
+if (!noChange(snapT(5).scene, applySetTransform(snapT(5).scene, "box-000001", { position: [1.5, 0.25, 0] }).scene)) {
   throw new Error("fixture-tool: S4 no_change case is not actually a no-op");
 }
-const box1IndexT5 = entityById(snapT(5).scene, "box-0001").index;
+const box1IndexT5 = entityById(snapT(5).scene, "box-000001").index;
 
 // The detail object is the project-model's own error (commands.md §5.2
 // passes it through verbatim); its text is the model's wording.
@@ -738,10 +739,10 @@ const E = (i) => `req-6${String(i).padStart(31, "0")}`;
 const T7 = snapT(7);
 const t7Files = projectFiles(P, MAIN, T7);
 
-// external edit of the scene file: box-0001 color -> #ff8800, everything
+// external edit of the scene file: box-000001 color -> #ff8800, everything
 // else identical (revision 7, retry block copied)
 const extScene = deepCopy(T7.scene);
-entityById(extScene, "box-0001").entity.components.box.material.color = "#ff8800";
+entityById(extScene, "box-000001").entity.components.box.material.color = "#ff8800";
 const extSceneBytes = fileJson(sceneFileObj(P, extScene, deepCopy(T7.sceneRecords)));
 const extHash = sha256(extSceneBytes);
 const extHash8 = extHash.slice(0, 8);
@@ -751,9 +752,9 @@ const extHash8 = extHash.slice(0, 8);
 // stamped with the project revision (7). Then the post-accept command.
 const s8proj = FixtureProject.fromSnapshot(P, MAIN, { ...deepCopy(T7), scene: deepCopy(extScene), contentRevision: 7, contentRecords: [], sceneRecords: [] });
 const acceptedFiles = projectFiles(P, MAIN, s8proj.files());
-const e8req = req("setTransform", P, 7, E(2), mcpOrigin, { entityId: "box-0004", transform: { position: [0, 1, 0] } });
+const e8req = req("setTransform", P, 7, E(2), mcpOrigin, { entityId: "box-000004", transform: { position: [0, 1, 0] } });
 const e8result = s8proj.mutation(e8req, { op: "setTransform" });
-const e8pauseReq = req("setTransform", P, 7, E(1), mcpOrigin, { entityId: "box-0004", transform: { position: [0, 1, 0] } });
+const e8pauseReq = req("setTransform", P, 7, E(1), mcpOrigin, { entityId: "box-000004", transform: { position: [0, 1, 0] } });
 const pendingChange = { snapshotState: "ok", externalHash: extHash, externalValid: true, externalErrorCount: 0 };
 
 const ownerA = { backendId: "tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", pid: 5000, openedAt: "2026-09-17T09:00:00Z", lockEpoch: 0 };
@@ -771,12 +772,12 @@ const ret = FixtureProject.fresh(RET, RETMAN);
 const F = (i) => `req-4${String(i).padStart(31, "0")}`;
 const retRequest = (i) => (i === 1
   ? req("createEntity", RET, 0, F(1), browserOrigin, { kind: "box" })
-  : req("setTransform", RET, i - 1, F(i), mcpOrigin, { entityId: "box-0001", transform: { position: [(i - 1) / 100, 0, 0] } }));
+  : req("setTransform", RET, i - 1, F(i), mcpOrigin, { entityId: "box-000001", transform: { position: [(i - 1) / 100, 0, 0] } }));
 for (let i = 1; i <= 129; i++) ret.mutation(retRequest(i), { op: retRequest(i).op });
 if (ret.revision !== 129) throw new Error("fixture-tool: retention revision wrong");
 if (ret.sceneRecords.length !== 128) throw new Error("fixture-tool: retention record count wrong");
 if (ret.sceneRecords[0].requestId !== F(2)) throw new Error("fixture-tool: eviction dropped the wrong record");
-if (JSON.stringify(entityById(ret.scene, "box-0001").entity.components.transform.position) !== JSON.stringify([1.28, 0, 0])) {
+if (JSON.stringify(entityById(ret.scene, "box-000001").entity.components.transform.position) !== JSON.stringify([1.28, 0, 0])) {
   throw new Error("fixture-tool: retention final position wrong");
 }
 
@@ -867,7 +868,7 @@ put(sc("01-retry-lost-ack", "messages.json"), canonJson([{ in: deepCopy(mainline
 putDisk("02-request-id-reused", "disk-before", rev5);
 put(sc("02-request-id-reused", "messages.json"), canonJson([
   {
-    in: req("deleteEntity", P, 5, A(5), mcpOrigin, { entityId: "box-0002" }),
+    in: req("deleteEntity", P, 5, A(5), mcpOrigin, { entityId: "box-000002" }),
     out: mutationError({ op: "deleteEntity", projectId: P, requestId: A(5), error: requestIdReusedError(5) }),
   },
 ]));
@@ -1004,8 +1005,8 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
         result: queryProjectResult({ projectId: P, manifest: MAIN, snap: t5, history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false } }),
       },
       queryEntity: {
-        request: { op: "queryEntity", projectId: P, args: { entityId: "box-0002", includeSubtree: true } },
-        result: queryEntityResult({ projectId: P, snap: t5, entityId: "box-0002", includeSubtree: true }),
+        request: { op: "queryEntity", projectId: P, args: { entityId: "box-000002", includeSubtree: true } },
+        result: queryEntityResult({ projectId: P, snap: t5, entityId: "box-000002", includeSubtree: true }),
       },
       queryEntities: {
         request: { op: "queryEntities", projectId: P, args: { limit: 2, offset: 0 } },
@@ -1024,7 +1025,7 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
   const validEntry = (name, project, snap, note) => ({ dir: `envelope/valid/${name}`, project, revision: revisionOf(snap), records: recordsOf(snap).length, note });
   const idx = {
     indexVersion: 2,
-    storage: "v4: project.json (manifest schemaVersion 3), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
+    storage: "v4: project.json (manifest schemaVersion 4), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
     contracts: {
       commands: "docs/contracts/commands.md",
       workspace: "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",
@@ -1056,10 +1057,10 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
       { dir: "scenarios/02-request-id-reused", name: "requestId reuse with different content", outcomes: [{ kind: "error", code: "request_id_reused", cls: "conflict" }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before"] },
       { dir: "scenarios/03-stale-revision", name: "stale revision + recovery re-issue", outcomes: [{ kind: "error", code: "revision_conflict", cls: "conflict" }, { kind: "success", revision: 6, duplicated: false }], finalRevision: 6, invariants: ["recovery re-issue uses a fresh requestId (req-3...02) and the current revision", "only the scene file changes"] },
       { dir: "scenarios/04-invalid-no-partial", name: "invalid transactions leave no partial changes", outcomes: [{ kind: "error", code: "quaternion_invalid", cls: "validation" }, { kind: "error", code: "entity_not_found", cls: "validation" }, { kind: "error", code: "reference_missing", cls: "validation" }, { kind: "error", code: "no_change", cls: "validation" }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before (four rejected commands, zero state change)"] },
-      { dir: "scenarios/05-undo-redo-mixed", name: "undo/redo with mixed human/agent edits", outcomes: s5.map((m) => outcome(m)), finalRevision: 9, invariants: ["depth progression after each step: [1,0] [2,0] [3,0] [4,0] [3,1] [2,2] [3,1] [4,0] [3,1]", "undo of the mcp delete restores box-0002 (originOfApplied kind mcp)", "fresh mcp edit at step 8 invalidates redo (redoDepth 0)", "final entities: cam-main, light-0001, light-0002, box-0001 (position [0,0,-0.5]), box-0002", "9 records retained in the scene file (undo/redo are recorded mutations)"] },
-      { dir: "scenarios/06-crash-before-replace", name: "crash before atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 6, writePaused: false }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["load after restart reports revision 6 (the temp is ignored and cleaned)", "leftover temp scenes/.scene-main.json.tmp-4242-7 removed on open", "retry of A7 re-executes fresh (no record): createdId box-0004, duplicated false, history (1, 0) in a fresh process", "final scene file equals envelope/valid/demo-0001-rev7 except the fresh record's history depths"] },
+      { dir: "scenarios/05-undo-redo-mixed", name: "undo/redo with mixed human/agent edits", outcomes: s5.map((m) => outcome(m)), finalRevision: 9, invariants: ["depth progression after each step: [1,0] [2,0] [3,0] [4,0] [3,1] [2,2] [3,1] [4,0] [3,1]", "undo of the mcp delete restores box-000002 (originOfApplied kind mcp)", "fresh mcp edit at step 8 invalidates redo (redoDepth 0)", "final entities: cam-main, light-0001, light-0002, box-000001 (position [0,0,-0.5]), box-000002", "9 records retained in the scene file (undo/redo are recorded mutations)"] },
+      { dir: "scenarios/06-crash-before-replace", name: "crash before atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 6, writePaused: false }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["load after restart reports revision 6 (the temp is ignored and cleaned)", "leftover temp scenes/.scene-main.json.tmp-4242-7 removed on open", "retry of A7 re-executes fresh (no record): createdId box-000004, duplicated false, history (1, 0) in a fresh process", "final scene file equals envelope/valid/demo-0001-rev7 except the fresh record's history depths"] },
       { dir: "scenarios/07-crash-after-replace", name: "crash after atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 7, writePaused: false }, { kind: "success", revision: 7, duplicated: true }], finalRevision: 7, invariants: ["load reports revision 7 (the rename landed)", "retry of A7 replays the recorded result (duplicated true)", "no double-apply: 8 entities, project files identical to disk-before"] },
-      { dir: "scenarios/08-external-modification", name: "unexpected external modification", outcomes: [{ kind: "error", code: "external_change_unresolved", cls: "unavailable" }, { kind: "query", op: "queryProject", revision: 7, writePaused: true }, { kind: "admin", op: "acceptExternalState", revision: 7 }, { kind: "success", revision: 8, duplicated: false }], finalRevision: 8, invariants: ["recovery snapshot disk-after/.thirdlight/recovery/scene-*.json is byte-identical to disk-external/scenes/scene-main.json", "accept rewrites every file with cleared records; content.json is stamped revision 7", "final scene file carries the accepted color #ff8800, box-0004 position [0,1,0], and exactly 1 retry record"] },
+      { dir: "scenarios/08-external-modification", name: "unexpected external modification", outcomes: [{ kind: "error", code: "external_change_unresolved", cls: "unavailable" }, { kind: "query", op: "queryProject", revision: 7, writePaused: true }, { kind: "admin", op: "acceptExternalState", revision: 7 }, { kind: "success", revision: 8, duplicated: false }], finalRevision: 8, invariants: ["recovery snapshot disk-after/.thirdlight/recovery/scene-*.json is byte-identical to disk-external/scenes/scene-main.json", "accept rewrites every file with cleared records; content.json is stamped revision 7", "final scene file carries the accepted color #ff8800, box-000004 position [0,1,0], and exactly 1 retry record"] },
       { dir: "scenarios/09-second-backend-ownership", name: "second-backend ownership rejection", outcomes: [{ kind: "error", code: "project_unavailable", cls: "unavailable", reason: "ownership_conflict" }, { kind: "query", op: "queryProject", revision: 7, writePaused: false }], finalRevision: 7, invariants: ["outcome 1 reason ownership_conflict (live owner pid 5000)", "outcome 2: the owner is dead, so backend B reclaims automatically (lockEpoch 1) and serves the project", "project files unchanged throughout"] },
     ],
     examples: "examples/commands.json (one request/live-ack pair per mutation op plus a retry replay, drawn from the mainline and scenario 05; query examples on the T5 state)",
@@ -1112,15 +1113,15 @@ for (const [rel, bytes] of files) {
 {
   let s = defaultScene();
   s = applyCreate(s, { kind: "box", name: "Ground" }).scene;
-  s = applySetTransform(s, "box-0001", { position: [0, 0, -0.5] }).scene;
+  s = applySetTransform(s, "box-000001", { position: [0, 0, -0.5] }).scene;
   s = applyCreate(s, { kind: "box", name: "Crate" }).scene;
-  const del = applyDelete(s, "box-0002");
+  const del = applyDelete(s, "box-000002");
   s = del.scene;
   s = applyRestore(s, del.entries, del.restoredParentId).scene; // undo delete
-  s = applyDelete(s, "box-0002").scene; // undo create
-  s = { ...s, entities: [...s.entities, deepCopy(entityById(S5P.scene, "box-0002").entity)] }; // redo create
-  s = applySetTransform(s, "box-0001", { position: [0, 0.25, -0.5] }).scene;
-  s = applySetTransform(s, "box-0001", { position: [0, 0, -0.5] }).scene; // undo setTransform
+  s = applyDelete(s, "box-000002").scene; // undo create
+  s = { ...s, entities: [...s.entities, deepCopy(entityById(S5P.scene, "box-000002").entity)] }; // redo create
+  s = applySetTransform(s, "box-000001", { position: [0, 0.25, -0.5] }).scene;
+  s = applySetTransform(s, "box-000001", { position: [0, 0, -0.5] }).scene; // undo setTransform
   if (canonJson({ ...s, revision: 9 }) !== canonJson(S5P.scene)) problems.push("S5 independent round-trip mismatch");
 }
 

@@ -181,7 +181,7 @@ describe('purity — the input state is never mutated', () => {
       expect(r.state.scene.entities.map((e) => e.id)).toEqual([
         'cam-main',
         'box-0001',
-        'box-0002',
+        'box-000001',
       ]);
       expect(r.state.scene.revision).toBe(1);
     }

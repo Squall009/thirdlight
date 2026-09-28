@@ -21,12 +21,12 @@
       "requestId": "req-20000000000000000000000000000001",
       "revision": 1,
       "duplicated": false,
-      "createdId": "box-0001",
+      "createdId": "box-000001",
       "change": {
         "type": "createEntity",
-        "id": "box-0001",
+        "id": "box-000001",
         "entity": {
-          "id": "box-0001",
+          "id": "box-000001",
           "name": "Ground",
           "components": {
             "transform": {
@@ -78,7 +78,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0001",
+        "entityId": "box-000001",
         "transform": {
           "position": [
             0,
@@ -97,7 +97,7 @@
       "duplicated": false,
       "change": {
         "type": "setTransform",
-        "id": "box-0001",
+        "id": "box-000001",
         "previous": {
           "position": [
             0,
@@ -167,12 +167,12 @@
       "requestId": "req-20000000000000000000000000000003",
       "revision": 3,
       "duplicated": false,
-      "createdId": "box-0002",
+      "createdId": "box-000002",
       "change": {
         "type": "createEntity",
-        "id": "box-0002",
+        "id": "box-000002",
         "entity": {
-          "id": "box-0002",
+          "id": "box-000002",
           "name": "Crate",
           "components": {
             "transform": {
@@ -224,7 +224,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0002"
+        "entityId": "box-000002"
       }
     },
     "out": {
@@ -236,9 +236,9 @@
       "duplicated": false,
       "change": {
         "type": "deleteEntity",
-        "rootId": "box-0002",
+        "rootId": "box-000002",
         "deletedIds": [
-          "box-0002"
+          "box-000002"
         ]
       },
       "history": {
@@ -269,10 +269,10 @@
       "duplicated": false,
       "change": {
         "type": "restoreSubtree",
-        "rootId": "box-0002",
+        "rootId": "box-000002",
         "entities": [
           {
-            "id": "box-0002",
+            "id": "box-000002",
             "name": "Crate",
             "components": {
               "transform": {
@@ -340,9 +340,9 @@
       "duplicated": false,
       "change": {
         "type": "deleteEntity",
-        "rootId": "box-0002",
+        "rootId": "box-000002",
         "deletedIds": [
-          "box-0002"
+          "box-000002"
         ]
       },
       "appliedOf": "req-20000000000000000000000000000003",
@@ -378,9 +378,9 @@
       "duplicated": false,
       "change": {
         "type": "createEntity",
-        "id": "box-0002",
+        "id": "box-000002",
         "entity": {
-          "id": "box-0002",
+          "id": "box-000002",
           "name": "Crate",
           "components": {
             "transform": {
@@ -437,7 +437,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0001",
+        "entityId": "box-000001",
         "transform": {
           "position": [
             0,
@@ -456,7 +456,7 @@
       "duplicated": false,
       "change": {
         "type": "setTransform",
-        "id": "box-0001",
+        "id": "box-000001",
         "previous": {
           "position": [
             0,
@@ -525,7 +525,7 @@
       "duplicated": false,
       "change": {
         "type": "setTransform",
-        "id": "box-0001",
+        "id": "box-000001",
         "previous": {
           "position": [
             0,

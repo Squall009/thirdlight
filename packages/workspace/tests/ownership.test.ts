@@ -146,7 +146,7 @@ describe('ownership (workspace.md §6)', () => {
       expectedRevision: 7,
       requestId: 'req-60000000000000000000000000000098',
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0004', transform: { position: [0, 1, 0] } },
+      args: { entityId: 'box-000004', transform: { position: [0, 1, 0] } },
     }) as MutationResult;
     // The re-open re-claimed and applied (the disk state is the released
     // one: revision 7, records cleared).

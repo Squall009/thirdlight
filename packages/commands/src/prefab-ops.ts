@@ -26,7 +26,7 @@ import type {
   PrefabEntity,
   PropertyValue,
 } from '@thirdlight/project-model';
-import { PREFAB_V4_COMPONENTS } from '@thirdlight/project-model';
+import { PREFAB_V4_COMPONENTS, nextFreeEntityIdOf } from '@thirdlight/project-model';
 
 import {
   entityNotFound,
@@ -71,7 +71,6 @@ const MAX_SCENE_ENTITIES = 1024;
 /** Phase 12 (c): a v4 scene holds up to 16384 entities (as createEntity / pasteEntities). */
 const MAX_SCENE_ENTITIES_V4 = 16_384;
 const MAX_SCENE_DEPTH = 32;
-const ID_MAX = 9999;
 
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 
@@ -95,16 +94,12 @@ function idPrefix(components: PrefabComponentsV2): 'model' | 'box' | 'group' {
   return 'group';
 }
 
-/** §8.7.2: the smallest free `NNNN` for `prefix`, scoped to the used set. */
+/** §8.7.2: the smallest free `<prefix>-N` (phase 25.7a: six digits) for `prefix`, scoped to the used set. */
 export function nextFreeEntityId(
   used: ReadonlySet<string>,
   prefix: string,
 ): string | undefined {
-  for (let n = 1; n <= ID_MAX; n++) {
-    const id = `${prefix}-${String(n).padStart(4, '0')}`;
-    if (!used.has(id)) return id;
-  }
-  return undefined;
+  return nextFreeEntityIdOf(used, prefix);
 }
 
 /** §20.2 definition depth (definition root = 1). */

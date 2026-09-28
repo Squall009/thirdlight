@@ -81,9 +81,9 @@ function nextState(state: State, request: unknown): State {
 describe('createEntity with v3 components (authoring §A3.1/§A4.1)', () => {
   it('creates each add-capable component kind with the derived ID prefix', () => {
     const cases: Array<{ components: Record<string, unknown>; kind: string; id: string }> = [
-      { kind: 'group', components: { playerSpawn: {} }, id: 'spawn-0002' },
-      { kind: 'group', components: { light: { type: 'directional', color: '#ffffff', intensity: 1, direction: [0, -1, 0] } }, id: 'light-0001' },
-      { kind: 'box', components: { collider: { shape: { type: 'box', hx: 1, hy: 1 } } }, id: 'box-0002' },
+      { kind: 'group', components: { playerSpawn: {} }, id: 'spawn-000001' },
+      { kind: 'group', components: { light: { type: 'directional', color: '#ffffff', intensity: 1, direction: [0, -1, 0] } }, id: 'light-000001' },
+      { kind: 'box', components: { collider: { shape: { type: 'box', hx: 1, hy: 1 } } }, id: 'box-000001' },
     ];
     for (const c of cases) {
       const state = stateOf(BEFORE);

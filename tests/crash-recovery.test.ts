@@ -174,7 +174,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
       expectedRevision: 5,
       requestId,
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as MutationResult;
     expect(r.ok).toBe(true);
     expect(r.revision).toBe(6);
@@ -219,7 +219,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
       expectedRevision: 5,
       requestId,
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as MutationResult;
     if (!r.ok) throw new Error(`retry failed: ${JSON.stringify(r)}`);
     expect(r.duplicated).toBe(true);

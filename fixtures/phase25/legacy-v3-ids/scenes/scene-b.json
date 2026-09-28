@@ -1,0 +1,19 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v3-ids",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-b",
+    "revision": 3,
+    "entities": [
+      {"id":"box-0003","name":"Far Ground","components":{"transform":{"position":[40,-0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[20,1,4],"material":{"color":"#506070"}}}},
+      {"id":"spawn-0002","name":"Arrival","components":{"transform":{"position":[40,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

@@ -278,6 +278,8 @@ export {
 export {
   PROJECT_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION_UPGRADED,
+  PROJECT_SCHEMA_VERSION_V24,
+  isUpgradedProjectSchemaVersion,
   REMOVED_IN_PHASE_24,
   REMOVED_COMPONENTS,
   removedComponentMessage,
@@ -285,6 +287,10 @@ export {
   upgradeProjectDocsV24,
   type UpgradeV24Result,
 } from './upgrade-v24';
+// Phase 25.7: project.json schemaVersion 4 (a 3 is upgraded on load without changing a document).
+export { upgradeProjectDocsV25, type UpgradeV25Result } from './upgrade-v25';
+// Phase 25.7a: the assigned entity ids (at least six digits; four-digit ids still load).
+export { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
 export { validateContentV4, MAX_SCENES, ENGINE_TIMING_DEFAULTS } from './content';
 // Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).

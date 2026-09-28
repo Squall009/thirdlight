@@ -198,7 +198,7 @@
         }
       },
       {
-        "id": "group-0003",
+        "id": "group-000002",
         "name": "Station",
         "components": {
           "transform": {
@@ -226,9 +226,9 @@
         }
       },
       {
-        "id": "box-0003",
+        "id": "box-000002",
         "name": "Pedestal",
-        "parentId": "group-0003",
+        "parentId": "group-000002",
         "components": {
           "transform": {
             "position": [
@@ -265,9 +265,9 @@
         }
       },
       {
-        "id": "model-0005",
+        "id": "model-000003",
         "name": "Lantern",
-        "parentId": "group-0003",
+        "parentId": "group-000002",
         "components": {
           "transform": {
             "position": [
@@ -303,7 +303,7 @@
                 0.5,
                 0
               ],
-              "target": "group-0003",
+              "target": "group-000002",
               "material": "asset-7f3a2c9e1b4d5068"
             }
           },
@@ -314,9 +314,9 @@
         }
       },
       {
-        "id": "model-0006",
+        "id": "model-000004",
         "name": "Ramp",
-        "parentId": "group-0003",
+        "parentId": "group-000002",
         "components": {
           "transform": {
             "position": [

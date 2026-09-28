@@ -116,7 +116,7 @@ describe('packet 28 — capture planning from a real projected subtree', () => {
       error: { code: 'prefab_camera_capture_forbidden' },
     });
     // A materialized copy is itself a copy: nested capture is forbidden.
-    expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'group-0003', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({
+    expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'group-000002', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({
       ok: false,
       error: { code: 'prefab_nested_forbidden' },
     });
@@ -148,12 +148,12 @@ describe('packet 28 — two independent copies, one override, ordinary edits', (
     }
     // I2 edited copy A's lantern only; copy B still carries the definition's
     // recorded value (4.5). The two copies share no entity and no value store.
-    expect(scene.getEntity('model-0003')?.behaviorValues).toMatchObject({ speed: 1.25 });
-    expect(scene.getEntity('model-0007')?.behaviorValues).toMatchObject({ speed: 4.5 });
-    expect(scene.getEntity('model-0003')?.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'model-0001' });
-    expect(scene.getEntity('model-0007')?.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'model-0001' });
-    expect(scene.getEntity('group-0002')?.position).toEqual([12, 0, 0]);
-    expect(scene.getEntity('group-0004')?.position).toEqual([-12, 0, 0]);
+    expect(scene.getEntity('model-000001')?.behaviorValues).toMatchObject({ speed: 1.25 });
+    expect(scene.getEntity('model-000005')?.behaviorValues).toMatchObject({ speed: 4.5 });
+    expect(scene.getEntity('model-000001')?.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'model-0001' });
+    expect(scene.getEntity('model-000005')?.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'model-0001' });
+    expect(scene.getEntity('group-000001')?.position).toEqual([12, 0, 0]);
+    expect(scene.getEntity('group-000003')?.position).toEqual([-12, 0, 0]);
   });
 
   it('one undo removes the whole second subtree and redo restores the exact IDs', () => {
@@ -162,14 +162,14 @@ describe('packet 28 — two independent copies, one override, ordinary edits', (
     for (const s of INDEPENDENCE.steps.slice(0, 4)) {
       scene.applyMutationApplied({ requestId: s.in.requestId, revision: s.out.revision, change: s.out.change });
     }
-    expect(scene.entityOrder).toContain('group-0004');
+    expect(scene.entityOrder).toContain('group-000003');
     const undo = step('I5');
     scene.applyMutationApplied({ requestId: undo.in.requestId, revision: undo.out.revision, change: undo.out.change });
-    for (const id of ['group-0004', 'box-0004', 'model-0007', 'model-0008']) expect(scene.getEntity(id)).toBeUndefined();
+    for (const id of ['group-000003', 'box-000003', 'model-000005', 'model-000006']) expect(scene.getEntity(id)).toBeUndefined();
     const redo = step('I6');
     scene.applyMutationApplied({ requestId: redo.in.requestId, revision: redo.out.revision, change: redo.out.change });
-    expect(scene.getEntity('group-0004')?.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'group-0001' });
-    expect(scene.getEntity('model-0007')?.behaviorValues).toMatchObject({ speed: 4.5 });
+    expect(scene.getEntity('group-000003')?.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'group-0001' });
+    expect(scene.getEntity('model-000005')?.behaviorValues).toMatchObject({ speed: 4.5 });
   });
 });
 
@@ -178,7 +178,7 @@ describe('packet 28 — a definition/declaration change never rewrites a copy', 
     const scene = new Projection();
     scene.hydrate({ revision: 15, entities: AFTER.scene.entities });
     scene.applyMutationApplied({ requestId: step('I1').in.requestId, revision: 12, change: step('I1').out.change });
-    const before = JSON.stringify(scene.getEntity('model-0003')?.behaviorValues);
+    const before = JSON.stringify(scene.getEntity('model-000001')?.behaviorValues);
 
     const prefabs = new PrefabProjection();
     prefabs.hydrate([DEFINITION], AFTER.content.behaviors);
@@ -190,12 +190,12 @@ describe('packet 28 — a definition/declaration change never rewrites a copy', 
     prefabs.applyChange({ type: 'publishBehavior', behaviorId: updated.behaviorId, previous: AFTER.content.behaviors[0]!, next: updated });
     // Declarations converge (new default), copies do not (stored values win).
     expect(prefabs.getDeclaration('behavior-0001')?.properties.find((p) => p.key === 'speed')?.default).toBe(99);
-    expect(JSON.stringify(scene.getEntity('model-0003')?.behaviorValues)).toBe(before);
+    expect(JSON.stringify(scene.getEntity('model-000001')?.behaviorValues)).toBe(before);
 
     // Undo of the capture removes only the definition; the copy remains.
     prefabs.applyChange({ type: 'removePrefab', prefabId: 'prefab-0001' });
     expect(prefabs.getDefinition('prefab-0001')).toBeUndefined();
-    expect(scene.getEntity('model-0003')).toBeDefined();
+    expect(scene.getEntity('model-000001')).toBeDefined();
   });
 });
 
@@ -231,7 +231,7 @@ describe('packet 28 — editing one copy and MCP-origin convergence', () => {
     const mcp = step('I1');
     expect(mcp.in.origin?.kind).toBe('mcp');
     expect(scene.applyMutationApplied({ requestId: mcp.in.requestId, revision: mcp.out.revision, change: mcp.out.change }).applied).toBe(true);
-    expect(scene.getEntity('model-0003')?.behaviorValues).toMatchObject({ speed: 9.75 });
+    expect(scene.getEntity('model-000001')?.behaviorValues).toMatchObject({ speed: 9.75 });
     // A replayed event with the same requestId is deduped, never double-applied.
     expect(scene.applyMutationApplied({ requestId: mcp.in.requestId, revision: mcp.out.revision, change: mcp.out.change }).deduped).toBe(true);
     // A missed event (revision jump) marks the projection stale for a resync.

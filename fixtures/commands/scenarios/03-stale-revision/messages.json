@@ -10,7 +10,7 @@
         "clientId": "browser-demo"
       },
       "args": {
-        "entityId": "box-0001",
+        "entityId": "box-000001",
         "transform": {
           "position": [
             0.75,
@@ -46,7 +46,7 @@
         "clientId": "browser-demo"
       },
       "args": {
-        "entityId": "box-0001",
+        "entityId": "box-000001",
         "transform": {
           "position": [
             0.75,
@@ -65,7 +65,7 @@
       "duplicated": false,
       "change": {
         "type": "setTransform",
-        "id": "box-0001",
+        "id": "box-000001",
         "previous": {
           "position": [
             1.5,

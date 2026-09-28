@@ -110,7 +110,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
         model: { asset: { assetId: 'asset-2b11d4a76c9f0e35' } },
       }),
     );
-    expect(r.result.createdId).toBe('model-0003');
+    expect(r.result.createdId).toBe('model-000001');
     const entity = (r.result.change as unknown as { entity: { components: Record<string, unknown> } }).entity;
     expect(entity.components['model']).toEqual({ asset: { assetId: 'asset-2b11d4a76c9f0e35' } });
 
@@ -142,7 +142,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
     );
     const add = ok(
       mutation(s1.state, 'setComponent', {
-        entityId: 'model-0003',
+        entityId: 'model-000001',
         component: 'collider',
         value: { shape: { type: 'box', hx: 1.5, hy: 0.25 } },
       }),
@@ -161,7 +161,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
 
     const edit = ok(
       mutation(redoAdd.state, 'setComponent', {
-        entityId: 'model-0003',
+        entityId: 'model-000001',
         component: 'collider',
         value: { shape: { type: 'box', hx: 2, hy: 0.25 } },
       }),
@@ -170,7 +170,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
       shape: { type: 'box', hx: 1.5, hy: 0.25 },
     });
     const remove = ok(
-      mutation(edit.state, 'setComponent', { entityId: 'model-0003', component: 'collider', value: null }),
+      mutation(edit.state, 'setComponent', { entityId: 'model-000001', component: 'collider', value: null }),
     );
     expect((remove.result.change as { next: unknown }).next).toBeNull();
     // Undo of a removal restores the value.
@@ -194,17 +194,17 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
       }),
     );
     const add = ok(
-      mutation(s2.state, 'setComponent', { entityId: 'model-0003', component: 'controller', value: {} }),
+      mutation(s2.state, 'setComponent', { entityId: 'model-000001', component: 'controller', value: {} }),
     );
     expect(add.result.change).toMatchObject({ component: 'controller', previous: null, next: {}, changedFields: [] });
     const second = mutation(add.state, 'setComponent', {
-      entityId: 'model-0004',
+      entityId: 'model-000002',
       component: 'controller',
       value: {},
     });
     expect(failCode(second)).toBe('controller_count_invalid');
     const remove = ok(
-      mutation(add.state, 'setComponent', { entityId: 'model-0003', component: 'controller', value: null }),
+      mutation(add.state, 'setComponent', { entityId: 'model-000001', component: 'controller', value: null }),
     );
     expect((remove.result.change as { next: unknown }).next).toBeNull();
   });

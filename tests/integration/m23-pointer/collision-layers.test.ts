@@ -59,23 +59,23 @@ describe('collision layers (phase 23.3)', () => {
   it('a collider lists default or named layers (3D only); a listed layer cannot be removed', () => {
     let s = fresh();
     // 2D plane: layers are refused.
-    const flat = run(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, layers: ['default'] } });
+    const flat = run(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, layers: ['default'] } });
     expect(flat.ok).toBe(false);
     s = must(s, 'setSettings', { settings: { physics_dimension: 3 } });
     s = must(s, 'setCollisionLayers', { layers: ['units'] });
-    const unknown = run(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: BOX, layers: ['props'] } });
+    const unknown = run(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: BOX, layers: ['props'] } });
     expect(unknown.ok).toBe(false);
     expect(JSON.stringify(unknown.result)).toContain('props');
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: BOX, layers: ['default', 'units'] } });
-    expect(collider(s, 'group-0001')).toEqual({ shape: BOX, layers: ['default', 'units'] });
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: BOX, layers: ['default', 'units'] } });
+    expect(collider(s, 'group-000001')).toEqual({ shape: BOX, layers: ['default', 'units'] });
     // layers alone edits the field (the shape stays); null removes it.
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { layers: ['units'] } });
-    expect(collider(s, 'group-0001')).toEqual({ shape: BOX, layers: ['units'] });
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { layers: ['units'] } });
+    expect(collider(s, 'group-000001')).toEqual({ shape: BOX, layers: ['units'] });
     expect(run(s, 'setCollisionLayers', { layers: [] }).ok).toBe(false); // "units" is still listed
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { layers: null } });
-    expect(collider(s, 'group-0001')).toEqual({ shape: BOX });
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { layers: null } });
+    expect(collider(s, 'group-000001')).toEqual({ shape: BOX });
     s = must(s, 'setCollisionLayers', { layers: [] });
-    expect(run(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { layers: [] } }).ok).toBe(false);
+    expect(run(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { layers: [] } }).ok).toBe(false);
   });
 
   it('the 3D physics config carries the names and each collider\'s layers; no controller → a world without a character', () => {

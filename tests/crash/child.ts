@@ -66,7 +66,7 @@ function mutation(projectId: string, requestId: string, expectedRevision: number
     expectedRevision,
     requestId,
     origin: { kind: 'mcp', clientId: 'pi-harness' },
-    args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+    args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
   };
 }
 

@@ -41,7 +41,7 @@ describe('durable retry records', () => {
       expectedRevision: 5,
       requestId: req(7001),
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [2, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [2, 0, 0] } },
     };
     const first = a.runCommand(request) as MutationResult;
     expect(first.ok).toBe(true);
@@ -88,7 +88,7 @@ describe('durable retry records', () => {
         expectedRevision: 5 + i,
         requestId: req(8000 + i),
         origin: { kind: 'mcp', clientId: 'pi-harness' },
-        args: { entityId: 'box-0001', transform: { position: [i / 100, 0, 0] } },
+        args: { entityId: 'box-000001', transform: { position: [i / 100, 0, 0] } },
       }) as MutationResult;
       if (r.ok !== true) throw new Error(`mutation ${i} failed: ${JSON.stringify(r).slice(0, 300)}`);
     }
@@ -109,7 +109,7 @@ describe('durable retry records', () => {
       expectedRevision: 5,
       requestId: firstRequestId,
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [0, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [0, 0, 0] } },
     }) as MutationResult;
     expect(retry.ok).toBe(false);
     if (retry.ok) throw new Error('evicted retry must fail');
@@ -133,7 +133,7 @@ describe('durable retry records', () => {
       expectedRevision: 99,
       requestId: req(9001),
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as MutationResult;
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error('must fail');
@@ -148,7 +148,7 @@ describe('durable retry records', () => {
       expectedRevision: 5,
       requestId: req(9001),
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as MutationResult;
     expect(ok.ok).toBe(true);
     svc.dispose();
@@ -178,7 +178,7 @@ describe('retry records name the edited scene (record version 2)', () => {
     expectedRevision: 4,
     requestId: 'req-10000000000000000000000000000005',
     origin: { kind: 'mcp', clientId: 'pi-harness' },
-    args: { entityId: 'box-0002', transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } },
+    args: { entityId: 'box-000002', transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } },
   };
 
   it('a retry after a restart returns the acked sceneId (a second scene)', () => {
@@ -225,7 +225,7 @@ describe('retry records name the edited scene (record version 2)', () => {
     if (old.ok !== true) throw new Error(`replay failed: ${JSON.stringify(old)}`);
     expect(old.duplicated).toBe(true);
     expect('sceneId' in old).toBe(false);
-    const fresh = { ...A5, expectedRevision: 5, requestId: req(7201), args: { entityId: 'box-0001', transform: { position: [3, 0, 0] } } };
+    const fresh = { ...A5, expectedRevision: 5, requestId: req(7201), args: { entityId: 'box-000001', transform: { position: [3, 0, 0] } } };
     const ack = a.runCommand(fresh) as MutationResult;
     if (ack.ok !== true) throw new Error(`fresh failed: ${JSON.stringify(ack)}`);
     expect(ack.sceneId).toBe('scene-main');

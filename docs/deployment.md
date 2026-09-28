@@ -128,7 +128,8 @@ games (phase 24.7): games live in their own repositories.
 
 A project directory holds:
 
-- `project.json`: id, name, engine version (schemaVersion 3);
+- `project.json`: id, name, engine version (schemaVersion 4; a 3 is
+  upgraded on open without changing a document, phase 25.7);
 - `content.json`: assets, prefabs, scripts, settings, tags, UI documents,
   the game shell, event sounds, the save schema, the scene list and the
   start scenes;
@@ -2280,6 +2281,8 @@ These protect the runtime and are not tuning values:
 | Timers | 64 per script instance |
 | Script intents (move, jump, transform, pose, respawn) | 5 per script instance per step; per step at most 64 or 5 × the running script instances, whichever is larger |
 | Colliders | 256 per scene; the start scenes (and scenes loaded later) together have no combined limit |
+| Scenes / entities | 64 scenes per project, 16,384 entities per scene |
+| Entity ids | New objects get `<kind>-N` with at least six digits (`box-000001`), unique across the project; N goes up to 1,048,576 (64 × 16,384), so a kind never runs out of ids before the entity limits refuse a creation. Ids from before phase 25.7 (`box-0001`, at most 9,999 per kind) load and stay as they are |
 | Camera "no move" threshold | 1e-9 m; aspect 16:9 until the host reports the viewport |
 | Model animation run threshold | 0.05 m/s |
 | Shadow-follow extent | 24 m |

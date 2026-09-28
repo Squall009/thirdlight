@@ -10,7 +10,7 @@
  *  - a whole GLB is placed by `createEntity` with `kind: "model"` and a
  *    resolving `model.asset.assetId` reference (commands.md §3.1/§8.1, the
  *    C27-1 repair): one placement = one undoable transaction with a
- *    backend-assigned `model-NNNN` ID and an independent transform;
+ *    backend-assigned `model-N` ID and an independent transform;
  *  - a prefab copy is placed by `instantiatePrefab` (commands.md
  *    §3.1.3/§8.7): a definition may carry `components.model` references and
  *    instantiation materializes independent copies.
@@ -58,7 +58,7 @@ export interface PlacementOptions {
  * Plan exactly one whole-model placement as the contracted `createEntity`
  * command with `kind: "model"` and a resolving asset reference. One placement
  * = one undoable transaction (§8.1), so two placements are two calls with
- * distinct, backend-assigned `model-NNNN` IDs.
+ * distinct, backend-assigned `model-N` IDs.
  */
 export function planAssetPlacement(assetId: string, options: PlacementOptions = {}): ModelPlacementCommand {
   return {

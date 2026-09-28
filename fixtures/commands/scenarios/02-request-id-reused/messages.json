@@ -10,7 +10,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0002"
+        "entityId": "box-000002"
       }
     },
     "out": {

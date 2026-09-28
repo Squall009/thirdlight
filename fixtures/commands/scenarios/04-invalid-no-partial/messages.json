@@ -10,7 +10,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0001",
+        "entityId": "box-000001",
         "transform": {
           "rotation": [
             0,
@@ -119,7 +119,7 @@
         "clientId": "browser-demo"
       },
       "args": {
-        "entityId": "box-0001",
+        "entityId": "box-000001",
         "transform": {
           "position": [
             1.5,

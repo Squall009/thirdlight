@@ -16,12 +16,12 @@
 
 import { fieldValue, idExhaustion, limitsExceeded, type CommandError } from './errors';
 import { deepClone, derivedPrefix, gateResultState, type OpOutcome } from './ops';
+import { nextFreeEntityIdOf } from '@thirdlight/project-model';
 import type { ContentDocument, PasteEntitiesArgs, PasteEntitiesChange, SceneDocument } from './types';
 
 /** Most entities one paste may create. */
 export const PASTE_ENTITIES_MAX = 256;
 const MAX_ENTITIES_SCENE_V4 = 16_384;
-const ID_MAX = 9999;
 
 type Value = { id: string; parentId?: string; name?: string; components: Record<string, unknown> } & Record<string, unknown>;
 
@@ -58,14 +58,8 @@ export function applyPasteEntities(scene: SceneDocument, args: PasteEntitiesArgs
   const idMap = new Map<string, string>();
   for (const e of ordered) {
     const prefix = e.components['folder'] !== undefined ? 'folder' : derivedPrefix(e.components);
-    let id: string | undefined;
-    for (let n = 1; n <= ID_MAX; n += 1) {
-      const candidate = `${prefix}-${String(n).padStart(4, '0')}`;
-      if (!taken.has(candidate)) {
-        id = candidate;
-        break;
-      }
-    }
+    // Phase 25.7a: `<prefix>-N` with at least six digits (nextFreeEntityIdOf).
+    const id = nextFreeEntityIdOf(taken, prefix);
     if (id === undefined) return { ok: false, error: idExhaustion(prefix) };
     taken.add(id);
     idMap.set(e.id, id);

@@ -576,8 +576,9 @@ const idPrefix = (components) => (components.model ? 'model' : components.box ? 
 
 /** commands.md §8.1 semantics extended to a multi-entity creation (packet 16). */
 function allocateId(used, prefix) {
-  for (let i = 1; i <= 9999; i++) {
-    const id = prefix + '-' + String(i).padStart(4, '0');
+  // Phase 25.7a: assigned ids have at least six digits.
+  for (let i = 1; i <= 1048576; i++) {
+    const id = prefix + '-' + String(i).padStart(6, '0');
     if (!used.has(id)) {
       used.add(id);
       return id;
@@ -2324,8 +2325,8 @@ function p27Authoring() {
       if (!assets.has(assetId)) failure = 'asset_reference_missing';
       else {
         let id = null;
-        for (let i = 1; i <= 9999; i++) {
-          const cand = `model-${String(i).padStart(4, '0')}`;
+        for (let i = 1; i <= 1048576; i++) {
+          const cand = `model-${String(i).padStart(6, '0')}`;
           if (!usedIds().has(cand)) { id = cand; break; }
         }
         const entity = {

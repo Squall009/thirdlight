@@ -37,7 +37,7 @@ const MUTATION = {
   expectedRevision: 7,
   requestId: 'req-60000000000000000000000000000001',
   origin: { kind: 'mcp', clientId: 'pi-harness' },
-  args: { entityId: 'box-0004', transform: { position: [0, 1, 0] } },
+  args: { entityId: 'box-000004', transform: { position: [0, 1, 0] } },
 };
 
 describe('external change (workspace.md §7)', () => {

@@ -447,12 +447,12 @@
         "change": {
           "type": "instantiatePrefab",
           "prefabId": "prefab-0001",
-          "rootId": "group-0002",
+          "rootId": "group-000001",
           "entries": [
             {
               "index": 6,
               "entity": {
-                "id": "group-0002",
+                "id": "group-000001",
                 "name": "Station",
                 "components": {
                   "transform": {
@@ -483,9 +483,9 @@
             {
               "index": 7,
               "entity": {
-                "id": "box-0002",
+                "id": "box-000001",
                 "name": "Pedestal",
-                "parentId": "group-0002",
+                "parentId": "group-000001",
                 "components": {
                   "transform": {
                     "position": [
@@ -525,9 +525,9 @@
             {
               "index": 8,
               "entity": {
-                "id": "model-0003",
+                "id": "model-000001",
                 "name": "Lantern",
-                "parentId": "group-0002",
+                "parentId": "group-000001",
                 "components": {
                   "transform": {
                     "position": [
@@ -563,7 +563,7 @@
                         0.5,
                         0
                       ],
-                      "target": "group-0002",
+                      "target": "group-000001",
                       "material": "asset-7f3a2c9e1b4d5068"
                     }
                   },
@@ -577,9 +577,9 @@
             {
               "index": 9,
               "entity": {
-                "id": "model-0004",
+                "id": "model-000002",
                 "name": "Ramp",
-                "parentId": "group-0002",
+                "parentId": "group-000001",
                 "components": {
                   "transform": {
                     "position": [
@@ -615,19 +615,19 @@
           "mapping": [
             {
               "localId": "group-0001",
-              "entityId": "group-0002"
+              "entityId": "group-000001"
             },
             {
               "localId": "box-0001",
-              "entityId": "box-0002"
+              "entityId": "box-000001"
             },
             {
               "localId": "model-0001",
-              "entityId": "model-0003"
+              "entityId": "model-000001"
             },
             {
               "localId": "model-0002",
-              "entityId": "model-0004"
+              "entityId": "model-000002"
             }
           ]
         },
@@ -670,12 +670,12 @@
         "change": {
           "type": "instantiatePrefab",
           "prefabId": "prefab-0001",
-          "rootId": "group-0003",
+          "rootId": "group-000002",
           "entries": [
             {
               "index": 10,
               "entity": {
-                "id": "group-0003",
+                "id": "group-000002",
                 "name": "Station",
                 "components": {
                   "transform": {
@@ -706,9 +706,9 @@
             {
               "index": 11,
               "entity": {
-                "id": "box-0003",
+                "id": "box-000002",
                 "name": "Pedestal",
-                "parentId": "group-0003",
+                "parentId": "group-000002",
                 "components": {
                   "transform": {
                     "position": [
@@ -748,9 +748,9 @@
             {
               "index": 12,
               "entity": {
-                "id": "model-0005",
+                "id": "model-000003",
                 "name": "Lantern",
-                "parentId": "group-0003",
+                "parentId": "group-000002",
                 "components": {
                   "transform": {
                     "position": [
@@ -786,7 +786,7 @@
                         0.5,
                         0
                       ],
-                      "target": "group-0003",
+                      "target": "group-000002",
                       "material": "asset-7f3a2c9e1b4d5068"
                     }
                   },
@@ -800,9 +800,9 @@
             {
               "index": 13,
               "entity": {
-                "id": "model-0006",
+                "id": "model-000004",
                 "name": "Ramp",
-                "parentId": "group-0003",
+                "parentId": "group-000002",
                 "components": {
                   "transform": {
                     "position": [
@@ -838,19 +838,19 @@
           "mapping": [
             {
               "localId": "group-0001",
-              "entityId": "group-0003"
+              "entityId": "group-000002"
             },
             {
               "localId": "box-0001",
-              "entityId": "box-0003"
+              "entityId": "box-000002"
             },
             {
               "localId": "model-0001",
-              "entityId": "model-0005"
+              "entityId": "model-000003"
             },
             {
               "localId": "model-0002",
-              "entityId": "model-0006"
+              "entityId": "model-000004"
             }
           ]
         },
@@ -872,7 +872,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "box-0002",
+          "entityId": "box-000001",
           "component": "box",
           "value": {
             "material": {
@@ -890,7 +890,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "box-0002",
+          "id": "box-000001",
           "component": "box",
           "previous": {
             "size": [
@@ -934,7 +934,7 @@
           "clientId": "browser-demo"
         },
         "args": {
-          "entityId": "group-0002"
+          "entityId": "group-000001"
         }
       },
       "out": {
@@ -946,12 +946,12 @@
         "duplicated": false,
         "change": {
           "type": "deleteEntity",
-          "rootId": "group-0002",
+          "rootId": "group-000001",
           "deletedIds": [
-            "group-0002",
-            "box-0002",
-            "model-0003",
-            "model-0004"
+            "group-000001",
+            "box-000001",
+            "model-000001",
+            "model-000002"
           ]
         },
         "history": {
@@ -987,10 +987,10 @@
         },
         "change": {
           "type": "restoreSubtree",
-          "rootId": "group-0002",
+          "rootId": "group-000001",
           "entities": [
             {
-              "id": "group-0002",
+              "id": "group-000001",
               "name": "Station",
               "components": {
                 "transform": {
@@ -1018,9 +1018,9 @@
               }
             },
             {
-              "id": "box-0002",
+              "id": "box-000001",
               "name": "Pedestal",
-              "parentId": "group-0002",
+              "parentId": "group-000001",
               "components": {
                 "transform": {
                   "position": [
@@ -1057,9 +1057,9 @@
               }
             },
             {
-              "id": "model-0003",
+              "id": "model-000001",
               "name": "Lantern",
-              "parentId": "group-0002",
+              "parentId": "group-000001",
               "components": {
                 "transform": {
                   "position": [
@@ -1095,7 +1095,7 @@
                       0.5,
                       0
                     ],
-                    "target": "group-0002",
+                    "target": "group-000001",
                     "material": "asset-7f3a2c9e1b4d5068"
                   }
                 },
@@ -1106,9 +1106,9 @@
               }
             },
             {
-              "id": "model-0004",
+              "id": "model-000002",
               "name": "Ramp",
-              "parentId": "group-0002",
+              "parentId": "group-000001",
               "components": {
                 "transform": {
                   "position": [
@@ -1174,12 +1174,12 @@
         },
         "change": {
           "type": "deleteEntity",
-          "rootId": "group-0002",
+          "rootId": "group-000001",
           "deletedIds": [
-            "group-0002",
-            "box-0002",
-            "model-0003",
-            "model-0004"
+            "group-000001",
+            "box-000001",
+            "model-000001",
+            "model-000002"
           ]
         },
         "history": {
@@ -1215,12 +1215,12 @@
         },
         "change": {
           "type": "deleteEntity",
-          "rootId": "group-0002",
+          "rootId": "group-000001",
           "deletedIds": [
-            "group-0002",
-            "box-0002",
-            "model-0003",
-            "model-0004"
+            "group-000001",
+            "box-000001",
+            "model-000001",
+            "model-000002"
           ]
         },
         "history": {

@@ -20,12 +20,12 @@
       "requestId": "req-10000000000000000000000000000001",
       "revision": 1,
       "duplicated": false,
-      "createdId": "box-0001",
+      "createdId": "box-000001",
       "change": {
         "type": "createEntity",
-        "id": "box-0001",
+        "id": "box-000001",
         "entity": {
-          "id": "box-0001",
+          "id": "box-000001",
           "components": {
             "transform": {
               "position": [
@@ -76,7 +76,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0001",
+        "entityId": "box-000001",
         "transform": {
           "position": [
             1.5,
@@ -95,7 +95,7 @@
       "duplicated": false,
       "change": {
         "type": "setTransform",
-        "id": "box-0001",
+        "id": "box-000001",
         "previous": {
           "position": [
             0,
@@ -154,7 +154,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0002"
+        "entityId": "box-000002"
       }
     },
     "result": {
@@ -166,9 +166,9 @@
       "duplicated": false,
       "change": {
         "type": "deleteEntity",
-        "rootId": "box-0002",
+        "rootId": "box-000002",
         "deletedIds": [
-          "box-0002"
+          "box-000002"
         ]
       },
       "history": {
@@ -199,10 +199,10 @@
       "duplicated": false,
       "change": {
         "type": "restoreSubtree",
-        "rootId": "box-0002",
+        "rootId": "box-000002",
         "entities": [
           {
-            "id": "box-0002",
+            "id": "box-000002",
             "name": "Crate",
             "components": {
               "transform": {
@@ -270,9 +270,9 @@
       "duplicated": false,
       "change": {
         "type": "createEntity",
-        "id": "box-0002",
+        "id": "box-000002",
         "entity": {
-          "id": "box-0002",
+          "id": "box-000002",
           "name": "Crate",
           "components": {
             "transform": {
@@ -329,7 +329,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0002",
+        "entityId": "box-000002",
         "transform": {
           "rotation": [
             0.7071067811865476,
@@ -349,7 +349,7 @@
       "duplicated": true,
       "change": {
         "type": "setTransform",
-        "id": "box-0002",
+        "id": "box-000002",
         "previous": {
           "position": [
             0,
@@ -408,7 +408,7 @@
         "projectId": "demo-0001",
         "revision": 5,
         "manifest": {
-          "schemaVersion": 3,
+          "schemaVersion": 4,
           "engineVersion": "0.1.0",
           "id": "demo-0001",
           "name": "Demo Project",
@@ -445,7 +445,7 @@
         "op": "queryEntity",
         "projectId": "demo-0001",
         "args": {
-          "entityId": "box-0002",
+          "entityId": "box-000002",
           "includeSubtree": true
         }
       },
@@ -455,7 +455,7 @@
         "revision": 5,
         "sceneId": "scene-main",
         "entity": {
-          "id": "box-0002",
+          "id": "box-000002",
           "components": {
             "transform": {
               "position": [
@@ -497,7 +497,7 @@
           "count": 1,
           "entities": [
             {
-              "id": "box-0002",
+              "id": "box-000002",
               "components": {
                 "transform": {
                   "position": [

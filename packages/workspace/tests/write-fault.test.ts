@@ -30,7 +30,7 @@ function makeRequest(n: number, revision: number) {
     expectedRevision: revision,
     requestId: `req-${String(n).padStart(32, '0')}`,
     origin: { kind: 'mcp', clientId: 'pi-harness' },
-    args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+    args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
   };
 }
 

@@ -68,7 +68,7 @@
             "args": {
               "prefabId": "prefab-0002",
               "displayName": "Copy",
-              "sourceEntityId": "group-0002"
+              "sourceEntityId": "group-000001"
             }
           },
           "out": {
@@ -79,12 +79,12 @@
             "error": {
               "code": "prefab_nested_forbidden",
               "cls": "validation",
-              "sourceEntityId": "group-0002",
+              "sourceEntityId": "group-000001",
               "prefabInstanceIds": [
-                "group-0002",
-                "box-0002",
-                "model-0003",
-                "model-0004"
+                "group-000001",
+                "box-000001",
+                "model-000001",
+                "model-000002"
               ],
               "message": "the selected subtree contains a prefab instance (components.prefab); M2 definitions cannot contain prefab instances"
             }
@@ -1354,7 +1354,7 @@
               "clientId": "pi-harness"
             },
             "args": {
-              "entityId": "model-0005",
+              "entityId": "model-000003",
               "behaviorId": "behavior-0001",
               "values": {
                 "target": "group-0001"
@@ -1370,7 +1370,7 @@
             "duplicated": false,
             "change": {
               "type": "setBehaviorProperties",
-              "id": "model-0005",
+              "id": "model-000003",
               "previous": {
                 "behaviorId": "behavior-0001",
                 "values": {
@@ -1382,7 +1382,7 @@
                     0.5,
                     0
                   ],
-                  "target": "group-0003",
+                  "target": "group-000002",
                   "material": "asset-7f3a2c9e1b4d5068"
                 }
               },
@@ -1440,7 +1440,7 @@
                 "model-0002"
               ],
               "referencingEntityIds": [
-                "model-0005"
+                "model-000003"
               ],
               "message": "an entity outside the deleted subtree references an entity inside it",
               "hint": "clear the referencing property values first, or delete the referencing entity too"
@@ -1478,7 +1478,7 @@
               "clientId": "browser-demo"
             },
             "args": {
-              "entityId": "box-0002",
+              "entityId": "box-000001",
               "component": "box",
               "value": {
                 "material": {
@@ -1581,7 +1581,7 @@
               "clientId": "pi-harness"
             },
             "args": {
-              "entityId": "box-0003",
+              "entityId": "box-000002",
               "component": "box",
               "value": {
                 "material": {

@@ -87,7 +87,7 @@ const near = (a: number[], b: number[]): void => {
 describe('folders', () => {
   it('createEntity kind folder makes a transform-less folder; undo removes it', () => {
     const made = ok(fresh(), 'createEntity', { kind: 'folder', name: 'Walkers' });
-    expect(made.id).toMatch(/^folder-\d{4}$/);
+    expect(made.id).toMatch(/^folder-\d{6}$/);
     expect(entity(made.state, made.id)).toEqual({ id: made.id, name: 'Walkers', components: { folder: {} } });
     const undone = ok(made.state, 'undo', {});
     expect(ids(undone.state)).not.toContain(made.id);

@@ -93,8 +93,8 @@ describe('the Scene-view handles over the real registry and commands', () => {
   it('box3 (a box mesh), box2 (areas: a trigger, a patroller\'s body; a collider\'s half extents)', () => {
     let s = fresh();
     // box3: the box's width from its side grip (the frame is its whole transform).
-    s = dragAndStore(s, 'box-0001', 'box', 'box3', 'side', p3(1.26, 0, 0), true, (v) => expect(v.size).toEqual([2.5, 1, 1]));
-    s = dragAndStore(s, 'box-0001', 'box', 'box3', 'depth', p3(0, 0, 0.9), true, (v) => expect(v.size).toEqual([2.5, 1, 1.8]));
+    s = dragAndStore(s, 'box-000001', 'box', 'box3', 'side', p3(1.26, 0, 0), true, (v) => expect(v.size).toEqual([2.5, 1, 1]));
+    s = dragAndStore(s, 'box-000001', 'box', 'box3', 'depth', p3(0, 0, 0.9), true, (v) => expect(v.size).toEqual([2.5, 1, 1.8]));
     // box2 sizes: a trigger and a patroller's body grow around their centres.
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Sensor', transform: { position: [4, 1, 0] }, components: { trigger: { size: [1, 1], signal: 'hello' } } }, 'sensor');
     const sensor = s.scene.entities.at(-1).id;
@@ -121,21 +121,21 @@ describe('the Scene-view handles over the real registry and commands', () => {
 
   it('capsule: the top grip keeps the feet; the offset is stored only when it is not zero', () => {
     let s = fresh();
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'controller', value: {} }, 'controller');
-    const cap = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.kind === 'capsule')!;
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'controller', value: {} }, 'controller');
+    const cap = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.kind === 'capsule')!;
     expect(gripsOf(cap).map((g) => [g.id, g.at])).toEqual([['top', p3(0, 0.9)], ['side', p3(0.3, 0)]]);
-    s = dragAndStore(s, 'group-0001', 'controller', 'capsule', 'top', p3(0, 0.12), true, (v) => expect(v.capsule).toEqual({ radius: 0.3, height: 1, offset: [0, -0.4] }));
-    dragAndStore(s, 'group-0001', 'controller', 'capsule', 'side', p3(0.52, 0), true, (v) => expect(v.capsule).toEqual({ radius: 0.5, height: 1, offset: [0, -0.4] }));
+    s = dragAndStore(s, 'group-000001', 'controller', 'capsule', 'top', p3(0, 0.12), true, (v) => expect(v.capsule).toEqual({ radius: 0.3, height: 1, offset: [0, -0.4] }));
+    dragAndStore(s, 'group-000001', 'controller', 'capsule', 'side', p3(0.52, 0), true, (v) => expect(v.capsule).toEqual({ radius: 0.5, height: 1, offset: [0, -0.4] }));
   });
 
   it('phase 23.2 (a 3D project): the step-up and ledge heights above the capsule\'s feet; a 2D plane shows neither', () => {
     let s = fresh();
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'controller', value: {} }, 'controller');
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'controller', value: {} }, 'controller');
     // A 2D plane (and a registry read without a dimension): no height handles.
-    expect(handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).some((x) => x.kind === 'height')).toBe(false);
-    expect(handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS, 2).some((x) => x.kind === 'height')).toBe(false);
+    expect(handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).some((x) => x.kind === 'height')).toBe(false);
+    expect(handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 2).some((x) => x.kind === 'height')).toBe(false);
     s = must(s, 'setSettings', { settings: { physics_dimension: 3 } }, '3D');
-    const shapes = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS, 3);
+    const shapes = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 3);
     // The ledge height only while the ledge climb is on.
     expect(shapes.filter((x) => x.kind === 'height').map((x) => x.label)).toEqual(['Step-up height']);
     const step = shapes.find((x) => x.kind === 'height')!;
@@ -147,14 +147,14 @@ describe('the Scene-view handles over the real registry and commands', () => {
     const moved = dragGrip(step, 'height', p3(0.3, -0.9 + 0.52), true);
     const edit = commitValue(moved) as Any;
     expect(edit.value).toEqual({ stepHeight: 0.5 });
-    const after = must(s, 'setComponent', { entityId: 'group-0001', component: 'controller', value: edit.value }, 'step-up');
-    expect(entityOf(after, 'group-0001').components.controller).toEqual({ stepHeight: 0.5 });
-    expect(entityOf(must(after, 'undo', {}, 'undo step-up'), 'group-0001').components.controller).toEqual({});
+    const after = must(s, 'setComponent', { entityId: 'group-000001', component: 'controller', value: edit.value }, 'step-up');
+    expect(entityOf(after, 'group-000001').components.controller).toEqual({ stepHeight: 0.5 });
+    expect(entityOf(must(after, 'undo', {}, 'undo step-up'), 'group-000001').components.controller).toEqual({});
     // Clamped to the field's range (at most 1 m).
     expect((commitValue(dragGrip(step, 'height', p3(0.3, 3), true)) as Any).value).toEqual({ stepHeight: 1 });
     // The ledge height with its own capsule: 1.2 m above the feet of a 1.6 m capsule raised 0.2 m.
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'controller', value: { ledgeClimb: true, capsule: { radius: 0.4, height: 1.6, offset: [0, 0.2] } } }, 'ledge climb');
-    const ledge = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS, 3).find((x) => x.label === 'Ledge height')!;
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'controller', value: { ledgeClimb: true, capsule: { radius: 0.4, height: 1.6, offset: [0, 0.2] } } }, 'ledge climb');
+    const ledge = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 3).find((x) => x.label === 'Ledge height')!;
     const lg = gripsOf(ledge)[0]!;
     expect(lg.at.x).toBeCloseTo(0.4, 9);
     expect(lg.at.y).toBeCloseTo(0.2 - 0.8 + 1.2, 9);
@@ -164,32 +164,32 @@ describe('the Scene-view handles over the real registry and commands', () => {
   it('phase 23.1 (a 3D project): a sphere collider\'s radius, a capsule collider grows both ways; 3D trigger areas (box with depth, sphere, capsule) turn with the object', () => {
     let s = fresh();
     s = must(s, 'setSettings', { settings: { physics_dimension: 3 } }, '3D');
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: { type: 'sphere', radius: 0.5 } } }, 'sphere');
-    const ball = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'collider')!;
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'sphere', radius: 0.5 } } }, 'sphere');
+    const ball = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.component === 'collider')!;
     expect(ball.kind).toBe('radius');
     expect(ball.frame).toBe('transform');
-    s = dragAndStore(s, 'group-0001', 'collider', 'radius', 'side', p3(0.81, 0.02), true, (v) => expect(v.shape).toEqual({ type: 'sphere', radius: 0.8 }));
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } } }, 'capsule');
-    const cap = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'collider')!;
+    s = dragAndStore(s, 'group-000001', 'collider', 'radius', 'side', p3(0.81, 0.02), true, (v) => expect(v.shape).toEqual({ type: 'sphere', radius: 0.8 }));
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } } }, 'capsule');
+    const cap = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.component === 'collider')!;
     expect(cap.kind).toBe('capsule');
     expect(gripsOf(cap).map((g) => [g.id, g.at])).toEqual([['top', p3(0, 1)], ['side', p3(0.5, 0)]]);
     // Centred: dragging the top to 1.5 m makes it 3 m tall (no offset is written).
-    s = dragAndStore(s, 'group-0001', 'collider', 'capsule', 'top', p3(0, 1.49), true, (v) => expect(v.shape).toEqual({ type: 'capsule', radius: 0.5, height: 3 }));
-    s = dragAndStore(s, 'group-0001', 'collider', 'capsule', 'side', p3(0.71, 0), true, (v) => expect(v.shape).toEqual({ type: 'capsule', radius: 0.7, height: 3 }));
+    s = dragAndStore(s, 'group-000001', 'collider', 'capsule', 'top', p3(0, 1.49), true, (v) => expect(v.shape).toEqual({ type: 'capsule', radius: 0.5, height: 3 }));
+    s = dragAndStore(s, 'group-000001', 'collider', 'capsule', 'side', p3(0.71, 0), true, (v) => expect(v.shape).toEqual({ type: 'capsule', radius: 0.7, height: 3 }));
     // Triggers.
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'trigger', value: { size: [2, 2, 2], signal: 'go' } }, 'trigger box');
-    const tbox = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'trigger', value: { size: [2, 2, 2], signal: 'go' } }, 'trigger box');
+    const tbox = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
     expect(tbox.frame).toBe('rotation');
     expect(gripsOf(tbox).map((g) => g.id)).toEqual(['top', 'side', 'depth']);
-    s = dragAndStore(s, 'group-0001', 'trigger', 'box2', 'depth', p3(0, 0, 1.51), true, (v) => expect(v.size).toEqual([2, 2, 3]));
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'trigger', value: { size: null, shape: 'capsule', radius: 0.5, height: 2 } }, 'trigger capsule');
-    const tcap = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
+    s = dragAndStore(s, 'group-000001', 'trigger', 'box2', 'depth', p3(0, 0, 1.51), true, (v) => expect(v.size).toEqual([2, 2, 3]));
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'trigger', value: { size: null, shape: 'capsule', radius: 0.5, height: 2 } }, 'trigger capsule');
+    const tcap = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
     expect([tcap.kind, tcap.frame]).toEqual(['capsule', 'rotation']);
-    s = dragAndStore(s, 'group-0001', 'trigger', 'capsule', 'top', p3(0, 2.01), true, (v) => expect(v).toMatchObject({ shape: 'capsule', radius: 0.5, height: 4 }));
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'trigger', value: { shape: 'sphere', height: null } }, 'trigger sphere');
-    const tball = handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
+    s = dragAndStore(s, 'group-000001', 'trigger', 'capsule', 'top', p3(0, 2.01), true, (v) => expect(v).toMatchObject({ shape: 'capsule', radius: 0.5, height: 4 }));
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'trigger', value: { shape: 'sphere', height: null } }, 'trigger sphere');
+    const tball = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.component === 'trigger')!;
     expect([tball.kind, tball.frame]).toEqual(['radius', 'rotation']);
-    dragAndStore(s, 'group-0001', 'trigger', 'radius', 'side', p3(1.2, 0), true, (v) => expect(v).toMatchObject({ shape: 'sphere', radius: 1.2 }));
+    dragAndStore(s, 'group-000001', 'trigger', 'radius', 'side', p3(1.2, 0), true, (v) => expect(v).toMatchObject({ shape: 'sphere', radius: 1.2 }));
   });
 
   it('lights: a directional light\'s direction, a spot cone (direction, range, half-angle), a point light\'s range', () => {
@@ -215,17 +215,17 @@ describe('the Scene-view handles over the real registry and commands', () => {
 
   it('path: a mover waypoint drags on the grid; a point is inserted on a segment and deleted again', () => {
     let s = fresh();
-    s = must(s, 'setComponent', { entityId: 'box-0001', component: 'mover', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } }, 'mover');
-    s = dragAndStore(s, 'box-0001', 'mover', 'path', 'p0', p3(3.1, 1.9), true, (v) => expect(v.waypoints).toEqual([[3, 2, 0]]));
-    const path = handleShapesOf(projected(s, 'box-0001'), DESCRIPTORS).find((x) => x.kind === 'path')!;
+    s = must(s, 'setComponent', { entityId: 'box-000001', component: 'mover', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } }, 'mover');
+    s = dragAndStore(s, 'box-000001', 'mover', 'path', 'p0', p3(3.1, 1.9), true, (v) => expect(v.waypoints).toEqual([[3, 2, 0]]));
+    const path = handleShapesOf(projected(s, 'box-000001'), DESCRIPTORS).find((x) => x.kind === 'path')!;
     const made = insertPoint(path, 'i1');
     expect(made).toBeNull(); // a pingpong path has no closing segment
     const added = insertPoint(path, 'i0')!;
     expect(added.grip).toBe('p0');
     const edit = commitValue(dragGrip(added.shape, 'p0', p3(0, 3), true)) as Any;
     expect(edit.value.waypoints).toEqual([[0, 3, 0], [3, 2, 0]]);
-    s = must(s, 'setComponent', { entityId: 'box-0001', component: 'mover', value: edit.value }, 'insert');
-    const two = handleShapesOf(projected(s, 'box-0001'), DESCRIPTORS).find((x) => x.kind === 'path')!;
+    s = must(s, 'setComponent', { entityId: 'box-000001', component: 'mover', value: edit.value }, 'insert');
+    const two = handleShapesOf(projected(s, 'box-000001'), DESCRIPTORS).find((x) => x.kind === 'path')!;
     const del = deletePoint(two, 'p0');
     expect(del.ok).toBe(true);
     expect((commitValue((del as Any).shape) as Any).value.waypoints).toEqual([[3, 2, 0]]);
@@ -249,15 +249,15 @@ describe('the Scene-view handles over the real registry and commands', () => {
 
   it('polygon: corners drag, add on an edge, delete; a concave or inside-out shape is refused before any command', () => {
     let s = fresh();
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: { type: 'polygon', vertices: [[-1, 0], [1, 0], [0, 1]] } } }, 'polygon');
-    const poly = (): HandleShape => handleShapesOf(projected(s, 'group-0001'), DESCRIPTORS).find((x) => x.kind === 'polygon')!;
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'polygon', vertices: [[-1, 0], [1, 0], [0, 1]] } } }, 'polygon');
+    const poly = (): HandleShape => handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.kind === 'polygon')!;
     expect(gripsOf(poly()).map((g) => g.id)).toEqual(['p0', 'p1', 'p2', 'i1', 'i2', 'i3']);
-    s = dragAndStore(s, 'group-0001', 'collider', 'polygon', 'p2', p3(0.02, 1.52), true, (v) => expect(v.shape.vertices).toEqual([[-1, 0], [1, 0], [0, 1.5]]));
+    s = dragAndStore(s, 'group-000001', 'collider', 'polygon', 'p2', p3(0.02, 1.52), true, (v) => expect(v.shape.vertices).toEqual([[-1, 0], [1, 0], [0, 1.5]]));
     // Add a corner on the edge p1→p2 and pull it out (still convex).
     const added = insertPoint(poly(), 'i2')!;
     const out = commitValue(dragGrip(added.shape, added.grip, p3(0.8, 1), true)) as Any;
     expect(out.value.shape.vertices).toEqual([[-1, 0], [1, 0], [0.8, 1], [0, 1.5]]);
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: out.value }, 'insert corner');
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: out.value }, 'insert corner');
     // Pulling it inside makes the shape concave: refused locally.
     const concave = dragGrip(poly(), 'p2', p3(0.2, 0.5), true);
     expect(concave.error).toBe('a polygon collider must stay convex');
@@ -267,8 +267,8 @@ describe('the Scene-view handles over the real registry and commands', () => {
     // Delete a corner (back to a triangle), and a triangle keeps its three.
     const del = deletePoint(poly(), 'p2');
     expect(del.ok).toBe(true);
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: (commitValue((del as Any).shape) as Any).value }, 'delete corner');
-    expect(entityOf(s, 'group-0001').components.collider.shape.vertices).toEqual([[-1, 0], [1, 0], [0, 1.5]]);
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: (commitValue((del as Any).shape) as Any).value }, 'delete corner');
+    expect(entityOf(s, 'group-000001').components.collider.shape.vertices).toEqual([[-1, 0], [1, 0], [0, 1.5]]);
     expect(deletePoint(poly(), 'p0')).toEqual({ ok: false, message: 'Polygon keeps at least 3 points' });
     // The corner limit comes from the registry.
     expect(maxPolygonCorners(DESCRIPTORS)).toBe(8);
@@ -287,12 +287,12 @@ describe('the Scene-view handles over the real registry and commands', () => {
     const shape = (poly as Any).shape;
     expect(shape.vertices.length).toBeLessThanOrEqual(8);
     let s = fresh();
-    s = must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape } }, 'outline polygon');
+    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape } }, 'outline polygon');
     // Off-centre: a box collider cannot be offset, so the rectangle is a 4-corner polygon (with a note).
     const box = boxFromOutline(pts);
     expect((box as Any).shape.type).toBe('polygon');
     expect((box as Any).note).toMatch(/not centred/);
-    must(s, 'setComponent', { entityId: 'group-0001', component: 'collider', value: { shape: (box as Any).shape } }, 'outline box as polygon');
+    must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: (box as Any).shape } }, 'outline box as polygon');
     // Centred: a box.
     expect(boxFromOutline([{ x: -0.4, y: -1 }, { x: 0.4, y: 1 }, { x: 0, y: 0 }])).toEqual({ ok: true, shape: { type: 'box', hx: 0.4, hy: 1 } });
     expect(polygonFromOutline([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }], 8).ok).toBe(false); // a line has no area

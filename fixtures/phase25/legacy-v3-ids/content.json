@@ -1,0 +1,25 @@
+{
+  "storageVersion": 4,
+  "type": "project-content",
+  "projectId": "legacy-v3-ids",
+  "revision": 3,
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"},
+      {"sceneId":"scene-b","name":"Second"}
+    ],
+    "startScenes": ["scene-main"]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

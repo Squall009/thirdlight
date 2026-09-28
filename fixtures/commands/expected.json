@@ -1,6 +1,6 @@
 {
   "indexVersion": 2,
-  "storage": "v4: project.json (manifest schemaVersion 3), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
+  "storage": "v4: project.json (manifest schemaVersion 4), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
   "contracts": {
     "commands": "docs/contracts/commands.md",
     "workspace": "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",
@@ -237,9 +237,9 @@
       "finalRevision": 9,
       "invariants": [
         "depth progression after each step: [1,0] [2,0] [3,0] [4,0] [3,1] [2,2] [3,1] [4,0] [3,1]",
-        "undo of the mcp delete restores box-0002 (originOfApplied kind mcp)",
+        "undo of the mcp delete restores box-000002 (originOfApplied kind mcp)",
         "fresh mcp edit at step 8 invalidates redo (redoDepth 0)",
-        "final entities: cam-main, light-0001, light-0002, box-0001 (position [0,0,-0.5]), box-0002",
+        "final entities: cam-main, light-0001, light-0002, box-000001 (position [0,0,-0.5]), box-000002",
         "9 records retained in the scene file (undo/redo are recorded mutations)"
       ]
     },
@@ -263,7 +263,7 @@
       "invariants": [
         "load after restart reports revision 6 (the temp is ignored and cleaned)",
         "leftover temp scenes/.scene-main.json.tmp-4242-7 removed on open",
-        "retry of A7 re-executes fresh (no record): createdId box-0004, duplicated false, history (1, 0) in a fresh process",
+        "retry of A7 re-executes fresh (no record): createdId box-000004, duplicated false, history (1, 0) in a fresh process",
         "final scene file equals envelope/valid/demo-0001-rev7 except the fresh record's history depths"
       ]
     },
@@ -320,7 +320,7 @@
       "invariants": [
         "recovery snapshot disk-after/.thirdlight/recovery/scene-*.json is byte-identical to disk-external/scenes/scene-main.json",
         "accept rewrites every file with cleared records; content.json is stamped revision 7",
-        "final scene file carries the accepted color #ff8800, box-0004 position [0,1,0], and exactly 1 retry record"
+        "final scene file carries the accepted color #ff8800, box-000004 position [0,1,0], and exactly 1 retry record"
       ]
     },
     {

@@ -53,12 +53,12 @@
         "change": {
           "type": "instantiatePrefab",
           "prefabId": "prefab-0001",
-          "rootId": "group-0002",
+          "rootId": "group-000001",
           "entries": [
             {
               "index": 10,
               "entity": {
-                "id": "group-0002",
+                "id": "group-000001",
                 "name": "Station",
                 "components": {
                   "transform": {
@@ -89,9 +89,9 @@
             {
               "index": 11,
               "entity": {
-                "id": "box-0002",
+                "id": "box-000001",
                 "name": "Pedestal",
-                "parentId": "group-0002",
+                "parentId": "group-000001",
                 "components": {
                   "transform": {
                     "position": [
@@ -131,9 +131,9 @@
             {
               "index": 12,
               "entity": {
-                "id": "model-0003",
+                "id": "model-000001",
                 "name": "Lantern",
-                "parentId": "group-0002",
+                "parentId": "group-000001",
                 "components": {
                   "transform": {
                     "position": [
@@ -169,7 +169,7 @@
                         0.5,
                         0
                       ],
-                      "target": "group-0002",
+                      "target": "group-000001",
                       "material": "asset-7f3a2c9e1b4d5068"
                     }
                   },
@@ -183,9 +183,9 @@
             {
               "index": 13,
               "entity": {
-                "id": "model-0004",
+                "id": "model-000002",
                 "name": "Ramp",
-                "parentId": "group-0002",
+                "parentId": "group-000001",
                 "components": {
                   "transform": {
                     "position": [
@@ -221,19 +221,19 @@
           "mapping": [
             {
               "localId": "group-0001",
-              "entityId": "group-0002"
+              "entityId": "group-000001"
             },
             {
               "localId": "box-0001",
-              "entityId": "box-0002"
+              "entityId": "box-000001"
             },
             {
               "localId": "model-0001",
-              "entityId": "model-0003"
+              "entityId": "model-000001"
             },
             {
               "localId": "model-0002",
-              "entityId": "model-0004"
+              "entityId": "model-000002"
             }
           ]
         },
@@ -254,7 +254,7 @@
           "clientId": "browser-demo"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "behaviorId": "behavior-0001",
           "values": {
             "speed": 1.25
@@ -271,7 +271,7 @@
         "duplicated": false,
         "change": {
           "type": "setBehaviorProperties",
-          "id": "model-0003",
+          "id": "model-000001",
           "previous": {
             "behaviorId": "behavior-0001",
             "values": {
@@ -283,7 +283,7 @@
                 0.5,
                 0
               ],
-              "target": "group-0002",
+              "target": "group-000001",
               "material": "asset-7f3a2c9e1b4d5068"
             }
           },
@@ -298,7 +298,7 @@
                 0.5,
                 0
               ],
-              "target": "group-0002",
+              "target": "group-000001",
               "material": "asset-7f3a2c9e1b4d5068"
             }
           },
@@ -323,7 +323,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "box-0002",
+          "entityId": "box-000001",
           "component": "box",
           "value": {
             "material": {
@@ -342,7 +342,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "box-0002",
+          "id": "box-000001",
           "component": "box",
           "previous": {
             "size": [
@@ -407,12 +407,12 @@
         "change": {
           "type": "instantiatePrefab",
           "prefabId": "prefab-0001",
-          "rootId": "group-0004",
+          "rootId": "group-000003",
           "entries": [
             {
               "index": 14,
               "entity": {
-                "id": "group-0004",
+                "id": "group-000003",
                 "name": "Station",
                 "components": {
                   "transform": {
@@ -443,9 +443,9 @@
             {
               "index": 15,
               "entity": {
-                "id": "box-0004",
+                "id": "box-000003",
                 "name": "Pedestal",
-                "parentId": "group-0004",
+                "parentId": "group-000003",
                 "components": {
                   "transform": {
                     "position": [
@@ -485,9 +485,9 @@
             {
               "index": 16,
               "entity": {
-                "id": "model-0007",
+                "id": "model-000005",
                 "name": "Lantern",
-                "parentId": "group-0004",
+                "parentId": "group-000003",
                 "components": {
                   "transform": {
                     "position": [
@@ -523,7 +523,7 @@
                         0.5,
                         0
                       ],
-                      "target": "group-0004",
+                      "target": "group-000003",
                       "material": "asset-7f3a2c9e1b4d5068"
                     }
                   },
@@ -537,9 +537,9 @@
             {
               "index": 17,
               "entity": {
-                "id": "model-0008",
+                "id": "model-000006",
                 "name": "Ramp",
-                "parentId": "group-0004",
+                "parentId": "group-000003",
                 "components": {
                   "transform": {
                     "position": [
@@ -575,19 +575,19 @@
           "mapping": [
             {
               "localId": "group-0001",
-              "entityId": "group-0004"
+              "entityId": "group-000003"
             },
             {
               "localId": "box-0001",
-              "entityId": "box-0004"
+              "entityId": "box-000003"
             },
             {
               "localId": "model-0001",
-              "entityId": "model-0007"
+              "entityId": "model-000005"
             },
             {
               "localId": "model-0002",
-              "entityId": "model-0008"
+              "entityId": "model-000006"
             }
           ]
         },
@@ -619,12 +619,12 @@
         "duplicated": false,
         "change": {
           "type": "deleteEntity",
-          "rootId": "group-0004",
+          "rootId": "group-000003",
           "deletedIds": [
-            "group-0004",
-            "box-0004",
-            "model-0007",
-            "model-0008"
+            "group-000003",
+            "box-000003",
+            "model-000005",
+            "model-000006"
           ]
         },
         "appliedOf": "req-60600000000000000000000000000003",
@@ -661,12 +661,12 @@
         "change": {
           "type": "instantiatePrefab",
           "prefabId": "prefab-0001",
-          "rootId": "group-0004",
+          "rootId": "group-000003",
           "entries": [
             {
               "index": 14,
               "entity": {
-                "id": "group-0004",
+                "id": "group-000003",
                 "name": "Station",
                 "components": {
                   "transform": {
@@ -697,9 +697,9 @@
             {
               "index": 15,
               "entity": {
-                "id": "box-0004",
+                "id": "box-000003",
                 "name": "Pedestal",
-                "parentId": "group-0004",
+                "parentId": "group-000003",
                 "components": {
                   "transform": {
                     "position": [
@@ -739,9 +739,9 @@
             {
               "index": 16,
               "entity": {
-                "id": "model-0007",
+                "id": "model-000005",
                 "name": "Lantern",
-                "parentId": "group-0004",
+                "parentId": "group-000003",
                 "components": {
                   "transform": {
                     "position": [
@@ -777,7 +777,7 @@
                         0.5,
                         0
                       ],
-                      "target": "group-0004",
+                      "target": "group-000003",
                       "material": "asset-7f3a2c9e1b4d5068"
                     }
                   },
@@ -791,9 +791,9 @@
             {
               "index": 17,
               "entity": {
-                "id": "model-0008",
+                "id": "model-000006",
                 "name": "Ramp",
-                "parentId": "group-0004",
+                "parentId": "group-000003",
                 "components": {
                   "transform": {
                     "position": [
@@ -829,19 +829,19 @@
           "mapping": [
             {
               "localId": "group-0001",
-              "entityId": "group-0004"
+              "entityId": "group-000003"
             },
             {
               "localId": "box-0001",
-              "entityId": "box-0004"
+              "entityId": "box-000003"
             },
             {
               "localId": "model-0001",
-              "entityId": "model-0007"
+              "entityId": "model-000005"
             },
             {
               "localId": "model-0002",
-              "entityId": "model-0008"
+              "entityId": "model-000006"
             }
           ]
         },

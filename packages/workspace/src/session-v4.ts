@@ -183,7 +183,7 @@ export function openV4(
 }
 
 /**
- * Phase 24.8: write a project the load upgraded (schemaVersion 2 → 3) back
+ * Phase 24.8: write a project the load upgraded (schemaVersion 2 or 3 → 4, phase 25.7) back
  * as one new revision: the manifest, the content file and every scene file
  * (block chunk files are unchanged). If the write fails the project still
  * opens upgraded in memory (the next open upgrades it again) and the notes

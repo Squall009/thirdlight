@@ -25,10 +25,20 @@
  */
 import type { ModelErrorV3 } from './errors';
 
-/** Phase 24.8: the `project.json` schemaVersion this build writes (2: before the phase 24 upgrade). */
-export const PROJECT_SCHEMA_VERSION = 3;
-/** The `project.json` schemaVersion the loader upgrades (`upgradeProjectDocsV24`). */
+/**
+ * The `project.json` schemaVersion this build writes. Phase 24.8 made it 3;
+ * phase 25.7 made it 4 (wider entity ids; `upgradeProjectDocsV25`).
+ */
+export const PROJECT_SCHEMA_VERSION = 4;
+/** The phase 24 format (`project.json` schemaVersion 3), upgraded to 4 on load (`upgradeProjectDocsV25`). */
+export const PROJECT_SCHEMA_VERSION_V24 = 3;
+/** The `project.json` schemaVersion `upgradeProjectDocsV24` upgrades (before the phase 24 upgrade), then `upgradeProjectDocsV25`. */
 export const PROJECT_SCHEMA_VERSION_UPGRADED = 2;
+
+/** Phase 25.7: whether the loader upgrades a project of this `project.json` schemaVersion (2 or 3). */
+export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 {
+  return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24;
+}
 
 /** The tail every refusal of removed game data carries. */
 export const REMOVED_IN_PHASE_24 = 'removed in phase 24: build it as project scripts';

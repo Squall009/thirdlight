@@ -50,7 +50,7 @@ describe('queries (§5.6)', () => {
     const root = makeRoot('q-2');
     seedRev5(root);
     const svc = openWorkspaceService({ root });
-    const one = q(svc, { op: 'queryEntity', projectId: 'demo-0001', args: { entityId: 'box-0001' } });
+    const one = q(svc, { op: 'queryEntity', projectId: 'demo-0001', args: { entityId: 'box-000001' } });
     expect(one.ok).toBe(true);
     if (!one.ok) throw new Error('queryEntity failed');
     const e = (one as {
@@ -58,7 +58,7 @@ describe('queries (§5.6)', () => {
       parentChain: string[];
       childIds: string[];
     }) as { entity: { id: string; components: { box: { size: number[] } } }; parentChain: string[]; childIds: string[] };
-    expect(e.entity.id).toBe('box-0001');
+    expect(e.entity.id).toBe('box-000001');
     expect(e.entity.components.box.size).toEqual([1, 1, 1]);
     expect(e.parentChain).toEqual([]);
     expect(e.childIds).toEqual([]);
@@ -67,7 +67,7 @@ describe('queries (§5.6)', () => {
     if (!many.ok) throw new Error(`queryEntities failed: ${JSON.stringify(many)}`);
     expect(many.ok).toBe(true);
     const list = many as { entities: { id: string }[]; total: number };
-    expect(list.entities.map((x) => x.id)).toEqual(['cam-main', 'light-0001', 'light-0002', 'box-0001', 'box-0002', 'group-0001']);
+    expect(list.entities.map((x) => x.id)).toEqual(['cam-main', 'light-0001', 'light-0002', 'box-000001', 'box-000002', 'group-000001']);
     expect(list.total).toBe(6);
     expect((many as unknown as { entitySceneIds: string[] }).entitySceneIds).toEqual(Array(6).fill('scene-main'));
 

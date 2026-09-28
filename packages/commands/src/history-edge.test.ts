@@ -52,13 +52,13 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
     // Undo the second create...
     const u1 = applyMutation(ok(o2).state, at(ok(o2).state, 'undo', {}));
     expect(ok(u1).result.change.type).toBe('deleteEntity');
-    // ...and redo it: the SAME entity value (name 'Second', ID box-0002)
+    // ...and redo it: the SAME entity value (name 'Second', ID box-000002)
     // at the end of the array — no ID re-scan.
     const red = applyMutation(ok(u1).state, at(ok(u1).state, 'redo', {}));
     const s = ok(red).result;
     const ch = s.change as { type: string; id: string; entity: EntityV3 };
     expect(ch.type).toBe('createEntity');
-    expect(ch.id).toBe('box-0002');
+    expect(ch.id).toBe('box-000002');
     expect(ch.entity.name).toBe('Second');
     expect(s.appliedOf).toBe(o2.result.requestId);
     // Byte-identical to the post-create state (masked revision).
@@ -71,7 +71,7 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
     const st0 = v4State(BASE);
     const c = applyMutation(st0, at(st0, 'createEntity', { kind: 'box' }));
     const t = applyMutation(ok(c).state, at(ok(c).state, 'setTransform', {
-      entityId: 'box-0001',
+      entityId: 'box-000001',
       transform: { position: [7, 8, 9] },
     }));
     const u = applyMutation(ok(t).state, at(ok(t).state, 'undo', {}));
@@ -87,7 +87,7 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
     const st0 = v4State(BASE);
     const st1 = ok(applyMutation(st0, at(st0, 'createEntity', { kind: 'box', name: 'A' }))).state;
     const st2 = ok(applyMutation(st1, at(st1, 'setTransform', {
-      entityId: 'box-0001',
+      entityId: 'box-000001',
       transform: { position: [1, 0, 0] },
     }))).state;
     const st3 = ok(applyMutation(st2, at(st2, 'createEntity', { kind: 'group', name: 'G' }))).state;
@@ -123,7 +123,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
   it('undo with an inapplicable inverse (delete of a missing ID) ⇒ history_invalid carrying the entry requestId; state and stacks untouched', () => {
     const sc = cameraScene(1);
     const entity: EntityV3 = {
-      id: 'box-0001',
+      id: 'box-000001',
       components: {
         transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
         box: { size: [1, 1, 1], material: { color: '#b0b0b0' } },
@@ -135,7 +135,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
       op: 'createEntity',
       origin: { kind: 'mcp', clientId: 'harness' },
       appliedRevision: 1,
-      change: { type: 'createEntity', id: 'box-0001', entity },
+      change: { type: 'createEntity', id: 'box-000001', entity },
       // Corruption: the inverse names an ID that is not in the scene.
       inverse: { kind: 'delete', rootId: 'ghost-0001' },
     };
@@ -157,10 +157,10 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
       op: 'deleteEntity',
       origin: null,
       appliedRevision: 1,
-      change: { type: 'deleteEntity', rootId: 'box-0001', deletedIds: ['box-0001'] },
+      change: { type: 'deleteEntity', rootId: 'box-000001', deletedIds: ['box-000001'] },
       inverse: {
         kind: 'restoreSubtree',
-        entries: [{ index: 99, entity: boxEntity('box-0001') }],
+        entries: [{ index: 99, entity: boxEntity('box-000001') }],
         restoredParentId: null,
       },
     };
@@ -184,10 +184,10 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
       op: 'deleteEntity',
       origin: null,
       appliedRevision: 1,
-      change: { type: 'deleteEntity', rootId: 'box-0001', deletedIds: ['box-0001'] },
+      change: { type: 'deleteEntity', rootId: 'box-000001', deletedIds: ['box-000001'] },
       inverse: {
         kind: 'restoreSubtree',
-        entries: [{ index: 1, entity: boxEntity('box-0001', { parentId: 'group-0001' }) }],
+        entries: [{ index: 1, entity: boxEntity('box-000001', { parentId: 'group-000001' }) }],
         restoredParentId: null, // disagrees with the entity's own parentId
       },
     };
@@ -202,16 +202,16 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
   });
 
   it('redo of a create whose ID already exists ⇒ history_invalid', () => {
-    const sc = scene(1, [cameraEntity(), boxEntity('box-0001')]);
-    const entity = sc.entities.find((e) => e.id === 'box-0001') as EntityV3;
+    const sc = scene(1, [cameraEntity(), boxEntity('box-000001')]);
+    const entity = sc.entities.find((e) => e.id === 'box-000001') as EntityV3;
     const entry: HistoryEntry = {
       seq: 1,
       requestId: 'req-0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f',
       op: 'createEntity',
       origin: null,
       appliedRevision: 1,
-      change: { type: 'createEntity', id: 'box-0001', entity: { ...entity } },
-      inverse: { kind: 'delete', rootId: 'box-0001' },
+      change: { type: 'createEntity', id: 'box-000001', entity: { ...entity } },
+      inverse: { kind: 'delete', rootId: 'box-000001' },
     };
     const st: CommandState = { scene: sc, content: v4Content(), history: { entries: [entry], cursor: 0, seq: 2 } };
     const r = applyMutation(st, req('redo', {}, { expectedRevision: 1 }));

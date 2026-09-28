@@ -35,7 +35,8 @@ import { isFolderEntity } from './types-v3';
 import { materialOverrideErrors } from './materials';
 import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors } from './effects';
-import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED, isUpgradedProjectSchemaVersion } from './upgrade-v24';
+import { nextFreeEntityIdOf } from './entity-ids';
 
 /**
  * Phase 12 (c): `project.json` — scenes are the files in `scenes/`.
@@ -58,8 +59,8 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   const errors: ModelErrorV3[] = [];
   if (doc['schemaVersion'] !== PROJECT_SCHEMA_VERSION) {
     errors.push(
-      doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED
-        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} project is upgraded by the loader before it is validated (upgradeProjectDocsV24)`)
+      isUpgradedProjectSchemaVersion(doc['schemaVersion'])
+        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED ? 'upgradeProjectDocsV24, then ' : ''}upgradeProjectDocsV25)`)
         : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
     );
   }
@@ -484,11 +485,10 @@ export interface MigrationV4Result {
 }
 
 function nextId(taken: Set<string>, prefix: string): string {
-  for (let n = 1; n <= 9999; n++) {
-    const id = `${prefix}-${String(n).padStart(4, '0')}`;
-    if (!taken.has(id)) return id;
-  }
-  throw new Error(`no free ${prefix} id`);
+  // Phase 25.7a: the assigned ids' width (at least six digits).
+  const id = nextFreeEntityIdOf(taken, prefix);
+  if (id === undefined) throw new Error(`no free ${prefix} id`);
+  return id;
 }
 
 /**

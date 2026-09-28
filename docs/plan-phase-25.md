@@ -166,7 +166,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.24f | done 2026-09-28: the first present waits for the start scenes' models (whole first picture; its precompile covers them), the rest streams (instance buffers, textures of later use, clips, other scenes prepared when they load); the 15 s present timeout counts from the last progress (`play.preview.progress`, the editor forwards the preview's load progress at most once a second; the preview reports each stage and each model prepared) |
 | 25.24h | resolved 2026-09-28, not done: boot is ~0.15 s of the large bench's 2.3–2.6 s first frame (≤ 7 %); the warm page would hold a hidden page, worker and physics world per editor; numbers in §6 |
 | 25.24 | done 2026-09-28: (a)–(h) resolved; targets fixed in §6 (large ≤ 3 s from the second Play, no frame > 250 ms; a scene transition never draws an empty world) |
-| 25.7–25.23 | — |
+| 25.7a | done 2026-09-28: new entity ids `<kind>-N` with at least six digits (`box-000001`), N up to 1,048,576 (64 scenes × 16,384: no `id_exhaustion` below the entity limits), one allocator (`project-model/entity-ids.ts`) for create, paste, prefab copies and the v3 → v4 storage migration; `project.json` schemaVersion 4 (a 3 upgraded on open without a document change, written back; a 2 goes 2 → 3 → 4); four-digit ids load and stay (HTTP test on `fixtures/phase25/legacy-v3-ids`); limit in `docs/deployment.md` engine limits |
+| 25.7b–25.23 | — |
 
 ## 6. Decision log
 
@@ -662,3 +663,27 @@ boundary it changes (Playwright for any editor surface).
   frame, no frame over 50 ms after; before 25.24e it attached at 64 ms and
   its models and textures were read after, their arrival unmeasured). The
   large Play 1 in a fresh editor page is 3.8 s (backend 0.5 s cold).
+- 2026-09-28 (25.7a): the plan's format bump was checked. The id width
+  alone needs no document change (an id is any string of the id syntax, so
+  a four-digit id loads as it is and a six-digit one would load in a phase 24
+  build too); the bump is kept as the plan names it, as the marker of the
+  25.7 format (and for 25.7b's manifest and 25.7c–e's fields): the loader
+  upgrades a schemaVersion 3 project to 4 without touching a document
+  (`upgradeProjectDocsV25`) and writes it back as one new revision, as 24.8
+  does; a 2 goes through `upgradeProjectDocsV24` and then this. The id
+  limit is the project's entity capacity (64 × 16,384 = 1,048,576), not a
+  round 999,999: numbers past 999,999 simply get seven digits, so no kind
+  can run out before the entity limits refuse the creation. Old ids are not
+  renamed (a rename would touch every reference in scenes, prefabs, scripts'
+  properties and saves). New ids start at N = 1 in the wider space, so a
+  project with `box-0001` gets `box-000001` next (a different string). The
+  fixed ids of a new project's default objects (`cam-main`, `light-0001`,
+  `light-0002`) and of the Starter template are data, not assigned, and stay.
+  Recorded fixtures re-derived because created ids changed (no behaviour
+  changed; each replay still passes byte for byte): the commands/workspace
+  corpus by its generator (`fixtures/commands/tools/generate-fixtures.mjs`:
+  manifest schemaVersion 4, six-digit allocator; the 08 recovery snapshot's
+  file name carries a hash of the new bytes), the packet-16/22 prefab
+  fixtures and the model-authoring messages by a fixed rename of the created
+  ids (model-0003 → model-000001, box-0002 → box-000001, group-0002 →
+  group-000001, …), verified by their replays.

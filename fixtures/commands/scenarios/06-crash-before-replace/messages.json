@@ -9,7 +9,7 @@
       "projectId": "demo-0001",
       "revision": 6,
       "manifest": {
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "engineVersion": "0.1.0",
         "id": "demo-0001",
         "name": "Demo Project",
@@ -62,12 +62,12 @@
       "requestId": "req-10000000000000000000000000000007",
       "revision": 7,
       "duplicated": false,
-      "createdId": "box-0004",
+      "createdId": "box-000004",
       "change": {
         "type": "createEntity",
-        "id": "box-0004",
+        "id": "box-000004",
         "entity": {
-          "id": "box-0004",
+          "id": "box-000004",
           "components": {
             "transform": {
               "position": [

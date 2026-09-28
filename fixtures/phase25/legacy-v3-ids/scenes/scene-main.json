@@ -1,0 +1,24 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v3-ids",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 3,
+    "entities": [
+      {"id":"cam-main","name":"Main Camera","components":{"transform":{"position":[0,2,8],"rotation":[0,0,0,1],"scale":[1,1,1]},"camera":{"type":"perspective","fovY":60,"near":0.1,"far":100}}},
+      {"id":"light-0001","name":"Key","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#ffffff","intensity":1.2,"direction":[0.4,-1,-0.3]}}},
+      {"id":"light-0002","name":"Fill","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#8090a8","intensity":0.6}}},
+      {"id":"spawn-0001","name":"Start","components":{"transform":{"position":[0,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}},
+      {"id":"box-0001","name":"Ground","components":{"transform":{"position":[0,-0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[20,1,4],"material":{"color":"#707070"}}}},
+      {"id":"group-0001","name":"Stack","components":{"transform":{"position":[3,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]}}},
+      {"id":"box-0002","name":"Crate","parentId":"group-0001","components":{"transform":{"position":[0,0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#8a5a2b"}}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

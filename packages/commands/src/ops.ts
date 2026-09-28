@@ -29,6 +29,7 @@ import {
   type SceneV3,
   type TransformComponent,
   type TagDefinition,
+  nextFreeEntityIdOf,
 } from '@thirdlight/project-model';
 
 import {
@@ -99,7 +100,6 @@ const MAX_ENTITIES = 1024;
 /** Phase 12 (c): a v4 scene holds up to 16384 entities. */
 const MAX_ENTITIES_SCENE_V4 = 16_384;
 const MAX_DEPTH = 32; // root = 1
-const ID_MAX = 9999;
 
 /**
  * JSON-safe deep clone. Entity/transform graphs are plain JSON values by
@@ -216,21 +216,19 @@ function maskedSceneBytes(scene: SceneDocument): Uint8Array | null {
 }
 
 /**
- * §8.1 step 2: backend-assigned ID — the smallest NNNN in 0001..9999 such
- * that `<kind>-NNNN` does not exist in the current scene. Undefined on
- * exhaustion (⇒ `id_exhaustion`). The v3 derived prefixes (`zone`, `spawn`,
- * `light`) use the same rule (authoring §A4.1).
+ * §8.1 step 2: backend-assigned ID — the smallest N from 1 such that
+ * `<kind>-N` (phase 25.7a: at least six digits, `entityIdAt`) exists
+ * neither in the current scene nor in `reserved` (the project's other
+ * scenes). Undefined on exhaustion (⇒ `id_exhaustion`; unreachable before
+ * the entity limits). The v3 derived prefixes (`zone`, `spawn`, `light`)
+ * use the same rule (authoring §A4.1).
  */
 export type EntityIdPrefix = 'box' | 'group' | 'model' | 'zone' | 'spawn' | 'light' | 'folder' | 'instances';
 
 export function nextEntityId(scene: SceneDocument, kind: EntityIdPrefix, reserved?: ReadonlySet<string>): string | undefined {
   // Phase 12 (c): ids are unique across the project — the other scenes' ids are reserved.
   const existing = new Set([...scene.entities.map((e) => e.id), ...(reserved ?? [])]);
-  for (let n = 1; n <= ID_MAX; n++) {
-    const id = `${kind}-${String(n).padStart(4, '0')}`;
-    if (!existing.has(id)) return id;
-  }
-  return undefined;
+  return nextFreeEntityIdOf(existing, kind);
 }
 
 /**

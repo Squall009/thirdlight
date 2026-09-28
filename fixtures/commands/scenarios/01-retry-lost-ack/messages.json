@@ -10,7 +10,7 @@
         "clientId": "pi-harness"
       },
       "args": {
-        "entityId": "box-0002",
+        "entityId": "box-000002",
         "transform": {
           "rotation": [
             0.7071067811865476,
@@ -30,7 +30,7 @@
       "duplicated": true,
       "change": {
         "type": "setTransform",
-        "id": "box-0002",
+        "id": "box-000002",
         "previous": {
           "position": [
             0,

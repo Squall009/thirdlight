@@ -60,7 +60,7 @@ import {
   normalizeManifest,
   parseDocumentBytes,
   PROJECT_SCHEMA_VERSION,
-  PROJECT_SCHEMA_VERSION_UPGRADED,
+  isUpgradedProjectSchemaVersion,
   validateProjectV3,
 } from '@thirdlight/project-model';
 
@@ -1419,7 +1419,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
     return entry;
   }
 
-  // Manifest: a v4 manifest (schemaVersion 3, or 2 before phase 24.8) of an interrupted creation, or
+  // Manifest: a v4 manifest (schemaVersion 4; 3 before phase 25.7, 2 before phase 24.8) of an interrupted creation, or
   // the v1 manifest of a storage v3 project.
   const manPath = join(dir, 'project.json');
   if (!core.ops.fileExists(manPath)) {
@@ -1456,7 +1456,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
 
   if (!envelopeExists) {
     entry.kind = 'project';
-    if (manifestVersion !== PROJECT_SCHEMA_VERSION && manifestVersion !== PROJECT_SCHEMA_VERSION_UPGRADED) {
+    if (manifestVersion !== PROJECT_SCHEMA_VERSION && !isUpgradedProjectSchemaVersion(manifestVersion)) {
       // A v3 manifest without its envelope: a creation interrupted by an
       // earlier version (it wrote storage v3). This version writes new
       // projects as v4 only, so it is kept for the operator.

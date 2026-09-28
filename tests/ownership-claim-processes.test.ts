@@ -348,7 +348,7 @@ describe('T2: two real processes race the claim-file gate (workspace.md §6.3 si
     owner.dispose();
 
     const gate = join(root, 'gate');
-    // The created project's default scene has no box-0001: the contender
+    // The created project's default scene has no box-000001: the contender
     // mutations target the default scene's cam-main entity instead.
     const c1 = spawnChild(['contend-open', root, PROJECT, ID1, gate, '0', 'cam-main']);
     const c2 = spawnChild(['contend-open', root, PROJECT, ID2, gate, '0', 'cam-main']);
@@ -501,7 +501,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
       expectedRevision: 5,
       requestId: 'req-3a000000000000000000000000000001',
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as { ok: boolean; error?: { code: string; reason?: string } };
     expect(m.ok).toBe(false);
     expect(m.error?.reason).toBe('claim_inconsistent');
@@ -519,7 +519,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
       expectedRevision: 5,
       requestId: 'req-3a000000000000000000000000000002',
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as { ok: boolean; revision?: number };
     expect(m2.ok).toBe(true);
     expect(m2.revision).toBe(6);
@@ -558,7 +558,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
       expectedRevision: 5,
       requestId: 'req-3b000000000000000000000000000001',
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as { ok: boolean; revision?: number };
     expect(m.ok).toBe(true);
     expect(m.revision).toBe(6);
@@ -595,7 +595,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
       expectedRevision: 5,
       requestId: 'req-3c000000000000000000000000000001',
       origin: { kind: 'mcp', clientId: 'pi-harness' },
-      args: { entityId: 'box-0001', transform: { position: [1, 0, 0] } },
+      args: { entityId: 'box-000001', transform: { position: [1, 0, 0] } },
     }) as { ok: boolean; revision?: number };
     expect(m.ok).toBe(true);
     expect(m.revision).toBe(6);

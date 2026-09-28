@@ -359,13 +359,13 @@ export function limitsExceeded(
   };
 }
 
-/** §5.4/§8.1: no free `<kind>-NNNN` ID. */
+/** §5.4/§8.1: no free `<kind>-N` ID (phase 25.7a: unreachable below the entity limits). */
 export function idExhaustion(kind: string): CommandError {
   return {
     code: 'id_exhaustion',
     cls: 'internal',
     kind,
-    message: `no free ${kind}-NNNN ID is available`,
+    message: `no free ${kind}-N ID is available`,
   };
 }
 

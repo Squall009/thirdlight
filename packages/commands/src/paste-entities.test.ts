@@ -159,7 +159,7 @@ describe('pasteEntities', () => {
     const r = run(s0, 'pasteEntities', { entities: foreign });
     expect(r.result.ok, JSON.stringify(r.result)).toBe(true);
     const [crate, lid] = ents(r.state).slice(-2) as [Ent, Ent];
-    expect(crate.id).toBe('box-0002');
+    expect(crate.id).toBe('box-000001');
     expect(lid.parentId).toBe(crate.id);
   });
 });

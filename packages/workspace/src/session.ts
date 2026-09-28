@@ -81,7 +81,7 @@ import {
   serveQueryV4,
   type OpenV4Outcome,
 } from './session-v4';
-import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED, validateManifestV2Project } from '@thirdlight/project-model';
+import { PROJECT_SCHEMA_VERSION, isUpgradedProjectSchemaVersion, validateManifestV2Project } from '@thirdlight/project-model';
 
 // ---- internal state ------------------------------------------------------------
 
@@ -372,16 +372,16 @@ export function loadManifest(
 
 /**
  * Validate a parsed manifest value: a v4 project's manifest (schemaVersion
- * 3, or 2 before phase 24.8; no scene list — returned as its v1-shaped view) or a v3 project's
+ * 4; 3 before phase 25.7, 2 before phase 24.8; no scene list — returned as its v1-shaped view) or a v3 project's
  * manifest (schemaVersion 1, read for the upgrade). At most 10 errors.
  */
 export function validateAnyManifest(
   value: unknown,
 ): { ok: true; manifest: Manifest } | { ok: false; errors: readonly LoadDetail[] } {
   const sv = (value as { schemaVersion?: unknown } | null)?.schemaVersion;
-  // Phase 24.8: schemaVersion 3; a 2 (before the phase 24 upgrade) reads the same way (the project load upgrades it).
-  if (sv === PROJECT_SCHEMA_VERSION || sv === PROJECT_SCHEMA_VERSION_UPGRADED) {
-    const v2 = validateManifestV2Project(sv === PROJECT_SCHEMA_VERSION_UPGRADED ? { ...(value as object), schemaVersion: PROJECT_SCHEMA_VERSION } : value);
+  // Phase 25.7: schemaVersion 4; a 3 (phase 24) or 2 (before the phase 24 upgrade) reads the same way (the project load upgrades it).
+  if (sv === PROJECT_SCHEMA_VERSION || isUpgradedProjectSchemaVersion(sv)) {
+    const v2 = validateManifestV2Project(isUpgradedProjectSchemaVersion(sv) ? { ...(value as object), schemaVersion: PROJECT_SCHEMA_VERSION } : value);
     if (!v2.ok) return { ok: false, errors: v2.errors.slice(0, 10) as unknown as readonly LoadDetail[] };
     return { ok: true, manifest: legacyManifestOf(v2.normalized, 'scene-main') };
   }

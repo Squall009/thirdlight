@@ -214,7 +214,7 @@ describe('packet 25 — content flow (real process + real fs + real stdio MCP)',
     );
     expect(browserCreate.body.ok).toBe(true);
     expect((browserCreate.body.change as Record<string, unknown>).type).toBe((mcpCreate.body.change as Record<string, unknown>).type);
-    expect(String(browserCreate.body.createdId)).toMatch(/^box-[0-9]{4}$/);
+    expect(String(browserCreate.body.createdId)).toMatch(/^box-[0-9]{6}$/);
     revision = Number(browserCreate.body.revision);
 
     // A stale command from either origin yields the same structured conflict.

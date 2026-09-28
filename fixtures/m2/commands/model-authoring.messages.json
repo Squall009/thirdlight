@@ -11,7 +11,7 @@
   "notes": [
     "Byte-exact request/result pairs for the repaired command surface against the packet-16 released-state before envelope (revision 2) plus the demo-0003 manifest from contracts/commands/queries.json.",
     "Every successful step consumes exactly one revision; S4 (asset_reference_missing) and S9 (component_conflict) are failures that leave the durable state byte-identical.",
-    "model-0003 is the smallest free model ID at revision 2 (model-0001/0002 exist); S2 undoes the create and S3 re-creates it with the same recorded ID."
+    "model-000001 is the smallest free model ID at revision 2 (phase 25.7a: assigned ids have six digits; the four-digit model-0001/0002 exist; before 25.7 this was model-000001); S2 undoes the create and S3 re-creates it with the same recorded ID."
   ],
   "steps": [
     {
@@ -50,12 +50,12 @@
         "requestId": "req-00000000000000000000000000000001",
         "revision": 3,
         "duplicated": false,
-        "createdId": "model-0003",
+        "createdId": "model-000001",
         "change": {
           "type": "createEntity",
-          "id": "model-0003",
+          "id": "model-000001",
           "entity": {
-            "id": "model-0003",
+            "id": "model-000001",
             "name": "Crate",
             "components": {
               "transform": {
@@ -112,9 +112,9 @@
         "duplicated": false,
         "change": {
           "type": "deleteEntity",
-          "rootId": "model-0003",
+          "rootId": "model-000001",
           "deletedIds": [
-            "model-0003"
+            "model-000001"
           ]
         },
         "appliedOf": "req-00000000000000000000000000000001",
@@ -150,9 +150,9 @@
         "duplicated": false,
         "change": {
           "type": "createEntity",
-          "id": "model-0003",
+          "id": "model-000001",
           "entity": {
-            "id": "model-0003",
+            "id": "model-000001",
             "name": "Crate",
             "components": {
               "transform": {
@@ -237,7 +237,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "component": "collider",
           "value": {
             "shape": {
@@ -257,7 +257,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "model-0003",
+          "id": "model-000001",
           "component": "collider",
           "previous": null,
           "next": {
@@ -289,7 +289,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "component": "collider",
           "value": {
             "shape": {
@@ -309,7 +309,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "model-0003",
+          "id": "model-000001",
           "component": "collider",
           "previous": {
             "shape": {
@@ -347,7 +347,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "component": "collider",
           "value": null
         }
@@ -361,7 +361,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "model-0003",
+          "id": "model-000001",
           "component": "collider",
           "previous": {
             "shape": {
@@ -393,7 +393,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "component": "controller",
           "value": {}
         }
@@ -407,7 +407,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "model-0003",
+          "id": "model-000001",
           "component": "controller",
           "previous": null,
           "next": {},
@@ -431,7 +431,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "component": "collider",
           "value": {
             "shape": {
@@ -482,7 +482,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "component": "controller",
           "value": null
         }
@@ -496,7 +496,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "model-0003",
+          "id": "model-000001",
           "component": "controller",
           "previous": {},
           "next": null,
@@ -520,7 +520,7 @@
           "clientId": "pi-harness"
         },
         "args": {
-          "entityId": "model-0003",
+          "entityId": "model-000001",
           "component": "collider",
           "value": {
             "shape": {
@@ -552,7 +552,7 @@
         "duplicated": false,
         "change": {
           "type": "setComponent",
-          "id": "model-0003",
+          "id": "model-000001",
           "component": "collider",
           "previous": null,
           "next": {
@@ -611,12 +611,12 @@
         "requestId": "req-0000000000000000000000000000000c",
         "revision": 12,
         "duplicated": false,
-        "createdId": "model-0004",
+        "createdId": "model-000002",
         "change": {
           "type": "createEntity",
-          "id": "model-0004",
+          "id": "model-000002",
           "entity": {
-            "id": "model-0004",
+            "id": "model-000002",
             "components": {
               "transform": {
                 "position": [
