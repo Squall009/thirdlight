@@ -62,7 +62,7 @@ const ZONE_COLORS: Record<ZoneRole, number> = {
 };
 const SPAWN_COLOR = 0xffc857;
 /** Phase 9.9: gameplay block helpers (mover paths, trigger/switch/enemy/pickup areas). */
-const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, enemy: 0xb05aff, pickup: 0xf2c230, audioSource: 0x7fe0a0 } as const;
+const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, enemy: 0xb05aff, pickup: 0xf2c230, audioSource: 0x7fe0a0, collectible: 0xf2c230, hitbox: 0xff6a3a, patrol: 0xb05aff } as const;
 const CAMERA_FOLLOW_COLOR = 0x9aa7ff;
 /** The z=0 game plane (the 2D side-view game coordinates are XY). */
 const GAME_PLANE = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -412,6 +412,18 @@ export class ZoneOverlay {
         // An enemy's box stands on its position (its feet), as the runtime tests it (phase 14.0 fix).
         if (size !== undefined) this.blocks.add(rect(x, k === 'enemy' ? y + N(size[1]) / 2 : y, N(size[0]), N(size[1]), BLOCK_COLORS[k]));
       }
+      // Phase 24.4: a collectible's area, a hitbox (box or circle) and an edge patroller's body, centred on the object.
+      const coll = b.collectible as { size?: number[] } | undefined;
+      if (coll !== undefined) this.blocks.add(rect(x, y, N(coll.size?.[0] ?? 1), N(coll.size?.[1] ?? coll.size?.[0] ?? 1), BLOCK_COLORS.collectible));
+      const hit = b.hitbox as { shape?: string; size?: number[]; radius?: number } | undefined;
+      if (hit !== undefined && hit.shape === 'sphere' && typeof hit.radius === 'number') {
+        const pts = outlinePoints({ kind: 'circle', center: { x, y }, half: { x: hit.radius, y: hit.radius } } as SizeShape, 24).map((p) => new THREE.Vector3(p.x, p.y, 0.02));
+        const circle = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: BLOCK_COLORS.hitbox, dashSize: 0.2, gapSize: 0.1 })).computeLineDistances();
+        circle.name = `hitbox-circle:${e.id}`;
+        this.blocks.add(circle);
+      } else if (hit?.size !== undefined) this.blocks.add(rect(x, y, N(hit.size[0]), N(hit.size[1]), BLOCK_COLORS.hitbox));
+      const walker = b.patrol as { mode?: string; size?: number[] } | undefined;
+      if (walker !== undefined && walker.mode === 'edges') this.blocks.add(rect(x, y, N(walker.size?.[0] ?? 1), N(walker.size?.[1] ?? walker.size?.[0] ?? 1), BLOCK_COLORS.patrol));
       // Phase 9.10: an audio source's hearing range along X (full volume in the inner quarter).
       const sound = b.audioSource as { range?: number } | undefined;
       if (sound?.range !== undefined) {

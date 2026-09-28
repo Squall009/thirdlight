@@ -39,7 +39,7 @@
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
-import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOVER_EASINGS, MOVER_MODES, PICKUP_KINDS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
+import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PICKUP_KINDS, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
@@ -614,6 +614,7 @@ const collider: ComponentDescriptor = {
     { component: 'gameZone', reason: 'a zone never blocks movement' },
     { component: 'playerSpawn', reason: 'a player spawn is a marker' },
     { component: 'instances', reason: 'an instance set is scenery without its own body' },
+    { component: 'patrol', reason: 'a patroller is not a physics body (give it a hitbox)' },
   ],
   prefab: true,
   rules: PHYSICS_RULES,
@@ -680,6 +681,8 @@ const controller: ComponentDescriptor = {
     { component: 'gameZone', reason: 'a zone is never a physics body' },
     { component: 'playerSpawn', reason: 'the spawn marks where the player starts' },
     { component: 'instances', reason: 'an instance set is scenery' },
+    { component: 'collectible', reason: 'the character collects; it is not collected' },
+    { component: 'patrol', reason: 'the character moves by input, not by itself' },
   ],
   prefab: false,
   rules: PHYSICS_RULES,
@@ -1200,7 +1203,7 @@ const mover: ComponentDescriptor = {
   // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
   handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', loop: when('mode', 'loop') }],
-  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }, { component: 'socketAttach', reason: 'a socket poses the object every step; a mover follows its waypoints' }],
+  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }, { component: 'socketAttach', reason: 'a socket poses the object every step; a mover follows its waypoints' }, { component: 'patrol', reason: 'a mover and a patrol would both move it' }],
   prefab: true,
 };
 
@@ -1261,23 +1264,26 @@ const switchC: ComponentDescriptor = {
 const health: ComponentDescriptor = {
   name: 'health',
   label: 'Health',
-  tooltip: 'The player\'s health: hazards and enemies take some, a short grace follows each hit.',
+  // Phase 24.4b: any object's health; scripts take and give it (ctx.health) and read its damaged/died events.
+  tooltip: 'The object\'s health (any object): scripts damage and heal it and hear when it is damaged or reaches 0; a hitbox with damage takes some on contact.',
   category: 'Gameplay',
-  value: obj('health', 'Health', 'Player health.', [
-    int('max', 'Maximum', 'Most health the player can have.', { required: true, min: 1, max: 1000, default: 3 }),
-    int('start', 'Start', 'Health at the start and after a respawn (absent: the maximum).', { min: 1, max: 1000 }),
-    num('invulnerableSeconds', 'Grace time', 'No further damage for this long after a hit.', { min: 0, max: 10, step: 0.1, unit: 's', default: BD.invulnerableSeconds }),
-    num('knockback', 'Knockback', 'A hit pushes the player away at this speed (0: none).', { min: 0, max: 20, step: 0.5, unit: 'm/s', default: 0 }),
-    num('knockbackTime', 'Knockback time', 'How long a knockback pushes (easing out).', { ...BL.knockbackTime, step: 0.05, unit: 's', default: BD.knockbackTime }),
-    num('hitBounce', 'Hit bounce', 'A hit throws the player up at this speed (0: none).', { ...BL.hitBounce, step: 0.5, unit: 'm/s', default: BD.hitBounce }),
+  value: obj('health', 'Health', 'Health.', [
+    int('max', 'Maximum', 'The most health it can have.', { required: true, min: 1, max: 1000, default: 3 }),
+    int('start', 'Start', 'Health at the start of a run (absent: the maximum).', { min: 1, max: 1000 }),
+    // The game session's player only (the platformer session, until phase 24.7 removes it).
+    num('invulnerableSeconds', 'Grace time', 'Game session player only: no further hazard or enemy damage for this long after a hit.', { group: 'Game session player', min: 0, max: 10, step: 0.1, unit: 's', default: BD.invulnerableSeconds }),
+    num('knockback', 'Knockback', 'Game session player only: a hit pushes the player away at this speed (0: none).', { group: 'Game session player', min: 0, max: 20, step: 0.5, unit: 'm/s', default: 0 }),
+    num('knockbackTime', 'Knockback time', 'Game session player only: how long a knockback pushes (easing out).', { group: 'Game session player', ...BL.knockbackTime, step: 0.05, unit: 's', default: BD.knockbackTime }),
+    num('hitBounce', 'Hit bounce', 'Game session player only: a hit throws the player up at this speed (0: none).', { group: 'Game session player', ...BL.hitBounce, step: 0.5, unit: 'm/s', default: BD.hitBounce }),
     // Phase 20.2: a visual effect where the player is when it is hit.
-    ref('hitEffect', 'Hit effect', 'A project effect played where the player is when it takes a hit (none: no effect).', 'effect'),
+    ref('hitEffect', 'Hit effect', 'Game session player only: a project effect played where the player is when it takes a hit (none: no effect).', 'effect', { group: 'Game session player' }),
   ], { rules: ['start ≤ max'] }),
-  // Phase 15.5: 3 hits (the common small health pool) with 1 s of grace after each.
+  // Phase 15.5: 3 hits (the common small health pool) with 1 s of grace after each (the grace applies to the game
+  // session's player only; the add value stays as it was until 24.7 removes the session fields).
   add: { kind: 'menu', value: { max: 3, invulnerableSeconds: 1 } },
   handles: [],
   excludes: [],
-  prefab: false,
+  prefab: true,
 };
 
 const pickup: ComponentDescriptor = {
@@ -1298,6 +1304,94 @@ const pickup: ComponentDescriptor = {
   // Phase 15.5: a coin worth 1; no size, so it collects over its model's bounds (else 1 × 1 m).
   add: { kind: 'menu', value: { kind: 'coin', value: 1 } },
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
+  excludes: [],
+  prefab: true,
+};
+
+// ---- phase 24.4: generic primitives -------------------------------------------------
+
+const PD = PRIMITIVE_DEFAULTS;
+const PL = PRIMITIVE_LIMITS;
+
+const collectible: ComponentDescriptor = {
+  name: 'collectible',
+  label: 'Collectible',
+  tooltip: 'The character touching it adds an amount to a named counter; it hides, sends a signal and may come back after a while.',
+  category: 'Gameplay',
+  value: obj('collectible', 'Collectible', 'Adds to a counter when touched.', [
+    str('counter', 'Counter', 'The counter it adds to (any name: a letter or _, then letters, digits or _).', { required: true, format: 'counter', minLength: 1, maxLength: 32, default: 'items' }),
+    num('amount', 'Amount', 'Added to the counter when collected (negative takes away).', { ...PL.amount, step: 1, default: PD.collectibleAmount }),
+    // Its depth (d) counts in a 3D project (absent: the width); a 2D plane ignores it.
+    vec3('size', 'Size', 'The area that collects it: width, height (and depth in a 3D project; absent: the width).', { min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.collectibleSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    signal('onCollect', 'On collect', 'A signal sent when it is collected (absent: none).'),
+    num('respawn', 'Comes back after', 'Seconds until it comes back after being collected (0: never).', { ...PL.respawn, step: 0.5, unit: 's', default: 0 }),
+  ]),
+  // A neutral counter name; one of something over the default 1 m area.
+  add: { kind: 'menu', value: { counter: 'items' } },
+  handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
+  excludes: [{ component: 'controller', reason: 'the character collects; it is not collected' }],
+  prefab: true,
+};
+
+const patrol: ComponentDescriptor = {
+  name: 'patrol',
+  label: 'Patrol',
+  tooltip: 'Walks by itself: along waypoints, or straight ahead turning around at walls and ledges.',
+  category: 'Gameplay',
+  value: obj('patrol', 'Patrol', 'Walks by itself.', [
+    enm('mode', 'Mode', 'Waypoints: along points placed from where it starts. Edges: straight ahead, turning at a wall or a ledge.', PATROL_MODES, { required: true, default: 'edges', labels: { waypoints: 'Waypoints', edges: 'Edge to edge' } }),
+    list('waypoints', 'Waypoints', '1–16 points, as offsets from where the object is placed (the start is not listed).', vec3('*', 'Point', 'An offset [x, y, z].', { min: -1000, max: 1000, step: 0.1, unit: 'm' }), { required: true, when: when('mode', 'waypoints'), minItems: 1, maxItems: 16, handle: 'path', default: [[4, 0, 0]] }),
+    bool('loop', 'Loop', 'From the last point straight back to the start (off: back and forth).', { when: when('mode', 'waypoints'), default: false }),
+    num('speed', 'Speed', 'Walking speed.', { required: true, ...PL.speed, step: 0.1, unit: 'm/s', default: 1.5 }),
+    num('wait', 'Wait', 'Pause at each waypoint, or after turning around.', { ...PL.wait, step: 0.1, unit: 's', default: 0 }),
+    vec3('direction', 'Start direction', 'The way it starts walking (the 2D plane uses the sign of x; a 3D project the direction along the ground).', { when: when('mode', 'edges'), min: -1, max: 1, step: 0.1, default: [...PD.patrolDirection], nonZero: true, handle: 'direction' }),
+    vec3('size', 'Body', 'Its body, centred on its position: width, height (and depth in 3D); the probes look from its front and underside.', { when: when('mode', 'edges'), min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.patrolSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    num('wallProbe', 'Wall probe', 'How far past its front it looks for a wall to turn at.', { group: 'Probes', when: when('mode', 'edges'), ...PL.wallProbe, step: 0.01, unit: 'm', default: PD.wallProbe }),
+    num('ledgeProbe', 'Ledge probe', 'How far down, from 0.1 m above its underside, it looks for floor just past its front (0.4: a drop deeper than 0.3 m is a ledge).', { group: 'Probes', when: when('mode', 'edges'), ...PL.ledgeProbe, step: 0.05, unit: 'm', default: PD.ledgeProbe }),
+  ]),
+  // 1.5 m/s: an unhurried walk; edge to edge needs no further setup.
+  add: { kind: 'menu', value: { mode: 'edges', speed: 1.5 } },
+  presets: [
+    { label: 'Edge to edge', value: { mode: 'edges', speed: 1.5 } },
+    { label: 'Waypoints', value: { mode: 'waypoints', waypoints: [[4, 0, 0]], speed: 1.5 } },
+  ],
+  handles: [
+    { kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', when: when('mode', 'waypoints'), loop: when('loop', true) },
+    { kind: 'box2', label: 'Body', bind: { size: 'size' }, space: 'local', when: when('mode', 'edges') },
+    { kind: 'direction', label: 'Start direction', bind: { direction: 'direction' }, space: 'local', when: when('mode', 'edges') },
+  ],
+  excludes: [
+    { component: 'controller', reason: 'the character moves by input, not by itself' },
+    { component: 'mover', reason: 'a mover and a patrol would both move it' },
+    { component: 'collider', reason: 'a patroller is not a physics body (give it a hitbox)' },
+    { component: 'enemy', reason: 'an enemy walks by its own rules' },
+  ],
+  prefab: true,
+};
+
+const hitbox: ComponentDescriptor = {
+  name: 'hitbox',
+  label: 'Hitbox',
+  tooltip: 'An area whose contacts with other hitboxes and the character are events for scripts (the other object and the contact normal); may take health on contact.',
+  category: 'Gameplay',
+  value: obj('hitbox', 'Hitbox', 'Contact events.', [
+    enm('shape', 'Shape', 'A box, or a sphere (a circle on the 2D plane).', HITBOX_SHAPES, { default: 'box' }),
+    vec3('size', 'Size', 'Width, height (and depth in a 3D project; absent: the width).', { required: true, when: when('shape', 'box'), min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 1], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    num('radius', 'Radius', 'Radius of the sphere (or circle).', { required: true, when: when('shape', 'sphere'), ...PL.radius, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
+    int('damage', 'Damage', 'Health a new contact takes from the other object (its own health, or its nearest parent\'s; 0: none).', { ...PL.damage, default: 0 }),
+  ]),
+  // A 1 m box: about a person-sized object's reach.
+  add: { kind: 'menu', value: { size: [1, 1] } },
+  // The 2D plane's box has no depth; a 3D box a 1 m depth; a sphere (a circle on the 2D plane) fits both.
+  presets: [
+    { label: 'Box', value: { size: [1, 1] }, dimension: 2 },
+    { label: 'Box', value: { size: [1, 1, 1] }, dimension: 3 },
+    { label: 'Sphere', value: { shape: 'sphere', radius: 0.5 } },
+  ],
+  handles: [
+    { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', when: when('shape', 'box') },
+    { kind: 'radius', label: 'Radius', bind: { radius: 'radius' }, space: 'local', when: when('shape', 'sphere') },
+  ],
   excludes: [],
   prefab: true,
 };
@@ -1345,6 +1439,7 @@ const enemy: ComponentDescriptor = {
   excludes: [
     { component: 'controller', reason: 'the player is not an enemy' },
     { component: 'collider', reason: 'an enemy\'s size is its body' },
+    { component: 'patrol', reason: 'an enemy walks by its own rules' },
   ],
   prefab: true,
 };
@@ -1926,7 +2021,7 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
         int('from', 'From version', 'The version it upgrades from (to from + 1; below the schema version).', { required: true, min: 1 }),
         str('name', 'Function', 'The name a script registers with ctx.saves.migration.', { required: true, minLength: 1, maxLength: 64 }),
       ], { rules: ['one migration per version; from < version'] }), { maxItems: SAVE_LIMITS.migrations }),
-      list('sections', 'Included state', 'Engine state every save includes: block cells, material values, spawned objects, script storage, dialogue variables and seen lines.', enm('*', 'Section', 'One kind of engine state.', [...SAVE_SECTIONS]), { maxItems: SAVE_SECTIONS.length }),
+      list('sections', 'Included state', 'Engine state every save includes: block cells, material values, spawned objects, script storage, the environment blend, dialogue variables and seen lines, and objects\' health, collectibles, patrols and hitboxes.', enm('*', 'Section', 'One kind of engine state.', [...SAVE_SECTIONS]), { maxItems: SAVE_SECTIONS.length }),
       obj('thumbnail', 'Slot picture', 'The size and format of a slot\'s picture of the view (absent: 256 × 144 JPEG).', [
         int('width', 'Width', 'Pixels.', { required: true, min: 16, max: SAVE_LIMITS.thumbnailSide }),
         int('height', 'Height', 'Pixels.', { required: true, min: 16, max: SAVE_LIMITS.thumbnailSide }),
@@ -2023,6 +2118,9 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   health,
   pickup,
   enemy,
+  collectible,
+  patrol,
+  hitbox,
   audioSource,
   animator,
   faceMovement,

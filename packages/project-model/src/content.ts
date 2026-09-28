@@ -943,17 +943,19 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
 /**
  * Phase 14.1: the components a v4 prefab entity may carry besides transform,
  * model, box and behavior — what a spawned (`ctx.spawn`) or placed copy needs
- * to collide, look right and take part in the game (a crate, a coin, an
- * enemy, a moving projectile). Scene-only components (camera, controller,
- * lights, zones, spawn markers, instance sets, fog volumes, the player's
- * health) stay out: a copy is never the player, the camera or level wiring.
+ * to collide, look right and take part in the game (a crate, a collectible,
+ * a walker, a moving projectile). Scene-only components (camera, controller,
+ * lights, zones, spawn markers, instance sets, fog volumes) stay out: a copy
+ * is never the character, the camera or level wiring. Phase 24.4: health is
+ * any object's, so a copy may carry it.
  */
 // Phase 18.0: `materialParams` (overrides of graph-material parameters) travels with the materials.
 // Phase 20.0: `effect` (a copy plays its effect, e.g. a torch's flame).
 // Phase 23.6: `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
 // Phase 23.10: `behaviorGroup` (a copy's behavior ticks with its group).
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup'] as const;
-const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
+// Phase 24.4: generic `health` (any object, not only the player) and the primitives `collectible`, `patrol`, `hitbox`.
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox'] as const;
+const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
   const col = comps['collider'];
@@ -991,6 +993,11 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   if (comps['behaviorGroup'] !== undefined) validateBehaviorGroupComponent(comps['behaviorGroup'], `${path}/behaviorGroup`, errors);
   for (const name of PREFAB_BLOCKS) {
     if (comps[name] !== undefined) (BLOCK_COMPONENTS[name].validate as (c: unknown, p: string, e: ModelErrorV2[]) => void)(comps[name], `${path}/${name}`, errors);
+  }
+  // Phase 24.4: a patroller moves itself (as on a scene entity).
+  if (comps['patrol'] !== undefined) {
+    const clash = (['mover', 'collider', 'enemy'] as const).filter((c) => comps[c] !== undefined);
+    if (clash.length > 0) errors.push(withFound({ code: 'component_conflict', path, message: `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, expected: 'patrol without mover, collider or enemy' }, ['patrol', ...clash]));
   }
 }
 

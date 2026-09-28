@@ -979,6 +979,12 @@ function validateEntityComponentsV3(
   }
   if (comps['mover'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'a mover cannot carry the player controller', ['mover', 'controller']));
   if (comps['enemy'] !== undefined && (comps['controller'] !== undefined || comps['collider'] !== undefined)) errors.push(collisionConflict(path, 'an enemy has no collider or controller (its size is its body)', ['enemy', comps['controller'] !== undefined ? 'controller' : 'collider']));
+  // Phase 24.4: a patroller moves itself (not by input, a mover, physics or an enemy's rules); the character is never collected.
+  if (comps['patrol'] !== undefined) {
+    const clash = (['controller', 'mover', 'collider', 'enemy'] as const).filter((c) => comps[c] !== undefined);
+    if (clash.length > 0) errors.push(collisionConflict(path, `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, ['patrol', ...clash]));
+  }
+  if (comps['collectible'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'the character collects; it is not collected', ['collectible', 'controller']));
   if (comps['animator'] !== undefined) {
     validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
     if (comps['model'] === undefined) errors.push(componentMissing(`${path}/animator`, 'model', 'an animator sits only on an entity with a model'));

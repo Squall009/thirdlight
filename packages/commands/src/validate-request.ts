@@ -220,6 +220,10 @@ const CREATE_COMPONENTS: readonly string[] = [
   'blockFootprint',
   // Phase 23.10: v4 scenes only.
   'behaviorGroup',
+  // Phase 24.4: v4 scenes only.
+  'collectible',
+  'patrol',
+  'hitbox',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */

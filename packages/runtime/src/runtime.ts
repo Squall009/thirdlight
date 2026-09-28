@@ -1721,6 +1721,30 @@ class RuntimeInstance implements Runtime {
       if (typeof entityId === 'string' && this.curr.has(entityId)) this.blocks?.setVisible(entityId, visible === true);
     },
   });
+  /** Phase 24.4b: any object's health (`ctx.health`; changes apply at once, events are seen next step). */
+  private readonly healthControl = Object.freeze({
+    get: (entityId: string): { current: number; max: number } | null => (typeof entityId === 'string' ? (this.blocks?.primitives.healthOf(entityId) ?? null) : null),
+    damage: (entityId: string, amount: number, source?: string): boolean =>
+      typeof entityId === 'string' && typeof amount === 'number' && (source === undefined || (typeof source === 'string' && source.length <= 128)) ? (this.blocks?.primitives.damage(entityId, amount, source ?? '') ?? false) : false,
+    heal: (entityId: string, amount: number): boolean => (typeof entityId === 'string' && typeof amount === 'number' ? (this.blocks?.primitives.heal(entityId, amount) ?? false) : false),
+    events: () => this.blocks?.primitives.healthEvents() ?? [],
+  });
+  /** Phase 24.4c: patrollers (`ctx.patrol`). */
+  private readonly patrolControl = Object.freeze({
+    get: (entityId: string) => (typeof entityId === 'string' ? (this.blocks?.primitives.patrolOf(entityId) ?? null) : null),
+    setActive: (entityId: string, active: boolean): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setPatrolActive(entityId, active === true) ?? false) : false),
+    turn: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.turnPatrol(entityId) ?? false) : false),
+  });
+  /** Phase 24.4d: hitboxes (`ctx.hitbox`). */
+  private readonly hitboxControl = Object.freeze({
+    setActive: (entityId: string, active: boolean): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setHitboxActive(entityId, active === true) ?? false) : false),
+    touching: (entityId: string): readonly string[] => (typeof entityId === 'string' ? (this.blocks?.primitives.touching(entityId) ?? []) : []),
+  });
+  /** Phase 24.4a: collectibles (`ctx.collectible`). */
+  private readonly collectibleControl = Object.freeze({
+    collected: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.isCollected(entityId) ?? false) : false),
+    restore: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.restore(entityId) ?? false) : false),
+  });
   /** Phase 23.13: the audio intent log (handles, fades, music, duck; the host plays its commands). */
   private readonly audio: AudioMixer;
   private readonly saveControl = Object.freeze({
@@ -1989,9 +2013,12 @@ class RuntimeInstance implements Runtime {
         physics: this.physics,
         curr: this.curr,
         playerId: this.playerEntityId !== '' || args.physics3d === undefined ? this.playerEntityId : (args.controllerEntityId ?? ''),
+        // Phase 24.4: the character the generic primitives test — the game's player, else the controller's object (both dimensions).
+        characterId: this.playerEntityId !== '' ? this.playerEntityId : (args.controllerEntityId ?? ''),
         // Phase 14.0: the player's own capsule (the default without game content);
-        // phase 23.1: a 3D scene's player is the controller entity, with its capsule.
-        playerCapsule: args.gameContent?.player.capsule ?? playerCapsuleOf(args.physics3d !== undefined ? args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller : undefined),
+        // phase 23.1: a 3D scene's player is the controller entity, with its capsule;
+        // phase 24.4: so is a 2D scene's character (only the primitives test it there).
+        playerCapsule: args.gameContent?.player.capsule ?? playerCapsuleOf(args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller),
         // Phase 15.3: the player's skin (a pushing mover keeps it) and the models' recorded bounds.
         playerSkin: controllerTuningOf(args.initialEntities.find((e) => e.id === (args.gameContent?.player.entityId ?? args.controllerEntityId))?.components.controller).skin,
         modelBounds: (assetId: string) => args.modelBounds[assetId] ?? null,
@@ -2371,6 +2398,8 @@ class RuntimeInstance implements Runtime {
             return rt.dialogue.saveState();
           case 'environment':
             return rt.environment.saveState();
+          case 'components':
+            return rt.blocks?.primitives.saveState() ?? {};
         }
       },
       check(section, value) {
@@ -2390,6 +2419,8 @@ class RuntimeInstance implements Runtime {
             return rt.dialogue.checkState(value);
           case 'environment':
             return rt.environment.checkState(value);
+          case 'components':
+            return rt.blocks?.primitives.checkState(value) ?? null;
         }
       },
       apply(section, value) {
@@ -2408,8 +2439,13 @@ class RuntimeInstance implements Runtime {
             return null;
           case 'dialogue':
             rt.dialogue.restoreState(value);
+            // D36: the dialogue case fell through into the environment's restore.
+            return null;
           case 'environment':
             rt.environment.restoreState(value as EnvironmentSaveState | undefined);
+            return null;
+          case 'components':
+            rt.blocks?.primitives.restoreState(value as import('./primitives').PrimitivesSaveState | undefined);
             return null;
         }
       },
@@ -3277,6 +3313,8 @@ class RuntimeInstance implements Runtime {
       this.curr = cloneCurr(backup);
       return true;
     }
+    // Phase 24.4: a 2D-plane plain step runs the generic primitives (patrols walk; no physics world for their probes).
+    if (this.physics3d === undefined && !this.modes.physicsHeld) this.blocks?.stepPrimitivesOnly(stepOrdinal);
     // Phase 23.10: a respawn places the character (a plain step has no intent phase).
     if (this.physics3d !== undefined && this.pendingRespawn !== null) {
       const [x, y, z] = this.pendingRespawn;
@@ -3442,6 +3480,8 @@ class RuntimeInstance implements Runtime {
       this.runPhase('transform', action);
       // Phase 23.1: a 3D scene (no game block) tests its triggers after the transform phase.
       if (!this.isM3 && this.physics3d !== undefined && !held) this.blocks?.afterPhysics(action, true);
+      // Phase 24.4: a 2D-plane scene without the game session runs the generic primitives (the platformer blocks need the session).
+      if (!this.isM3 && this.physics3d === undefined && !held) this.blocks?.afterPhysicsGeneric();
       if (this.isM3) {
         // M3 phases 6/7: the gameplay phase (the session module's zone
         // decisions through `ctx.gameplay`) and the camera phase, in the
@@ -5135,6 +5175,11 @@ class RuntimeInstance implements Runtime {
       fields['signals'] = { value: this.signalControl, enumerable: true };
       fields['messages'] = { value: this.messageControl, enumerable: true };
       fields['game'] = { value: this.gameControl, enumerable: true };
+      // Phase 24.4: the generic primitives.
+      fields['health'] = { value: this.healthControl, enumerable: true };
+      fields['patrol'] = { value: this.patrolControl, enumerable: true };
+      fields['hitbox'] = { value: this.hitboxControl, enumerable: true };
+      fields['collectible'] = { value: this.collectibleControl, enumerable: true };
       fields['audio'] = { value: this.audioControl, enumerable: true };
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
@@ -5171,6 +5216,8 @@ class RuntimeInstance implements Runtime {
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
+      // Phase 24.4: the primitives' events of the last step (each script gets those of the objects it owns).
+      if (blocks !== null) fields['primitiveEvents'] = { get: () => blocks.primitiveEvents(), enumerable: true };
       // Phase 23.2 (3D): the active camera's yaw for the character's move input (absent: world axes).
       if (this.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
       views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);

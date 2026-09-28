@@ -34,8 +34,10 @@
 import type { ActionFrame } from './actions';
 import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import { BLOCK_DEFAULTS, type EntityV3 } from '@thirdlight/project-model';
-import type { BehaviorMessage, ModelBounds, PlayerCapsule, TransformState, TriggerEventRecord } from './types';
+import type { BehaviorMessage, ModelBounds, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal, colliderRotationZ, colliderShape3DOf } from './scene-set';
+import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
+import { advancePath, Primitives, type HealthRecord, type PathState } from './primitives';
 
 /**
  * Phase 19.1: script messages per step (`ctx.messages.send`): far above what
@@ -54,23 +56,12 @@ const D = BLOCK_DEFAULTS;
 
 type Vec3 = [number, number, number];
 
-interface Mover {
+/** Phase 24.4: the path fields (points, lengths, speed, mode, wait, easing and the position along it) are shared with the waypoint patrol. */
+interface Mover extends PathState {
   id: string;
-  points: Vec3[];
-  lengths: number[];
-  speed: number;
-  mode: 'loop' | 'pingpong' | 'once';
-  wait: number;
-  smooth: boolean;
   startOn: string | null;
   // state
   started: boolean;
-  segment: number;
-  along: number;
-  dir: 1 | -1;
-  waiting: number;
-  done: boolean;
-  pos: Vec3;
   /** The box collider's half extents (a mover without one never pushes). */
   half: Vec2 | null;
   /** Phase 15.3: the most it pushes a player per step (its `maxPush` m/s over the step rate). */
@@ -211,117 +202,16 @@ export interface BlocksHost {
   readonly playerOffsetZ?: number;
   /** Phase 23.1 (3D): the colliders scripts drive, where they are now (posed as kinematic bodies with the movers). */
   scriptColliders3D?(): readonly { entityId: string; position: Vec3; rotation: readonly number[] }[];
+  /**
+   * Phase 24.4: the character the generic primitives test (collectibles, hitbox contacts): the
+   * controller's object, also in a scene without a game session (absent: `playerId`).
+   */
+  readonly characterId?: string;
 }
 
-// ---- phase 23.1: 3D geometry (pure, deterministic) ---------------------------
+// ---- phase 23.1: 3D geometry (phase 24.4: in geometry3.ts) ---------------------
 
-type V3 = readonly [number, number, number];
-
-/** Rotate `p` by the unit quaternion `q` ([x, y, z, w]); `inverse` rotates by its conjugate. */
-function rotate3(q: readonly number[], p: V3, inverse = false): Vec3 {
-  const qx = inverse ? -(q[0] ?? 0) : (q[0] ?? 0);
-  const qy = inverse ? -(q[1] ?? 0) : (q[1] ?? 0);
-  const qz = inverse ? -(q[2] ?? 0) : (q[2] ?? 0);
-  const qw = q[3] ?? 1;
-  const [x, y, z] = p;
-  const tx = 2 * (qy * z - qz * y);
-  const ty = 2 * (qz * x - qx * z);
-  const tz = 2 * (qx * y - qy * x);
-  return [x + qw * tx + (qy * tz - qz * ty), y + qw * ty + (qz * tx - qx * tz), z + qw * tz + (qx * ty - qy * tx)];
-}
-
-const sub3 = (a: V3, b: V3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const dot3 = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
-
-/** Squared distance from point `p` to segment `a`–`b`. */
-export function segmentPointDistance2(a: V3, b: V3, p: V3): number {
-  const ab = sub3(b, a);
-  const len2 = dot3(ab, ab);
-  const t = len2 > 0 ? clamp01(dot3(sub3(p, a), ab) / len2) : 0;
-  const d = sub3(p, [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t]);
-  return dot3(d, d);
-}
-
-/** Squared distance between segments `p1`–`q1` and `p2`–`q2` (closest points, Ericson §5.1.9). */
-export function segmentSegmentDistance2(p1: V3, q1: V3, p2: V3, q2: V3): number {
-  const d1 = sub3(q1, p1);
-  const d2 = sub3(q2, p2);
-  const r = sub3(p1, p2);
-  const a = dot3(d1, d1);
-  const e = dot3(d2, d2);
-  const f = dot3(d2, r);
-  let s: number;
-  let t: number;
-  if (a <= 1e-12 && e <= 1e-12) return dot3(r, r);
-  if (a <= 1e-12) {
-    s = 0;
-    t = clamp01(f / e);
-  } else {
-    const c = dot3(d1, r);
-    if (e <= 1e-12) {
-      t = 0;
-      s = clamp01(-c / a);
-    } else {
-      const b = dot3(d1, d2);
-      const denom = a * e - b * b;
-      s = denom > 1e-12 ? clamp01((b * f - c * e) / denom) : 0;
-      t = (b * s + f) / e;
-      if (t < 0) {
-        t = 0;
-        s = clamp01(-c / a);
-      } else if (t > 1) {
-        t = 1;
-        s = clamp01((b - c) / a);
-      }
-    }
-  }
-  const c1: Vec3 = [p1[0] + d1[0] * s, p1[1] + d1[1] * s, p1[2] + d1[2] * s];
-  const c2: Vec3 = [p2[0] + d2[0] * t, p2[1] + d2[1] * t, p2[2] + d2[2] * t];
-  const d = sub3(c1, c2);
-  return dot3(d, d);
-}
-
-/**
- * Squared distance from segment `a`–`b` to the box of half extents `half`
- * centred at the origin (axis-aligned; the caller works in the box's frame).
- * The distance along the segment is convex, so a fixed golden-section search
- * finds its minimum (80 rounds: far below a micrometre; deterministic).
- */
-export function segmentBoxDistance2(a: V3, b: V3, half: V3): number {
-  const at = (t: number): number => {
-    let d = 0;
-    for (let i = 0; i < 3; i += 1) {
-      const v = a[i]! + (b[i]! - a[i]!) * t;
-      const o = Math.abs(v) - half[i]!;
-      if (o > 0) d += o * o;
-    }
-    return d;
-  };
-  const g = (Math.sqrt(5) - 1) / 2;
-  let lo = 0;
-  let hi = 1;
-  let x1 = hi - g * (hi - lo);
-  let x2 = lo + g * (hi - lo);
-  let f1 = at(x1);
-  let f2 = at(x2);
-  for (let i = 0; i < 80; i += 1) {
-    if (f1 <= f2) {
-      hi = x2;
-      x2 = x1;
-      f2 = f1;
-      x1 = hi - g * (hi - lo);
-      f1 = at(x1);
-    } else {
-      lo = x1;
-      x1 = x2;
-      f1 = f2;
-      x2 = lo + g * (hi - lo);
-      f2 = at(x2);
-    }
-  }
-  return Math.min(at(0), at(1), f1, f2);
-}
+export { segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2 } from './geometry3';
 
 /** Phase 23.1: the box around a resolved 3D collider shape turned by `q` (offsets from the body origin). */
 function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min: Vec3; max: Vec3 } {
@@ -414,6 +304,8 @@ export class GameplayBlocks {
   private step = 0;
   /** Phase 14.0: the player capsule's box — centre offset from the player's position, half width, half height. */
   private readonly pc: { ox: number; oy: number; hw: number; hh: number };
+  /** Phase 24.4: the generic primitives (health on any object, collectibles, patrols, hitbox contacts). */
+  readonly primitives: Primitives;
 
   constructor(
     private readonly host: BlocksHost,
@@ -422,7 +314,33 @@ export class GameplayBlocks {
     const c = host.playerCapsule;
     this.pc = { ox: c.offset.x, oy: c.offset.y, hw: c.radius, hh: capsuleHalfTotal(c) };
     this.pushSkin = (host.playerSkin ?? 0.01) + PUSH_MARGIN;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const blocks = this;
+    this.primitives = new Primitives({
+      hz: host.hz,
+      dimension: host.physics3d !== undefined ? 3 : 2,
+      get curr() {
+        return host.curr;
+      },
+      physics: host.physics,
+      physics3d: host.physics3d,
+      character: () => blocks.characterBox(),
+      worldOf: (id) => blocks.worldOf(id),
+      parentOf: (id) => blocks.parents.get(id),
+      setHidden: (id, hidden) => blocks.setVisible(id, !hidden),
+      addCounter: (name, delta) => blocks.addCounter(name, delta),
+      emit: (signal) => blocks.emit(signal),
+    });
     this.add(entities);
+  }
+
+  /** Phase 24.4: the character's capsule box (centre and half extents), or null without a character. */
+  private characterBox(): { id: string; centre: Vec3; half: Vec3 } | null {
+    const id = this.host.characterId ?? this.host.playerId;
+    const t = id !== '' ? this.host.curr.get(id) : undefined;
+    if (t === undefined) return null;
+    const oz = this.host.physics3d !== undefined ? (this.host.playerOffsetZ ?? 0) : 0;
+    return { id, centre: [t.position[0] + this.pc.ox, t.position[1] + this.pc.oy, t.position[2] + oz], half: [this.pc.hw, this.pc.hh, this.pc.hw] };
   }
 
   /**
@@ -607,6 +525,10 @@ export class GameplayBlocks {
       if (fx !== undefined && (typeof fx['signal'] === 'string' || typeof fx['stopSignal'] === 'string')) {
         this.effectTriggers.set(e.id, { effectId: String(fx['effectId']), signal: typeof fx['signal'] === 'string' ? (fx['signal'] as string) : null, stop: typeof fx['stopSignal'] === 'string' ? (fx['stopSignal'] as string) : null });
       }
+      // Phase 24.4: health on any object (the session player's is the record above), collectibles, patrols, hitboxes.
+      if (h !== undefined || c['collectible'] !== undefined || c['patrol'] !== undefined || c['hitbox'] !== undefined) {
+        this.primitives.add(e.id, c, p, h !== undefined && e.id === this.host.playerId && this.health !== null ? (this.health as HealthRecord) : undefined);
+      }
     }
   }
 
@@ -637,6 +559,7 @@ export class GameplayBlocks {
       this.effectTriggers.delete(id);
       this.zoneEffects.delete(id);
     }
+    this.primitives.remove(ids);
   }
 
   /** A new run (start/replay): everything back as authored. */
@@ -668,6 +591,8 @@ export class GameplayBlocks {
     this.carry = { x: 0, y: 0 };
     this.carry3 = NO_CARRY3;
     this.scriptPosed.clear();
+    // Phase 24.4: health back to its start, collectibles back, patrols at their start.
+    this.primitives.resetRun();
   }
 
   /**
@@ -830,6 +755,8 @@ export class GameplayBlocks {
   /** Start of a step: signals turn over, movers advance (their colliders are posed for physics). */
   beforeStep(stepIndex: number): void {
     this.step = stepIndex;
+    // Phase 24.4: the primitives' events turn over with the trigger events.
+    this.primitives.turnover(stepIndex);
     // Phase 21.2: the two signal sets swap (the new current one is cleared only
     // when it holds something), and an empty step's events and messages are one
     // shared frozen empty list — a quiet step makes no collections.
@@ -971,51 +898,13 @@ export class GameplayBlocks {
   }
 
   private advance(m: Mover, dt: number): void {
-    if (m.waiting > 0) {
-      m.waiting = Math.max(0, m.waiting - dt);
-      return;
-    }
-    let budget = m.speed * dt;
-    for (let guard = 0; guard < 64 && budget > 1e-12; guard++) {
-      const len = m.lengths[m.segment] ?? 0;
-      const remaining = m.dir === 1 ? len - m.along : m.along;
-      if (budget < remaining) {
-        m.along += m.dir * budget;
-        budget = 0;
-        break;
-      }
-      budget -= remaining;
-      m.along = m.dir === 1 ? len : 0;
-      // At a point: wait, then pick the next segment.
-      const atEnd = m.dir === 1 ? m.segment === m.lengths.length - 1 : m.segment === 0;
-      if (m.mode === 'loop') {
-        m.segment = (m.segment + 1) % m.lengths.length;
-        m.along = 0;
-      } else if (atEnd) {
-        if (m.mode === 'once') {
-          m.done = true;
-          break;
-        }
-        m.dir = m.dir === 1 ? -1 : 1;
-      } else {
-        m.segment += m.dir;
-        m.along = m.dir === 1 ? 0 : m.lengths[m.segment] ?? 0;
-      }
-      if (m.wait > 0) {
-        m.waiting = m.wait;
-        budget = 0;
-      }
-    }
-    const len = m.lengths[m.segment] ?? 0;
-    const a = m.points[m.segment]!;
-    const b = m.points[(m.segment + 1) % m.points.length]!;
-    let u = len > 0 ? m.along / len : 0;
-    if (m.smooth) u = u * u * (3 - 2 * u);
-    m.pos = [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+    advancePath(m, dt);
   }
 
   /** After physics: overlaps with the player, enemies, pickups, switches, damage. */
   afterPhysics(frame: ActionFrame, playing: boolean): void {
+    // Phase 24.4: the generic primitives first (patrols walk; collectibles and contacts test the character while playing).
+    this.primitives.afterPhysics(playing);
     if (this.host.physics3d !== undefined) {
       if (playing) this.triggers3D();
       return;
@@ -1093,6 +982,28 @@ export class GameplayBlocks {
         this.damage(e.contactDamage, at[0]);
       }
     }
+  }
+
+  /**
+   * Phase 24.4: a 2D-plane step without the game session runs the generic
+   * primitives only (the platformer blocks keep their old scope: they run with
+   * the session, as before).
+   */
+  afterPhysicsGeneric(): void {
+    this.primitives.afterPhysics(true);
+  }
+
+  /** Phase 24.4: a 2D-plane plain step (no simulation modules): the primitives' events turn over and they step. */
+  stepPrimitivesOnly(stepIndex: number): void {
+    if (!this.primitives.active) return;
+    this.step = stepIndex;
+    this.primitives.turnover(stepIndex);
+    this.primitives.afterPhysics(true);
+  }
+
+  /** Phase 24.4: the primitives' events of the previous step (every object's; the behavior host gives each script those it owns). */
+  primitiveEvents(): readonly PrimitiveEventRecord[] {
+    return this.primitives.events();
   }
 
   /** A trigger's signals and events for this step's inside test (the 2D plane's and 3D's shared rules). */

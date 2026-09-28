@@ -1480,6 +1480,47 @@ and `ctx.physics.raycast(origin, direction, maxDistance)`,
 entities whose colliders overlap, never the player; 32 queries per step in
 all).
 
+### Generic primitives (phase 24.4)
+
+Four components that work the same on the 2D plane and in 3D, with or
+without a game session (the Inspector's "+ Add component", Gameplay). They
+carry no game rules: what a collected item, a hit or 0 health *means* is the
+project's scripts' decision.
+
+- **Collectible** — the character (the controller's object) touching its
+  area (width, height and, in 3D, depth; default 1 m) adds **amount** to a
+  named **counter** (any name), hides it, sends its **on collect** signal and
+  comes back after **comes back after** seconds (0: never). Scripts:
+  `ctx.collectible.collected(id)`, `ctx.collectible.restore(id)`.
+- **Health** — on any object: **maximum** and **start**. Scripts:
+  `ctx.health.get(id)` → `{current, max}`, `ctx.health.damage(id, n, source?)`,
+  `ctx.health.heal(id, n)`, `ctx.health.events()` (every object's events of
+  the last step). There is no grace time, knockback or death rule (the game
+  session's player keeps its old fields until 24.7).
+- **Patrol** — the object walks by itself at **speed**: **Edge to edge**
+  (straight ahead from its **start direction**; turns at a wall ahead or a
+  ledge past its front, probing from its **body** box with the wall and ledge
+  probe distances; needs the physics world) or **Waypoints** (offsets from
+  its start, back and forth or a **loop**), waiting **wait** seconds at each
+  turn. Scripts: `ctx.patrol.get(id)` → `{direction, active}`,
+  `ctx.patrol.setActive(id, on)`, `ctx.patrol.turn(id)`.
+- **Hitbox** — a box or sphere (a circle on the 2D plane). A hitbox touching
+  another hitbox or the character sends both a `contact` event (the other
+  object and the contact **normal**, a unit vector toward the other: `[0, 1,
+  0]` when the other came from above) and a `separate` event when they part.
+  An object never touches its own parents or children. **Damage** takes that
+  much health from the other side (or its nearest parent with health) on
+  each new contact. Scripts: `ctx.hitbox.setActive(id, on)`,
+  `ctx.hitbox.touching(id)`.
+
+Their events (`damaged`, `healed`, `died`, `collected`, `restored`,
+`turned` with `wall`/`ledge`/`end`/`script`, `contact`, `separate`) arrive in
+`ctx.events` in the step after they happened, for the objects a script owns
+(its own, those below it, and those its object properties name). A save
+schema's **components** section keeps health, collected collectibles,
+patrollers and switched-off hitboxes. A scene's play observation
+(`tl_game_observe`) now reports the named `counters` too.
+
 ### Timers and trigger events in scripts
 
 - `ctx.timers.after(name, seconds)` fires once, `ctx.timers.every(name,

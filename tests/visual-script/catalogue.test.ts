@@ -108,6 +108,11 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     signals: { emit: rec('signals.emit'), on: rec('signals.on', true) },
     messages: { send: rec('messages.send', true), received: rec('messages.received', () => [{ name: 'x', value: 2, from: 'box-2', stepIndex: stepIndex - 1 }]) },
     game: { counter: rec('game.counter', 3), add: rec('game.add'), health: rec('game.health', { current: 2, max: 3 }), setVisible: rec('game.setVisible') },
+    // Phase 24.4: the generic primitives.
+    health: { get: rec('health.get', { current: 2, max: 3 }), damage: rec('health.damage', true), heal: rec('health.heal', true), events: rec('health.events', []) },
+    patrol: { get: rec('patrol.get', { direction: [1, 0, 0], active: true }), setActive: rec('patrol.setActive', true), turn: rec('patrol.turn', true) },
+    hitbox: { setActive: rec('hitbox.setActive', true), touching: rec('hitbox.touching', ['box-2']) },
+    collectible: { collected: rec('collectible.collected', false), restore: rec('collectible.restore', true) },
     // Phase 23.13: playback handles, music, duck, bus mix.
     audio: {
       play: rec('audio.play', 1),

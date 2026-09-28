@@ -354,6 +354,11 @@ export interface PrefabComponentsV4Extra {
   switch?: EntityComponentsV3['switch'];
   pickup?: EntityComponentsV3['pickup'];
   enemy?: EntityComponentsV3['enemy'];
+  /** Phase 24.4: generic health and primitives travel with a copy. */
+  health?: EntityComponentsV3['health'];
+  collectible?: EntityComponentsV3['collectible'];
+  patrol?: EntityComponentsV3['patrol'];
+  hitbox?: EntityComponentsV3['hitbox'];
   audioSource?: { assetId: string; volume: number; range: number; distanceModel?: 'linear' | 'inverse' | 'exponential'; refDistance?: number; rolloff?: number };
   faceMovement?: { yawRight: number; yawLeft: number; turnSeconds?: number };
 }

@@ -331,7 +331,11 @@ export type V3OwnedComponent =
   /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
   | 'socketAttach'
   /** Phase 23.10, v4 scenes only: the behavior group the entity's behavior belongs to. */
-  | 'behaviorGroup';
+  | 'behaviorGroup'
+  /** Phase 24.4, v4 scenes only: generic primitives. */
+  | 'collectible'
+  | 'patrol'
+  | 'hitbox';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

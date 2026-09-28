@@ -104,7 +104,11 @@ keeps the gate green.
 | 24.1 | done 2026-09-27: Sprout tests deleted; `animator-skinned`, `lightmaps-kit` on generated GLBs (browser bake always, Blender bake when Blender is there) |
 | 24.2 | done 2026-09-28: `templates/starter` (no game block, plays as a scene); 35 e2e files, the template unit test and 5 project-model tests off `beacon-reach`; the rest listed below for 24.7 |
 | 24.3 | done 2026-09-28: modules resolve from component/block references only; the platformer is unpinned; the host has no default set and no module import (specs injected by the composition entries); an export links only the specs its manifest names |
-| 24.4 | — |
+| 24.4 | a–d done 2026-09-28 (fast gate; the full gate runs when 24.4 is complete); e–j open |
+| 24.4a | done 2026-09-28: `collectible {counter, amount?, size?, onCollect?, respawn?}`; `ctx.collectible.collected/restore`; `collected`/`restored` events |
+| 24.4b | done 2026-09-28: `health` on any object; `ctx.health.get/damage/heal/events`; `damaged`/`healed`/`died` events |
+| 24.4c | done 2026-09-28: `patrol {mode: waypoints or edges, …}` (the mover's path code; wall/ledge probes); `ctx.patrol.get/setActive/turn`; `turned` events |
+| 24.4d | done 2026-09-28: `hitbox {shape?, size or radius, damage?}`; `contact`/`separate` events with the other object and the normal; `ctx.hitbox.setActive/touching` |
 | 24.5 | — |
 | 24.6 | — |
 | 24.7 | — |
@@ -185,3 +189,52 @@ keeps the gate green.
   `m23-3d/block-layers` ran a 3D scene without the character module the
   manifest names; with it the fall starts in the dig step itself (the test
   had asserted one step later). No recorded replay changed.
+- 2026-09-28 (24.4a–d): the primitives live in `runtime/src/primitives.ts`
+  (owned by the gameplay blocks, so scene loads, spawns, a new run and the
+  step order are shared) and run in both dimensions, with or without the
+  game session: a 2D scene without the session now runs them after its
+  transform phase, and a 2D plain step (no modules) runs them too. The
+  platformer blocks keep their old scope (with the session only), so no
+  recorded replay changed. `geometry3.ts` holds the 3D helpers both use.
+- 2026-09-28 (24.4a): the collect area is centred on the object (as a trigger's),
+  default 1 m; a 3D box's absent depth is its width (no dimension rule to
+  trip over). `respawn` is seconds (0: never), not the pickup's "on death"
+  (a death is a game rule; a script calls `ctx.collectible.restore`). The
+  character (the controller's object) is the only collector, as for triggers.
+- 2026-09-28 (24.4b): generic health reuses the frozen `health` component
+  (no new fields: `max` and `start`; `current` is the run value). Health may
+  now sit on prefabs. Its add value stays `{max: 3, invulnerableSeconds: 1}`
+  (unchanged until 24.7; the grace is ignored off the session player). The game session's player shares one record with the
+  session's own health, so `ctx.health` and `ctx.game.health()` agree; the
+  session's grace time, knockback and death at 0 stay on its own damage path
+  (hazards, enemies) until 24.7, and that path does not emit the new events.
+  `ctx.health.damage` at 0 does nothing (false); `heal` works at 0 (a script
+  may revive).
+- 2026-09-28 (24.4c): a patroller keeps its placed height, has no collider
+  (excluded: it is posed, not simulated) and probes from a centred body box
+  (a ray ahead at mid-height reaching half its width + one step + the wall
+  probe; a ray down from 0.1 m above its underside, just past its front). The
+  2D plane walks along x only (the sign of `direction`). Without a physics
+  port (a 2D scene with no controller) an edge walker walks on unprobed.
+  Waypoints reuse the mover's path code (`advancePath`; the mover's own
+  behaviour is unchanged).
+- 2026-09-28 (24.4d): hitboxes are axis-aligned boxes or spheres (circles on
+  the 2D plane); the character takes part with its capsule's bounding box.
+  The normal points from this side toward the other and comes from the axis
+  along which the two were still apart one step before (so a fall onto a
+  hitbox reads `[0, 1, 0]` from below), else the shallowest overlap. Pairs
+  are found by a sweep along x and reported in sorted order (deterministic).
+  Parents and children never touch. `damage` applies once per new contact to
+  the other side's health or its nearest parent's. Other collider objects
+  (walls) are not contacts: that is `ctx.physics` queries' job.
+- 2026-09-28 (24.4): the events reach `ctx.events` for the objects a script
+  owns (the trigger rule); `ctx.health.events()` lists every object's. The
+  save schema gains a `components` section (health, collected collectibles
+  with their respawn countdown, patrol state, switched-off hitboxes). A
+  scene-mode play observation now includes the named `counters` (additive,
+  the generic part of 24.6). Found on the way: D36 (a missing `return`
+  handed a restored dialogue state to the environment; fixed).
+- 2026-09-28 (24.4): visual-script nodes come from the typings for the
+  calls (`ctx.health.damage`, …); there are no "On damaged / On contact"
+  event nodes yet (a graph reads the calls; event nodes are open for 24.5,
+  whose descriptors drive menus and nodes).

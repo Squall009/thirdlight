@@ -993,6 +993,8 @@ export function bootstrapPreviewM3(): void {
         ...(o.hidden !== undefined ? { hidden: [...o.hidden] } : {}),
         // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
         ...(o.inputBindings !== undefined ? { inputBindings: structuredClone(o.inputBindings) } : {}),
+        // Phase 24.4: the named counters (collectibles and scripts add to them; at most 32).
+        ...sceneCounters(h.host.runtime),
         ...rendererObservation(h),
         ...(behaviors !== null ? { behaviors } : {}),
         ...(debug !== null && debug !== undefined ? { debug } : {}),
@@ -1243,6 +1245,12 @@ function debugCommandsObservation(h: M3PreviewHandle): { debugCommands?: Record<
     ...(debugCommands !== undefined ? { debugCommands } : {}),
     ...(outcome !== null ? { start: outcome.ok ? { ok: true, applied: [...outcome.applied] } : { ok: false, reason: outcome.reason } } : {}),
   };
+}
+
+/** Phase 24.4: a scene-mode play's named counters (at most 32; no game session, so no player health). */
+function sceneCounters(runtime: unknown): { counters?: Record<string, number> } {
+  const c = gameCounters(runtime).counters;
+  return c !== undefined ? { counters: c } : {};
 }
 
 /** Phase 9.9: counters (at most 32) and health, for tl_game_observe. */

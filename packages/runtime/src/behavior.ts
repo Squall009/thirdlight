@@ -72,6 +72,11 @@ import type {
   BehaviorTimeline,
   BehaviorEffects,
   BehaviorGameState,
+  BehaviorCollectible,
+  BehaviorHealth,
+  BehaviorHitbox,
+  BehaviorPatrol,
+  PrimitiveEventRecord,
   BehaviorMessages,
   BehaviorRandom,
   BehaviorSave,
@@ -161,10 +166,12 @@ export interface BehaviorContext {
   /** An entity's animator (`ctx.animator(id)?.set('speed', 1)`), or null when it has none. */
   readonly animator?: (entityId: string) => BehaviorAnimatorHandle | null;
   /**
-   * Last step's clip events and the enter/exit events of the triggers this instance owns.
+   * Last step's clip events, the enter/exit events of the triggers this instance owns, and (phase 24.4)
+   * the health, collect, patrol and contact events of the objects it owns (its own, those below it, and
+   * those its object properties name).
    * @graphNode skip the event nodes (On trigger, On animator event) read them one by one
    */
-  readonly events?: readonly (AnimatorEventRecord | TriggerEventRecord)[];
+  readonly events?: readonly (AnimatorEventRecord | TriggerEventRecord | PrimitiveEventRecord)[];
   /** Named timers of this instance, counted in fixed steps. */
   readonly timers: BehaviorTimers;
   /**
@@ -178,6 +185,14 @@ export interface BehaviorContext {
   readonly messages?: BehaviorMessages;
   /** The run's counters, the player's health and object visibility. */
   readonly game?: BehaviorGameState;
+  /** Phase 24.4b: any object's health — read, damage and heal it; its events arrive in `ctx.events`. */
+  readonly health?: BehaviorHealth;
+  /** Phase 24.4c: patrollers — which way they walk, stop them, turn them around. */
+  readonly patrol?: BehaviorPatrol;
+  /** Phase 24.4d: hitboxes — switch them off and on, what they touch. */
+  readonly hitbox?: BehaviorHitbox;
+  /** Phase 24.4a: collectibles — collected or not, bring one back. */
+  readonly collectible?: BehaviorCollectible;
   /** Play sounds (presentation only, never part of the simulation). */
   readonly audio?: BehaviorAudio;
   /** Play visual effects (presentation only, never part of the simulation). */
@@ -610,7 +625,7 @@ interface BehaviorInstance {
   /** Phase 14.2: `ctx.timers` of this instance. */
   timers: InstanceTimers;
   /** Phase 14.2: this step's `ctx.events` (built once per step, shared by its phases). */
-  events: readonly (AnimatorEventRecord | TriggerEventRecord)[] | null;
+  events: readonly (AnimatorEventRecord | TriggerEventRecord | PrimitiveEventRecord)[] | null;
   /** The step `events` belongs to. */
   eventsStep: number;
   /**
@@ -791,13 +806,15 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         }
         return entityRefKeys.some((k) => instance.properties[k] === triggerId);
       };
-      /** `ctx.events`: last step's clip events, then the enter/exit events of the owned triggers. */
-      const eventsFor = (instance: BehaviorInstance, ctx: StepContext): readonly (AnimatorEventRecord | TriggerEventRecord)[] => {
+      /** `ctx.events`: last step's clip events, then the enter/exit events of the owned triggers, then (phase 24.4) the owned objects' primitive events. */
+      const eventsFor = (instance: BehaviorInstance, ctx: StepContext): readonly (AnimatorEventRecord | TriggerEventRecord | PrimitiveEventRecord)[] => {
         if (instance.events !== null && instance.eventsStep === ctx.stepIndex) return instance.events;
         const clips = ctx.animatorEvents ?? NO_EVENTS;
         const triggers = ctx.triggerEvents;
         const owned = triggers === undefined || triggers.length === 0 ? NO_EVENTS : triggers.filter((t: TriggerEventRecord) => ownsTrigger(instance, t.trigger));
-        const list = owned.length === 0 ? clips : Object.freeze([...clips, ...owned]);
+        const prims = ctx.primitiveEvents;
+        const ownedPrims = prims === undefined || prims.length === 0 ? NO_EVENTS : prims.filter((e: PrimitiveEventRecord) => ownsTrigger(instance, e.entity));
+        const list = owned.length === 0 && ownedPrims.length === 0 ? clips : Object.freeze([...clips, ...owned, ...ownedPrims]);
         instance.events = list;
         instance.eventsStep = ctx.stepIndex;
         return list;
@@ -935,7 +952,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         // Phase 9.7: animators (`ctx.animator(id)?.set(...)`); last step's clip
         // events and (phase 14.2) the owned triggers' enter/exit events.
         if (src.animators !== undefined) fields['animator'] = { value: src.animators.of, enumerable: true };
-        if (src.animators !== undefined || src.triggerEvents !== undefined) fields['events'] = { get: () => eventsFor(instance, src), enumerable: true };
+        if (src.animators !== undefined || src.triggerEvents !== undefined || src.primitiveEvents !== undefined) fields['events'] = { get: () => eventsFor(instance, src), enumerable: true };
         // Phase 14.2: named step-counted timers of this instance.
         fields['timers'] = { value: instance.timers.api, enumerable: true };
         // Phase 23.7: seeded random numbers (made on first use).
@@ -945,6 +962,11 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         // Phase 19.1: messages between scripts (this instance sends and receives as its entity).
         if (src.messages !== undefined) fields['messages'] = { value: messagesOf(instance, src), enumerable: true };
         if (src.game !== undefined) fields['game'] = { value: src.game, enumerable: true };
+        // Phase 24.4: the generic primitives (any object's health, patrols, hitboxes, collectibles).
+        if (src.health !== undefined) fields['health'] = { value: src.health, enumerable: true };
+        if (src.patrol !== undefined) fields['patrol'] = { value: src.patrol, enumerable: true };
+        if (src.hitbox !== undefined) fields['hitbox'] = { value: src.hitbox, enumerable: true };
+        if (src.collectible !== undefined) fields['collectible'] = { value: src.collectible, enumerable: true };
         // Phase 9.10: sounds (played by the host; the simulation never waits on them).
         if (src.audio !== undefined) fields['audio'] = { value: src.audio, enumerable: true };
         // Phase 20.2: visual effects (played by the renderer; the simulation never reads them back).

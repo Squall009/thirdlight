@@ -744,6 +744,20 @@ export interface StepContext {
    * `ctx.events`).
    */
   readonly triggerEvents?: readonly TriggerEventRecord[];
+  /**
+   * Phase 24.4: the primitives' events of the previous step (health changes,
+   * collections, patrol turns, hitbox contacts — every object's; the behavior
+   * host gives each script those of the objects it owns, in `ctx.events`).
+   */
+  readonly primitiveEvents?: readonly PrimitiveEventRecord[];
+  /** Phase 24.4b: any object's health (`ctx.health`). */
+  readonly health?: BehaviorHealth;
+  /** Phase 24.4c: patrollers (`ctx.patrol`). */
+  readonly patrol?: BehaviorPatrol;
+  /** Phase 24.4d: hitboxes (`ctx.hitbox`). */
+  readonly hitbox?: BehaviorHitbox;
+  /** Phase 24.4a: collectibles (`ctx.collectible`). */
+  readonly collectible?: BehaviorCollectible;
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
   /**
@@ -845,6 +859,56 @@ export interface TriggerEventRecord {
   readonly trigger: string;
   readonly stepIndex: number;
 }
+
+/** Phase 24.4b: a change of an object's health (seen in the step after it happened). */
+export interface HealthEventRecord {
+  readonly type: 'damaged' | 'healed' | 'died';
+  /** The object whose health changed. */
+  readonly entity: string;
+  /** damaged/healed: how much it changed (died: 0). */
+  readonly amount: number;
+  /** Its health after the change. */
+  readonly current: number;
+  /** What caused it (an object id, or any text a script passed; '' when none). */
+  readonly source: string;
+  readonly stepIndex: number;
+}
+
+/** Phase 24.4d: a hitbox began or stopped touching another hitbox or the character. */
+export interface ContactEventRecord {
+  readonly type: 'contact' | 'separate';
+  /** This side (a hitbox's object, or the character). */
+  readonly entity: string;
+  /** The other side. */
+  readonly other: string;
+  /** Unit vector from this side toward the other at the contact ([0, 0, 0] on separate). */
+  readonly normal: readonly [number, number, number];
+  readonly stepIndex: number;
+}
+
+/** Phase 24.4c: a patroller turned around (at a wall, a ledge, the end of its waypoints, or by a script). */
+export interface PatrolEventRecord {
+  readonly type: 'turned';
+  readonly entity: string;
+  readonly reason: 'wall' | 'ledge' | 'end' | 'script';
+  /** The direction it walks in now (a unit vector). */
+  readonly direction: readonly [number, number, number];
+  readonly stepIndex: number;
+}
+
+/** Phase 24.4a: a collectible was collected (by the character) or came back. */
+export interface CollectEventRecord {
+  readonly type: 'collected' | 'restored';
+  readonly entity: string;
+  readonly counter: string;
+  /** collected: what it added (restored: 0). */
+  readonly amount: number;
+  /** collected: the object that collected it ('' on restored). */
+  readonly by: string;
+  readonly stepIndex: number;
+}
+
+export type PrimitiveEventRecord = HealthEventRecord | ContactEventRecord | PatrolEventRecord | CollectEventRecord;
 
 /**
  * Phase 14.2: `ctx.timers` — named timers of one script instance, counted in
@@ -1952,6 +2016,103 @@ export interface BehaviorGameState {
    * @graphDefault visible true
    */
   setVisible(entityId: string, visible: boolean): void;
+}
+
+/**
+ * Phase 24.4b: `ctx.health` — the health of any object with a Health
+ * component. Changes apply at once (a later `get` in the same step sees them);
+ * each is an event (`damaged`, `healed`, and `died` when it reaches 0) that
+ * scripts owning the object read in the next step's `ctx.events` (all of them:
+ * `events()`). What reaching 0 means is the game's rule: the engine only
+ * reports it.
+ */
+export interface BehaviorHealth {
+  /**
+   * The object's health now, or null when it has no Health component.
+   * @graphPure
+   * @graphNode Health of
+   * @graphLabel entityId object
+   */
+  get(entityId: string): { current: number; max: number } | null;
+  /**
+   * Take `amount` (> 0) from the object's health, not below 0 (a `damaged` event, and `died` when it reaches 0). `source` names what did it (an object id or any text). False without health, when it is already at 0, or for a bad amount.
+   * @graphNode Damage
+   * @graphLabel entityId object
+   * @graphDefault amount 1
+   */
+  damage(entityId: string, amount: number, source?: string): boolean;
+  /**
+   * Give `amount` (> 0) back, not above its maximum (a `healed` event). False without health, at its maximum, or for a bad amount.
+   * @graphNode Heal
+   * @graphLabel entityId object
+   * @graphDefault amount 1
+   */
+  heal(entityId: string, amount: number): boolean;
+  /**
+   * Every object's health events of the previous step (damaged, healed, died), in the order they happened.
+   * @graphPure
+   * @graphNode Health events
+   */
+  events(): readonly HealthEventRecord[];
+}
+
+/** Phase 24.4c: `ctx.patrol` — objects with a Patrol component. */
+export interface BehaviorPatrol {
+  /**
+   * The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol.
+   * @graphPure
+   * @graphNode Patrol state
+   * @graphLabel entityId object
+   */
+  get(entityId: string): { direction: readonly [number, number, number]; active: boolean } | null;
+  /**
+   * Stop a patroller where it is, or let it walk on. False for an object without a patrol.
+   * @graphNode Set patrol active
+   * @graphLabel entityId object
+   * @graphDefault active true
+   */
+  setActive(entityId: string, active: boolean): boolean;
+  /**
+   * Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward).
+   * @graphNode Turn patroller
+   * @graphLabel entityId object
+   */
+  turn(entityId: string): boolean;
+}
+
+/** Phase 24.4d: `ctx.hitbox` — objects with a Hitbox component. */
+export interface BehaviorHitbox {
+  /**
+   * Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox.
+   * @graphNode Set hitbox active
+   * @graphLabel entityId object
+   * @graphDefault active true
+   */
+  setActive(entityId: string, active: boolean): boolean;
+  /**
+   * The objects a hitbox (or the character) touches now, sorted by id.
+   * @graphPure
+   * @graphNode Touching
+   * @graphLabel entityId object
+   */
+  touching(entityId: string): readonly string[];
+}
+
+/** Phase 24.4a: `ctx.collectible` — objects with a Collectible component. */
+export interface BehaviorCollectible {
+  /**
+   * Whether a collectible has been collected (and not come back yet).
+   * @graphPure
+   * @graphNode Is collected
+   * @graphLabel entityId object
+   */
+  collected(entityId: string): boolean;
+  /**
+   * Bring a collected collectible back now (shown, collectable again; a `restored` event). False when it is not collected.
+   * @graphNode Restore collectible
+   * @graphLabel entityId object
+   */
+  restore(entityId: string): boolean;
 }
 
 /** Phase 9.7: one entity's animator, as a script sees it. */

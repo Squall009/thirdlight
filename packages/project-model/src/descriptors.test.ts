@@ -509,6 +509,13 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 2, chase: 3, chaseHeight: 3, chaseSpeed: 4, chaseSight: true, chaseFacing: true, chaseMemory: 0.5, chaseBeyondPatrol: true, stompBounce: 7, stompTolerance: 0.3, defeat: 'fade', defeatTime: 0.5, wallProbe: 0.1, ledgeProbe: 0.6, hitEffect: 'fx-a', defeatEffect: 'fx-a' },
     { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 0, stompable: false, health: 1 },
   ],
+  // Phase 24.4: the generic primitives.
+  collectible: [{ counter: 'shards', amount: -2.5, size: [1, 2, 3], onCollect: 'got', respawn: 4 }, { counter: 'items' }],
+  patrol: [
+    { mode: 'edges', speed: 2, wait: 0.5, direction: [0, 0, -1], size: [1, 2, 1], wallProbe: 0.1, ledgeProbe: 0.6 },
+    { mode: 'waypoints', waypoints: [[4, 0, 0], [4, 2, 0]], loop: true, speed: 1, wait: 1 },
+  ],
+  hitbox: [{ shape: 'box', size: [1, 2, 3], damage: 2 }, { shape: 'sphere', radius: 0.5 }],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }, { assetId: 'cue-a', volume: 0.8, range: 12, distanceModel: 'inverse', refDistance: 2, rolloff: 1.5 }],
   animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true } }],
   faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }],
@@ -916,8 +923,9 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
     // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
-    // repeat the sky/fog/post descriptors, about 9 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(232_000);
+    // repeat the sky/fog/post descriptors, about 9 KB; phase 24.4: + collectible, patrol and hitbox, about 6 KB,
+    // until 24.7 removes the pickup and enemy blocks)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(240_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

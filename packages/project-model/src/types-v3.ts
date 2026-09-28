@@ -229,6 +229,10 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   health?: HealthComponent;
   pickup?: PickupComponent;
   enemy?: EnemyComponent;
+  /** Phase 24.4, v4 only: generic primitives (a collectible, a patrol walker, a hitbox). */
+  collectible?: import('./blocks').CollectibleComponent;
+  patrol?: import('./blocks').PatrolComponent;
+  hitbox?: import('./blocks').HitboxComponent;
   gameZone?: GameZoneComponent;
   playerSpawn?: PlayerSpawnComponent;
   cameraFollow?: CameraFollowComponent;

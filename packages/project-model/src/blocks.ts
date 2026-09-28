@@ -455,6 +455,197 @@ export function validateFaceMovementComponent(value: unknown, path: string, erro
 
 export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementComponent => ({ yawRight: c.yawRight, yawLeft: c.yawLeft, ...(c.turnSeconds !== undefined ? { turnSeconds: c.turnSeconds } : {}) });
 
+// ---- phase 24.4: generic primitives (both physics dimensions) ------------------------
+
+/**
+ * Phase 24.4a: `collectible` — the character touching its area adds `amount`
+ * to a named counter (any name), hides it and stops it collecting, sends the
+ * `onCollect` signal, and brings it back after `respawn` seconds (absent or
+ * 0: never; scripts may bring it back with `ctx.collectible.restore`).
+ *
+ * Phase 24.4c: `patrol` — the object walks by itself: along waypoints
+ * (offsets from where it is placed, back and forth or in a loop), or straight
+ * ahead turning around at walls and ledges (`edges`: a ray ahead at the middle
+ * of its body, a ray down just past its front). It keeps its placed height.
+ *
+ * Phase 24.4d: `hitbox` — an area (a box or a sphere, a circle on the 2D
+ * plane) whose contacts with other hitboxes and with the character are
+ * events for scripts (the other object and the contact normal). With
+ * `damage`, a new contact takes that much from the other object's health.
+ *
+ * The areas are centred on the object's position; a 2D-plane project ignores
+ * a box's depth, a 3D one uses it (absent: the width).
+ */
+export const PATROL_MODES = ['waypoints', 'edges'] as const;
+export const HITBOX_SHAPES = ['box', 'sphere'] as const;
+
+/**
+ * Phase 24.4: the primitives' values when a component leaves them out, with
+ * genre-neutral reasons: a collectible adds 1 (one of something) over a 1 m
+ * area (about a hand's reach around an object a person picks up); a patroller
+ * is a 1 m body (a person-sized walker's width) that looks 0.05 m ahead for a
+ * wall and 0.4 m down for floor from 0.1 m above its underside (a drop deeper
+ * than 0.3 m, knee height, is a ledge) — the same probes the engine used
+ * before; it starts walking along +X (the 2D plane's "ahead").
+ */
+export const PRIMITIVE_DEFAULTS = Object.freeze({
+  collectibleAmount: 1,
+  collectibleSize: Object.freeze([1, 1, 1]) as readonly [number, number, number],
+  patrolSize: Object.freeze([1, 1, 1]) as readonly [number, number, number],
+  patrolDirection: Object.freeze([1, 0, 0]) as readonly [number, number, number],
+  wallProbe: 0.05,
+  ledgeProbe: 0.4,
+});
+
+/** Phase 24.4: the primitives' value ranges. */
+export const PRIMITIVE_LIMITS = Object.freeze({
+  /** A collectible's amount (negative takes away). */
+  amount: { min: -1_000_000, max: 1_000_000 },
+  /** Seconds before a collected collectible comes back (0: never). */
+  respawn: { min: 0, max: 3600 },
+  /** An area's size along each axis (m). */
+  size: { min: 0.05, max: 500 },
+  /** A hitbox sphere's radius (m). */
+  radius: { min: 0.025, max: 250 },
+  /** A patroller's speed (m/s). */
+  speed: { min: 0, max: 50 },
+  /** Seconds a patroller waits at a waypoint or after turning. */
+  wait: { min: 0, max: 60 },
+  wallProbe: { min: 0, max: 5 },
+  ledgeProbe: { min: 0.1, max: 20 },
+  /** Health a new hitbox contact takes. */
+  damage: { min: 0, max: 1000 },
+});
+
+export interface CollectibleComponent {
+  /** The counter it adds to (a letter or _, then letters, digits or _). */
+  counter: string;
+  /** Added to the counter when collected (absent: 1). */
+  amount?: number;
+  /** Seconds until it comes back (absent or 0: never). */
+  respawn?: number;
+  /** A signal sent when it is collected. */
+  onCollect?: string;
+  /** The area that collects it: [w, h] or [w, h, d] (m; absent: 1 m each). */
+  size?: [number, number] | [number, number, number];
+}
+
+export interface PatrolComponent {
+  mode: (typeof PATROL_MODES)[number];
+  /** `waypoints`: 1–16 offsets from the placed position (the start is not listed). */
+  waypoints?: [number, number, number][];
+  /** `waypoints`: from the last point back to the start (absent: back and forth). */
+  loop?: boolean;
+  /** Metres per second. */
+  speed: number;
+  /** Seconds it waits at each waypoint or after turning around. */
+  wait?: number;
+  /** `edges`: the way it starts walking (a 2D plane uses the sign of x; 3D the direction on the ground). */
+  direction?: [number, number, number];
+  /** `edges`: its body [w, h] or [w, h, d], centred on its position (where the probes look from). */
+  size?: [number, number] | [number, number, number];
+  /** `edges`: how far past its front it looks for a wall (m). */
+  wallProbe?: number;
+  /** `edges`: how far down it looks for floor, from 0.1 m above its underside (m). */
+  ledgeProbe?: number;
+}
+
+export interface HitboxComponent {
+  shape?: (typeof HITBOX_SHAPES)[number];
+  /** A box's [w, h] or [w, h, d] (required for a box, refused for a sphere). */
+  size?: [number, number] | [number, number, number];
+  /** A sphere's radius (required for a sphere, refused for a box). */
+  radius?: number;
+  /** Health a new contact takes from the other object (its own, or the nearest parent's with health). */
+  damage?: number;
+}
+
+const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+const COLLECTIBLE_FIELDS = ['counter', 'amount', 'respawn', 'onCollect', 'size'] as const;
+const PATROL_FIELDS = ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'] as const;
+const HITBOX_FIELDS = ['shape', 'size', 'radius', 'damage'] as const;
+const L = PRIMITIVE_LIMITS;
+const area = (v: unknown): boolean => vec2(v, L.size.min, L.size.max) || vec3(v, L.size.min, L.size.max);
+function limited(value: Record<string, unknown>, key: string, lim: { min: number; max: number }, unit: string, path: string, errors: ModelErrorV2[]): void {
+  if (value[key] !== undefined && !num(value[key], lim.min, lim.max)) err(errors, 'field_value', `${path}/${key}`, `${key} is ${lim.min}–${lim.max}${unit}`, value[key]);
+}
+
+export function validateCollectibleComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'collectible is an object', value);
+  fields(value, COLLECTIBLE_FIELDS, ['counter'], path, errors);
+  if (value['counter'] !== undefined && (typeof value['counter'] !== 'string' || !COUNTER_RE.test(value['counter']))) err(errors, 'field_value', `${path}/counter`, 'counter is a name: a letter or _, then up to 31 letters, digits or _', value['counter']);
+  limited(value, 'amount', L.amount, '', path, errors);
+  limited(value, 'respawn', L.respawn, ' s', path, errors);
+  if (value['onCollect'] !== undefined && (typeof value['onCollect'] !== 'string' || !NAME_RE.test(value['onCollect']))) err(errors, 'field_value', `${path}/onCollect`, 'onCollect is a signal name', value['onCollect']);
+  if (value['size'] !== undefined && !area(value['size'])) err(errors, 'field_value', `${path}/size`, `size is [w, h] or [w, h, d], each ${L.size.min}–${L.size.max} m`, value['size']);
+}
+
+export function validatePatrolComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'patrol is an object', value);
+  const mode = value['mode'];
+  fields(value, PATROL_FIELDS, mode === 'waypoints' ? ['mode', 'speed', 'waypoints'] : ['mode', 'speed'], path, errors);
+  if (mode !== undefined && !(PATROL_MODES as readonly unknown[]).includes(mode)) err(errors, 'field_value', `${path}/mode`, 'mode is waypoints or edges', mode);
+  limited(value, 'speed', L.speed, ' m/s', path, errors);
+  limited(value, 'wait', L.wait, ' s', path, errors);
+  limited(value, 'wallProbe', L.wallProbe, ' m', path, errors);
+  limited(value, 'ledgeProbe', L.ledgeProbe, ' m', path, errors);
+  const w = value['waypoints'];
+  if (w !== undefined) {
+    if (mode !== 'waypoints') err(errors, 'field_unexpected', `${path}/waypoints`, 'only a waypoints patrol has waypoints', w);
+    else if (!Array.isArray(w) || w.length < 1 || w.length > 16 || !w.every((p) => vec3(p, -1000, 1000))) err(errors, 'field_value', `${path}/waypoints`, 'waypoints is 1–16 offsets [x, y, z] from the placed position', w);
+  }
+  if (value['loop'] !== undefined) {
+    if (mode !== 'waypoints') err(errors, 'field_unexpected', `${path}/loop`, 'only a waypoints patrol loops', value['loop']);
+    else if (typeof value['loop'] !== 'boolean') err(errors, 'field_type', `${path}/loop`, 'loop is true or false', value['loop']);
+  }
+  for (const k of ['direction', 'size', 'wallProbe', 'ledgeProbe'] as const) {
+    if (value[k] !== undefined && mode === 'waypoints') err(errors, 'field_unexpected', `${path}/${k}`, `only an edges patrol has ${k}`, value[k]);
+  }
+  const d = value['direction'];
+  if (d !== undefined && mode !== 'waypoints' && !(vec3(d, -1, 1) && (d as number[]).some((x) => x !== 0))) err(errors, 'field_value', `${path}/direction`, 'direction is [x, y, z] (each −1–1, not all 0)', d);
+  if (value['size'] !== undefined && mode !== 'waypoints' && !area(value['size'])) err(errors, 'field_value', `${path}/size`, `size is [w, h] or [w, h, d], each ${L.size.min}–${L.size.max} m`, value['size']);
+}
+
+export function validateHitboxComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'hitbox is an object', value);
+  const shape = value['shape'];
+  const sphere = shape === 'sphere';
+  fields(value, HITBOX_FIELDS, sphere ? ['radius'] : ['size'], path, errors);
+  if (shape !== undefined && !(HITBOX_SHAPES as readonly unknown[]).includes(shape)) err(errors, 'field_value', `${path}/shape`, 'shape is box or sphere', shape);
+  if (sphere && value['size'] !== undefined) err(errors, 'field_unexpected', `${path}/size`, 'a sphere hitbox has a radius, not a size', value['size']);
+  if (!sphere && value['radius'] !== undefined) err(errors, 'field_unexpected', `${path}/radius`, 'only a sphere hitbox has a radius (set its shape)', value['radius']);
+  if (value['size'] !== undefined && !sphere && !area(value['size'])) err(errors, 'field_value', `${path}/size`, `size is [w, h] or [w, h, d], each ${L.size.min}–${L.size.max} m`, value['size']);
+  if (sphere) limited(value, 'radius', L.radius, ' m', path, errors);
+  if (value['damage'] !== undefined && !(Number.isInteger(value['damage']) && num(value['damage'], L.damage.min, L.damage.max))) err(errors, 'field_value', `${path}/damage`, `damage is an integer ${L.damage.min}–${L.damage.max}`, value['damage']);
+}
+
+const copyArea = (v: [number, number] | [number, number, number]): [number, number] | [number, number, number] => (v.length === 3 ? [v[0], v[1], v[2]] : [v[0], v[1]]);
+
+export const canonicalCollectible = (c: CollectibleComponent): CollectibleComponent => ({
+  counter: c.counter,
+  ...(c.amount !== undefined ? { amount: c.amount } : {}),
+  ...(c.respawn !== undefined ? { respawn: c.respawn } : {}),
+  ...(c.onCollect !== undefined ? { onCollect: c.onCollect } : {}),
+  ...(c.size !== undefined ? { size: copyArea(c.size) } : {}),
+});
+export const canonicalPatrol = (c: PatrolComponent): PatrolComponent => ({
+  mode: c.mode,
+  ...(c.waypoints !== undefined ? { waypoints: c.waypoints.map((p) => [p[0], p[1], p[2]] as [number, number, number]) } : {}),
+  ...(c.loop !== undefined ? { loop: c.loop } : {}),
+  speed: c.speed,
+  ...(c.wait !== undefined ? { wait: c.wait } : {}),
+  ...(c.direction !== undefined ? { direction: [c.direction[0], c.direction[1], c.direction[2]] as [number, number, number] } : {}),
+  ...(c.size !== undefined ? { size: copyArea(c.size) } : {}),
+  ...(c.wallProbe !== undefined ? { wallProbe: c.wallProbe } : {}),
+  ...(c.ledgeProbe !== undefined ? { ledgeProbe: c.ledgeProbe } : {}),
+});
+export const canonicalHitbox = (c: HitboxComponent): HitboxComponent => ({
+  ...(c.shape !== undefined ? { shape: c.shape } : {}),
+  ...(c.size !== undefined ? { size: copyArea(c.size) } : {}),
+  ...(c.radius !== undefined ? { radius: c.radius } : {}),
+  ...(c.damage !== undefined ? { damage: c.damage } : {}),
+});
+
 export const BLOCK_COMPONENTS = {
   mover: { validate: validateMoverComponent, canonical: canonicalMover, fields: MOVER_FIELDS },
   trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height'] },
@@ -464,6 +655,10 @@ export const BLOCK_COMPONENTS = {
   enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ENEMY_FIELDS },
   audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: AUDIO_SOURCE_FIELDS },
   faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: ['yawRight', 'yawLeft', 'turnSeconds'] },
+  // Phase 24.4: last, so every existing entity keeps its exact canonical bytes.
+  collectible: { validate: validateCollectibleComponent, canonical: canonicalCollectible, fields: COLLECTIBLE_FIELDS },
+  patrol: { validate: validatePatrolComponent, canonical: canonicalPatrol, fields: PATROL_FIELDS },
+  hitbox: { validate: validateHitboxComponent, canonical: canonicalHitbox, fields: HITBOX_FIELDS },
 } as const;
 export type BlockComponentName = keyof typeof BLOCK_COMPONENTS;
 export const BLOCK_COMPONENT_NAMES = Object.keys(BLOCK_COMPONENTS) as BlockComponentName[];

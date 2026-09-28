@@ -499,6 +499,10 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   blockFootprint: ['layer', 'size', 'set'],
   // Phase 23.10: the behavior group (game modes tick groups).
   behaviorGroup: ['group'],
+  // Phase 24.4: the generic primitives (project-model blocks.ts field order).
+  collectible: ['counter', 'amount', 'respawn', 'onCollect', 'size'],
+  patrol: ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'],
+  hitbox: ['shape', 'size', 'radius', 'damage'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -533,6 +537,9 @@ const OWNED: readonly OwnedComponent[] = [
   'blockLayer',
   'blockFootprint',
   'behaviorGroup',
+  'collectible',
+  'patrol',
+  'hitbox',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -568,6 +575,9 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'blockLayer',
   'blockFootprint',
   'behaviorGroup',
+  'collectible',
+  'patrol',
+  'hitbox',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -757,7 +767,10 @@ export function validateSetComponentArgs(
     component === 'pickup' ||
     component === 'enemy' ||
     component === 'audioSource' ||
-    component === 'faceMovement'
+    component === 'faceMovement' ||
+    component === 'collectible' ||
+    component === 'patrol' ||
+    component === 'hitbox'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the §41.3.2 helper's; nothing structural is
