@@ -13,20 +13,20 @@ const entity = (components: Record<string, unknown>): Record<string, unknown> =>
 
 describe('resolveRequiredModules', () => {
   it('a plain scene needs no modules', () => {
-    expect(resolveRequiredModules({ scene: { entities: [entity({ transform: {} }), entity({ box: {} })] }, game: null })).toEqual({ ok: true, moduleIds: [] });
+    expect(resolveRequiredModules({ scene: { entities: [entity({ transform: {} }), entity({ box: {} })] } })).toEqual({ ok: true, moduleIds: [] });
   });
 
   it('a controller entity pulls the controller and, transitively, physics + input', () => {
-    const r = resolveRequiredModules({ scene: { entities: [entity({ controller: {}, collider: {} })] }, game: null });
+    const r = resolveRequiredModules({ scene: { entities: [entity({ controller: {}, collider: {} })] } });
     expect(r).toEqual({ ok: true, moduleIds: ['thirdlight.character:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d'] });
   });
 
   it('a collider alone is inert data (no physics module without a controller)', () => {
-    expect(resolveRequiredModules({ scene: { entities: [entity({ collider: {} })] }, game: null })).toEqual({ ok: true, moduleIds: [] });
+    expect(resolveRequiredModules({ scene: { entities: [entity({ collider: {} })] } })).toEqual({ ok: true, moduleIds: [] });
   });
 
   it('a controller and a model pull the controller and the glTF loader (phase 24.7: no game block, no session or camera module)', () => {
-    const r = resolveRequiredModules({ scene: { entities: [entity({ controller: {} }), entity({ model: {} })] }, game: null });
+    const r = resolveRequiredModules({ scene: { entities: [entity({ controller: {} }), entity({ model: {} })] } });
     expect(r).toEqual({
       ok: true,
       moduleIds: [
@@ -41,12 +41,12 @@ describe('resolveRequiredModules', () => {
 
   it('phase 24.3: modules come only from references — no component, no module; the character package are no behavior dependency', () => {
     // A camera, lights, boxes and a spawn (the starter's shape) reference nothing.
-    expect(resolveRequiredModules({ scene: { entities: [entity({ camera: {} }), entity({ light: {} }), entity({ box: {} }), entity({ playerSpawn: {} })] }, game: null })).toEqual({ ok: true, moduleIds: [] });
+    expect(resolveRequiredModules({ scene: { entities: [entity({ camera: {} }), entity({ light: {} }), entity({ box: {} }), entity({ playerSpawn: {} })] } })).toEqual({ ok: true, moduleIds: [] });
     // Each reference is table data: component → module, content block → modules.
     expect(COMPONENT_MODULES['controller']).toEqual({ plane2d: 'thirdlight.character:controller', world3d: 'thirdlight.character3d:controller' });
     expect(CONTENT_BLOCK_MODULES).toEqual({});
     // A script may not pull the character controller in by package (it is not pinned).
-    const pkg = resolveRequiredModules({ scene: { entities: [] }, game: null, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/character'] }] });
+    const pkg = resolveRequiredModules({ scene: { entities: [] }, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/character'] }] });
     expect(pkg).toMatchObject({ ok: false, unresolved: [{ id: '@thirdlight/character', requiredBy: 'behavior:b1' }] });
     // Module specs outside the runtime name their export; the table lists modules after those they need.
     const order = ENGINE_MODULES.map((m) => m.id);
@@ -55,9 +55,9 @@ describe('resolveRequiredModules', () => {
   });
 
   it("a behavior's required package maps to modules; an unknown package is unresolved", () => {
-    const ok = resolveRequiredModules({ scene: { entities: [] }, game: null, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/runtime', '@thirdlight/physics-rapier'] }] });
+    const ok = resolveRequiredModules({ scene: { entities: [] }, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/runtime', '@thirdlight/physics-rapier'] }] });
     expect(ok).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:2d'] });
-    const bad = resolveRequiredModules({ scene: { entities: [] }, game: null, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/runtime', '@acme/particles'] }] });
+    const bad = resolveRequiredModules({ scene: { entities: [] }, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/runtime', '@acme/particles'] }] });
     expect(bad.ok).toBe(false);
     if (!bad.ok) {
       expect(bad.unresolved).toEqual([{ id: '@acme/particles', requiredBy: 'behavior:b1' }]);
@@ -66,25 +66,25 @@ describe('resolveRequiredModules', () => {
   });
 
   it('declared module ids must exist on this engine', () => {
-    const bad = resolveRequiredModules({ scene: { entities: [] }, game: null, declared: ['thirdlight.character:controller', 'thirdlight.terrain:heightmap'] });
+    const bad = resolveRequiredModules({ scene: { entities: [] }, declared: ['thirdlight.character:controller', 'thirdlight.terrain:heightmap'] });
     expect(bad).toMatchObject({ ok: false, unresolved: [{ id: 'thirdlight.terrain:heightmap', requiredBy: 'declared' }] });
   });
 
   it('every registry id resolves to itself', () => {
-    const r = resolveRequiredModules({ scene: { entities: [] }, game: null, declared: ENGINE_MODULE_IDS });
+    const r = resolveRequiredModules({ scene: { entities: [] }, declared: ENGINE_MODULE_IDS });
     expect(r).toEqual({ ok: true, moduleIds: [...ENGINE_MODULE_IDS] });
   });
 
   it('phase 23.0/23.2: a 3D project\'s controller needs the 3D character controller and backend', () => {
     const scene = { entities: [entity({ controller: {} })] };
     // Phase 23.2: the 3D character controller module (with the 3D backend and input it needs).
-    expect(resolveRequiredModules({ scene, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
-    expect(resolveRequiredModules({ scene, game: null, physicsDimension: 2 })).toEqual(resolveRequiredModules({ scene, game: null }));
-    expect(resolveRequiredModules({ scene, game: null, behaviors: [{ behaviorId: 'b', requiredModules: ['@thirdlight/physics-rapier'] }], physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
+    expect(resolveRequiredModules({ scene, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
+    expect(resolveRequiredModules({ scene, physicsDimension: 2 })).toEqual(resolveRequiredModules({ scene }));
+    expect(resolveRequiredModules({ scene, behaviors: [{ behaviorId: 'b', requiredModules: ['@thirdlight/physics-rapier'] }], physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
     // Phase 23.3: a collider alone needs it in 3D (rays and picks without a player); not on the 2D plane.
     const colliders = { entities: [entity({ collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } })] };
-    expect(resolveRequiredModules({ scene: colliders, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
-    expect(resolveRequiredModules({ scene: colliders, game: null })).toEqual({ ok: true, moduleIds: [] });
+    expect(resolveRequiredModules({ scene: colliders, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
+    expect(resolveRequiredModules({ scene: colliders })).toEqual({ ok: true, moduleIds: [] });
   });
 
   it('the M2 heuristic entry is the resolver over the scene', () => {

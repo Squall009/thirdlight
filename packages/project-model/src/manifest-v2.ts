@@ -5,7 +5,7 @@
  * `captureManifestV2` is the pure derivation of the v2 delivery manifest from
  * ONE already-captured authoring state (the single acknowledged envelope read,
  * delivery.md §2.6): the captured v3 scene, the captured content block
- * (resolved settings, the frozen `game`, the reachable kind-tagged assets),
+ * (resolved settings, the reachable kind-tagged assets),
  * the resolved media identity and the reachable source-bearing behaviors. It
  * has no I/O, no clock and no randomness — the caller supplies `capturedAt` —
  * so two captures of the same state produce byte-identical documents.
@@ -17,12 +17,17 @@
  * with `manifest_invalid` (`reason: "manifest_version"`), never silently ignore
  * the new keys.
  *
+ * Phase 24.8 moves `manifestVersion` 2 → 3: the deleted game block's `game`
+ * and `gameDigest` keys and the media block's five `cues` slots (all null
+ * since phase 24.7) are gone; `media` is `{ animation }` and the captured
+ * content view is `{assets, prefabs, behaviors, settings, behaviorTrust}`.
+ * A reader refuses any other version.
+ *
  * **Canonical ordering (normative, delivery.md §2.4).** Every block digest and
  * the `buildId` hash `JSON.stringify(value, null, 2) + "\n"` in the owning
  * contract's key order — NOT sorted-key canonicalization. `settings` is in
- * registry order, `game` in canonical `GameConfig` order, `media` in the §2.2
- * order, the content view in `{assets, prefabs, behaviors, settings,
- * behaviorTrust, game}` order and the manifest in `MANIFEST_KEYS_V2` order
+ * registry order, `media` in the §2.2 order, the content view in `{assets,
+ * prefabs, behaviors, settings, behaviorTrust}` order and the manifest in `MANIFEST_KEYS_V2` order
  * (`buildId` last). A `null` block hashes its own four canonical bytes (`null`).
  *
  * This module lives in the zero-dependency `project-model` leaf (the single
@@ -73,8 +78,8 @@ import {
 // Constants (delivery.md §2.2 / v1-v2-rules.json)
 // ---------------------------------------------------------------------------
 
-/** The v2 manifest shape version (delivery.md §2.1). */
-export const RUNTIME_CONTENT_MANIFEST_VERSION_2 = 2 as const;
+/** The manifest shape version (delivery.md §2.1; phase 24.8: 3, without the game block and cue slots). */
+export const RUNTIME_CONTENT_MANIFEST_VERSION_3 = 3 as const;
 
 /** Phase 12 (c): one scene artifact of a v4 project. */
 export interface ManifestSceneRow {
@@ -99,11 +104,9 @@ export const MANIFEST_KEYS_V2 = [
   'capturedAt',
   'sceneDigest',
   'contentDigest',
-  'gameDigest',
   'settingsDigest',
   'mediaDigest',
   'settings',
-  'game',
   'tags',
   'materials',
   // Phase 18.3: the material functions graph materials call (standalone graphs of kind material-function).
@@ -150,13 +153,6 @@ export const MANIFEST_KEYS_V2 = [
   'buildId',
 ] as const;
 
-/**
- * The five cue slots of the manifest's media block, in the §2.2 ascending key
- * order. Phase 24.7: the game block that filled them was deleted, so every
- * slot is null; the slots stay in the manifest shape until the 24.8 format bump.
- */
-export const CUE_SLOTS = ['start', 'jump', 'checkpoint', 'death', 'goal'] as const;
-export type CueSlot = (typeof CUE_SLOTS)[number];
 
 /**
  * The M3 shared-composition engine pins (delivery.md §2.2 / K-5). The
@@ -221,16 +217,8 @@ export interface CapturedContentViewV3 {
   /** The resolved six-key gameplay settings, in registry order. */
   settings: GameplaySettings;
   behaviorTrust: unknown;
-  /** Phase 24.7: always null (the game block was deleted; the key goes with the 24.8 format bump). */
-  game: null;
-  /** `sha256(JSON.stringify({assets,prefabs,behaviors,settings,behaviorTrust,game},null,2)+"\n")`. */
+  /** `sha256(JSON.stringify({assets,prefabs,behaviors,settings,behaviorTrust},null,2)+"\n")`. */
   contentDigest: string;
-}
-
-/** One resolved cue reference of the media identity. */
-export interface MediaCueRef {
-  assetId: string;
-  version: number;
 }
 
 /** One `modelAnimation` entity row of the media identity. */
@@ -245,7 +233,6 @@ export interface MediaAnimationRow {
 
 /** The resolved media identity block (delivery.md §2.3 `media`). */
 export interface MediaBlock {
-  cues: Record<CueSlot, MediaCueRef | null>;
   animation: MediaAnimationRow[];
 }
 
@@ -286,12 +273,9 @@ export interface RuntimeContentManifestV2 {
   capturedAt: string;
   sceneDigest: string;
   contentDigest: string;
-  gameDigest: string;
   settingsDigest: string;
   mediaDigest: string;
   settings: GameplaySettings;
-  /** Phase 24.7: always null (the game block was deleted; the key goes with the 24.8 format bump). */
-  game: null;
   /** Phase 12 (b): the tag registry, present only when non-empty. */
   tags?: TagDefinition[];
   /** Phase 18.3: the material functions graph materials call. */
@@ -409,15 +393,12 @@ export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'musi
  * captured v3 state (delivery.md §2.3, the C35-2 rationale). Pure over the
  * normalized (or raw, validated here) scene + content:
  *
- *   - `cues`: the five `content.game.cues` slots resolved to `{assetId,
- *     version}` (the record's `currentVersion` — a cue reference carries no
- *     explicit version pin) or `null`, ascending `CUE_SLOTS` order;
  *   - `animation`: one row per `modelAnimation` entity, ascending by
  *     `entityId` then `assetId`, each carrying the immutable `(assetId,
  *     version)`, the `profileDigest` of its canonical `roles` bytes and the
  *     validated `roles` map.
  *
- * A cue/animation reference that resolves to no catalog record (or a record of
+ * An animation reference that resolves to no catalog record (or a record of
  * the wrong `kind`, or an absent version) fails `asset_reference_missing` /
  * `asset_kind_mismatch` / `asset_version_invalid` before any capture.
  */
@@ -446,10 +427,6 @@ export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScen
 function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3 | ContentCatalogV4): ModelResultV2<MediaBlock> {
   const byId = new Map<string, AssetRecordV3>(content.assets.map((a) => [a.assetId, a]));
   const errors: ModelErrorV2[] = [];
-
-  // cues — phase 24.7: no game block fills them (ascending CUE_SLOTS order, all null).
-  const cues = {} as Record<CueSlot, MediaCueRef | null>;
-  for (const slot of CUE_SLOTS) cues[slot] = null;
 
   // animation — one row per modelAnimation entity.
   const rows: MediaAnimationRow[] = [];
@@ -481,9 +458,8 @@ function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3 | ContentCa
   if (errors.length > 0) return fail(errors);
   rows.sort((a, b) => (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
 
-  // Build the media block in the §2.2 key order (cues before animation; cues in
-  // CUE_SLOTS order) so its canonical serialization is deterministic.
-  const media: MediaBlock = { cues, animation: rows };
+  // Phase 24.8: the media block is the animation rows (the cue slots went with the game block).
+  const media: MediaBlock = { animation: rows };
   return { ok: true, normalized: media };
 }
 
@@ -494,9 +470,9 @@ function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3 | ContentCa
 /**
  * `captureContentViewV3(scene, content, ctx)` — the captured v3 content view
  * (the six-key `contentDigest` preimage: `{assets, prefabs, behaviors,
- * settings, behaviorTrust, game}`). Pure: validates the v3 pair, resolves the
+ * settings, behaviorTrust}`). Pure: validates the v3 pair, resolves the
  * reachable kind-tagged asset versions (project-model §19 v3 closure), the
- * resolved six-key settings and the frozen `game`, and derives the digest.
+ * resolved six-key settings, and derives the digest.
  */
 export function captureContentViewV3(
   scene: unknown,
@@ -569,7 +545,6 @@ export function captureContentViewV3(
     behaviors: normContent.behaviors,
     settings: settingsRes.normalized,
     behaviorTrust: normContent.behaviorTrust,
-    game: null,
   };
   const contentDigest = blockDigest(withoutDigest);
   return { ok: true, normalized: { ...withoutDigest, contentDigest } as CapturedContentViewV3 };
@@ -593,9 +568,6 @@ export interface CaptureManifestV2Input {
   behaviors: readonly ManifestBehaviorInput[];
   /** The resolved six-key settings, in registry order. */
   settings: GameplaySettings;
-  /** The frozen `content.game` value (canonical `GameConfig` order) or `null`. */
-  /** Phase 24.7: always null (the game block was deleted; the key goes with the 24.8 format bump). */
-  game: null;
   /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
   tags?: readonly TagDefinition[];
   /** Phase 9.4: the project materials (only when non-empty) and the environment (only when set). */
@@ -724,13 +696,12 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
   const enginePins = (input.enginePins ?? M3_ENGINE_PINS).map((p) => ({ id: p.id, version: p.version, apiVersion: p.apiVersion }));
   const recipes = { ...M3_RECIPE_VERSIONS, ...(input.recipes ?? {}) };
 
-  const gameDigest = blockDigest(input.game);
   const settingsDigest = blockDigest(input.settings);
   const mediaDigest = blockDigest(input.media);
   const buildOptionsDigest = sha256Hex(buildOptionsRecordBytes());
 
   const withoutBuildId: Record<string, unknown> = {
-    manifestVersion: RUNTIME_CONTENT_MANIFEST_VERSION_2,
+    manifestVersion: RUNTIME_CONTENT_MANIFEST_VERSION_3,
     type: RUNTIME_CONTENT_TYPE,
     projectId: input.projectId,
     revision: input.revision,
@@ -738,11 +709,9 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     capturedAt: input.capturedAt,
     sceneDigest,
     contentDigest,
-    gameDigest,
     settingsDigest,
     mediaDigest,
     settings: input.settings,
-    game: input.game,
     ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
     ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
     ...(input.materialFunctions !== undefined && input.materialFunctions.length > 0 ? { materialFunctions: canonicalGraphDocuments(input.materialFunctions) } : {}),
@@ -844,8 +813,8 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   const d = doc as Record<string, unknown>;
 
   // Version gate: a v1 (or unknown) document is not a v2 document.
-  if (d['manifestVersion'] !== RUNTIME_CONTENT_MANIFEST_VERSION_2) {
-    return { ok: false, error: manifestError('manifest_invalid', 'manifestVersion is not 2', 'manifest_version', d['manifestVersion'], '2') };
+  if (d['manifestVersion'] !== RUNTIME_CONTENT_MANIFEST_VERSION_3) {
+    return { ok: false, error: manifestError('manifest_invalid', 'manifestVersion is not 3 (phase 24.8: no game block, no cue slots)', 'manifest_version', d['manifestVersion'], '3') };
   }
 
   // Key set: exactly MANIFEST_KEYS_V2 (unknown or missing ⇒ manifest_invalid).
@@ -942,7 +911,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   if (d['snapshotId'] !== `${projectId}@r${revision}`) {
     return { ok: false, error: manifestError('manifest_invalid', 'snapshotId does not match <projectId>@r<revision>', 'field_value', d['snapshotId'], `${projectId}@r${revision}`) };
   }
-  for (const key of ['sceneDigest', 'contentDigest', 'gameDigest', 'settingsDigest', 'mediaDigest', 'buildOptionsDigest', 'buildId'] as const) {
+  for (const key of ['sceneDigest', 'contentDigest', 'settingsDigest', 'mediaDigest', 'buildOptionsDigest', 'buildId'] as const) {
     if (!isDigest(d[key])) return { ok: false, error: manifestError('manifest_invalid', `${key} must be 64 lowercase hex`, 'field_value', d[key]) };
   }
 
@@ -966,29 +935,19 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   }
 
   // Block digests — re-derived against the declared blocks.
-  const game = d['game'];
-  if (game !== null && !isPlainObject(game)) return { ok: false, error: manifestError('manifest_invalid', 'game must be an object or null', 'field_value') };
   const media = d['media'];
   if (!isPlainObject(media)) return { ok: false, error: manifestError('manifest_invalid', 'media must be an object', 'field_value') };
   if (blockDigest(settings) !== d['settingsDigest']) {
     return { ok: false, error: manifestError('manifest_invalid', 'settingsDigest does not match the settings block', 'digest_mismatch', d['settingsDigest'], blockDigest(settings)) };
   }
-  if (blockDigest(game) !== d['gameDigest']) {
-    return { ok: false, error: manifestError('manifest_invalid', 'gameDigest does not match the game block', 'digest_mismatch', d['gameDigest'], blockDigest(game)) };
-  }
   if (blockDigest(media) !== d['mediaDigest']) {
     return { ok: false, error: manifestError('manifest_invalid', 'mediaDigest does not match the media block', 'digest_mismatch', d['mediaDigest'], blockDigest(media)) };
   }
 
-  // media shape — five cue slots in order + animation rows.
-  const cues = (media as Record<string, unknown>)['cues'];
-  const animation = (media as Record<string, unknown>)['animation'];
-  if (!isPlainObject(cues) || !Array.isArray(animation)) {
-    return { ok: false, error: manifestError('manifest_invalid', 'media must carry cues and animation', 'field_value') };
-  }
-  const cueKeys = Object.keys(cues);
-  if (cueKeys.length !== CUE_SLOTS.length || !cueKeys.every((k, i) => k === CUE_SLOTS[i])) {
-    return { ok: false, error: manifestError('manifest_invalid', 'media.cues must carry the five slots in order', 'field_value', cueKeys) };
+  // media shape — exactly the animation rows (phase 24.8: no cue slots).
+  const mediaKeys = Object.keys(media);
+  if (mediaKeys.length !== 1 || !Array.isArray((media as Record<string, unknown>)['animation'])) {
+    return { ok: false, error: manifestError('manifest_invalid', 'media must carry exactly the animation rows', 'field_value', mediaKeys) };
   }
 
   // assets — kind, path and ordering.
@@ -1051,13 +1010,14 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
 /**
  * delivery.md §2.1 — the version-compatibility rule. A v1 reader must reject a
  * v2 document with `manifest_invalid` (`reason: "manifest_version"`) and a v2
- * reader must reject a v1 document; an in-place upgrade is forbidden.
+ * reader must reject a v1 document; an in-place upgrade is forbidden. Phase
+ * 24.8: the current reader is v3 (it refuses v1 and v2 alike).
  */
 export function manifestVersionCompat(
   doc: unknown,
-  reader: 1 | 2,
-): { ok: true; version: 1 | 2 } | { ok: false; error: ManifestErrorV2 } {
+  reader: 1 | 3,
+): { ok: true; version: 1 | 3 } | { ok: false; error: ManifestErrorV2 } {
   const version = isPlainObject(doc) ? (doc as Record<string, unknown>)['manifestVersion'] : undefined;
-  if (version === reader) return { ok: true, version: reader as 1 | 2 };
+  if (version === reader) return { ok: true, version: reader };
   return { ok: false, error: manifestError('manifest_invalid', `a v${reader} reader cannot load a v${typeof version === 'number' ? version : 'unknown'} manifest document`, 'manifest_version', version, String(reader)) };
 }

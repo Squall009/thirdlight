@@ -161,9 +161,7 @@ export interface ContentClosureM3 {
   moduleIds: readonly string[];
   /** The resolved six-key settings (registry order) the composition consumes. */
   settings: GameplaySettings;
-  /** Phase 24.7: the manifest's `game` key — always null (the key goes with the 24.8 format bump). */
-  game: null;
-  /** The resolved media identity (cues + animation rows). */
+  /** The resolved media identity (the animation rows; phase 24.8: no cue slots). */
   media: MediaBlock;
   /** The reachable asset artifacts (`content/sha256/<digest>`), sorted by path. */
   assetArtifacts: readonly ClosureArtifact[];
@@ -493,7 +491,6 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     assets,
     behaviors: behaviorInputs,
     settings: view.settings,
-    game: view.game,
     // Phase 12 (b): the tag registry rides in the manifest (scripts query by tag).
     tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
     // Phase 9.4: project materials and the environment (the renderer's; bound by the buildId).
@@ -561,7 +558,6 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       sceneBytes,
       moduleIds,
       settings: view.settings,
-      game: view.game,
       media,
       assetArtifacts,
       behaviorArtifacts,

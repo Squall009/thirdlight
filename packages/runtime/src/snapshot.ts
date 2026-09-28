@@ -25,7 +25,7 @@ import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thir
 import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
@@ -51,8 +51,8 @@ export function deepFreeze<T>(value: T): T {
  * Validate the runtime snapshot (runtime.md §2). Returns the normalized
  * scene on success. Never throws.
  *
- * Phase 24.7: the `game` wrapper field (the deleted game block)
- * is absent or null; a block is `snapshot_invalid` (`reason: "shape"`).
+ * Phase 24.8: there is no `game` wrapper field (the deleted game block); one
+ * is `snapshot_invalid` (`reason: "shape"`).
  */
 export function validateRuntimeSnapshot(
   input: unknown,
@@ -103,7 +103,8 @@ export function validateRuntimeSnapshot(
           code: 'snapshot_invalid',
           reason: 'shape',
           path: `/${key}`,
-          message: `unknown snapshot field "${key}" (strict shape)`,
+          // Phase 24.8: the deleted game block's field says where it went.
+          message: key === 'game' ? 'snapshot field "game" (the game block) was removed in phase 24: build it as project scripts' : `unknown snapshot field "${key}" (strict shape)`,
         },
       };
     }
@@ -180,17 +181,6 @@ export function validateRuntimeSnapshot(
     };
   }
   const sceneVersion: 3 | 4 = rawVersion;
-  // Phase 24.7: the `game` wrapper field (the deleted game block) is absent or null.
-  if (snap.game !== undefined && snap.game !== null) {
-    return {
-      error: {
-        code: 'snapshot_invalid',
-        reason: 'shape',
-        path: '/game',
-        message: 'snapshot field "game" (the game block) was removed in phase 24; it is absent or null',
-      },
-    };
-  }
   // v4: the start scenes merged into one runtime scene (no per-scene limits).
   const sceneResult = sceneVersion === 4 ? validateMergedSceneV4(snap.scene) : validateSceneV3(snap.scene);
   if (!sceneResult.ok) {

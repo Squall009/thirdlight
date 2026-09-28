@@ -51,7 +51,6 @@ export function snapshotOf(scene: { revision: number }, projectId = 'demo-0001')
     projectId,
     revision,
     scene,
-    game: null,
   };
 }
 

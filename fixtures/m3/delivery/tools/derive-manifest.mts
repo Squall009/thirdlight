@@ -6,9 +6,8 @@
  *
  * Inputs it keeps: the committed scene / content-view preimages (after taking
  * out the platformer game layer removed in phase 24: the `cameraFollow`
- * component, the `gameZone` entities, `content.game` → null) and the recorded
- * asset rows, settings and animation rows. Everything else — the media cue
- * slots, the module rows (the known M3 modules the scene needs), the engine
+ * component, the `gameZone` entities, `content.game`) and the recorded
+ * asset rows, settings and animation rows. Everything else — the module rows (the known M3 modules the scene needs), the engine
  * pins, the recipes, every block digest and the buildId — comes from the
  * product. It then rewrites the files that carry the buildId or the digests
  * (digests/expected.json, the settings variant, the pinned run, the wire
@@ -23,7 +22,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  CUE_SLOTS,
   M3_KNOWN_MODULE_IDS,
   blockDigest,
   captureManifestV2,
@@ -54,7 +52,11 @@ function neutralScene(scene: { entities: Entity[] } & Record<string, unknown>): 
       }),
   };
 }
-const neutralContent = (c: Record<string, unknown>): Record<string, unknown> => ({ ...c, game: null });
+/** Phase 24.8: the content view has no game key (it was null since 24.7). */
+const neutralContent = (c: Record<string, unknown>): Record<string, unknown> => {
+  const { game: _g, ...rest } = c;
+  return rest;
+};
 
 // 1. The preimages.
 const scene = neutralScene(readJson('manifest/scene-preimage.json'));
@@ -66,8 +68,8 @@ writeJson('manifest/variants/changed-content-view-preimage.json', changedContent
 
 // 2. The manifest through the product.
 const previous = readJson('manifest/manifest-v2-preimage.json');
+// Phase 24.8: the media block is the animation rows (no cue slots).
 const media = {
-  cues: Object.fromEntries(CUE_SLOTS.map((slot) => [slot, null])),
   animation: (previous['media'] as { animation: unknown[] }).animation,
 };
 const modules = resolveRequiredModules({ scene: scene as never, behaviors: [], physicsDimension: 2 });
@@ -82,7 +84,6 @@ const res = captureManifestV2({
   assets: (content['assets'] as ManifestAssetInputV2[]).map((a) => ({ ...a })),
   behaviors: [],
   settings: content['settings'] as Record<string, number>,
-  game: null,
   media: media as never,
   moduleIds: modules.moduleIds.filter((id) => M3_KNOWN_MODULE_IDS.includes(id)),
 });
@@ -97,11 +98,11 @@ writeJson('manifest/manifest-v2-preimage.json', preimage);
 const expected = readJson('digests/expected.json');
 const changedContentDigest = blockDigest(changedContent);
 const changedSettingsDigest = blockDigest(changedContent['settings']);
+const { gameDigest: _gd, ...expectedRest } = expected;
 writeJson('digests/expected.json', {
-  ...expected,
+  ...expectedRest,
   sceneDigest: example['sceneDigest'],
   contentDigest,
-  gameDigest: example['gameDigest'],
   settingsDigest: example['settingsDigest'],
   mediaDigest: example['mediaDigest'],
   buildOptionsDigest: example['buildOptionsDigest'],
@@ -111,14 +112,14 @@ writeJson('digests/expected.json', {
   changed: { contentDigest: changedContentDigest, settingsDigest: changedSettingsDigest },
 });
 const variant = readJson<{ changed: Record<string, unknown> & { unchanged: Record<string, unknown> } } & Record<string, unknown>>('manifest/variants/settings-variant.json');
-const { title: _title, ...unchanged } = variant.changed.unchanged;
+const { title: _title, gameDigest: _ug, cues: _uc, ...unchanged } = variant.changed.unchanged;
 writeJson('manifest/variants/settings-variant.json', {
   ...variant,
   changed: {
     ...variant.changed,
     contentDigest: changedContentDigest,
     settingsDigest: changedSettingsDigest,
-    unchanged: { ...unchanged, sceneDigest: example['sceneDigest'], gameDigest: example['gameDigest'], mediaDigest: example['mediaDigest'], cues: media.cues },
+    unchanged: { ...unchanged, sceneDigest: example['sceneDigest'], mediaDigest: example['mediaDigest'] },
   },
 });
 

@@ -150,7 +150,6 @@ function snapshotOf(scene: unknown): RuntimeSnapshot {
     projectId: 'demo-0001',
     revision: 1,
     scene: scene as RuntimeSnapshot['scene'],
-    game: null,
   } as unknown as RuntimeSnapshot;
 }
 
@@ -348,7 +347,6 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
       projectId: 'demo-0001',
       revision: 1,
       scene,
-      game: null,
     } as unknown as RuntimeSnapshot;
     const byId = new Map<string, Uint8Array>([
       ['asset-a', bytesA],

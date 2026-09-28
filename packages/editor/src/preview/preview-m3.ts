@@ -17,7 +17,7 @@
  *
  * `startM3Preview` composes the SINGLE shared production host
  * (`createGameHost` — the same entry the M3 export uses, packet 58) with the
- * manifest's resolved `settings`/`game`, the Rapier physics port, the scene
+ * manifest's resolved `settings`, the Rapier physics port, the scene
  * adapter (with the §2.1 `models` block when the scene references model
  * assets), the input owner and the audio owner. There is no second bootstrap,
  * controller or run-state owner (delivery.md §3.2 normative).
@@ -28,10 +28,8 @@
  *      + `tl.snapshot`);
  *   2. the manifest v2 is read + buildId-verified (L1 — `play_content_not_ready`,
  *      phase `manifest`);
- *   3. the bridge snapshot's scene re-hashes to `manifest.sceneDigest` and its
- *      `game` re-hashes to `manifest.gameDigest` (step 5 — deep-equal against
- *      the manifest's own hash-bound `game` block: the buildId check already
- *      binds `gameDigest`, so a deep-equal snapshot `game` re-hashes to it);
+ *   3. the bridge snapshot's scene re-hashes to `manifest.sceneDigest`
+ *      (phase 24.8: there is no game block);
  *   4. every declared asset is read EXACTLY ONCE (relative path) and re-hashed
  *      to its manifest `sourceDigest` (L2 — phase `assets`); the wrapper
  *      posts truthful load progress (≤ 1 KiB per row);
@@ -63,7 +61,7 @@
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { PREVIEW_MODULE_SPECS } from './module-specs';
 import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_3, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
@@ -114,7 +112,7 @@ const PREVIEW_PHYSICS_3D_PATH = '/physics-3d.js';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
 export interface PreviewManifestV2 {
-  manifestVersion: 2;
+  manifestVersion: 3;
   type: string;
   projectId: string;
   revision: number;
@@ -122,11 +120,9 @@ export interface PreviewManifestV2 {
   capturedAt: string;
   sceneDigest: string;
   contentDigest: string;
-  gameDigest: string;
   settingsDigest: string;
   mediaDigest: string;
   settings: GameplaySettings;
-  game: Record<string, unknown> | null;
   tags?: { bit: number; name: string }[];
   /** Phase 9.4: project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
@@ -233,8 +229,7 @@ function readPreviewArtifact(contentRoot: string, path: string): Promise<ArrayBu
   });
 }
 
-/** Deep structural equality (key-order independent) for the §2.8 step-5 game
- * re-hash against the manifest's hash-bound `game` block. */
+/** Deep structural equality (key-order independent): the snapshot's tags against the manifest's. */
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
@@ -385,7 +380,7 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
 /**
  * Start the M3 preview for one verified capture: read + verify the manifest v2
  * from the locator (WebCrypto `buildId`), verify the bridge-delivered snapshot
- * against `manifest.sceneDigest`/`manifest.gameDigest`, read + verify every
+ * against `manifest.sceneDigest`, read + verify every
  * declared asset ONCE, then compose + mount the single shared host and AWAIT
  * the models settle (delivery.md §2.8). A failed read/verify/mount/prepare
  * throws a bounded `PreviewM3Error` (the caller surfaces it to the bridge as a
@@ -398,14 +393,11 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   //    handshake's expected build). L1 — phase `manifest`.
   const manifestRes = await readPreviewArtifact(cfg.contentRoot, 'manifest.json');
   const manifest = JSON.parse(new TextDecoder().decode(manifestRes)) as PreviewManifestV2;
-  if (manifest.manifestVersion !== 2 || manifest.type !== 'thirdlight-runtime-content') {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'unsupported manifest document (expected runtime-content v2)');
+  if (manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_3 || manifest.type !== 'thirdlight-runtime-content') {
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'unsupported manifest document (expected runtime-content v3)');
   }
-  const buildIdKeys = [
-    'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
-    'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
-  ];
+  // Phase 24.8: the model's key order (one list; every key but buildId).
+  const buildIdKeys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
   const preimage: Record<string, unknown> = {};
   for (const k of buildIdKeys) if (k in manifest) preimage[k] = (manifest as unknown as Record<string, unknown>)[k];
   const recomputed = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(preimage, null, 2)}\n`));
@@ -413,23 +405,15 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   if (manifest.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
 
   // 2. The bridge-delivered snapshot: verify its scene re-hashes to
-  //    manifest.sceneDigest (§17.6) and its `game` re-hashes to
-  //    manifest.gameDigest (delivery.md §2.8 step 5 — deep-equal against the
-  //    manifest's own hash-bound `game` block: the buildId check already binds
-  //    `gameDigest`, so a deep-equal snapshot `game` re-hashes to it).
-  // The runtime wants an explicit `game` (null = scene mode).
+  //    manifest.sceneDigest (§17.6). Phase 24.8: no game block to compare.
   // Phase 23.8: a test/debug start (resolved by the backend) is not part of the runtime snapshot.
   const { start: startBlock, ...bridged } = cfg.snapshot as RuntimeSnapshot & { start?: PlayStartBlock };
-  const authored: RuntimeSnapshot = { ...bridged, game: cfg.snapshot.game ?? null };
+  const authored: RuntimeSnapshot = bridged;
   const startOptions = startBlock !== undefined ? hostStartOf(startBlock) : undefined;
   const startVariables = startBlock?.variables;
   const sceneDigest = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(authored.scene, null, 2)}\n`));
   if (sceneDigest !== manifest.sceneDigest) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot scene digest does not match manifest.sceneDigest');
-  }
-  // The retired game block (null since phase 24.7) must match the manifest's.
-  if (!deepEqual(authored.game ?? null, manifest.game ?? null)) {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot game does not re-hash to manifest.gameDigest');
   }
   // Phase 12 (b): the tag registry is the manifest's (bound by the buildId).
   if (!deepEqual(authored.tags ?? [], manifest.tags ?? [])) {

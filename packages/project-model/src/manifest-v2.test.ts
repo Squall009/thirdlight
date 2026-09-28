@@ -15,12 +15,11 @@ import { describe, expect, it } from 'vitest';
 import {
   blockDigest,
   captureManifestV2,
-  CUE_SLOTS,
   manifestBuildIdInputV2,
   manifestVersionCompat,
   MANIFEST_KEYS_V2,
   mediaProfileDigest,
-  RUNTIME_CONTENT_MANIFEST_VERSION_2,
+  RUNTIME_CONTENT_MANIFEST_VERSION_3,
   sha256Hex,
   validateManifestV2,
 } from './index';
@@ -35,17 +34,13 @@ const SETTINGS = {
   min_slope_slide_deg: 30,
 } as const;
 
-// Phase 24.7: the game block is gone; the manifest carries game: null.
-const GAME = null;
-
-// A minimal media identity (no cues, one animation row).
+// A minimal media identity (phase 24.8: only animation rows; one row).
 const ROLES = {
   idle: { clipIndex: 0, clipName: 'Idle' },
   run: { clipIndex: 1, clipName: 'Run' },
   airborne: { clipIndex: 2, clipName: 'Air' },
 };
 const MEDIA = {
-  cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
   animation: [
     {
       entityId: 'p-1',
@@ -81,7 +76,6 @@ function v2Input(over: Record<string, unknown> = {}) {
     assets: ASSETS,
     behaviors: [],
     settings: SETTINGS,
-    game: GAME,
     media: MEDIA,
     moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.character:controller'],
     ...over,
@@ -124,7 +118,7 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
       expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
       expect(validateManifestV2(tagged.manifest).ok).toBe(true);
     }
-    expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_2);
+    expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_3);
     expect(res.manifest.snapshotId).toBe('demo-0001@r12');
   });
 
@@ -144,18 +138,21 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.manifest.settingsDigest).toBe(blockDigest(SETTINGS));
-    expect(res.manifest.gameDigest).toBe(blockDigest(GAME));
     expect(res.manifest.mediaDigest).toBe(blockDigest(MEDIA));
     expect(res.manifest.sceneDigest).toBe(DIGEST);
     expect(res.manifest.contentDigest).toBe(DIGEST);
   });
 
-  it('a null game hashes the null preimage and the document carries game: null', () => {
-    const res = captureManifestV2(v2Input({ game: null }) as never);
+  it('phase 24.8: the document has no game block, no gameDigest and no cue slots', () => {
+    const res = captureManifestV2(v2Input() as never);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.manifest.game).toBeNull();
-    expect(res.manifest.gameDigest).toBe(blockDigest(null));
+    expect('game' in res.manifest).toBe(false);
+    expect('gameDigest' in res.manifest).toBe(false);
+    expect(Object.keys(res.manifest.media)).toEqual(['animation']);
+    const withCues = { ...res.manifest, media: { cues: {}, animation: [] } };
+    expect(validateManifestV2(withCues).ok).toBe(false);
+    expect(validateManifestV2({ ...res.manifest, manifestVersion: 2 }).ok).toBe(false);
   });
 
   it('asset rows carry kind, the derived recipeDigest and the sha256 path', () => {
@@ -319,33 +316,30 @@ describe('manifest-v2: version-compat rule (delivery.md §2.1)', () => {
     expect(res.error.reason).toBe('manifest_version');
   });
 
-  it('a v2 reader rejects a v1 document (manifest_version)', () => {
-    const res = manifestVersionCompat({ manifestVersion: 1 }, 2);
+  it('a v3 reader rejects a v1 or v2 document (manifest_version)', () => {
+    expect(manifestVersionCompat({ manifestVersion: 2 }, 3).ok).toBe(false);
+    const res = manifestVersionCompat({ manifestVersion: 1 }, 3);
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toBe('manifest_version');
   });
 
   it('a matching version loads', () => {
-    expect(manifestVersionCompat({ manifestVersion: 2 }, 2).ok).toBe(true);
+    expect(manifestVersionCompat({ manifestVersion: 3 }, 3).ok).toBe(true);
     expect(manifestVersionCompat({ manifestVersion: 1 }, 1).ok).toBe(true);
   });
 });
 
 describe('manifest-v2: contract constants', () => {
   it('the v2 key order carries the six added keys and buildId last', () => {
-    expect(MANIFEST_KEYS_V2).toHaveLength(45); // (phase 24.7: no flow key) incl. the 24.4j shell, the 24.4i eventCues, the 23.10 modes, the 23.16 dialogue, the 23.17 timelines, the 23.19 saveSchema, the 23.11 rigs, the 23.3 collisionLayers, the 23.5 blockTypes and cellFields, the 23.9a uiThemes and uiDocuments, the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, the 20.2 effects, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs and the 9.8 input
-    expect(MANIFEST_KEYS_V2).toContain('gameDigest');
+    expect(MANIFEST_KEYS_V2).toHaveLength(43); // (phase 24.7: no flow key; 24.8: no game, gameDigest) incl. the 24.4j shell, the 24.4i eventCues, the 23.10 modes, the 23.16 dialogue, the 23.17 timelines, the 23.19 saveSchema, the 23.11 rigs, the 23.3 collisionLayers, the 23.5 blockTypes and cellFields, the 23.9a uiThemes and uiDocuments, the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, the 20.2 effects, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs and the 9.8 input
+    expect(MANIFEST_KEYS_V2).not.toContain('gameDigest');
     expect(MANIFEST_KEYS_V2).toContain('settingsDigest');
     expect(MANIFEST_KEYS_V2).toContain('mediaDigest');
     expect(MANIFEST_KEYS_V2).toContain('settings');
-    expect(MANIFEST_KEYS_V2).toContain('game');
+    expect(MANIFEST_KEYS_V2).not.toContain('game');
     expect(MANIFEST_KEYS_V2).toContain('media');
     expect(MANIFEST_KEYS_V2).not.toContain('flow');
     expect(MANIFEST_KEYS_V2[MANIFEST_KEYS_V2.length - 1]).toBe('buildId');
-  });
-
-  it('the cue slots are the five game cues in order', () => {
-    expect([...CUE_SLOTS]).toEqual(['start', 'jump', 'checkpoint', 'death', 'goal']);
   });
 });

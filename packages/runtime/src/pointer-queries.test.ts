@@ -31,7 +31,7 @@ const T = (position: number[], rotation: number[] = [0, 0, 0, 1]) => ({ position
 // The scene camera 10 m in front of the origin, looking down −Z.
 const CAM = { id: 'cam-main', components: { transform: T([0, 0, 10]), camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } };
 const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-const snap = (entities: unknown[], tags?: unknown[]) => ({ snapshotId: 'pq@r1', projectId: 'pq', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null, ...(tags !== undefined ? { tags } : {}) });
+const snap = (entities: unknown[], tags?: unknown[]) => ({ snapshotId: 'pq@r1', projectId: 'pq', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, ...(tags !== undefined ? { tags } : {}) });
 
 describe('pointer samples in the frame', () => {
   it('old frames stay valid; a pointer sample is checked strictly', () => {

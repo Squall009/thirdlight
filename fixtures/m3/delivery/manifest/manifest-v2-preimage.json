@@ -1,15 +1,14 @@
 {
-  "manifestVersion": 2,
+  "manifestVersion": 3,
   "type": "thirdlight-runtime-content",
   "projectId": "demo-0001",
   "revision": 12,
   "snapshotId": "demo-0001@r12",
   "capturedAt": "2026-09-19T10:00:00Z",
   "sceneDigest": "6fab2f1502190db13f654c67ac207f3765ce7c9751df4f6c215087e04bf8dcd6",
-  "contentDigest": "a72cf408c5acbaa85203d19d31580c5ad8dce2ed56fe742896340538f7318c26",
-  "gameDigest": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed",
+  "contentDigest": "80a8b0d10bb5594c3259f08741d8face23b07ea78e7ab8d002f9afdf4f5581e5",
   "settingsDigest": "1e0330968732956f82238e846a85a2694219e951f38a0eec85e8fee49f13f284",
-  "mediaDigest": "b35588896ad314355612ffa558b1ae1e8c5612c1a5b7ac9f943f4445df3ae48d",
+  "mediaDigest": "d17eefd161fe59b8d1c1433d1b01eaa12de8fd2f7fda858cf30c329a3bec4b51",
   "settings": {
     "gravity_y": -19.62,
     "run_speed": 4,
@@ -18,7 +17,6 @@
     "max_slope_climb_deg": 45,
     "min_slope_slide_deg": 30
   },
-  "game": null,
   "assets": [
     {
       "assetId": "asset-0001",
@@ -52,13 +50,6 @@
     }
   ],
   "media": {
-    "cues": {
-      "start": null,
-      "jump": null,
-      "checkpoint": null,
-      "death": null,
-      "goal": null
-    },
     "animation": [
       {
         "entityId": "player-0001",

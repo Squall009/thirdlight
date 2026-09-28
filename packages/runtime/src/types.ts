@@ -42,8 +42,8 @@ export interface RuntimeScene {
 
 /**
  * The runtime snapshot (runtime.md §2) — the ONLY input of a runtime
- * instance. `scene` is a complete normalized scene document. Phase 24.7: the
- * `game` wrapper field (the deleted game block) may only be null.
+ * instance. `scene` is a complete normalized scene document. Phase 24.8: no
+ * `game` wrapper field (the deleted game block).
  */
 export interface RuntimeSnapshot {
   /** Exactly `<projectId>@r<revision>` (project-model §6). */
@@ -52,8 +52,6 @@ export interface RuntimeSnapshot {
   /** Integer, 0 ≤ v ≤ 2^53−1; must equal `scene.revision`. */
   revision: number;
   scene: RuntimeScene;
-  /** Phase 24.7: the deleted game block — absent or null (24.8 drops the field). */
-  game?: null;
   /**
    * Phase 12 (b), v3 only, optional: the project tag registry (`content.tags`).
    * The entities carry their effective masks once the scene is resolved.

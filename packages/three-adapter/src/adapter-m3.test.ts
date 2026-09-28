@@ -90,7 +90,6 @@ function v3Snapshot(opts: {
     projectId: 'demo-52',
     revision: 1,
     scene: { schemaVersion: 3, sceneId: 'scene-main', revision: 1, entities },
-    game: null,
   } as unknown as RuntimeSnapshot;
 }
 

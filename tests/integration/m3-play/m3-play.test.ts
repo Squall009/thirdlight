@@ -30,7 +30,7 @@ function sceneDoc() {
 }
 
 describe('buildPlayContentM3 (the v3 play artifact set)', () => {
-  it('assembles the relative set: manifest.json (v2) + the declared assets + game.js (no scene.json — the scene rides the bridge)', async () => {
+  it('assembles the relative set: manifest.json (v3) + the declared assets + game.js (no scene.json — the scene rides the bridge)', async () => {
     const { scene, content, blobs } = syntheticV3();
     const res = await buildPlayContentM3({
       service: fakeService({ blobs }) as unknown as WorkspaceService,
@@ -47,7 +47,7 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     const built = res.built;
 
     // The v2 manifest is self-identifying and contract-valid.
-    expect(built.manifest.manifestVersion).toBe(2);
+    expect(built.manifest.manifestVersion).toBe(3);
     expect(built.buildId).toMatch(/^[0-9a-f]{64}$/);
     const preimage = manifestBuildIdInputV2(built.manifest as unknown as Record<string, unknown>);
     expect(preimage).not.toBeNull();

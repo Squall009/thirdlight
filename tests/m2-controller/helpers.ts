@@ -119,7 +119,6 @@ export function courseSnapshot(course: CourseFile, start: Vec2): unknown {
     projectId: 'demo-0001',
     revision: 4,
     scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 4, entities },
-    game: null,
   };
 }
 

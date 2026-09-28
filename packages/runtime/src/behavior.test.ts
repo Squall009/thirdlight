@@ -110,7 +110,7 @@ function sceneWithBehaviors(
 }
 
 function snapshot(scene: unknown): unknown {
-  return { snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene, game: null };
+  return { snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene };
 }
 
 interface Harness {

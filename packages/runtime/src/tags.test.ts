@@ -45,7 +45,7 @@ function scene(): unknown {
 }
 
 const snapshot = (): RuntimeSnapshot =>
-  ({ snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene: scene(), game: null, tags: TAGS }) as unknown as RuntimeSnapshot;
+  ({ snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene: scene(), tags: TAGS }) as unknown as RuntimeSnapshot;
 
 describe('ctx.tags', () => {
   it('a behavior queries by tag mask in instantiate and step (effective masks, inactive left out)', () => {

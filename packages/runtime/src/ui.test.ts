@@ -221,7 +221,6 @@ function makeRuntime(frames: readonly ActionFrame[] | null, logs: string[][]): {
           { id: 'shop-0001', components: { transform: at(0, 0), behavior: { behaviorId: 'shop', values: {} } } },
         ],
       },
-      game: null,
       uiDocuments: ROWS,
     },
     registry,

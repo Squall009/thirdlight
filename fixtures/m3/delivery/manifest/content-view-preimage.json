@@ -47,6 +47,5 @@
     "max_slope_climb_deg": 45,
     "min_slope_slide_deg": 30
   },
-  "behaviorTrust": [],
-  "game": null
+  "behaviorTrust": []
 }

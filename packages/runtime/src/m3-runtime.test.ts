@@ -33,18 +33,19 @@ describe('a playable snapshot (phase 9.3 / 24)', () => {
     expect(errorOf(snapshotOf(cloneJson(baseScene())))).toBeNull();
   });
 
-  it('the game block is gone: absent or null plays, a block is refused', () => {
+  it('the game block is gone: no game field plays, any game field is refused (phase 24.8)', () => {
     const withGame = (game: unknown): unknown => {
       const s = snapshotOf(cloneJson(baseScene())) as Record<string, unknown>;
       if (game === undefined) delete s['game'];
       else s['game'] = game;
       return s;
     };
-    expect(errorOf(withGame(null))).toBeNull();
     expect(errorOf(withGame(undefined))).toBeNull();
-    const refused = errorOf(withGame({ configVersion: 2, title: 'Old', playerId: 'box-0001', cameraId: 'cam-main' }));
-    expect(refused).toMatchObject({ code: 'snapshot_invalid', reason: 'shape', path: '/game' });
-    expect(refused?.message).toContain('removed in phase 24');
+    for (const game of [null, { configVersion: 2, title: 'Old', playerId: 'box-0001', cameraId: 'cam-main' }]) {
+      const refused = errorOf(withGame(game));
+      expect(refused).toMatchObject({ code: 'snapshot_invalid', reason: 'shape', path: '/game' });
+      expect(refused?.message).toContain('removed in phase 24');
+    }
   });
 
   it('dispose releases the run surface (runtime_disposed), and a second dispose says so', () => {

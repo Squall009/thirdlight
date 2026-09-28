@@ -220,7 +220,6 @@ function makeRuntime(frames: readonly ActionFrame[] | null, trace: Trace, startM
           { id: 'logic-0001', components: { transform: at(0, 0), behavior: { behaviorId: 'director', values: {} } } },
         ],
       },
-      game: null,
       uiDocuments: [
         { uiDocumentId: 'hud', layer: 0, modal: false },
         { uiDocumentId: 'board', layer: 0, modal: false },

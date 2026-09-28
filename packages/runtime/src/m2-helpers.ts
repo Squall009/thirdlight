@@ -69,7 +69,6 @@ export function v2Snapshot(projectId = 'demo-0001'): unknown {
     projectId,
     revision: scene.revision,
     scene,
-    game: null,
   };
 }
 

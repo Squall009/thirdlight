@@ -59,7 +59,7 @@ function v2Scene(controllerCount = 1): any {
 }
 
 function snapshot(scene: any, projectId = 'demo-0001'): any {
-  return { snapshotId: `${projectId}@r${scene.revision}`, projectId, revision: scene.revision, scene, game: null };
+  return { snapshotId: `${projectId}@r${scene.revision}`, projectId, revision: scene.revision, scene };
 }
 
 /** The M1 demo scene (camera + box), now as a v4 scene (phase 9.3). */

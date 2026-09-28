@@ -251,7 +251,7 @@ export function requiredModuleIds(
   hasBehaviors: boolean,
 ): string[] {
   void hasBehaviors;
-  const r = resolveRequiredModules({ scene, game: null, demo });
+  const r = resolveRequiredModules({ scene, demo });
   return r.ok ? r.moduleIds : [];
 }
 

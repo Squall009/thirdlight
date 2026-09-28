@@ -123,7 +123,7 @@ function scriptedPort(start: PhysicsVec3): PhysicsPort3D & { poses: KinematicPos
 
 const T = (position: number[], rotation: number[] = [0, 0, 0, 1]) => ({ position, rotation, scale: [1, 1, 1] });
 const CAM = { id: 'cam-main', components: { transform: T([0, 2, 10]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 100 } } };
-const snap = (entities: unknown[]) => ({ snapshotId: 'p3@r1', projectId: 'p3', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null });
+const snap = (entities: unknown[]) => ({ snapshotId: 'p3@r1', projectId: 'p3', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } });
 const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 /** Run with a probe module (intent phase) that records each step's signals and trigger events. */

@@ -383,8 +383,8 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
   }
   if (value.content !== undefined) {
     // §19.4: the full-state `content` is the bounded content PROJECTION
-    // (summary pages), never the six-key envelope content block. For a v3
-    // project it may additionally carry `game` (null or an object).
+    // (summary pages), never the six-key envelope content block (phase 24.8:
+    // no `game` summary).
     if (!isPlainObject(value.content)) {
       return fieldError('field_type', `${path}/content`, 'content must be the bounded content projection object');
     }
@@ -396,15 +396,12 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
         });
       }
     }
-    if (value.content.game !== undefined && value.content.game !== null) {
-      return fieldError('field_value', `${path}/content/game`, 'content.game (the game block) was removed in phase 24; it is null');
-    }
   }
   return { ok: true, value: value as Record<string, unknown> };
 }
 
-/** §19.4's bounded content projection keys (+ the v3 `game` summary). */
-export const CONTENT_PROJECTION_KEYS = ['assets', 'prefabs', 'behaviors', 'behaviorTrust', 'game'] as const;
+/** §19.4's bounded content projection keys (phase 24.8: the v3 `game` summary went with the game block). */
+export const CONTENT_PROJECTION_KEYS = ['assets', 'prefabs', 'behaviors', 'behaviorTrust'] as const;
 
 /**
  * Validate a `mutation.applied` projection frame (sessions.md §6.2/§7.1):

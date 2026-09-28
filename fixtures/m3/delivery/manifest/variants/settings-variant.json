@@ -13,7 +13,7 @@
   "contentPreimage": "content-view-preimage.json",
   "changedContentPreimageFile": "manifest/variants/changed-content-view-preimage.json",
   "changed": {
-    "contentDigest": "138f3a212b2e6e847f1943378b1c11b51f3fffd707c92dc5b17d2dc0a9cb439b",
+    "contentDigest": "943e4b3356771f809c130a402de8dc3364502661bc865adefef0439b77598761",
     "settingsDigest": "6176e0515be45e95bc36bb174671f3ea92257746de0fa8ef45556f7ef41fe348",
     "settings": {
       "gravity_y": -30,
@@ -25,15 +25,7 @@
     },
     "unchanged": {
       "sceneDigest": "6fab2f1502190db13f654c67ac207f3765ce7c9751df4f6c215087e04bf8dcd6",
-      "gameDigest": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed",
-      "mediaDigest": "b35588896ad314355612ffa558b1ae1e8c5612c1a5b7ac9f943f4445df3ae48d",
-      "cues": {
-        "start": null,
-        "jump": null,
-        "checkpoint": null,
-        "death": null,
-        "goal": null
-      },
+      "mediaDigest": "d17eefd161fe59b8d1c1433d1b01eaa12de8fd2f7fda858cf30c329a3bec4b51",
       "animation": [
         {
           "entityId": "player-0001",

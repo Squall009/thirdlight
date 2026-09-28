@@ -149,7 +149,7 @@ describe('effects', () => {
   it('phase 20.2: the manifest carries the effects (an optional key, validated)', () => {
     const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
     const DIGEST = '0123456789abcdef'.repeat(4);
-    const input = { projectId: 'demo-0001', revision: 1, capturedAt: '2026-09-25T10:00:00Z', sceneDigest: DIGEST, contentDigest: DIGEST, assets: [], behaviors: [], settings: SETTINGS, game: null, media: { cues: { start: null, jump: null, checkpoint: null, death: null, goal: null }, animation: [] }, moduleIds: [] };
+    const input = { projectId: 'demo-0001', revision: 1, capturedAt: '2026-09-25T10:00:00Z', sceneDigest: DIGEST, contentDigest: DIGEST, assets: [], behaviors: [], settings: SETTINGS, media: { animation: [] }, moduleIds: [] };
     const plain = captureManifestV2(input as never);
     expect(plain.ok).toBe(true);
     if (plain.ok) expect('effects' in plain.manifest).toBe(false);

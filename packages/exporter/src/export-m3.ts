@@ -31,6 +31,7 @@ import {
   canonicalJsonText,
   digestBytes,
   digestEmittedClosure,
+  MANIFEST_KEYS_V2,
   sha256HexOfText,
   type RuntimeContentManifestV2,
 } from '@thirdlight/project-model';
@@ -448,9 +449,8 @@ export async function exportProjectM3(
       contentDigest: parsedManifest.contentDigest,
       buildId: parsedManifest.buildId,
       buildOptionsDigest: parsedManifest.buildOptionsDigest,
-      // Packet 58: the manifest block gains the three M3 digests (copies of the
-      // manifest's own hash-bound fields).
-      gameDigest: parsedManifest.gameDigest,
+      // Packet 58: the manifest block gains the M3 digests (copies of the
+      // manifest's own hash-bound fields; phase 24.8: no game digest).
       settingsDigest: parsedManifest.settingsDigest,
       mediaDigest: parsedManifest.mediaDigest,
     },
@@ -506,11 +506,8 @@ function rapier3dVersion(ctx: ExportContext, metafile: { inputs: Record<string, 
 /** The manifest document without `buildId` (the `buildId` preimage object). */
 function manifestWithoutBuildId(manifest: RuntimeContentManifestV2): Record<string, unknown> {
   const without: Record<string, unknown> = {};
-  const keys = [
-    'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
-    'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
-  ];
+  // Phase 24.8: the model's key order (one list; every key but buildId).
+  const keys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
   for (const k of keys) without[k] = (manifest as unknown as Record<string, unknown>)[k];
   return without;
 }

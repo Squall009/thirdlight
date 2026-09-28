@@ -38,7 +38,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { audioSpatialOf, depthBufferOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_3, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -87,12 +87,9 @@ interface ExportManifestV2 {
   capturedAt: string;
   sceneDigest: string;
   contentDigest: string;
-  gameDigest: string;
   settingsDigest: string;
   mediaDigest: string;
   settings: GameplaySettings;
-  /** Phase 24.7: always null (the key goes with the 24.8 format bump). */
-  game: null;
   tags?: { bit: number; name: string }[];
   /** Phase 9.4: project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
@@ -163,11 +160,8 @@ const sha256Hex = sha256HexAsync;
  * manifest key order — the page re-derives it to verify the single manifest
  * read before anything else loads). */
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
-  const keys = [
-    'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
-    'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
-  ];
+  // Phase 24.8: the model's key order (one list; every key but buildId).
+  const keys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
   const out: Record<string, unknown> = {};
   for (const k of keys) out[k] = manifest[k];
   return out;
@@ -274,7 +268,6 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     projectId: manifest.projectId,
     revision: manifest.revision,
     scene,
-    game: null,
     ...(manifest.tags !== undefined ? { tags: manifest.tags } : {}),
     ...(catalog !== null ? { scenes: catalog.rows } : {}),
     // Phase 9.7: the animator controllers (bound by the buildId).
@@ -610,7 +603,7 @@ async function main(): Promise<void> {
     const res = await fetch('./manifest.json', { credentials: 'omit' });
     if (!res.ok) throw new Error(`manifest read failed (HTTP ${String(res.status)})`);
     const manifest = JSON.parse(await res.text()) as ExportManifestV2;
-    if (manifest.type !== 'thirdlight-runtime-content' || manifest.manifestVersion !== 2) throw new Error('unsupported manifest document');
+    if (manifest.type !== 'thirdlight-runtime-content' || manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_3) throw new Error('unsupported manifest document');
     const expected = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(buildIdInput(manifest as unknown as Record<string, unknown>), null, 2)}\n`));
     if (expected !== manifest.buildId) throw new Error('manifest buildId does not match its own canonical bytes');
     await start(canvas, manifest);

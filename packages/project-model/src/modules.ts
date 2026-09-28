@@ -94,8 +94,6 @@ export const CONTENT_BLOCK_MODULES: Readonly<Record<string, readonly string[]>> 
 export interface ResolveModulesInput {
   /** The scene (entities' component presence is read structurally). */
   scene: { entities?: ReadonlyArray<Record<string, unknown>> } | null | undefined;
-  /** Phase 24.7: the deleted game block (`content.game`); ignored (always null in a valid project). */
-  game?: unknown;
   /** The reachable behaviors and what they declared. */
   behaviors?: ReadonlyArray<{ behaviorId: string; requiredModules: readonly string[] }>;
   /** Explicitly declared module ids (e.g. a template's `requiredModules`). */

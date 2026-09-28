@@ -42,7 +42,7 @@ export function baseScene(): { schemaVersion: 4; sceneId: string; revision: numb
 /** A well-formed runtime snapshot over `scene`. */
 export function snapshotOf(scene: { revision: number }, projectId = 'demo-0001'): unknown {
   const revision = scene.revision;
-  return { snapshotId: `${projectId}@r${revision}`, projectId, revision, scene, game: null };
+  return { snapshotId: `${projectId}@r${revision}`, projectId, revision, scene };
 }
 
 /** Plain JSON clone. */

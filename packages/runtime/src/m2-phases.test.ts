@@ -237,7 +237,6 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
         projectId: 'demo-0001',
         revision: 4,
         scene: noController,
-        game: null,
       }),
     ).toMatchObject({ code: 'config_invalid', reason: 'controller_target' });
 

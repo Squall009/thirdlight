@@ -200,7 +200,6 @@ function hostSnapshot(): unknown {
         },
       ],
     },
-    game: null,
   };
 }
 

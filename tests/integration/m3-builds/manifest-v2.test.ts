@@ -59,7 +59,6 @@ describe('manifest-v2: independent digest re-derivation', () => {
   it('reproduces every committed block digest', () => {
     expect(canonSha(scenePre)).toBe(expected.sceneDigest);
     expect(canonSha(contentPre)).toBe(expected.contentDigest);
-    expect(canonSha(contentPre['game'])).toBe(expected.gameDigest);
     expect(canonSha(contentPre['settings'])).toBe(expected.settingsDigest);
     expect(canonSha(example['media'])).toBe(expected.mediaDigest);
   });
@@ -77,8 +76,12 @@ describe('manifest-v2: independent digest re-derivation', () => {
     expect(buildId).toBe(expected.buildId);
   });
 
-  it('a null game block hashes the four canonical bytes "null"', () => {
-    expect(canonSha(null)).toBe(createHash('sha256').update('null\n', 'utf8').digest('hex'));
+  it('phase 24.8: no game block, no gameDigest, no cue slots', () => {
+    expect('game' in contentPre).toBe(false);
+    expect('gameDigest' in example).toBe(false);
+    expect('game' in example).toBe(false);
+    expect(Object.keys(example['media'] as object)).toEqual(['animation']);
+    expect(example['manifestVersion']).toBe(3);
   });
 
   it('the animation profileDigest equals the canonical roles bytes', () => {
@@ -122,7 +125,6 @@ describe('manifest-v2: captureManifestV2 fixture re-derivation', () => {
       assets,
       behaviors: [],
       settings: preimage['settings'] as Record<string, number>,
-      game: preimage['game'] as never,
       media: preimage['media'] as never,
       moduleIds: (preimage['modules'] as { id: string }[]).map((m) => m.id),
       enginePins: preimage['enginePins'] as { id: string; version: string; apiVersion: number }[],
@@ -177,7 +179,6 @@ describe('manifest-v2: captured v3 content view + media identity', () => {
       behaviors: view.behaviors,
       settings: view.settings,
       behaviorTrust: view.behaviorTrust,
-      game: view.game,
     };
     expect(canonSha(withoutDigest)).toBe(view.contentDigest);
     // settings are the resolved six keys in registry order.
@@ -186,14 +187,12 @@ describe('manifest-v2: captured v3 content view + media identity', () => {
     ]);
   });
 
-  it('resolveMediaIdentityV3 derives the cue slots + animation rows', () => {
+  it('resolveMediaIdentityV3 derives the animation rows (phase 24.8: no cue slots)', () => {
     const res = resolveMediaIdentityV3(scene, content);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const media = res.normalized;
-    // The five cue slots stay in the §2.2 order; phase 24 removed the game
-    // block that filled them, so every slot is null.
-    expect(media.cues).toEqual({ start: null, jump: null, checkpoint: null, death: null, goal: null });
+    expect(Object.keys(media)).toEqual(['animation']);
     // The single modelAnimation entity produces one animation row.
     expect(media.animation).toHaveLength(1);
     const row = media.animation[0]!;
@@ -246,7 +245,6 @@ describe('manifest-v2: validateManifestV2 captured-state re-derivation', () => {
       assets,
       behaviors: [],
       settings: viewRes.normalized.settings as unknown as Record<string, number>,
-      game: viewRes.normalized.game,
       media: mediaRes.normalized,
       moduleIds: ['thirdlight.character:controller'],
       ...over,
@@ -311,21 +309,22 @@ describe('manifest-v2: validateManifestV2 captured-state re-derivation', () => {
 describe('manifest-v2: version compatibility', () => {
   const example = json<Record<string, unknown>>(join(MANIFEST, 'manifest-v2-example.json'));
 
-  it('a v1 reader rejects the v2 example document (manifest_version)', () => {
+  it('a v1 reader rejects the v3 example document (manifest_version)', () => {
     const res = manifestVersionCompat(example, 1);
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toBe('manifest_version');
   });
 
-  it('a v2 reader rejects a v1 document (manifest_version)', () => {
-    const res = manifestVersionCompat({ manifestVersion: 1 }, 2);
+  it('the v3 reader rejects a v1 or v2 document (manifest_version)', () => {
+    expect(manifestVersionCompat({ manifestVersion: 2 }, 3).ok).toBe(false);
+    const res = manifestVersionCompat({ manifestVersion: 1 }, 3);
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toBe('manifest_version');
   });
 
-  it('the v2 reader rejects the v2 example only via validateManifestV2 success', () => {
+  it('the reader accepts the v3 example (validateManifestV2 success)', () => {
     expect(validateManifestV2(example).ok).toBe(true);
   });
 });

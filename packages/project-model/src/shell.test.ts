@@ -33,7 +33,7 @@ describe('the shell block', () => {
 
   it('names documents of the project', () => {
     const docs = [{ uiDocumentId: 'title', name: 'T', root: { type: 'panel' } }];
-    expect(refs({ uiDocuments: docs, shell: { screens: { title: 'title' } }, game: null })).toEqual([]);
+    expect(refs({ uiDocuments: docs, shell: { screens: { title: 'title' } } })).toEqual([]);
     expect(refs({ uiDocuments: docs, shell: { screens: { pause: 'gone' }, hud: ['title', 'nope'] } })).toEqual(['reference_missing /shell/screens/pause', 'reference_missing /shell/hud/1']);
   });
 
