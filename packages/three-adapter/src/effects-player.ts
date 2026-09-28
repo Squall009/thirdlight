@@ -641,7 +641,8 @@ export function effectsOptionFrom(input: {
   defs: readonly EffectDefLike[];
   wind: { direction: readonly number[]; strength: number; gust: number; gustFrequency: number; turbulence: number } | null;
   assets: readonly EffectAssetRowLike[];
-  bytes: (assetId: string, version: number) => ArrayBuffer | undefined;
+  /** Phase 25.24b: may read on demand (a promise), checked by the page. */
+  bytes: (assetId: string, version: number) => ArrayBuffer | undefined | Promise<ArrayBuffer | undefined>;
   /** The GLB loader port (mesh particles, mesh-surface shapes); absent: those draw nothing. */
   loader?: GlbLoaderPort;
 }): { defs: readonly EffectDefLike[]; wind: EffectsPlayerOptions['wind']; loadTexture: (assetId: string) => Promise<THREE.Texture | null>; loadModel?: (assetId: string) => Promise<THREE.Object3D | null> } {
@@ -650,16 +651,16 @@ export function effectsOptionFrom(input: {
   return {
     defs: input.defs,
     wind: input.wind,
-    loadTexture: (assetId) => {
+    loadTexture: async (assetId) => {
       const r = row('texture', assetId);
-      const buf = r !== undefined ? input.bytes(r.assetId, r.version) : undefined;
-      return buf !== undefined ? (decodeTexture(buf) as unknown as Promise<THREE.Texture>) : Promise.resolve(null);
+      const buf = r !== undefined ? await input.bytes(r.assetId, r.version) : undefined;
+      return buf !== undefined ? ((await decodeTexture(buf)) as unknown as THREE.Texture | null) : null;
     },
     ...(loader !== undefined
       ? {
           loadModel: async (assetId: string): Promise<THREE.Object3D | null> => {
             const r = row('model', assetId);
-            const buf = r !== undefined ? input.bytes(r.assetId, r.version) : undefined;
+            const buf = r !== undefined ? await input.bytes(r.assetId, r.version) : undefined;
             if (r === undefined || buf === undefined) return null;
             const glb = await loader.load(new Uint8Array(buf), { signal: new AbortController().signal, descriptor: { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, sourceByteLength: r.sourceByteLength } });
             return glb.createInstance() as unknown as THREE.Object3D;

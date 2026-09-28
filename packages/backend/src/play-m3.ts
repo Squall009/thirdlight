@@ -67,6 +67,8 @@ export interface BuildPlayContentM3Input {
   content: Record<string, unknown>;
   /** The prebuilt M3 play bundle bytes served as the entry (`game.js`). */
   gameBundle: Uint8Array;
+  /** Phase 25.24g: its digest when the caller already has it (the bundle is read and hashed once, not per Play). */
+  gameBundleDigest?: string;
   /** Phase 12 (c), a v4 project: every scene, and the start set. */
   scenes?: readonly unknown[];
   startScenes?: readonly string[];
@@ -174,7 +176,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
   }
   // The M3 play entry: the prebuilt bundle served as game.js (the page
   // bootstrap's import target — the same role as the M2 game.js).
-  artifacts.push({ path: 'game.js', bytes: input.gameBundle, digest: sha256HexBytes(input.gameBundle), contentType: 'text/javascript; charset=utf-8' });
+  artifacts.push({ path: 'game.js', bytes: input.gameBundle, digest: input.gameBundleDigest ?? sha256HexBytes(input.gameBundle), contentType: 'text/javascript; charset=utf-8' });
 
   return {
     ok: true,

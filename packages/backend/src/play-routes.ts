@@ -5,7 +5,7 @@ import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSna
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
-import { PlayContentStore, type PlayArtifact } from './play-content';
+import { PlayContentStore, sha256HexBytes, type PlayArtifact } from './play-content';
 import { buildPlayContentM3 } from './play-m3';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
@@ -64,14 +64,25 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     return null;
   };
 
-  /** The prebuilt play bundle bytes served as `game.js` (bounded read). */
-  const readGameBundle = (file = 'preview-m3.js'): Uint8Array | null => {
+  /**
+   * The prebuilt play bundle bytes served as `game.js` (bounded read), and
+   * their digest. Phase 25.24g: read from disk once and kept while the file
+   * is unchanged (its size and modification time; a rebuild of `dist/` is
+   * read again on the next Play), instead of once per Play.
+   */
+  let bundleCache: { path: string; size: number; mtimeMs: number; bytes: Uint8Array; digest: string } | null = null;
+  const readGameBundle = (file = 'preview-m3.js'): { bytes: Uint8Array; digest: string } | null => {
     const path = join(config.previewStaticDir, file);
     try {
-      if (!existsSync(path) || !statSync(path).isFile()) return null;
+      if (!existsSync(path)) return null;
+      const st = statSync(path);
+      if (!st.isFile()) return null;
+      const hit = bundleCache;
+      if (hit !== null && hit.path === path && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit;
       const bytes = new Uint8Array(readFileSync(path));
       if (bytes.length === 0 || bytes.length > 33_554_432) return null;
-      return bytes;
+      bundleCache = { path, size: st.size, mtimeMs: st.mtimeMs, bytes, digest: sha256HexBytes(bytes) };
+      return bundleCache;
     } catch {
       return null;
     }
@@ -283,7 +294,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
               entities: state.scene.entities as ReadonlyArray<Record<string, unknown>>,
             },
         content: captured.read.content as Record<string, unknown>,
-        gameBundle: gameBundleM3,
+        gameBundle: gameBundleM3.bytes,
+        gameBundleDigest: gameBundleM3.digest,
         ...(v4 ? { scenes: captured.read.scenes!, startScenes: captured.read.startScenes ?? [] } : {}),
         timings: closureTimings,
       });

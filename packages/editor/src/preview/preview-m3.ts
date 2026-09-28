@@ -28,11 +28,14 @@
  *      + `tl.snapshot`);
  *   2. the manifest v2 is read + buildId-verified (L1 — `play_content_not_ready`,
  *      phase `manifest`);
- *   3. the bridge snapshot's scene re-hashes to `manifest.sceneDigest`
- *      (phase 24.8: there is no game block);
- *   4. every declared asset is read EXACTLY ONCE (relative path) and re-hashed
- *      to its manifest `sourceDigest` (L2 — phase `assets`); the wrapper
- *      posts truthful load progress (≤ 1 KiB per row);
+ *   3. the bridge snapshot names the manifest's snapshot (phase 25.24g: its
+ *      id, project and revision; the scene is not serialized and hashed a
+ *      second time — the backend built both from one capture);
+ *   4. phase 25.24b: the start scenes' assets are read (at most 8 at a time)
+ *      and re-hashed to their manifest `sourceDigest` (L2 — phase `assets`);
+ *      every other asset is read, once and checked the same way, when it is
+ *      asked for (a scene loaded later, a material's texture, a sound); the
+ *      wrapper posts truthful load progress (≤ 1 KiB per row);
  *   5. the single shared composition; the adapter receives the §2.1 `models`
  *      block (`assets` = the referenced model rows, `animation` from
  *      `manifest.media.animation`, `resolveBytes` = the wrapper-verified byte
@@ -89,6 +92,10 @@ import {
   startRemoteSimulation,
   threadingLogLine,
   createStartTimings,
+  createVerifiedAssetReader,
+  startSceneAssets,
+  AssetReadError,
+  type VerifiedAssetReader,
   type RemoteSimulation,
   type SimAccess,
   type StartTimings,
@@ -220,6 +227,8 @@ export interface M3PreviewHandle {
   readonly identity: { snapshotId: string; revision: number; buildId: string; contentDigest: string; stepIndex: number };
   /** Phase 19.2: fixed steps per second (the debugger's "recently active" window is half a second of them). */
   readonly stepHz: number;
+  /** Phase 25.24b: the asset reads so far (at start and on demand) and their verified bytes. */
+  assetReads(): { reads: number; bytes: number };
   dispose(): void;
 }
 
@@ -249,39 +258,6 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return true;
 }
 
-/** The wrapper's read phase (delivery.md §2.8 step 4, L2): every declared
- * asset path is fetched EXACTLY ONCE (relative to the artifact root) and its
- * bytes re-hashed to the manifest `sourceDigest`. A read failure or a digest
- * mismatch is a L2 hard failure — the adapter never receives unverified
- * bytes. */
-async function readDeclaredAssets(
-  manifest: PreviewManifestV2,
-  contentRoot: string,
-  onProgress: (phase: string, loadedBytes: number, totalBytes: number) => void,
-  timings?: StartTimings,
-): Promise<Map<string, ArrayBuffer>> {
-  const bytesByKey = new Map<string, ArrayBuffer>();
-  const totalBytes = manifest.assets.reduce((s, a) => s + (a.sourceByteLength ?? 0), 0);
-  let loadedBytes = 0;
-  for (const row of manifest.assets) {
-    const res = await readPreviewArtifact(contentRoot, row.path);
-    const raw = new Uint8Array(res);
-    if (raw.byteLength !== row.sourceByteLength) {
-      throw new PreviewM3Error('asset_source_invalid', 'assets', `${row.assetId}: byte length ${raw.byteLength} !== manifest ${row.sourceByteLength}`);
-    }
-    const digest = await sha256Hex(raw);
-    if (digest !== row.sourceDigest) {
-      throw new PreviewM3Error('asset_source_invalid', 'assets', `${row.assetId}: digest ${digest} !== manifest ${row.sourceDigest}`);
-    }
-    bytesByKey.set(`${row.assetId}@${row.version}`, res);
-    timings?.count('startAssetReads', 1);
-    timings?.count('startAssetBytes', raw.byteLength);
-    loadedBytes += row.sourceByteLength ?? 0;
-    onProgress('assets', loadedBytes, totalBytes);
-  }
-  return bytesByKey;
-}
-
 /** The assetIds the snapshot scene references through a `model` component
  * (the v3 shape: `components.model.asset.assetId` — project-model §18.1). */
 function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
@@ -303,7 +279,7 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
  * identity, hash-bound through `mediaDigest`); `resolveBytes` = the
  * wrapper-verified byte map (the adapter never re-hashes).
  */
-function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, bytes: Map<string, ArrayBuffer>, contentRoot: string): SceneAdapterModels | null {
+function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, reader: VerifiedAssetReader, contentRoot: string): SceneAdapterModels | null {
   // Phase 12 (c): scenes loaded later may use any model of the build (the
   // manifest's asset list is the closure over every scene).
   const referenced = manifest.scenes !== undefined
@@ -327,11 +303,8 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
     animation: manifest.media.animation.map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
     // Phase 15.3: the project's idle/run/airborne blend time.
     ...(manifest.settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: manifest.settings.animation_crossfade_s } : {}),
-    resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
-      const buf = bytes.get(`${assetId}@${version}`);
-      if (buf === undefined) return Promise.reject(new PreviewM3Error('models_asset_unresolved', 'assets', `no wrapper-verified bytes for ${assetId} v${version}`));
-      return Promise.resolve(buf);
-    },
+    // Phase 25.24b: read (once, checked) when the model is first needed — at start for the start scenes' models.
+    resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => reader.bytes(assetId, version),
     ...(manifest.buffers !== undefined
       ? { resolveBuffer: bufferResolver(manifest.buffers, { read: (path) => readPreviewArtifact(contentRoot, path), sha256Hex }) }
       : {}),
@@ -387,9 +360,10 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
 
 /**
  * Start the M3 preview for one verified capture: read + verify the manifest v2
- * from the locator (WebCrypto `buildId`), verify the bridge-delivered snapshot
- * against `manifest.sceneDigest`, read + verify every
- * declared asset ONCE, then compose + mount the single shared host and AWAIT
+ * from the locator (WebCrypto `buildId`), check that the bridge-delivered
+ * snapshot names the manifest's capture, read + verify the start scenes'
+ * assets (phase 25.24b; the rest on demand, each once), then compose + mount
+ * the single shared host and AWAIT
  * the models settle (delivery.md §2.8). A failed read/verify/mount/prepare
  * throws a bounded `PreviewM3Error` (the caller surfaces it to the bridge as a
  * structured play error with the §2.7 phase + accepted code).
@@ -422,12 +396,13 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const authored: RuntimeSnapshot = bridged;
   const startOptions = startBlock !== undefined ? hostStartOf(startBlock) : undefined;
   const startVariables = startBlock?.variables;
-  timings?.begin('sceneCheck');
-  const sceneDigest = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(authored.scene, null, 2)}\n`));
-  if (sceneDigest !== manifest.sceneDigest) {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot scene digest does not match manifest.sceneDigest');
+  // Phase 25.24g: the snapshot and the manifest come from one backend capture (the play.started message
+  // that carries the snapshot names this build); the snapshot must name the manifest's capture. The scene
+  // is not serialized and hashed again here (the backend checked its bytes against sceneDigest).
+  const named = authored as unknown as { snapshotId?: unknown; projectId?: unknown; revision?: unknown };
+  if (named.snapshotId !== manifest.snapshotId || named.projectId !== manifest.projectId || named.revision !== manifest.revision) {
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot does not name the manifest\'s capture (snapshotId, project, revision)');
   }
-  timings?.end('sceneCheck');
   // Phase 12 (b): the tag registry is the manifest's (bound by the buildId).
   if (!deepEqual(authored.tags ?? [], manifest.tags ?? [])) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot tags do not match the manifest tags');
@@ -500,6 +475,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
+  // Phase 25.24b: every declared asset is read through this reader, once, checked against the manifest.
+  const assetReader = createVerifiedAssetReader(manifest.assets, { read: (path) => readPreviewArtifact(cfg.contentRoot, path), sha256Hex });
   // Phase 9.11 / 23.19: this project's saves in Play (an export uses its own namespace).
   const playSaveNamespace = `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
   // Physics runs only for a game (a player controller); a plain scene plays
@@ -568,22 +545,33 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       }
     }
 
-    // 3. The wrapper's read phase (L2): every declared asset read ONCE and
-    //    re-hashed to its manifest sourceDigest (the adapter never receives
-    //    unverified bytes).
-    let assetBytes: Map<string, ArrayBuffer>;
+    // 3. The wrapper's read phase (L2), phase 25.24b: the start scenes' assets, read at most 8 at a time
+    //    and re-hashed to their manifest sourceDigest (the adapter never receives unverified bytes); the
+    //    other assets go through the same reader when they are asked for.
     try {
+      const startRows = startSceneAssets({
+        assets: manifest.assets,
+        entities: snapshot.scene.entities,
+        ...(manifest.scenes !== undefined ? { startSceneIds: manifest.scenes.filter((r) => r.start).map((r) => r.sceneId) } : {}),
+        ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
+        ...(manifest.materialFunctions !== undefined ? { materialFunctions: manifest.materialFunctions } : {}),
+        ...(manifest.effects !== undefined ? { effects: manifest.effects } : {}),
+        ...(manifest.environment !== undefined ? { environment: manifest.environment } : {}),
+        ...(manifest.lighting !== undefined ? { lighting: manifest.lighting } : {}),
+      });
       timings?.begin('assets');
-      assetBytes = await readDeclaredAssets(manifest, cfg.contentRoot, onProgress, timings);
-      timings?.end('assets');
+      await assetReader.preload(startRows, (loaded, total) => onProgress('assets', loaded, total));
+      timings?.end('assets', `${startRows.length} of ${manifest.assets.length}`);
+      timings?.count('startAssetReads', startRows.length);
+      timings?.count('startAssetBytes', startRows.reduce((n, r) => n + r.sourceByteLength, 0));
     } catch (e) {
       void remoteStart?.then((r) => r.dispose(), () => undefined);
       remoteStart = null;
-      throw e;
+      throw e instanceof AssetReadError ? new PreviewM3Error('asset_source_invalid', 'assets', e.message) : e;
     }
     // 4. The single shared production composition (delivery.md §3.2) with the
     //    §2.1 `models` block (or none — the loader-free M1/M2/M3 surface).
-    const models = buildModelsBlock(manifest, snapshot, assetBytes, cfg.contentRoot);
+    const models = buildModelsBlock(manifest, snapshot, assetReader, cfg.contentRoot);
 
     let remote: RemoteSimulation | null = null;
     if (remoteStart !== null) {
@@ -677,7 +665,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
           ...(models !== null
             ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
             : {}),
-          ...materialsOptionOf(manifest, assetBytes),
+          ...materialsOptionOf(manifest, assetReader),
           // Phase 20.2: the visual effects (textures and models from the verified bytes).
           ...(manifest.effects !== undefined && manifest.effects.length > 0
             ? {
@@ -685,7 +673,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
                   defs: manifest.effects,
                   wind: manifest.environment?.wind ?? null,
                   assets: manifest.assets,
-                  bytes: (assetId: string, version: number) => assetBytes.get(`${assetId}@${version}`),
+                  bytes: (assetId: string, version: number) => assetReader.bytes(assetId, version).catch(() => undefined),
                   ...(JSON.stringify(manifest.effects).includes('"model"') ? { loader: createGltfLoaderPort({ decoderBase: '/decoders/' }) } : {}),
                 }),
               }
@@ -696,7 +684,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       },
       input,
       audio,
-      readArtifact: (path) => readPreviewArtifact(cfg.contentRoot, path),
+      // Phase 25.24b: a declared asset (a sound, a glyph, a UI image) through the checked reader; other paths as they are.
+      readArtifact: (path) => assetReader.bytesAt(path) ?? readPreviewArtifact(cfg.contentRoot, path),
       ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
       container: cfg.container as unknown as HostDomNode,
       buildId: manifest.buildId,
@@ -776,6 +765,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       adapter: adapterRef.current,
       identity,
       stepHz,
+      assetReads: () => assetReader.stats(),
       dispose: () => {
         // The host disposes its runtime — in worker mode the mirror, which ends the worker (22.3: the physics world is freed there);
         // then the physics port, the audio owner, the input and the page listeners (phase 21.5).
@@ -979,6 +969,8 @@ export function bootstrapPreviewM3(): void {
           ...modeDiagnostics(h),
           // Phase 25.24a: where this play's start went (stages, first frame, slow frames, scene loads).
           startTimings: timings.report(),
+          // Phase 25.24b: every asset read so far (the start scenes' and those read on demand since).
+          assetReads: h.assetReads(),
         },
       });
     });
@@ -1266,12 +1258,12 @@ function animatorStates(runtime: unknown): { animators?: Record<string, string> 
 }
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
-function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting'] } {
+function materialsOptionOf(manifest: PreviewManifestV2, reader: VerifiedAssetReader): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting'] } {
   if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return {};
   const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) => {
     const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
-    const buf = row !== undefined ? bytes.get(`${row.assetId}@${row.version}`) : undefined;
-    return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
+    // Phase 25.24b: read (once, checked) when a material, a bake or the sky first needs it.
+    return row !== undefined ? reader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : Promise.resolve(null);
   };
   const env = manifest.environment;
   return {

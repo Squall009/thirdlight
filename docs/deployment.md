@@ -532,6 +532,12 @@ after). The reply's `buildTimings` is the backend's part (session, state,
 capture, bundle, `closure.*`, publish, total); the play-start reply carries
 the same as `timings`.
 
+A Play (and an exported game) reads only its start scenes' files before it
+starts (phase 25.24b): the models, textures and bakes its start scenes use,
+eight at a time, each checked against the build. A scene loaded later reads
+its own when it loads, and a sound is read when it first plays. The
+diagnostics' `assetReads` counts what has been read so far.
+
 `tl_content_query {target:"game", includeDescriptors:true}` also returns the
 component and content descriptor registry: for every component and content
 block, each field's type, unit, range, step, default, group, label, tooltip,

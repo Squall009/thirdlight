@@ -6,6 +6,9 @@
  * preview (play.preview.ready), relays stop (play.stopped.ack), and answers
  * screenshot/diagnostics relays with the exact result shapes.
  */
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   api,
@@ -312,6 +315,45 @@ describe('play start (§10.1)', () => {
       // no play.started before the present timeout elapses (60 s here)
       await sleep(300);
       ws3.close();
+    } finally {
+      await tb.teardown();
+    }
+  });
+});
+
+describe('phase 25.24: the backend part of a Play start', () => {
+  it('the game bundle is read from disk once while it is unchanged, and again after a rebuild; the start reports its stages', async () => {
+    const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      const bundleOf = (psid: string) => tb.backend._test.playContent.forPlay(psid)!.artifacts.get('game.js')!;
+      const playAndStop = async (): Promise<{ psid: string; timings: Record<string, number> }> => {
+        const r = await playStart(tb);
+        expect(r.status).toBe(200);
+        const psid = r.json.playSessionId as string;
+        await editor.waitUntil(() => tb.backend._test.plays.get(psid)?.state === 'presented');
+        editor.stoppedEvents.length = 0;
+        await api(`${tb.authUrl}/api/v1/projects/demo-0001/play/${psid}/stop`, { body: {}, token: tb.authToken });
+        await editor.waitForEvent('play.stopped');
+        return { psid, timings: r.json.timings as Record<string, number> };
+      };
+      const a = await playAndStop();
+      const b = await playAndStop();
+      // The same bytes (one read), the same digest.
+      expect(bundleOf(b.psid).bytes).toBe(bundleOf(a.psid).bytes);
+      expect(bundleOf(b.psid).digest).toBe(bundleOf(a.psid).digest);
+      // Its stages: the backend's own, and the closure's.
+      for (const k of ['session', 'state', 'capture', 'bundle', 'closure', 'closure.view', 'closure.behaviors', 'closure.assets', 'closure.scenes', 'closure.manifest', 'publish', 'total']) expect(typeof a.timings[k], k).toBe('number');
+      // A rebuilt bundle is read again.
+      writeFileSync(join(tb.root, 'preview', 'preview-m3.js'), '// M3 preview bundle stub (tests), rebuilt\n');
+      const c = await playAndStop();
+      expect(new TextDecoder().decode(bundleOf(c.psid).bytes)).toContain('rebuilt');
+      expect(bundleOf(c.psid).digest).not.toBe(bundleOf(a.psid).digest);
+      editor.close();
     } finally {
       await tb.teardown();
     }

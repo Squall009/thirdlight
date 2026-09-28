@@ -63,6 +63,8 @@ import {
   resolveTransport,
   startRemoteSimulation,
   threadingLogLine,
+  createVerifiedAssetReader,
+  startSceneAssets,
   type RemoteSimulation,
 } from '@thirdlight/game-host';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
@@ -236,20 +238,15 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   if ((await sha256Hex(sceneBytes)) !== manifest.sceneDigest) throw new Error('the scene document digest does not match manifest.sceneDigest');
   const scene = JSON.parse(new TextDecoder().decode(sceneBytes));
 
-  // The wrapper's read phase (delivery.md (M4) §2.8, L2): every declared
-  // asset path is read EXACTLY ONCE (relative) and re-hashed to the manifest
-  // `sourceDigest` BEFORE the runtime composes (L2 = hard failure, no
-  // runtime). The model-kind bytes feed the `models` block `resolveBytes`.
-  // (Phase 22.0: the reads run below, while the simulation worker starts.)
-  const assetBytesByKey = new Map<string, ArrayBuffer>();
-  const readAssets = async (): Promise<void> => {
-    for (const row of manifest.assets ?? []) {
-      const buf = await readArtifactBytes(row.path);
-      const raw = new Uint8Array(buf);
-      if (raw.byteLength !== row.sourceByteLength) throw new Error(`${row.assetId}: byte length ${raw.byteLength} !== manifest ${row.sourceByteLength}`);
-      if ((await sha256Hex(raw)) !== row.sourceDigest) throw new Error(`${row.assetId}: digest mismatch against the manifest sourceDigest`);
-      assetBytesByKey.set(`${row.assetId}@${row.version}`, buf);
-    }
+  // The wrapper's read phase (delivery.md (M4) §2.8, L2), phase 25.24b: every declared asset is read
+  // at most once through this reader and re-hashed to the manifest `sourceDigest` before anyone gets its
+  // bytes; the start scenes' assets are read BEFORE the runtime composes (L2 = hard failure, no runtime),
+  // at most 8 at a time, the others when they are asked for (a scene loaded later, a texture, a sound).
+  // (Phase 22.0: the start reads run below, while the simulation worker starts.)
+  const assetReader = createVerifiedAssetReader(manifest.assets ?? [], { read: readArtifactBytes, sha256Hex });
+  const textureLoader = (assetId: string): Promise<Awaited<ReturnType<typeof decodeTexture>> | null> => {
+    const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
+    return row !== undefined ? assetReader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : Promise.resolve(null);
   };
 
   const settings = manifest.settings;
@@ -331,11 +328,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       animation: (manifest.media?.animation ?? []).map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
       // Phase 15.3: the project's idle/run/airborne blend time.
       ...(settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: settings.animation_crossfade_s } : {}),
-      resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
-        const buf = assetBytesByKey.get(`${assetId}@${version}`);
-        if (buf === undefined) return Promise.reject(new Error(`no wrapper-verified bytes for ${assetId} v${version}`));
-        return Promise.resolve(buf);
-      },
+      resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => assetReader.bytes(assetId, version),
       ...(manifest.buffers !== undefined ? { resolveBuffer: bufferResolver(manifest.buffers, io) } : {}),
     };
   }
@@ -392,7 +385,18 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // `sourceDigest` BEFORE the runtime composes (L2 = hard failure, no
   // runtime). The model-kind bytes feed the `models` block `resolveBytes`.
   try {
-    await readAssets();
+    await assetReader.preload(
+      startSceneAssets({
+        assets: manifest.assets ?? [],
+        entities: snapshot.scene.entities,
+        ...(manifest.scenes !== undefined ? { startSceneIds: manifest.scenes.filter((r) => r.start).map((r) => r.sceneId) } : {}),
+        ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
+        ...(manifest.materialFunctions !== undefined ? { materialFunctions: manifest.materialFunctions } : {}),
+        ...(manifest.effects !== undefined ? { effects: manifest.effects } : {}),
+        ...(manifest.environment !== undefined ? { environment: manifest.environment } : {}),
+        ...(manifest.lighting !== undefined ? { lighting: manifest.lighting } : {}),
+      }),
+    );
   } catch (e) {
     void remoteStart?.then((r) => r.dispose(), () => undefined);
     throw e;
@@ -463,11 +467,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
           ? {
               environment: {
                 value: manifest.environment ?? {},
-                loadTexture: (assetId: string) => {
-                  const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
-                  const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;
-                  return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
-                },
+                loadTexture: textureLoader,
               },
             }
           : {}),
@@ -476,11 +476,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
           ? {
               lighting: {
                 bakes: manifest.lighting,
-                loadTexture: (assetId: string) => {
-                  const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
-                  const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;
-                  return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
-                },
+                loadTexture: textureLoader,
               },
             }
           : {}),
@@ -491,7 +487,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
                 defs: manifest.effects,
                 wind: manifest.environment?.wind ?? null,
                 assets: (manifest.assets ?? []) as never,
-                bytes: (assetId: string, version: number) => assetBytesByKey.get(`${assetId}@${version}`),
+                bytes: (assetId: string, version: number) => assetReader.bytes(assetId, version).catch(() => undefined),
                 ...(JSON.stringify(manifest.effects).includes('"model"') ? { loader: createGltfLoaderPort({ decoderBase: './decoders/' }) } : {}),
               }),
             }
@@ -503,11 +499,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
                 defs: manifest.materials ?? [],
                 functions: manifest.materialFunctions ?? [],
                 wind: manifest.environment?.wind ?? null,
-                loadTexture: (assetId: string) => {
-                  const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
-                  const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;
-                  return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
-                },
+                loadTexture: textureLoader,
               },
             }
           : {}),
@@ -517,7 +509,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     },
     input,
     audio,
-    readArtifact: readArtifactBytes,
+    // Phase 25.24b: a declared asset (a sound, a glyph, a UI image) through the checked reader.
+    readArtifact: (path: string) => assetReader.bytesAt(path) ?? readArtifactBytes(path),
     ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
     container,
     buildId: manifest.buildId,

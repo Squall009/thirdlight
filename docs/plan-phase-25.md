@@ -158,7 +158,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.5 | done 2026-09-28: `ended` reproduced as seen by scripts (main thread, worker, no physics/2D/3D, modes, real Play) — TL-17 did not reproduce, tests kept as guards; an ended play's routes answer `play_not_found` with `ended {reason, presented, at, detail?}`, unpresented ends listed in problems |
 | 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
 | 25.24a | done 2026-09-28: stage timings in Play diagnostics (`startTimings`: bundle, manifest, start scenes, worker, assets, mount, models, ready, renderer init, first render, slow frames after; per scene load) and the backend's (`buildTimings`, `closure.*`); perf harness `--plays N --gpu`, an asset-heavy class; before split in §6 |
-| 25.7–25.23, 25.24b–h | — |
+| 25.24b, g | done 2026-09-28: Play and the export read only the start scenes' assets before the start (at most 8 at a time, each checked once), the rest when asked for (a later scene, a texture, a sound); the game bundle is read and hashed once per build, not per Play; the preview no longer re-serializes and hashes the scene; after split in §6 |
+| 25.7–25.23, 25.24c–f, h | — |
 
 ## 6. Decision log
 
@@ -348,3 +349,40 @@ boundary it changes (Playwright for any editor surface).
   (~50 ms at 583 draws), not a start effect; the start's own stall shows as
   the one 370–385 ms frame. A scene loaded later is cheap here (its assets
   were already read at start).
+- 2026-09-28 (25.24b, g): the start set is found by scanning, not by a
+  per-component list: every declared asset id the start scenes' objects
+  name, followed through the materials they use (and a model's own
+  material map), material functions and effects, plus the environment and
+  the start scenes' bakes. A missed name costs only latency (that asset is
+  read when it is asked for); an extra one costs a read. Sounds are left to
+  the host, which reads them through the same reader when it plays them.
+  Reads go through one reader per play (`createVerifiedAssetReader` in
+  game-host, shared by Play and the export): each asset at most once, at
+  most 8 in flight, length and digest checked before any caller gets the
+  bytes. Consequence: a bad asset of a scene that does not start no longer
+  refuses the start; it fails when its scene loads (the model realization's
+  `models_*` error, a texture that stays empty), with the asset named. The
+  scene check the preview did (pretty-print and hash the whole bridged
+  scene) is replaced by checking that the snapshot names the manifest's
+  capture (snapshotId, project, revision): the backend builds both from one
+  capture and already checks the scene bytes against `sceneDigest`. The
+  bundle is kept while `dist/`'s file keeps its size and modification time,
+  so a rebuild is picked up on the next Play without a restart.
+  **After split** (same run as the before split; Plays 2–3):
+
+  | Stage | small | large | asset-heavy |
+  |---|---|---|---|
+  | backend `bundle` | 0 (was 5–8) | 0 (was 2–4) | 0 (was 3–5) |
+  | scene re-serialize + hash | gone (was 0) | gone (was 66–67) | gone (was 1) |
+  | asset reads before the start | 3–4 (1 file) | 3 (1 file) | **41–50 [58]** (19 of 73 files, 9 of 35 MB; was 267–295 [408]) |
+  | ready | 360–368 | 2 361–2 523 | **509–550 [943]** (was 664–693 [1 211]) |
+  | first frame | 548–552 | 7 000–7 244 | **838–886 [1 284]** (was 1 035–1 044 [1 535]) |
+  | scene load (scene 2 of 4): read / attach frame / slow after | — | — | 8 / 57 / 0 (its model files and textures are now read after the attach; the time until they show is 25.24e's to measure) |
+
+  On asset-heavy the worker start (~130 ms) is now the longest step before
+  the mount; on large nothing before the first render call moved the total,
+  whose 4.5 s first render stays the largest share (25.24d). The large
+  class's first Play in a fresh editor page answered its start request after
+  1.1–5.2 s across runs while the backend's own part stayed ~1 s: the rest is
+  spent before the request reaches the route (the editor and backend just
+  opened a 16 000-entity project); not investigated here.
