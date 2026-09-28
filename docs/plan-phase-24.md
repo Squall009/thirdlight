@@ -118,7 +118,7 @@ keeps the gate green.
 | 24.5 | done 2026-09-28: descriptor `create` entries and `icon`s drive the GameObject menu, the hierarchy and Scene-view icons; zone/pickup/enemy no longer offered; Gameplay panel = settings, camera (+ an existing game block); no lives/score UI; "Character locomotion" preset; MCP wording generic |
 | 24.6 | done 2026-09-28 (fast gate): observations and control results report a play state (`running`/`paused`); the session's run state, checkpoint, deaths, goal, events, level flow and title view moved to an optional `legacy` block (24.7 deletes it); `$flow` lost level/lives/HUD/totals/score/result; `health` is every object's; the 20 `addGameSession` tests run in scene mode (a title shell where they waited for a start) |
 | 24.7 | done 2026-09-28 (fast gate): `platformer-game`, the session, flow, enemy, pickup, gameZone, cameraFollow, knockback, legacy block, classic HUD and Beacon Reach deleted; one runtime mode; `packages/platformer` → `packages/character` (`thirdlight.character:controller`, old id aliased) |
-| 24.8 | — |
+| 24.8 | done 2026-09-28 (fast gate): project.json schemaVersion 3 (a 2 is upgraded on load; removed game data refused by name); content manifest v3 (no game block, no cue slots); input frame version 2 (named actions; controller `moveAction`/`jumpAction`); save format version 2 (`world`: scenes, spawn, character) |
 | 24.9 | — |
 
 ## 4. Decision log
@@ -527,3 +527,88 @@ keeps the gate green.
   names as aliases), the `game_*` error codes and the separation guard
   (24.9). The m3 delivery/audit fixture checkers still read the archived
   `docs/contracts` and crash (not in the gate).
+- 2026-09-28 (24.8): the project format is `project.json` schemaVersion 3.
+  The loader upgrades a schemaVersion 2 project on the raw documents
+  before validating them (`project-model/src/upgrade-v24.ts`, pure) and the
+  open writes it back as one new revision (a failed write opens it upgraded in
+  memory and says so). Carried over: pickup → collectible (coin → `coins`,
+  gem → `gems`, key → `keys`, life → `lives`, custom → its counter; value →
+  amount; size kept, an absent size is now the collectible's 1 m, not the
+  model's bounds), a pickup sound → an event → cue row (`collected`, the
+  object), spawn facing left/right → yaw −90/90, and the session player's
+  health fields (grace time, knockback, hit bounce, hit effect: only the
+  deleted session read them) and a null `content.game` dropped. Refused by
+  name ("removed in phase 24: build it as project scripts"): a game block, a
+  flow, enemy, gameZone, cameraFollow (its target was the game block's
+  player and its smoothing/max speed/distance do not map onto the track rig,
+  so it is not converted), and the pickup forms that were rules — a heart's
+  healing, respawn on death, a pickup effect, a sound on a prefab pickup (an
+  event cue names a scene object). The same messages come from the
+  validators for a schemaVersion 3 file that still has them. Tested over HTTP
+  with hand-written fixtures (`fixtures/phase24`); the session error now
+  carries the model's problems (`details`) and the project list's note the
+  first one. v3 envelopes never had these components (they are v4-only), so
+  the v3 → v4 path needs no upgrade.
+- 2026-09-28 (24.8): surface preset names were never stored in project
+  files (a preset is copied as values), so there is nothing to upgrade and
+  no alias: a command with `beacon`/`hazard` is refused naming
+  `emissive-accent`/`signal-red`. The module id alias is dropped: a manifest
+  naming `thirdlight.platformer:controller` is `host_module_unresolved`; the
+  gate's m2 fixtures (runtime catch-up, delivery example) now name
+  `thirdlight.character:controller`; the M4 packet fixtures outside the gate
+  keep their recorded ids.
+- 2026-09-28 (24.8): leftovers. v4 content has no `game` key (the v3 envelope
+  keeps its `null`); the runtime snapshot has no `game` field and the content
+  projection no `game` summary. The runtime content manifest is version 3:
+  no `game`, `gameDigest` or media cue slots (`media` = `{ animation }`; the
+  content view preimage has no `game`); the export, export page and preview
+  take the key order from `MANIFEST_KEYS_V2` (three hand copies; the preview's
+  still listed `flow`). The m3 delivery fixtures were re-derived
+  (`derive-manifest.mts`, buildId `3dabf352…` → `6e8f2c6f…`). Error codes:
+  `game_reference_missing`, `game_reference_in_use`, `game_config_invalid`
+  and the three `zone_*` codes are deleted (a removed game block is
+  `field_unexpected`/`field_value`), as are the runtime's
+  `game_spawn_invalid`/`game_spawn_blocked`/`game_session_unavailable`; the
+  `game_*` codes of the play relay (`game_command_invalid`, `game_run_stale`,
+  `game_relay_*`, …) stay: there "game" is the running build, not a genre.
+  The m3 delivery checker (`tools/check-fixtures.mjs`, `verification.md`)
+  and the whole proposed packet-43 audit (`fixtures/m3/audit`) were deleted:
+  they re-derived contracts from the archived `docs/contracts` and could only
+  crash; the gate reads the fixtures directly.
+- 2026-09-28 (24.8): input frame version 2. `ActionFrame` is `stepIndex` +
+  named `actions` (+ pointer, commands, saves, input, ui, dialogue); no
+  `moveX`/`moveY`/`jump`. The controllers read the actions their `controller`
+  names (`moveAction`, `jumpAction`; defaults `move`, `jump`: the default
+  input actions of every new project), and so do the one-way drop-through
+  and a game mode's gameplay-off mask. The browser owner keeps its device
+  rules for the move/jump keys (opposing keys cancel, dead zone, press latch,
+  menu-confirm suppression, fresh activation) and emits them as the `move`
+  and `jump` actions (they replace the evaluator's values for those two
+  names). A version 1 frame is read through `upgradeActionFrameV1` (runtime,
+  worker tick input): its channels become those actions with the same
+  override. Result: every recorded replay (m2/m3 fixtures,
+  `m15-tuning/replay-nondefault.json`, the worker parity and determinism
+  suites) plays bit-identically, so none was re-recorded. The recorded source
+  no longer chain-checks a jump column (there is none). Protocol, bridge and
+  MCP input frames are `{stepOffset, actions?, pointer?}` (old fields
+  refused with a hint). Scripts: `ctx.action.moveX/moveY/jump` and their
+  visual-script nodes are gone (`ctx.input.value/vector/pressed('move' |
+  'jump')` read the same values).
+- 2026-09-28 (24.8): saves, format version 2. Every save carries `world`:
+  the loaded scenes, the active spawn, the scene list entry and the
+  character's position and velocity (its last step's applied motion ×
+  step rate, clamped to the impulse limit). A load unloads scenes the save
+  did not have (the start set's pinned ones stay), loads the ones it had,
+  restores the spawn and list entry, and places the character at the next
+  step boundary once no saved scene is still loading, from rest, with the
+  saved velocity given back as an impulse for its next controller phase. A
+  format 1 save (no `world`) still loads and leaves where the play stands;
+  a format 2 save without `world`, or naming a scene the game does not have,
+  is refused. Tested in both threading modes and dimensions
+  (`m24-primitives/shell.test.ts`: back to the saved spot; a save in a second
+  scene loads that scene again after a restart) and in the browser
+  (`shell.e2e.ts`).
+- 2026-09-28 (24.8): found on the way: D43 (a claim-race test crashed once
+  under load: `EEXIST` on `.thirdlight`; `createDirectories` compares `errno`
+  with a string) and D44 (`tools/gate.sh` never reruns a failed vitest file:
+  its grep misses vitest's coloured FAIL line). Neither fixed here.
