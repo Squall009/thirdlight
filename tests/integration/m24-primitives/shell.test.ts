@@ -11,7 +11,10 @@
  * - the pause input opens the pause document (no steps while it shows);
  *   its buttons save to a project save slot, load it back (the counter and
  *   the collectible are restored) and move on to the next listed scene (it
- *   loads and the character stands at its spawn).
+ *   loads and the character stands at its spawn);
+ * - phase 24.8: a save carries where the play stands — a load puts the
+ *   character back where it was saved (and with its velocity), unloads a
+ *   scene the save did not have and loads one it had (after a restart).
  *
  * Every shell move rides on the input frame (a recording replays it); the
  * menus here are live input, so the two threading modes see them at their
@@ -44,6 +47,7 @@ const DOCS = [
         { type: 'button', id: 'save', text: 'Save', onClick: { do: 'engine', action: 'save', slot: '1' } },
         { type: 'button', id: 'load', text: 'Load', onClick: { do: 'engine', action: 'load', slot: '1' } },
         { type: 'button', id: 'next', text: 'Next', onClick: { do: 'engine', action: 'nextScene' } },
+        { type: 'button', id: 'restart', text: 'Restart', onClick: { do: 'engine', action: 'restartLevel' } },
       ],
     },
   },
@@ -187,7 +191,8 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
   await press({ down: true });
   await press({ submit: true });
   await until(() => (h.host.projectSaves?.slots() ?? []).some((s) => s.slot === 1), 'saved');
-  out.saved = { items: items(), note: obs().shell.note, body: JSON.parse(store.get('shell:slot:1:body')!).sections.components };
+  const saved = JSON.parse(store.get('shell:slot:1:body')!);
+  out.saved = { items: items(), note: obs().shell.note, body: saved.sections.components, formatVersion: saved.formatVersion, world: saved.world, x: px() };
   // Resume (the pause input again), walk on past the second token and stand.
   await press({ pause: true });
   await until(() => items() >= 2 && step() > 460, 'second item');
@@ -199,7 +204,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
   await press({ submit: true });
   await until(() => items() === 1 && obs().shell.screen === 'playing', 'loaded');
   await frames(30);
-  out.loaded = { items: items(), hidden: [...(rt.hiddenEntities?.() ?? [])].sort(), screen: obs().shell.screen, paused: obs().paused };
+  out.loaded = { items: items(), hidden: [...(rt.hiddenEntities?.() ?? [])].sort(), screen: obs().shell.screen, paused: obs().paused, x: px() };
   // Pause, Next: the listed second scene loads and the character stands at its spawn.
   await press({ pause: true });
   await press({ down: true });
@@ -209,6 +214,29 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
   await until(() => (obs().scenes?.loaded ?? []).includes('scene-two') && px() > 40, 'next scene');
   await frames(30);
   out.next = { scene: obs().shell.scene, x: px(), loaded: obs().scenes.loaded };
+  // Phase 24.8: save here (the second scene), then Load the first save's world back: scene-two unloads, the character is where slot 1 had it.
+  // (Save to slot 1 again first so the later load needs scene-two loaded: keep slot 1's world of scene-two.)
+  await press({ pause: true });
+  await press({ down: true });
+  await press({ submit: true });
+  await until(() => obs().shell.note === 'Saved to slot 1' && JSON.parse(store.get('shell:slot:1:body')!).world.scenes.includes('scene-two'), 'saved in scene two');
+  out.savedTwo = { world: JSON.parse(store.get('shell:slot:1:body')!).world, x: px() };
+  // Restart (the focus is on Save: three down): the start set only (scene-two unloads), the character back at its start.
+  await press({ down: true });
+  await press({ down: true });
+  await press({ down: true });
+  await press({ submit: true });
+  await until(() => !(obs().scenes?.loaded ?? []).includes('scene-two') && px() < 5 && obs().shell.screen === 'playing', 'restarted');
+  await frames(20);
+  out.restarted = { x: px(), loaded: obs().scenes.loaded };
+  // Load slot 1: scene-two loads again and the character stands where it was saved there.
+  await press({ pause: true });
+  await press({ down: true });
+  await press({ down: true });
+  await press({ submit: true });
+  await until(() => (obs().scenes?.loaded ?? []).includes('scene-two') && px() > 40, 'loaded into scene two');
+  await frames(30);
+  out.loadedTwo = { x: px(), loaded: obs().scenes.loaded, screen: obs().shell.screen };
   const d = rt.getDiagnostics();
   out.errors = d.ok ? d.diagnostics.errors : d;
   return out;
@@ -235,10 +263,27 @@ describe.each([2, 3] as const)('the game shell (dimension %s)', (dim) => {
     expect(o.second.items).toBe(2);
     expect(o.second.hidden).toEqual(['token-a', 'token-b']);
     expect(o.second.x).toBeGreaterThan(5);
-    expect(o.loaded).toEqual({ items: 1, hidden: ['token-a'], screen: 'playing', paused: false });
+    expect({ ...o.loaded, x: undefined }).toEqual({ items: 1, hidden: ['token-a'], screen: 'playing', paused: false, x: undefined });
+    // Phase 24.8: the save (format version 2) carries where the play stood, and the load put the character back there
+    // (not where it walked to since); it saved walking, so it keeps its velocity and eases to a stop just ahead.
+    expect(o.saved.formatVersion).toBe(2);
+    expect(o.saved.world.scenes).toEqual(['scene-main']);
+    expect(o.saved.world.character.position[0]).toBeCloseTo(o.saved.x, 6);
+    expect(o.saved.world.character.velocity[0]).toBeGreaterThan(1);
+    expect(o.loaded.x).toBeGreaterThanOrEqual(o.saved.x - 0.05);
+    expect(o.loaded.x).toBeLessThan(o.saved.x + 0.5);
+    expect(o.loaded.x).toBeLessThan(o.second.x - 1);
     expect(o.next.scene).toEqual({ index: 1, id: 'scene-two' });
     expect(o.next.loaded).toContain('scene-two');
     expect(o.next.x).toBeGreaterThan(40);
     expect(o.next.x).toBeLessThan(44);
+    // Phase 24.8: a save in the second scene, a restart (the start set only), a load: scene-two loads and the character stands where it was saved.
+    expect(o.savedTwo.world.scenes).toEqual(['scene-main', 'scene-two']);
+    expect(o.savedTwo.world.listedScene).toBe(1);
+    expect(o.restarted.loaded).not.toContain('scene-two');
+    expect(o.restarted.x).toBeLessThan(5);
+    expect(o.loadedTwo.loaded).toContain('scene-two');
+    expect(o.loadedTwo.screen).toBe('playing');
+    expect(Math.abs(o.loadedTwo.x - o.savedTwo.x)).toBeLessThan(0.05);
   }, 180_000);
 });

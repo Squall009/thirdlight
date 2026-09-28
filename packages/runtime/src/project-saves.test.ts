@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { SaveSchema } from '@thirdlight/project-model';
 
-import { RuntimeSaves, validateSaveEvents, type SaveRequest, type SaveSectionsPort } from './project-saves';
+import { RuntimeSaves, validateSaveEvents, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import { validateActionFrame } from './actions';
 
 const SCHEMA: SaveSchema = {
@@ -16,7 +16,7 @@ const SCHEMA: SaveSchema = {
   ],
 };
 
-function fakePort(): SaveSectionsPort & { storage: Record<string, unknown> } {
+function fakePort(): SaveSectionsPort & { storage: Record<string, unknown>; world: WorldSave } {
   const port = {
     storage: { k: 1 } as Record<string, unknown>,
     capture: () => ({ ...port.storage }),
@@ -24,6 +24,13 @@ function fakePort(): SaveSectionsPort & { storage: Record<string, unknown> } {
     apply: (_s: string, v: unknown) => {
       port.storage = { ...((v ?? {}) as Record<string, unknown>) };
       return null;
+    },
+    // Phase 24.8: where the play stands (a fixed world here; the runtime's is tested with the host).
+    world: { scenes: ['scene-main'], activeSpawn: null, listedScene: -1, character: null } as WorldSave,
+    captureWorld: () => port.world,
+    checkWorld: (w: WorldSave) => (w.scenes.includes('scene-gone') ? 'unknown scene' : null),
+    applyWorld: (w: WorldSave) => {
+      port.world = w;
     },
   };
   return port;
@@ -52,7 +59,28 @@ describe('phase 23.19: runtime project saves', () => {
     expect(reqs).toHaveLength(1);
     const req = reqs[0] as Extract<SaveRequest, { op: 'save' }>;
     expect(req.meta).toEqual({ title: 'T', chapter: 'C', location: 'L', thumbnail: true, playSeconds: 1, version: 2 });
-    expect(JSON.parse(req.text)).toEqual({ format: 'thirdlight.save', formatVersion: 1, version: 2, playSeconds: 1, doc: { level: 'b', hp: 3 }, sections: { storage: { k: 2 } } });
+    // Phase 24.8: format version 2 — every save carries where the play stands.
+    expect(JSON.parse(req.text)).toEqual({ format: 'thirdlight.save', formatVersion: 2, version: 2, playSeconds: 1, doc: { level: 'b', hp: 3 }, sections: { storage: { k: 2 } }, world: { scenes: ['scene-main'], activeSpawn: null, listedScene: -1, character: null } });
+  });
+
+  it('phase 24.8: a format 2 save restores its world; a format 1 save (no world) leaves it; a bad world refuses the load', () => {
+    const port = fakePort();
+    const r = new RuntimeSaves(SCHEMA, 60, port, undefined, () => undefined);
+    const world = { scenes: ['scene-main', 'scene-far'], activeSpawn: 'spawn-0002', listedScene: 1, character: { position: [3, 1, 0], velocity: [2, 0, 0] } } as const;
+    step(r, [{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', formatVersion: 2, version: 2, doc: {}, world } }]);
+    expect(port.world).toEqual(world);
+    const before = port.world;
+    step(r, [{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', version: 2, doc: {} } }]);
+    expect(port.world).toBe(before);
+    step(r, [{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', formatVersion: 2, version: 2, doc: {}, world: { ...world, scenes: ['scene-gone'] } } }]);
+    r.beginStep();
+    expect(r.api.results()).toEqual([{ op: 'load', slot: 1, ok: false, reason: 'world: unknown scene' }]);
+    r.endStep();
+    expect(port.world).toBe(before);
+    // A format 2 save without its world is not a save document.
+    step(r, [{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', formatVersion: 2, version: 2, doc: {} } }]);
+    r.beginStep();
+    expect(r.api.results()[0]).toMatchObject({ ok: false });
   });
 
   it('caps: a document over 1 MiB is refused; 8 requests per step', () => {

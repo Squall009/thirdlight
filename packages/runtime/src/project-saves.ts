@@ -14,6 +14,10 @@
  * A save is assembled at the end of the step it was asked for: the project
  * document plus the engine sections the schema opts into (block-layer cells,
  * material parameters, spawned copies, `ctx.save` storage) and the play time.
+ * Phase 24.8 (format version 2): every save also carries where the play
+ * stands (`world`: the loaded scenes, the active spawn, the scene list entry
+ * and the character's position and velocity), so a load puts the character
+ * back where it was saved; a version 1 save (without it) still loads.
  * A loaded document is migrated (the project's registered migration
  * functions, one version at a time) and restored at the end of the step whose
  * frame brought it — a step boundary: the next step starts from the restored
@@ -31,9 +35,40 @@ import {
   type SettingsFieldValue,
 } from '@thirdlight/project-model';
 
-/** The save document's format marker (and its engine format version). */
+/** The save document's format marker (and its engine format version; phase 24.8: 2, with `world`). */
 export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
-export const PROJECT_SAVE_FORMAT_VERSION = 1;
+export const PROJECT_SAVE_FORMAT_VERSION = 2;
+
+/**
+ * Phase 24.8: where the play stands in a save — the scenes loaded (in load
+ * order), the spawn respawns use, the game shell's scene list entry (-1:
+ * none) and the character (the controller's object) with its velocity (m/s;
+ * z is 0 on the 2D plane), or null without a character.
+ */
+export interface WorldSave {
+  readonly scenes: readonly string[];
+  readonly activeSpawn: string | null;
+  readonly listedScene: number;
+  readonly character: { readonly position: readonly [number, number, number]; readonly velocity: readonly [number, number, number] } | null;
+}
+
+const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/** Phase 24.8: a saved `world` block's shape (null: fine). */
+export function worldSaveProblem(v: unknown): string | null {
+  if (!isObj(v)) return 'world is an object { scenes, activeSpawn, listedScene, character }';
+  for (const k of Object.keys(v)) if (!['scenes', 'activeSpawn', 'listedScene', 'character'].includes(k)) return `unknown world field "${k.slice(0, 32)}"`;
+  const scenes = v['scenes'];
+  if (!Array.isArray(scenes) || scenes.length > 64 || !scenes.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x))) return 'world.scenes lists at most 64 scene ids';
+  const spawn = v['activeSpawn'];
+  if (spawn !== null && !(typeof spawn === 'string' && SCENE_ID_RE.test(spawn))) return 'world.activeSpawn is an entity id or null';
+  if (!intIn(v['listedScene'], -1, 1024)) return 'world.listedScene is an integer -1..1024';
+  const c = v['character'];
+  if (c === null) return null;
+  const vec = (x: unknown, lim: number): boolean => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= lim);
+  if (!isObj(c) || Object.keys(c).some((k) => k !== 'position' && k !== 'velocity') || !vec(c['position'], 1e6) || !vec(c['velocity'], 1e4)) return 'world.character is { position: [x, y, z], velocity: [x, y, z] } or null';
+  return null;
+}
 /** Engine limit: save/load/delete requests one step may make (every script together). */
 export const SAVE_REQUESTS_PER_STEP = 8;
 /** Engine limit: save entries one input frame may carry. */
@@ -94,6 +129,8 @@ export interface ProjectSaveFile {
   readonly doc: unknown;
   /** Engine state the schema opts into. */
   readonly sections?: Readonly<Partial<Record<SaveSection, unknown>>>;
+  /** Phase 24.8 (format version 2): where the play stands. */
+  readonly world?: WorldSave;
 }
 
 /**
@@ -222,6 +259,12 @@ export interface SaveSectionsPort {
   check(section: SaveSection, value: unknown): string | null;
   /** Restore (value undefined: back to the run's start); the grid may refuse (null: done). */
   apply(section: SaveSection, value: unknown): string | null;
+  /** Phase 24.8: where the play stands now (every save carries it). */
+  captureWorld(): WorldSave;
+  /** Phase 24.8: why a saved world cannot be restored now (null: it can). */
+  checkWorld(world: WorldSave): string | null;
+  /** Phase 24.8: restore it (scenes load and unload; the character is placed once they are in). */
+  applyWorld(world: WorldSave): void;
 }
 
 // ---- validation ------------------------------------------------------------------------
@@ -259,7 +302,14 @@ function jsonText(v: unknown): string | null {
 /** Check a stored save document's shape (not its migration): null when it can be loaded by a schema of `maxVersion`. */
 export function projectSaveFileProblem(v: unknown, maxVersion: number): string | null {
   if (!isObj(v) || v['format'] !== PROJECT_SAVE_FORMAT) return 'not a project save document (format "thirdlight.save")';
-  if (v['formatVersion'] !== undefined && v['formatVersion'] !== PROJECT_SAVE_FORMAT_VERSION) return `save format version ${String(v['formatVersion']).slice(0, 16)} is not supported`;
+  // Phase 24.8: format version 2 carries `world`; a version 1 save (without it) still loads.
+  const fv = v['formatVersion'] ?? 1;
+  if (fv !== 1 && fv !== PROJECT_SAVE_FORMAT_VERSION) return `save format version ${String(v['formatVersion']).slice(0, 16)} is not supported`;
+  if (fv === 1 && v['world'] !== undefined) return 'a format version 1 save has no world';
+  if (fv === PROJECT_SAVE_FORMAT_VERSION) {
+    const w = worldSaveProblem(v['world']);
+    if (w !== null) return w;
+  }
   if (!intIn(v['version'], 1, SAVE_LIMITS.version)) return 'the save document has no valid version';
   if ((v['version'] as number) > maxVersion) return `the save is version ${v['version'] as number}; this game reads up to version ${maxVersion}`;
   if (v['playSeconds'] !== undefined && !(typeof v['playSeconds'] === 'number' && Number.isFinite(v['playSeconds']) && v['playSeconds'] >= 0)) return 'playSeconds is a number ≥ 0';
@@ -525,6 +575,7 @@ export class RuntimeSaves {
       playSeconds,
       doc: this.doc,
       ...(Object.keys(sections).length > 0 ? { sections } : {}),
+      world: this.port.captureWorld(),
     };
     const t = JSON.stringify(file);
     const bytes = utf8Length(t);
@@ -561,12 +612,18 @@ export class RuntimeSaves {
       const p = this.port.check(s, saved[s]);
       if (p !== null) return `section ${s}: ${p}`;
     }
+    if (file.world !== undefined) {
+      const p = this.port.checkWorld(file.world);
+      if (p !== null) return `world: ${p}`;
+    }
     // The grid checks while it restores (atomically): first, so a refusal leaves everything as it was.
     if (opted.includes('grid')) {
       const p = this.port.apply('grid', saved.grid);
       if (p !== null) return `section grid: ${p}`;
     }
     for (const s of opted) if (s !== 'grid') this.port.apply(s, saved[s]);
+    // Phase 24.8: where the play stood (after the sections: a spawned copy's scene state is in).
+    if (file.world !== undefined) this.port.applyWorld(file.world);
     this.doc = doc;
     this.docText = JSON.stringify(doc);
     this.playBase = file.playSeconds ?? 0;

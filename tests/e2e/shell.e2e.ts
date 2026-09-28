@@ -12,7 +12,8 @@
  * the HUD shows; walking into a collectible raises the HUD's counter; Escape
  * opens the pause screen (the steps stop); Save writes project save slot 1;
  * after a second collectible, Load brings the first save back (one item, the
- * second collectible uncollected).
+ * second collectible uncollected; phase 24.8: the character back where it
+ * stood when it was saved).
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -257,6 +258,8 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   await expect.poll(async () => (await observe())?.counters?.['items'] ?? 0, { timeout: 15_000 }).toBe(1);
   const l0 = (await observe())!;
   expect(l0.shell?.screen).toBe('playing');
+  // Phase 24.8: the save carries where the character stood — the load puts it back there (it had walked left past 0.6 since).
+  await expect.poll(async () => Math.abs(((await observe())?.player?.x ?? -99) - p0.player!.x), { timeout: 10_000 }).toBeLessThan(0.5);
   expect(l0.paused).toBe(false);
   expect(l0.hidden ?? []).toContain(tokenA);
   expect(l0.hidden ?? []).not.toContain(tokenB);

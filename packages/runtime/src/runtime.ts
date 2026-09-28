@@ -21,7 +21,7 @@
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
-import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort } from './project-saves';
+import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import type { SaveSchema } from '@thirdlight/project-model';
 
 /** Phase 23.19: one spawned copy as a save document's `spawned` section keeps it. */
@@ -1419,6 +1419,8 @@ class RuntimeInstance implements Runtime {
   private impulseAcc: [number, number, number] | null = null;
   /** Phase 24.4e: a trigger's scene transition waiting for its scene (then the character moves to the spawn). */
   private pendingArrival: { spawnId: string; waitFor: string } | null = null;
+  /** Phase 24.8: a loaded save's character placement, once the scenes it waits for are in. */
+  private pendingRestore: { position: readonly [number, number, number]; velocity: readonly [number, number, number]; waitFor: readonly string[] } | null = null;
   /** Phase 24.4j: the shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
   private readonly sceneList: readonly { readonly scene: string; readonly spawn?: string }[];
   private listedScene: number | null = null;
@@ -2129,6 +2131,9 @@ class RuntimeInstance implements Runtime {
           }
         }
       },
+      captureWorld: (): WorldSave => rt.captureWorld(),
+      checkWorld: (world: WorldSave): string | null => rt.worldProblem(world),
+      applyWorld: (world: WorldSave): void => rt.applyWorld(world),
       apply(section, value) {
         switch (section) {
           case 'grid':
@@ -2889,6 +2894,8 @@ class RuntimeInstance implements Runtime {
     if (!this.applySceneOps()) return true;
     // Phase 24.4e: a scene transition's arrival once its scene is loaded.
     if (this.pendingArrival !== null && !this.runArrival(this.stepIndex + 1)) return false;
+    // Phase 24.8: a loaded save's placement once its scenes are in.
+    if (this.pendingRestore !== null && !this.runRestorePlace(this.stepIndex + 1)) return false;
     // Phase 23.10: a restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
@@ -3012,6 +3019,8 @@ class RuntimeInstance implements Runtime {
     if (!this.applySceneOps()) return false;
     // Phase 24.4e: a scene transition's arrival once its scene is loaded.
     if (this.pendingArrival !== null && !this.runArrival(ordinal)) return false;
+    // Phase 24.8: a loaded save's placement once its scenes are in.
+    if (this.pendingRestore !== null && !this.runRestorePlace(ordinal)) return false;
     // Phase 14.1: the spawns and destroys the last step requested, in order.
     if (!this.applySpawnOps()) return false;
     this.spawnsThisStep = 0;
@@ -3332,6 +3341,7 @@ class RuntimeInstance implements Runtime {
   private restartRun(ordinal: number): boolean {
     this.pendingRestart = false;
     this.listedScene = null;
+    this.pendingRestore = null;
     // Phase 24.4f: scripts' impulses and a spawn facing do not outlive the run.
     this.impulseAcc = null;
     this.pendingFacing = null;
@@ -3485,6 +3495,77 @@ class RuntimeInstance implements Runtime {
       return false;
     }
     if (yaw !== null && this.controllerEntityId !== undefined) this.blocks?.faceSpawn(this.controllerEntityId, yaw);
+    return true;
+  }
+
+  // ---- Phase 24.8: where the play stands in a save --------------------------------
+
+  /** The loaded scenes, the active spawn, the scene list entry and the character with its velocity (m/s). */
+  private captureWorld(): WorldSave {
+    const id = this.controllerEntityId;
+    const t = id !== undefined ? this.curr.get(id) : undefined;
+    let character: WorldSave['character'] = null;
+    if (t !== undefined) {
+      const r = this.physics3d !== undefined ? this.lastCharacterResult3D?.applied : this.lastCharacterResult?.applied;
+      const v = (n: number | undefined): number => {
+        const x = (n ?? 0) * this.hz;
+        return Number.isFinite(x) ? Math.max(-CHARACTER_IMPULSE_MAX, Math.min(CHARACTER_IMPULSE_MAX, x)) : 0;
+      };
+      const z = (r as { z?: number } | undefined)?.z;
+      character = { position: [t.position[0], t.position[1], t.position[2]], velocity: [v(r?.x), v(r?.y), this.physics3d !== undefined ? v(z) : 0] };
+    }
+    return { scenes: [...this.batches.keys()], activeSpawn: this.activeSpawn, listedScene: this.listedSceneIndex(), character };
+  }
+
+  /** Why a saved world cannot be restored in this game (null: it can). */
+  private worldProblem(world: WorldSave): string | null {
+    if (this.sceneRows === null) return null;
+    for (const sceneId of world.scenes) if (!this.sceneStatus.has(sceneId)) return `the save names scene "${sceneId}", which this game does not have`;
+    if (world.listedScene >= this.sceneList.length) return `the save is at scene list entry ${world.listedScene}; the list has ${this.sceneList.length}`;
+    return null;
+  }
+
+  /**
+   * Restore where the play stood: scenes not in the save are unloaded (the
+   * start set's pinned ones stay), the saved ones loaded; the spawn and the
+   * scene list entry are the saved ones; the character is placed at its saved
+   * position once the scenes are in (`runRestorePlace`) and gets its saved
+   * velocity back (as an impulse for its next controller phase).
+   */
+  private applyWorld(world: WorldSave): void {
+    if (this.sceneRows !== null) {
+      const want = new Set(world.scenes);
+      for (const sceneId of [...this.batches.keys()]) {
+        if (want.has(sceneId) || this.sceneOpProblem('unload', sceneId) !== null) continue;
+        this.enqueueSceneOp({ op: 'unload', sceneId });
+      }
+      for (const sceneId of world.scenes) if (!this.batches.has(sceneId) && this.sceneOpProblem('load', sceneId) === null) this.enqueueSceneOp({ op: 'load', sceneId });
+    }
+    this.activeSpawn = world.activeSpawn;
+    this.listedScene = world.listedScene >= 0 ? world.listedScene : null;
+    this.pendingArrival = null;
+    this.pendingRestore = world.character === null || this.controllerEntityId === undefined ? null : { position: world.character.position, velocity: world.character.velocity, waitFor: [...world.scenes] };
+  }
+
+  /** A loaded save's placement at a step boundary once no scene it waits for is loading. Returns false after a fail-stop. */
+  private runRestorePlace(ordinal: number): boolean {
+    const r = this.pendingRestore;
+    if (r === null || r.waitFor.some((sceneId) => this.sceneStatus.get(sceneId) === 'loading')) return true;
+    this.pendingRestore = null;
+    const [x, y, z] = r.position;
+    if (this.physics3d !== undefined) {
+      this.pendingRespawn = [x, y, z];
+      this.pendingFacing = null;
+    } else {
+      try {
+        this.placeCharacter2D(x, y, ordinal);
+      } catch (e) {
+        this.failStopFromError(e, this.stepIndex);
+        return false;
+      }
+    }
+    const [vx, vy, vz] = r.velocity;
+    if (vx !== 0 || vy !== 0 || vz !== 0) this.impulseAcc = [vx, vy, this.physics3d !== undefined ? vz : 0];
     return true;
   }
 
@@ -4359,6 +4440,7 @@ class RuntimeInstance implements Runtime {
     this.pendingUnloads.clear();
     // Phase 24.4e/f: a scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
     this.pendingArrival = null;
+    this.pendingRestore = null;
     this.pendingFacing = null;
     this.impulseAcc = null;
     for (const [sceneId, entities] of this.startBatchSource) {

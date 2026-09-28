@@ -539,7 +539,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'playSessionId + the frozen snapshotId/revision on success. Phase 23.8 test/debug starts (the editor\'s "Play from..." sends the same): ' +
       'sceneId - start there (the scene loads with the start scenes and the character starts at its first player spawn); ' +
       'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
-      'save - a project save document {format: "thirdlight.save", version, playSeconds?, doc, sections?} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated) or saveSlot 1-99 (a project slot of the Play page); ' +
+      'save - a project save document {format: "thirdlight.save", formatVersion: 2, version, playSeconds?, doc, sections?, world: {scenes, activeSpawn, listedScene, character: {position, velocity} | null}} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated; world puts the character back where it was saved; a formatVersion 1 document without world still loads) or saveSlot 1-99 (a project slot of the Play page); ' +
       'mode - the game mode the run starts in (checked against content.modes; ignored and noted in start.notes when the project has none). ' +
       'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
