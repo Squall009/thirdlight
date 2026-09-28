@@ -153,7 +153,8 @@ boundary it changes (Playwright for any editor surface).
 | Step 0 (reconcile with phase 24) | done 2026-09-28 |
 | 25.1 | done 2026-09-28: every-optional-key unit test (all 23 keys, strict reader) and `manifest-keys.e2e.ts` (Play and static export); found and fixed D45 |
 | 25.2 | done 2026-09-28: screenshots always answer (a throw or an over-bound PNG becomes `screenshot_failed` with the reason, relayed in the backend's message); WebGPU capture checked in pixels (GPU and headless SwiftShader), image textures in a GLB and a material upload there |
-| 25.3–25.5 | — |
+| 25.3 | done 2026-09-28: blended skies re-bake their lighting only past a threshold (colour 0.01, 1 %, sun 0.5°), into the same target from a kept bake scene; `iblRebakes` in Play diagnostics; `environment-blend-cost.e2e.ts`: a new t every step at 120 Hz, 0 dropped steps in 10 s on WebGPU and WebGL 2 (GPU host), 0 re-bakes when only fog/exposure/lights change |
+| 25.4–25.5 | — |
 | 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
 | 25.7–25.24 | — |
 
@@ -235,3 +236,18 @@ boundary it changes (Playwright for any editor surface).
   down to 256 pixels, and reports the width it has). The backend keeps the
   `relay_failed` code with the preview's code as `cause` (clients key on
   them) and puts the preview's reason in the message.
+- 2026-09-28 (25.3): measured first. On the GPU host the 23.18 code already
+  dropped no steps with a new `t` every step in a small scene (frame gaps
+  17 ms, 0 dropped, both renderers); what it did wrong was re-bake every
+  30th frame even when the sky did not change (12 re-bakes in 6 s of a
+  fog/exposure/lights-only blend). The fix keeps the re-bake cap and adds a
+  threshold against the last bake's inputs (`SKY_REBAKE_THRESHOLD`: sRGB
+  channel 0.01, procedural numbers 1 %, sun 0.5°, the most generic
+  "invisible in blurred lighting" bound), and re-bakes into the same render
+  target from a kept bake scene. The old path gave the scene a new
+  environment texture per bake, which makes three's node manager build a
+  new environment node and rebuild every lit material's node state; the new
+  one allocates and compiles nothing per bake. That saving was not
+  separately measurable here (frame gaps were already at vsync); a large
+  scene's gain is unmeasured. Cross-fades between different sky structures
+  are unchanged (their bakes happen once per layer).

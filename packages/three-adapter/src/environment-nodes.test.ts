@@ -13,13 +13,16 @@ import type { WebGPURenderer } from 'three/webgpu';
 
 import type { FogVolumeBox, PostPlan } from './environment-nodes';
 
+/** Phase 25.3: each PMREM scene bake — into a new target or the one given. */
+const pmremBakes: ('new' | 'reused')[] = [];
 const built: { plan: PostPlan; updates: FogVolumeBox[][]; renders: number; disposed: boolean; luts: (THREE.Texture | null)[]; params: Pick<PostPlan, 'grading' | 'bloom'>[] }[] = [];
 
 vi.mock('three/webgpu', async (importOriginal) => {
   const real = await importOriginal<typeof import('three/webgpu')>();
   class PMREMGenerator {
-    fromScene(): { texture: THREE.Texture; dispose(): void } {
-      return { texture: new THREE.Texture(), dispose: () => undefined };
+    fromScene(_s: unknown, _sigma?: number, _near?: number, _far?: number, options?: { renderTarget?: { texture: THREE.Texture; dispose(): void } }): { texture: THREE.Texture; dispose(): void } {
+      pmremBakes.push(options?.renderTarget !== undefined ? 'reused' : 'new');
+      return options?.renderTarget ?? { texture: new THREE.Texture(), dispose: () => undefined };
     }
     fromEquirectangular(): { texture: THREE.Texture; dispose(): void } {
       return { texture: new THREE.Texture(), dispose: () => undefined };
@@ -52,7 +55,7 @@ vi.mock('./environment-nodes', async (importOriginal) => {
   };
 });
 
-const { createEnvironmentRenderer } = await import('./environment');
+const { createEnvironmentRenderer, skyInputsDiffer, SKY_REBAKE_THRESHOLD } = await import('./environment');
 
 function nodeRenderer(): WebGPURenderer & { render: ReturnType<typeof vi.fn> } {
   return { isWebGPURenderer: true, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1, samples: 4, getPixelRatio: () => 1, render: vi.fn() } as unknown as WebGPURenderer & { render: ReturnType<typeof vi.fn> };
@@ -165,6 +168,74 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     expect(renderer.toneMappingExposure).toBe(1);
     env.dispose();
     expect(scene.children).toHaveLength(0);
+  });
+
+  it('phase 25.3: a blended sky re-bakes its lighting into the same target, only past the threshold, at most every 30th frame', () => {
+    const renderer = nodeRenderer();
+    const scene = new THREE.Scene();
+    const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
+    const camera = new THREE.PerspectiveCamera();
+    const frames = (n: number): void => {
+      for (let i = 0; i < n; i += 1) env.render(camera);
+    };
+    pmremBakes.length = 0;
+    env.set({ sky: { mode: 'procedural', turbidity: 6, sunFromLight: false, sunElevation: 30 } });
+    expect(pmremBakes).toEqual(['new']);
+    const texture = scene.environment;
+    frames(40);
+    // Under the threshold (turbidity 0.5 %, the sun 0.3°): no re-bake, however many frames pass.
+    env.setBlend({ sky: { mode: 'procedural', turbidity: 6.03, sunFromLight: false, sunElevation: 30.3 } });
+    frames(60);
+    expect(pmremBakes).toEqual(['new']);
+    expect(env.diagnostics().iblRebakes).toBe(0);
+    // Past it: one re-bake after at most 30 frames, into the same target (the scene keeps the same texture).
+    env.setBlend({ sky: { mode: 'procedural', turbidity: 7, sunFromLight: false, sunElevation: 30.3 } });
+    frames(30);
+    expect(pmremBakes).toEqual(['new', 'reused']);
+    expect(scene.environment).toBe(texture);
+    expect(env.diagnostics().iblRebakes).toBe(1);
+    // A new t every frame, each change small but adding up: re-baked against the last bake, not the last frame.
+    for (let i = 1; i <= 90; i += 1) {
+      env.setBlend({ sky: { mode: 'procedural', turbidity: 7 + i * 0.01, sunFromLight: false, sunElevation: 30.3 } });
+      frames(1);
+    }
+    frames(30); // the ramp's last bake lands
+    const rebakes = env.diagnostics().iblRebakes - 1;
+    expect(rebakes).toBeGreaterThanOrEqual(2);
+    expect(rebakes).toBeLessThanOrEqual(4);
+    expect(pmremBakes.slice(1).every((b) => b === 'reused')).toBe(true);
+    // Only fog and exposure change: nothing to re-bake.
+    const before = pmremBakes.length;
+    for (let i = 0; i < 60; i += 1) {
+      env.setBlend({ sky: { mode: 'procedural', turbidity: 7.9, sunFromLight: false, sunElevation: 30.3 }, fog: { mode: 'exp2', color: '#808080', density: 0.01 + i * 0.001 }, post: { exposure: 1 - i * 0.01 } });
+      frames(1);
+    }
+    expect(pmremBakes.length).toBe(before);
+    // A gradient sky: the colours count in sRGB channels.
+    env.setBlend(null);
+    env.set({ sky: { mode: 'gradient', topColor: '#4080ff' } });
+    pmremBakes.length = 0;
+    env.setBlend({ sky: { mode: 'gradient', topColor: '#4081ff' } });
+    frames(40);
+    expect(pmremBakes).toEqual([]);
+    env.setBlend({ sky: { mode: 'gradient', topColor: '#4090ff' } });
+    frames(30);
+    expect(pmremBakes).toEqual(['reused']);
+    env.dispose();
+  });
+
+  it('phase 25.3: sky input differences against the threshold', () => {
+    const grey = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    expect(skyInputsDiffer('gradient', grey, grey.map((v) => v + SKY_REBAKE_THRESHOLD.color * 0.9))).toBe(false);
+    expect(skyInputsDiffer('gradient', grey, grey.map((v, i) => (i === 8 ? v + SKY_REBAKE_THRESHOLD.color * 1.1 : v)))).toBe(true);
+    const sun = (deg: number): number[] => [Math.cos(THREE.MathUtils.degToRad(deg)), Math.sin(THREE.MathUtils.degToRad(deg)), 0];
+    const proc = (t: number, deg: number): number[] => [t, 1.5, 0.005, 0.8, ...sun(deg)];
+    expect(skyInputsDiffer('procedural', proc(6, 10), proc(6, 10.4))).toBe(false);
+    expect(skyInputsDiffer('procedural', proc(6, 10), proc(6, 10.6))).toBe(true);
+    expect(skyInputsDiffer('procedural', proc(6, 10), proc(6.05, 10))).toBe(false);
+    expect(skyInputsDiffer('procedural', proc(6, 10), proc(6.1, 10))).toBe(true);
+    // Nothing baked yet (no inputs): always a difference.
+    expect(skyInputsDiffer('procedural', proc(6, 10), [])).toBe(true);
   });
 
   it('fog volumes go to the pipeline as world boxes every frame (14.4 height falloff included)', () => {

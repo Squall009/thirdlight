@@ -210,6 +210,8 @@ export interface SceneAdapterDiagnostics {
   materials?: { graphMaterials: number } & RuntimeMaterialsDiagnostics;
   /** Phase 21.3: draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
+  /** Phase 25.3: the environment renderer — image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one. */
+  environment?: { iblRebakes: number };
 }
 
 export interface ScreenshotResult {
@@ -1615,6 +1617,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (batcher !== null && !disposed && lastFrameDrawn) d.batching = batcher.diagnostics();
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...runtimeMaterials.diagnostics() };
+    if (environmentRenderer !== null && !disposed) d.environment = { iblRebakes: environmentRenderer.diagnostics().iblRebakes };
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     return {
       ok: true,

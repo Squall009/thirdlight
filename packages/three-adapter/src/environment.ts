@@ -161,7 +161,7 @@ export interface EnvironmentRenderer {
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** Phase 21.3: `samples` = the MSAA samples the scene is drawn with (0: none — the low level, or a post stack with its own anti-aliasing). */
-  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number };
+  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number };
   /** Phase 21.3: the MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
   dispose(): void;
@@ -189,10 +189,47 @@ const TONE: Record<string, THREE.ToneMapping> = {
 
 /** The PMREM calls used here (`three/webgpu`'s generator). */
 interface PmremLike {
-  fromScene(scene: THREE.Scene, sigma?: number, near?: number, far?: number): { texture: THREE.Texture; dispose(): void };
+  fromScene(scene: THREE.Scene, sigma?: number, near?: number, far?: number, options?: { renderTarget?: unknown }): { texture: THREE.Texture; dispose(): void };
   fromEquirectangular(texture: THREE.Texture): { texture: THREE.Texture; dispose(): void };
   fromCubemap(texture: THREE.CubeTexture): { texture: THREE.Texture; dispose(): void };
   dispose(): void;
+}
+
+/**
+ * Phase 25.3: how far a blended sky's inputs must move from the ones the
+ * image-based lighting was last baked from before it is baked again: a
+ * colour channel (0–1, sRGB) by more than `color`, a procedural sky number
+ * by more than `relative` of itself, the sun by more than `sunDegrees`.
+ * Smaller changes are not visible in diffuse and blurred reflections, and a
+ * bake (a cube render and blur passes) is the only costly part of a blend.
+ */
+export const SKY_REBAKE_THRESHOLD = Object.freeze({ color: 0.01, relative: 0.01, sunDegrees: 0.5 });
+
+/** "#rrggbb" → sRGB 0–1 channels into `out` at `at` (an invalid colour counts as white). */
+function srgbInto(hex: string, out: number[], at: number): void {
+  const v = /^#[0-9a-fA-F]{6}$/.test(hex) ? parseInt(hex.slice(1), 16) : 0xffffff;
+  out[at] = ((v >> 16) & 255) / 255;
+  out[at + 1] = ((v >> 8) & 255) / 255;
+  out[at + 2] = (v & 255) / 255;
+}
+
+/**
+ * Phase 25.3: whether two skies' bake inputs differ past `SKY_REBAKE_THRESHOLD`
+ * (gradient: the three colours as sRGB channels; procedural: turbidity,
+ * rayleigh, Mie coefficient and direction, then the unit sun direction).
+ */
+export function skyInputsDiffer(mode: 'gradient' | 'procedural', a: readonly number[], b: readonly number[]): boolean {
+  if (a.length !== b.length) return true;
+  if (mode === 'gradient') {
+    for (let i = 0; i < a.length; i += 1) if (Math.abs(a[i]! - b[i]!) > SKY_REBAKE_THRESHOLD.color) return true;
+    return false;
+  }
+  for (let i = 0; i < 4; i += 1) {
+    const scale = Math.max(Math.abs(a[i]!), Math.abs(b[i]!), 1e-6);
+    if (Math.abs(a[i]! - b[i]!) > SKY_REBAKE_THRESHOLD.relative * scale) return true;
+  }
+  const dot = a[4]! * b[4]! + a[5]! * b[5]! + a[6]! * b[6]!;
+  return dot < Math.cos(THREE.MathUtils.degToRad(SKY_REBAKE_THRESHOLD.sunDegrees));
 }
 
 export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE.Scene, options: EnvironmentRendererOptions): EnvironmentRenderer {
@@ -206,9 +243,22 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let builtStruct = '';
   /** The gradient dome's material (its colour uniforms; the image-based lighting is re-baked from it). */
   let gradientMat: THREE.Material | null = null;
-  /** Image-based lighting to re-bake (a blend changed the sky); frames since the last bake. */
+  /** Image-based lighting to re-bake (a blend moved the sky past the threshold); frames since the last bake. */
   let iblDirty = false;
+  /**
+   * Phase 25.3: the scene the image-based lighting of a gradient or procedural
+   * sky is baked from, kept while the sky is: a re-bake renders the same
+   * objects (their uniforms updated) into the same target, so the scene's
+   * environment texture stays the same object (a new one would rebuild every
+   * lit material's nodes) and nothing is allocated or compiled per bake.
+   */
+  let bake: { scene: THREE.Scene; mesh: THREE.Mesh; mode: 'gradient' | 'procedural' } | null = null;
+  /** Phase 25.3: the sky inputs of the last bake, and the sky's inputs now (`skyInputsDiffer`). */
+  let bakedInputs: number[] = [];
+  const inputsNow: number[] = [];
   let framesSinceBake = 0;
+  /** Phase 25.3: image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light; diagnostics). */
+  let iblRebakes = 0;
   /** Phase 23.18: the cross-fade layers by sky structure (a mesh per sky; null: the background). */
   const layers = new Map<string, SkyLayer>();
   let qualityOverride: QualityLevel | null = null;
@@ -267,6 +317,13 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     }
     envMap?.dispose();
     envMap = null;
+    if (bake !== null) {
+      bake.mesh.geometry.dispose();
+      // The gradient probe shares the dome's material (disposed with the dome); the procedural bake has its own sky.
+      if (bake.mode === 'procedural') (bake.mesh.material as THREE.Material).dispose();
+      bake = null;
+    }
+    bakedInputs = [];
     if (skyTexture !== null) {
       if (scene.background === skyTexture) scene.background = null;
       skyTexture.dispose();
@@ -310,10 +367,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       const tmp = new THREE.Scene();
       const clone = createSkyMesh(params);
       tmp.add(clone);
-      envMap = pmrem.fromScene(tmp, 0, 0.1, 10000);
-      scene.environment = envMap.texture;
-      clone.geometry.dispose();
-      (clone.material as THREE.Material).dispose();
+      bake = { scene: tmp, mesh: clone, mode: 'procedural' };
+      bakeIbl(sky);
       return;
     }
     if (sky.mode === 'gradient') {
@@ -328,11 +383,10 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       scene.background = null;
       scene.add(skyDome);
       const tmp = new THREE.Scene();
-      const probe = new THREE.SphereGeometry(10, 32, 16);
-      tmp.add(new THREE.Mesh(probe, mat));
-      envMap = pmrem.fromScene(tmp, 0, 0.1, 100);
-      scene.environment = envMap.texture;
-      probe.dispose();
+      const probe = new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), mat);
+      tmp.add(probe);
+      bake = { scene: tmp, mesh: probe, mode: 'gradient' };
+      bakeIbl(sky);
       return;
     }
     // texture: an equirect image or six faces.
@@ -383,30 +437,47 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
 
   // ---- Phase 23.18: blends (the sky in place, cross-fade layers) ----------------------------
   const procParams = (sky: SkyLike): Parameters<typeof createSkyMesh>[0] => ({ turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) });
-  /** Re-bake the image-based lighting from the sky as it is now (a blend changed it). */
+  /** Phase 25.3: a gradient or procedural sky's bake inputs into `out` (see `skyInputsDiffer`). */
+  const skyInputs = (sky: SkyLike, out: number[], params?: ReturnType<typeof procParams>): void => {
+    out.length = 0;
+    if (sky.mode === 'gradient') {
+      srgbInto(sky.topColor ?? '#3d7cd6', out, 0);
+      srgbInto(sky.horizonColor ?? '#bfe3ff', out, 3);
+      srgbInto(sky.bottomColor ?? '#757575', out, 6);
+    } else if (sky.mode === 'procedural') {
+      const p = params ?? procParams(sky);
+      out.push(p.turbidity, p.rayleigh, p.mieCoefficient, p.mieDirectionalG, p.sun.x, p.sun.y, p.sun.z);
+    }
+  };
+  /**
+   * Bake the image-based lighting from the bake scene (its sky as `sky` is
+   * now): into the target of the last bake when there is one.
+   */
+  const bakeIbl = (sky: SkyLike): void => {
+    if (bake === null) return;
+    const params = bake.mode === 'procedural' ? procParams(sky) : undefined;
+    if (params !== undefined) setSkyUniforms(bake.mesh, params);
+    envMap = pmrem.fromScene(bake.scene, 0, 0.1, bake.mode === 'procedural' ? 10000 : 100, envMap !== null ? { renderTarget: envMap } : {});
+    scene.environment = envMap.texture;
+    skyInputs(sky, bakedInputs, params);
+  };
+  /** Re-bake the image-based lighting from the sky as it is now (a blend moved it past the threshold). */
   const rebakeIbl = (): void => {
     iblDirty = false;
     framesSinceBake = 0;
     const sky = env?.sky;
-    if (sky === undefined || layers.size > 0) return;
-    if (sky.mode === 'gradient' && gradientMat !== null) {
-      envMap?.dispose();
-      const tmp = new THREE.Scene();
-      const probe = new THREE.SphereGeometry(10, 32, 16);
-      tmp.add(new THREE.Mesh(probe, gradientMat));
-      envMap = pmrem.fromScene(tmp, 0, 0.1, 100);
-      scene.environment = envMap.texture;
-      probe.dispose();
-    } else if (sky.mode === 'procedural' && skyMesh !== null) {
-      envMap?.dispose();
-      const tmp = new THREE.Scene();
-      const clone = createSkyMesh(procParams(sky));
-      tmp.add(clone);
-      envMap = pmrem.fromScene(tmp, 0, 0.1, 10000);
-      scene.environment = envMap.texture;
-      clone.geometry.dispose();
-      (clone.material as THREE.Material).dispose();
-    }
+    if (sky === undefined || layers.size > 0 || bake === null || bake.mode !== sky.mode) return;
+    iblRebakes += 1;
+    bakeIbl(sky);
+  };
+  /** The procedural sky's uniforms (three's SkyMesh). */
+  const setSkyUniforms = (mesh: THREE.Mesh, p: ReturnType<typeof procParams>): void => {
+    const m = mesh as THREE.Mesh & { turbidity: { value: number }; rayleigh: { value: number }; mieCoefficient: { value: number }; mieDirectionalG: { value: number }; sunPosition: { value: THREE.Vector3 } };
+    m.turbidity.value = p.turbidity;
+    m.rayleigh.value = p.rayleigh;
+    m.mieCoefficient.value = p.mieCoefficient;
+    m.mieDirectionalG.value = p.mieDirectionalG;
+    m.sunPosition.value.copy(p.sun);
   };
   /** The built sky takes this sky's numbers (same structure): uniforms, a background colour, intensities. */
   const updateSkyInPlace = (sky: SkyLike): void => {
@@ -416,16 +487,13 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       u?.top.value.set(sky.topColor ?? '#3d7cd6');
       u?.horizon.value.set(sky.horizonColor ?? '#bfe3ff');
       u?.bottom.value.set(sky.bottomColor ?? '#757575');
-      iblDirty = true;
+      skyInputs(sky, inputsNow);
+      iblDirty = skyInputsDiffer('gradient', inputsNow, bakedInputs);
     } else if (sky.mode === 'procedural' && skyMesh !== null) {
-      const m = skyMesh as THREE.Mesh & { turbidity: { value: number }; rayleigh: { value: number }; mieCoefficient: { value: number }; mieDirectionalG: { value: number }; sunPosition: { value: THREE.Vector3 } };
       const p = procParams(sky);
-      m.turbidity.value = p.turbidity;
-      m.rayleigh.value = p.rayleigh;
-      m.mieCoefficient.value = p.mieCoefficient;
-      m.mieDirectionalG.value = p.mieDirectionalG;
-      m.sunPosition.value.copy(p.sun);
-      iblDirty = true;
+      setSkyUniforms(skyMesh, p);
+      skyInputs(sky, inputsNow, p);
+      iblDirty = skyInputsDiffer('procedural', inputsNow, bakedInputs);
     } else if (sky.mode === 'color' && (scene.background as THREE.Color | null)?.isColor === true) {
       (scene.background as THREE.Color).set(sky.color ?? '#7ec8ff');
     }
@@ -777,7 +845,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     },
     render(camera) {
       if (disposed) return;
-      // Phase 23.18: the lighting of a sky a blend changed, at most every 30th frame (a PMREM bake is not free: a cube render and blur passes).
+      // Phase 23.18: the lighting of a sky a blend changed, at most every 30th frame (a PMREM bake is not free: a cube render and blur passes);
+      // phase 25.3: only once the sky moved past SKY_REBAKE_THRESHOLD from the last bake.
       framesSinceBake += 1;
       if (iblDirty && framesSinceBake >= 30) rebakeIbl();
       buildPipeline(camera);
@@ -800,7 +869,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     },
     samples: () => samplesNow,
     diagnostics() {
-      return { post: passNames.length > 0, passes: [...passNames], fallback, quality: quality(), samples: samplesNow };
+      return { post: passNames.length > 0, passes: [...passNames], fallback, quality: quality(), samples: samplesNow, iblRebakes };
     },
     dispose() {
       disposed = true;

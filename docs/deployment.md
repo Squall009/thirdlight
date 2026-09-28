@@ -2047,7 +2047,14 @@ or fog kind does). Two presets with **different skies** (another mode, or
 another sky image) **cross-fade**: each sky is drawn as a dome over the
 background with its share as opacity; the image-based lighting is the
 heavier sky's. A sky that only changes its numbers re-bakes its image-based
-lighting at most every 30th frame. Fog of different kinds converts (linear
+lighting at most every 30th frame, and only once it has moved past a
+threshold from the last bake (phase 25.3: a colour channel by more than
+0.01, a procedural sky number by more than 1 %, the sun by more than 0.5°);
+the bake reuses its target, so the scene's environment texture never
+changes during a blend. A blend that only changes fog, exposure, grading or
+lights never re-bakes. A script may give `blend(a, b, t)` a new t every step:
+measured on the GPU host (Iris Xe), no step is dropped once loaded
+(`environment-blend-cost.e2e.ts`). Fog of different kinds converts (linear
 ↔ exp2 by density = 2 / far); a look without fog thins it. Tone mapping,
 anti-aliasing, AO, depth of field and the LUT image cannot blend: the
 heavier look's is used.
