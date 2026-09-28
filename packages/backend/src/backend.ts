@@ -638,11 +638,17 @@ export function createBackend(
         session.selection = [...inbound.entityIds];
         return;
       case 'play.preview.ready':
+      case 'play.preview.progress':
       case 'play.preview.failed':
       case 'play.stopped.ack': {
         const rec = plays.get(inbound.playSessionId);
         if (rec === undefined || rec.ownerSessionId !== session.sessionId) {
           sessions.record(session, 'error', inbound.playSessionId, undefined, nowMs(), 'event for unknown play');
+          return;
+        }
+        // Phase 25.24f: the preview is still starting and moving: the present timeout counts from now.
+        if (inbound.type === 'play.preview.progress') {
+          plays.progressed(rec.playSessionId);
           return;
         }
         if (inbound.type === 'play.preview.ready') {

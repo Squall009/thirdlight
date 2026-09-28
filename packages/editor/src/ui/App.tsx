@@ -1348,6 +1348,10 @@ function EditorApp(): JSX.Element {
       // (lifting the 15 s present-timeout).
       clientRef.current?.sendPlayPreviewReady(playInfo.playSessionId);
     });
+    // Phase 25.24f: load progress keeps the backend's present timeout from firing while the preview still moves.
+    bridge.on('tl.load.progress', () => {
+      clientRef.current?.sendPlayPreviewProgress(playInfo.playSessionId);
+    });
     bridge.on('tl.stopped', () => {
       setPlaying(false);
       setPlayInfo(null);

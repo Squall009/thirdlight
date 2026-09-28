@@ -16,7 +16,9 @@
  * wall — an empty world would draw only the start scene; the frame that
  * attached "B" drew as many calls as "B" draws later (its model and texture
  * were prepared before, not streamed in after); "B" was prepared before it
- * attached. The final picture is green (pixels). Runs under each renderer
+ * attached. The final picture is green (pixels). Phase 25.24f: the editor
+ * sends the preview's load progress to the backend before it is ready (the
+ * present timeout counts from the last). Runs under each renderer
  * variant (the forced WebGL 2 one with TL_E2E_ALL_VARIANTS=1).
  */
 import { randomBytes } from 'node:crypto';
@@ -106,6 +108,12 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   await cmd('createEntity', { sceneId: 'scene-b', parentId: null, kind: 'model', name: 'Orb', transform: { position: [6, 3, 0] }, model: { asset: { assetId: 'model-orb' } } });
 
   page.on('pageerror', (e) => console.log(`[page pageerror] ${e.message}`));
+  // Phase 25.24f: the editor passes the preview's load progress on to the backend (its present timeout counts from the last).
+  const sent: string[] = [];
+  page.on('websocket', (ws) => ws.on('framesent', (f) => {
+    const t = /"type":"(play\.preview\.[a-z]+)"/.exec(String(f.payload))?.[1];
+    if (t !== undefined) sent.push(t);
+  }));
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
@@ -126,13 +134,16 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   type Obs = { state?: string; scenes?: { loaded: string[]; loading: string[]; transition?: { scene: string; phase: string; fade: number } } };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`)).json as Obs;
   await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
-  type Diag = { diagnostics?: { startTimings?: { firstFrameMs: number | null; sceneLoads: SceneLoad[] } } };
+  type Diag = { diagnostics?: { startTimings?: { firstFrameMs: number | null; firstFrameDraws?: number | null; sceneLoads: SceneLoad[] } } };
   const diag = async (): Promise<NonNullable<NonNullable<Diag['diagnostics']>['startTimings']>> => {
     const r = await api(`play/${psid}/diagnostics`);
     expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
     return ((r.json as Diag).diagnostics?.startTimings) ?? { firstFrameMs: null, sceneLoads: [] };
   };
   await expect.poll(async () => (await diag()).firstFrameMs, { timeout: 60_000 }).not.toBeNull();
+  expect(sent[0], JSON.stringify(sent)).toBe('play.preview.progress');
+  expect(sent).toContain('play.preview.ready');
+  expect(sent.indexOf('play.preview.ready')).toBe(sent.length - 1); // nothing after ready
   const shot = async (): Promise<Image> => {
     const r = await api(`play/${psid}/screenshot`, { maxWidth: 256 });
     expect(r.status, JSON.stringify(r.json).slice(0, 200)).toBe(200);
@@ -172,6 +183,8 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   expect(b?.attachedMs).not.toBeNull();
   const startOnly = a!.drawsBefore!;
   expect(startOnly).toBeGreaterThan(0);
+  // Phase 25.24f: the first picture already had the start scene's models (it waited for them).
+  expect((await diag()).firstFrameDraws).toBe(startOnly);
   // A draws its wall over the start scene.
   expect(a!.attachDraws!).toBeGreaterThan(startOnly);
   // No empty frame: from B's request to 10 s after it attached, every frame drew more than the start scene alone.

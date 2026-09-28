@@ -368,6 +368,19 @@ export class PlayManager {
     this.touch(rec);
   }
 
+  /**
+   * Phase 25.24f: the preview reported progress while it starts (a stage
+   * done, bytes read): the present timeout counts from the last progress, so
+   * a large project that keeps loading is not stopped while one that hangs
+   * still is.
+   */
+  progressed(playSessionId: string): void {
+    const rec = this.plays.get(playSessionId);
+    if (rec === undefined || rec.state !== 'active' || rec.presentTimer === undefined) return;
+    clearTimeout(rec.presentTimer);
+    rec.presentTimer = setTimeout(() => this.presentTimeoutFired(rec), this.hooks.presentTimeoutMs());
+  }
+
   /** §10.3: a runtime failure reported by the preview path. */
   previewFailed(playSessionId: string, code?: string, message?: string): void {
     const rec = this.plays.get(playSessionId);

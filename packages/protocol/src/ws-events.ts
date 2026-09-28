@@ -49,6 +49,8 @@ export const CLIENT_EVENT_TYPES = [
   'ping',
   'play.preview.ready',
   'play.preview.failed',
+  // Phase 25.24f: the preview made progress while it starts (the present timeout counts from the last).
+  'play.preview.progress',
   'play.stopped.ack',
   'screenshot.ack',
   'play.diagnostics.ack',
@@ -259,6 +261,7 @@ export type InboundEvent =
   | { type: 'ping' }
   | { type: 'selection.changed'; entityIds: readonly string[] }
   | { type: 'play.preview.ready'; playSessionId: string }
+  | { type: 'play.preview.progress'; playSessionId: string }
   | { type: 'play.preview.failed'; playSessionId: string; code: string; message?: string }
   | { type: 'play.stopped.ack'; playSessionId: string }
   | {
@@ -355,6 +358,7 @@ export function parseInboundEvent(value: unknown):
       return { ok: true, event: { type: 'selection.changed', entityIds: ids as string[] } };
     }
     case 'play.preview.ready':
+    case 'play.preview.progress':
     case 'play.stopped.ack': {
       const s = checkShape(obj, '', new Map([['type', `"${type}"`], ['playSessionId', 'play- + 32 hex']]), ['type', 'playSessionId']);
       if (!s.ok) return { ok: false, kind: 'protocol_error', error: s.error };
@@ -364,7 +368,7 @@ export function parseInboundEvent(value: unknown):
       if (!id.ok) return { ok: false, kind: 'protocol_error', error: id.error };
       return {
         ok: true,
-        event: { type: type as 'play.preview.ready' | 'play.stopped.ack', playSessionId: id.value as string },
+        event: { type: type as 'play.preview.ready' | 'play.preview.progress' | 'play.stopped.ack', playSessionId: id.value as string },
       };
     }
     case 'play.preview.failed': {

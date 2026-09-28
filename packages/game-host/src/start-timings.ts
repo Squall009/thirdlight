@@ -83,6 +83,8 @@ export interface StartTimingsReport {
   readonly epochMs: number;
   readonly stages: readonly StartStage[];
   readonly firstFrameMs: number | null;
+  /** Phase 25.24f: the first drawn frame's draw calls (it waits for the start scenes' models). */
+  readonly firstFrameDraws?: number | null;
   /** Frames in the FRAME_WATCH_MS after the first frame. */
   readonly afterFirstFrame: FrameWatch;
   readonly sceneLoads: readonly SceneLoadTiming[];
@@ -142,6 +144,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
   let firstFrameMs: number | null = null;
   let lastFrameMs: number | null = null;
   let lastDraws: number | null = null;
+  let firstFrameDraws: number | null = null;
   const afterFirst = emptyWatch();
   const loads: SceneLoadTiming[] = [];
   const pendingLoad = (sceneId: string): SceneLoadTiming | undefined => {
@@ -176,6 +179,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
       lastFrameMs = t;
       if (firstFrameMs === null) {
         firstFrameMs = round1(t);
+        firstFrameDraws = info?.draws ?? null;
         if (info?.renderMs !== undefined && info.firstCallAt !== undefined && stages.size < MAX_STAGES - 2) {
           const callStart = t - info.renderMs;
           // Phase 25.24d: the renderer was ready when the precompile began (it waits for an initialised renderer).
@@ -236,6 +240,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
         epochMs: Math.round(epochMs),
         stages: [...stages.values()].map((s) => ({ ...s })),
         firstFrameMs,
+        firstFrameDraws,
         afterFirstFrame: { ...afterFirst, worst: [...afterFirst.worst] },
         sceneLoads: loads.map((l) => ({ ...l, after: { ...l.after, worst: [...l.after.worst] } })),
         counts: { ...counts },

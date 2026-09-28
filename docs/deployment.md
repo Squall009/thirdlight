@@ -574,6 +574,14 @@ Each scene load in `startTimings.sceneLoads` also says whether it was read
 ahead, when it was prepared, and the draw calls before it, of the frame that
 attached it and the fewest in between.
 
+The first picture of a Play or an exported game waits for its start scenes'
+models (phase 25.24f), so it shows the whole world; textures a material asks
+for later, instance sets, clips and sounds arrive after. A Play that is still
+loading keeps sending progress: the 15 s present timeout counts from the
+last progress (a stage done, a file read, a model prepared), not from the
+start, so a large project is not stopped while it loads and a hung one still
+is.
+
 `tl_content_query {target:"game", includeDescriptors:true}` also returns the
 component and content descriptor registry: for every component and content
 block, each field's type, unit, range, step, default, group, label, tooltip,

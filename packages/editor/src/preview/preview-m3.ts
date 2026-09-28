@@ -422,6 +422,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   if (recomputed !== manifest.buildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the verified capture');
   if (manifest.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
   timings?.end('manifest', `${manifestRes.byteLength} B`);
+  // Phase 25.24f: each stage done is progress (the backend's present timeout counts from the last).
+  onProgress('manifest', manifestRes.byteLength, manifestRes.byteLength);
 
   // Phase 25.24c: the declared artifacts by digest from the project's cache root (checked against the manifest below as before).
   const urlOf = artifactUrls(manifest, cfg.contentRoot, cfg.cacheRoot);
@@ -578,7 +580,13 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
             ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
             driver: 'raf',
           });
-        remoteStart.then(() => timings?.end('worker'), () => timings?.end('worker', 'failed'));
+        remoteStart.then(
+          () => {
+            timings?.end('worker');
+            onProgress('behaviors', 0, 0);
+          },
+          () => timings?.end('worker', 'failed'),
+        );
       }
     }
 
@@ -763,6 +771,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     timings?.begin('mount');
     const mount = host.mount();
     timings?.end('mount');
+    onProgress('runtime', 0, 0);
     if (!mount.ok) {
       throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
     }
@@ -789,7 +798,20 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     //    physics are disposed so the in-flight/late loads are discarded (L9).
     if (models !== null && adapterRef.current !== null) {
       timings?.begin('models');
-      const settle = await adapterRef.current.modelsSettled?.();
+      // Phase 25.24f: every model prepared is progress (a project with many large models keeps its start alive).
+      const adapterNow = adapterRef.current;
+      let prepared = -1;
+      const watch = setInterval(() => {
+        const m = adapterNow.diagnostics();
+        const c = m.ok ? m.diagnostics.models : undefined;
+        if (c === undefined) return;
+        const done = c.assets - c.pending;
+        if (done !== prepared) {
+          prepared = done;
+          onProgress('runtime', 0, 0);
+        }
+      }, 250);
+      const settle = await adapterRef.current.modelsSettled?.().finally(() => clearInterval(watch));
       timings?.end('models');
       if (settle === undefined || settle.ok === false) {
         const code = settle?.code ?? 'models_config_invalid';

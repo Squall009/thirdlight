@@ -1137,6 +1137,21 @@ export class SessionClient {
     return ok;
   }
 
+  /**
+   * Phase 25.24f: the preview reported load progress (`tl.load.progress`)
+   * before it is ready: tell the backend at most once a second, so its
+   * present timeout counts from the last progress. Nothing after `ready`.
+   */
+  sendPlayPreviewProgress(playSessionId: string): boolean {
+    if (this.playReadySentFor === playSessionId) return true;
+    const now = Date.now();
+    if (this.progressSent !== null && this.progressSent.id === playSessionId && now - this.progressSent.at < 1000) return true;
+    const ok = this.sendWsFrame({ type: 'play.preview.progress', playSessionId });
+    if (ok) this.progressSent = { id: playSessionId, at: now };
+    return ok;
+  }
+  private progressSent: { id: string; at: number } | null = null;
+
   /** M4 (packet 70, D-63-4 repair — failure side): send the WS
    * `play.preview.failed` when the preview could not start (sessions.md
    * §10.2 — the editor relays the preview's `tl.error`; the backend stops the

@@ -163,7 +163,10 @@ boundary it changes (Playwright for any editor surface).
 | 25.24c | done 2026-09-28: the bundle, worker and physics scripts at `/play-build/<digest>/`, a project's declared artifacts by digest under a stable per-project cache root (`immutable`, `ETag`, 304; the page still checks the bytes); blobs held once by digest; compiled behaviors cached by source, declaration, library and compiler digests; the closure's derivation of an unchanged capture reused, scene files hashed natively; large second Play 7.1 → 2.7 s (backend 1 s → 40–60 ms, bundle from the browser's caches); after split in §6 |
 | 25.24d (instance sets) | done 2026-09-28: instance-set chunks drawn through the same columns (one program per mesh of the model, not per chunk; picked per copy as before); the editor's first frame on the large bench 1.6 → 0.4 s of programs, so its first Play answers after 1.3 s (was 2.5–5 s); large second Play 2.4–2.5 s |
 | 25.24e | done 2026-09-28: scene loads prepared before the simulation gets them (file read, models parsed, instance buffers and textures decoded: `prepareScene`, the page's preloader); the next scenes read ahead (transition targets of the loaded scenes, the shell's next listed scene; at most 4); a transition's unloads leave in the step its scene arrives (never an empty world); optional `fade`/`fadeColor` on scene transitions, scene list entries and `ctx.scenes.load`; loading state in `ctx.scenes.loading()/transition()`, `$flow.scenes`, the observation; a large scene's entities copied over steps (4 ms a step); 2D/3D collider removal one pass (unload 54 → 17 ms); `scene-loads.e2e.ts` measures no empty frame (draw calls per frame, both renderers) |
-| 25.7–25.23, 25.24f, h | — |
+| 25.24f | done 2026-09-28: the first present waits for the start scenes' models (whole first picture; its precompile covers them), the rest streams (instance buffers, textures of later use, clips, other scenes prepared when they load); the 15 s present timeout counts from the last progress (`play.preview.progress`, the editor forwards the preview's load progress at most once a second; the preview reports each stage and each model prepared) |
+| 25.24h | resolved 2026-09-28, not done: boot is ~0.15 s of the large bench's 2.3–2.6 s first frame (≤ 7 %); the warm page would hold a hidden page, worker and physics world per editor; numbers in §6 |
+| 25.24 | done 2026-09-28: (a)–(h) resolved; targets fixed in §6 (large ≤ 3 s from the second Play, no frame > 250 ms; a scene transition never draws an empty world) |
+| 25.7–25.23 | — |
 
 ## 6. Decision log
 
@@ -610,3 +613,52 @@ boundary it changes (Playwright for any editor surface).
     prepared 27 ms after its request and attached after the fade-out (~0.45 s)
     in a 58–85 ms frame drawing its final 25 calls; no frame over 250 ms; the
     fade overlay went 0 → 1 → 0.
+- 2026-09-28 (25.24f): progressive presentation, measured first. After (b)
+  only the start scenes' files are read before the mount, and that read
+  overlaps the worker start (asset-heavy: assets end at 190–223 ms, the worker
+  at 261–306 ms), so reading less of it would not move the first frame. What
+  the first picture still lacked was a guarantee: the first present could
+  come before the start scenes' models had settled (a large model file on a
+  small scene), then the models popped in and built their programs on their
+  first draw. So "blocking" is taken as the start scenes' models (the world's
+  geometry, the settle gate that already decides `tl.ready`): the adapter
+  holds the first present until they settle (at most 20 s, like the
+  precompile), so the first picture is whole and its precompile covers them.
+  The rest streams: instance-set buffers, textures a material asks for later,
+  animation clips, sounds, and other scenes (prepared when they load, 25.24e).
+  The first frame did not move (it already came after the settle on the
+  benches). The present timeout (15 s) now counts from the last progress: the
+  preview reports each stage (manifest, worker, assets by bytes, mount, each
+  model prepared) as `tl.load.progress`; the editor passes it on as the WS
+  event `play.preview.progress` at most once a second until `ready`; the
+  backend re-arms the timer on it (a play that hangs still ends 15 s after
+  its last progress). Tested: backend unit (progress every 0.5 s keeps a 1 s
+  timeout from firing, silence then ends it), `scene-loads.e2e.ts` (the
+  editor's WS frames: progress first, nothing after ready; the first frame
+  draws the start scene with its models).
+- 2026-09-28 (25.24h): not done, by the measured split. After (b)–(g), the
+  large bench's first frame from the second Play on is 2.31–2.58 s (GPU host,
+  auto = WebGPU, worker; `--classes small,large,asset-heavy --surfaces play
+  --renderers auto --gpu --plays 3`), of which boot — what a warm page would
+  have done already — is the bundle's evaluation (12–15 ms, from the code
+  cache) and the worker's own start (script and Rapier WASM, ~110 ms: the
+  small class's whole worker stage) — about 0.13–0.15 s, ≤ 7 %. The rest is
+  the content: the backend (0.19–0.25 s), the snapshot and start scene files
+  (~0.15 s), the worker composing 16 000 entities (~0.4 s beyond its boot),
+  the host mount (0.13–0.17 s), the models (0.3 s), the renderer init,
+  precompile and first draw (~0.9 s). A warm page would keep a hidden page, a
+  worker and a physics world alive per editor for that ~0.15 s. Small: first
+  frame 0.42–0.49 s (boot ~0.13 s of it, already under half a second);
+  asset-heavy 0.59–0.66 s.
+  **Targets (fixed from these numbers, 25.24's acceptance):** on the GPU
+  host, from the second Play on, the large bench's first frame ≤ 3 s (2.31–
+  2.58 s; was 7.1–7.2 s before 25.24), small ≤ 0.6 s (0.42–0.49; was 0.55),
+  asset-heavy ≤ 1 s (0.59–0.66; was 1.04); no frame over 250 ms in the 10 s
+  after the first (large worst 85 ms; was 366–385); a scene transition draws
+  no frame with less than the world it leaves or the one it arrives in
+  (`scene-loads.e2e.ts`), and a scene loaded during play attaches prepared
+  (asset-heavy scene 2 of 4, 294 entities, 12 model files and their
+  textures: prepared 95 ms after the request, attached at 160 ms in a 70 ms
+  frame, no frame over 50 ms after; before 25.24e it attached at 64 ms and
+  its models and textures were read after, their arrival unmeasured). The
+  large Play 1 in a fresh editor page is 3.8 s (backend 0.5 s cold).

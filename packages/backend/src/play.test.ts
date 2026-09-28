@@ -562,6 +562,32 @@ describe('stop paths (§10.2/§10.3)', () => {
     }
   });
 
+  it('phase 25.24f: the present timeout counts from the last play.preview.progress', async () => {
+    const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 1, inactivityTtlSeconds: 300 } });
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      editor.presentOnStart = false;
+      const r = await playStart(tb);
+      const psid = r.json.playSessionId as string;
+      // Progress every 0.5 s for 2.5 s: the play stays (twice the timeout from its start).
+      for (let i = 0; i < 5; i += 1) {
+        await sleep(500);
+        ws.send({ type: 'play.preview.progress', playSessionId: psid });
+      }
+      expect(tb.backend._test.plays.get(psid)?.state).toBe('active');
+      // Then silence: it stops a timeout after the last progress.
+      const stopped = await editor.waitForEvent('play.stopped', 4000);
+      expect(stopped.reason).toBe('preview_timeout');
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  });
+
   it('inactivity TTL: an idle presented play expires (reason "expired")', async () => {
     const tb = await startBackend({ timeouts: { inactivityTtlSeconds: 2, presentTimeoutSeconds: 60 } });
     try {

@@ -927,6 +927,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // validation (§2.2) surfaces through `modelsSettled` + the structured
   // result; the base scene keeps rendering (degraded, never a throw).
   let realization: ModelsRealization | null = null;
+  /**
+   * Phase 25.24f: the start scenes' models have settled (the blocking assets
+   * of the first picture): the first present waits for them, so it shows the
+   * whole world and its precompile covers the models' programs. The rest —
+   * instance buffers, textures, clips, later scenes — stream in.
+   */
+  let startModelsIn = true;
+  let startHeldSince: number | null = null;
   let modelsConfigError: AdapterError | null = null;
   if (opts.models !== undefined) {
     // Structural reads over the (deep-frozen, runtime-validated) snapshot —
@@ -974,6 +982,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     });
     if (result.ok === true) {
       realization = result.realization;
+      startModelsIn = false;
+      void realization.settled().then(() => {
+        startModelsIn = true;
+      });
     } else {
       modelsConfigError = result.error;
     }
@@ -1354,6 +1366,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const now = performance.now();
     if (precompileRunning(now)) return true;
     if (precompileWanted === null || camera === null) return false;
+    // Phase 25.24f: the first present waits for the start scenes' models (at most PRECOMPILE_WAIT_MS).
+    if (precompileWanted === 'start' && !startModelsIn) {
+      startHeldSince ??= now;
+      if (now - startHeldSince < PRECOMPILE_WAIT_MS) return true;
+    }
     const reason = precompileWanted;
     precompileWanted = null;
     let job: Promise<void>;
