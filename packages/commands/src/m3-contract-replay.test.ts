@@ -2,7 +2,7 @@
  * Packet 45 — the committed packet-39 command contract fixtures
  * (`fixtures/m3/contracts/commands/**`) through the REAL engine.
  *
- * Phase 24.7: the packet-39 scenario was recorded against the platformer
+ * Phase 24.7: the packet-39 scenario was recorded against the character controller
  * layer that phase 24 removed (goal/hazard/checkpoint zones, the camera
  * follow, `setGameConfig`). Its recorded message stream (5 of 7 messages are
  * zone or game-block edits) and its byte-exact after-envelope can no longer be
@@ -46,7 +46,7 @@ describe('packet-39 no-change cases', () => {
   }>('commands/no-change.json');
 
   // Recorded cases 2 (`setGameConfig`) and 3 (a `gameZone` edit) edit the
-  // removed platformer layer.
+  // removed game layer.
   const GENERIC = NC.messages.filter((m) => m.op === 'applySurfacePreset');
 
   it('reports no_change for the recorded surface-preset case and leaves the state untouched', () => {

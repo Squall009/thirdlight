@@ -22,8 +22,22 @@ import {
   type SimulationRegistry,
 } from './types';
 
-/** The accepted M2 controller module ID (runtime.md §12.1 inventory). */
-export const PLATFORMER_MODULE_ID = 'thirdlight.platformer:controller';
+/** The accepted M2 controller module ID (runtime.md §12.1 inventory; phase 24.7: renamed from `thirdlight.platformer:controller`). */
+export const CHARACTER_MODULE_ID = 'thirdlight.character:controller';
+
+/**
+ * Phase 24.7: module ids renamed since a manifest may have named them (old id
+ * → current id). A resolver reading a manifest maps an id through
+ * `canonicalModuleId` before it looks the spec up.
+ */
+export const MODULE_ID_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+  'thirdlight.platformer:controller': CHARACTER_MODULE_ID,
+});
+
+/** Phase 24.7: the current id of a module id (itself unless it was renamed). */
+export function canonicalModuleId(id: string): string {
+  return Object.prototype.hasOwnProperty.call(MODULE_ID_ALIASES, id) ? MODULE_ID_ALIASES[id]! : id;
+}
 
 /**
  * The built-in M1 demo spec. Its `excludes`/`legacyTransformOwners` metadata
@@ -34,7 +48,7 @@ export const PLATFORMER_MODULE_ID = 'thirdlight.platformer:controller';
  */
 const demoBuiltinSpec: SimulationModuleSpec = {
   id: DEMO_MODULE_ID,
-  excludes: [PLATFORMER_MODULE_ID],
+  excludes: [CHARACTER_MODULE_ID],
   legacyTransformOwners: (snapshot) =>
     snapshot.scene.entities.filter((e) => e.components.box !== undefined).map((e) => e.id),
   create: (snapshot, cfg) => boxMotionSpec.create(snapshot, cfg),

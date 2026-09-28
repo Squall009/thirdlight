@@ -10,7 +10,7 @@
  * `playerSpawn` transform rules. Rules that need `content.assets` — animation
  * asset resolution and the accepted v2 cross-block checks — run in
  * `validateProjectV3`/`validateEnvelopeV3` (§23.8 steps 5–6). Phase 24.7: the
- * platformer's `gameZone` and `cameraFollow` components were deleted.
+ * `gameZone` and `cameraFollow` components were deleted.
  *
  * The accepted v2 component validators are reused verbatim (no v2 component
  * is renumbered or reinterpreted; §23.3). Pure and total: same input → same

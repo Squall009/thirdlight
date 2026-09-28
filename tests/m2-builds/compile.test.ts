@@ -31,7 +31,7 @@ const BEHAVIOR_ID = index.behaviorId;
 
 /**
  * The pin table the packet-33 digests were recorded under (the fixture's own
- * `pinnedModules`). Phase 24.3 unpinned `@thirdlight/platformer` from the
+ * `pinnedModules`). Phase 24.3 unpinned `@thirdlight/character` from the
  * live table; the fixture keeps reproducing byte-identically under its record.
  */
 const FIXTURE_PINS = index.pinnedModules;
@@ -62,7 +62,7 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
 
   it('phase 24.3: the live pin table is the generic engine only — a script that requires the platformer is refused', async () => {
     expect(M2_PINNED_MODULES.map((p) => p.id)).toEqual(['@thirdlight/physics-rapier', '@thirdlight/runtime']);
-    const container = { graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/platformer'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: 'export default { step() {} };\n' }] };
+    const container = { graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/character'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: 'export default { step() {} };\n' }] };
     const r = await compileBehavior({ behaviorId: BEHAVIOR_ID, declaration: DECLARATION, containerBytes: new TextEncoder().encode(`${JSON.stringify(container, null, 2)}\n`), pinnedModules: M2_PINNED_MODULES, limits: RUN_LIMITS });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('behavior_import_unpinned');

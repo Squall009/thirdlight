@@ -13,12 +13,12 @@
  * the game block's `settleTime` (default 0.1 s = 12 steps), run by the runtime.
  */
 /** The accepted controller module ID (`runtime.md` §12.1 module inventory). */
-export const PLATFORMER_MODULE_ID = 'thirdlight.platformer:controller' as const;
+export const CHARACTER_MODULE_ID = 'thirdlight.character:controller' as const;
 
 /**
  * The default of every tuning value the controller algorithm uses
  * (`platformer.md` §12; phase 15.3: overridden by the player's `controller`
- * data). `autostep` is `false` by default: a platformer climbs by jumping.
+ * data). `autostep` is `false` by default: a side-view character climbs by jumping.
  * The capsule is not here: since phase 14.0 it is the player's data
  * (`controller.capsule`), handed to the physics port by the host.
  */

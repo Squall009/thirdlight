@@ -32,7 +32,7 @@ import {
   type Runtime,
   type Vec2,
 } from '@thirdlight/runtime';
-import { PLATFORMER_MODULE_ID, platformerSpec } from '@thirdlight/platformer';
+import { CHARACTER_MODULE_ID, characterControllerSpec } from '@thirdlight/character';
 import { createPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   captureContentViewV3,
@@ -130,7 +130,7 @@ async function startRun(settings: GameplaySettings, frames: readonly ActionFrame
   if (!init.ok) throw new Error(`physics init failed: ${JSON.stringify(init.error)}`);
   const physics: PhysicsPort = init.port;
   const registry = createSimulationRegistry();
-  for (const spec of [platformerSpec]) {
+  for (const spec of [characterControllerSpec]) {
     const r = registerSimulationModule(registry, spec.id, spec);
     if (!r.ok) {
       physics.dispose();
@@ -141,7 +141,7 @@ async function startRun(settings: GameplaySettings, frames: readonly ActionFrame
   const res = instantiateRuntime({
     snapshot: v3Snapshot(),
     registry,
-    modules: [PLATFORMER_MODULE_ID],
+    modules: [CHARACTER_MODULE_ID],
     actions: createRecordedActionSource(frames),
     physics,
     settings,
@@ -276,7 +276,7 @@ describe('B16 the changed settings are hash-bound through the v2 manifest', () =
       settings: viewRes.normalized.settings,
       game: viewRes.normalized.game,
       media: mediaRes.normalized,
-      moduleIds: [PLATFORMER_MODULE_ID],
+      moduleIds: [CHARACTER_MODULE_ID],
       enginePins: M3_ENGINE_PINS,
     });
     if (!manifestRes.ok) throw new Error(`captureManifestV2 failed: ${JSON.stringify(manifestRes.error)}`);

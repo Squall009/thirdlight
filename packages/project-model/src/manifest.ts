@@ -79,7 +79,7 @@ export const MANIFEST_KEYS = [
 export const M2_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVersion: number }> = Object.freeze([
   Object.freeze({ id: '@thirdlight/input', version: '0.1.0', apiVersion: 1 }),
   Object.freeze({ id: '@thirdlight/physics-rapier', version: '0.1.0', apiVersion: 1 }),
-  Object.freeze({ id: '@thirdlight/platformer', version: '0.1.0', apiVersion: 1 }),
+  Object.freeze({ id: '@thirdlight/character', version: '0.1.0', apiVersion: 1 }),
   Object.freeze({ id: '@thirdlight/runtime', version: '0.1.0', apiVersion: 1 }),
   Object.freeze({ id: '@thirdlight/three', version: '0.186.0', apiVersion: 0 }),
   Object.freeze({ id: '@thirdlight/three-adapter', version: '0.1.0', apiVersion: 1 }),
@@ -90,7 +90,7 @@ export const M2_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freez
   'thirdlight.demo:box-motion': '@thirdlight/runtime',
   'thirdlight.input:keyboard-gamepad': '@thirdlight/input',
   'thirdlight.physics-rapier:2d': '@thirdlight/physics-rapier',
-  'thirdlight.platformer:controller': '@thirdlight/platformer',
+  'thirdlight.character:controller': '@thirdlight/character',
   'thirdlight.three-adapter:gltf-loader': '@thirdlight/three-adapter',
 });
 

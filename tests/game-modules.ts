@@ -7,11 +7,11 @@
  * same table as the preview (`packages/editor/src/preview/module-specs.ts`).
  */
 import { physicsDimensionOf, resolveRequiredModules } from '@thirdlight/project-model';
-import { platformerSpec } from '@thirdlight/platformer';
+import { characterControllerSpec } from '@thirdlight/character';
 import type { SimulationModuleSpec } from '@thirdlight/runtime';
 
 /** The module specs a composition provides beyond the runtime's built-ins (dependency order). */
-export const MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([platformerSpec]);
+export const MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([characterControllerSpec]);
 
 interface SnapshotLike {
   readonly scene?: { readonly entities?: readonly unknown[] } | null;

@@ -572,7 +572,7 @@ export function controllerCapsuleOf(controller: unknown): { radius: number; heig
  * forgiveness windows; releasing jump early keeps half the upward speed
  * (variable jump height); a 0.1 m ground snap holds a walker on gentle
  * slopes and small bumps; the 0.01 m skin is the physics gap that keeps the
- * character from resting exactly on surfaces; autostep is off (a platformer
+ * character from resting exactly on surfaces; autostep is off (a side-view character
  * climbs by jumping) and climbs 0.25 m (above a 0.18 m stair step) when on.
  */
 export const DEFAULT_CONTROLLER_TUNING: Readonly<{

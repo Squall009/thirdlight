@@ -27,7 +27,7 @@ import type { HostDom, HostDomNode } from './dom';
 import { createSettingsStore } from './storage';
 // Phase 24.3: the host imports no module package; like a composition entry,
 // the test injects the spec table and names the modules its snapshot references.
-import { platformerSpec } from '@thirdlight/platformer';
+import { characterControllerSpec } from '@thirdlight/character';
 
 // ---------------------------------------------------------------------------
 // The structural fake DOM (records every surface the overlays write).
@@ -159,9 +159,9 @@ const T = {
   scale: [1, 1, 1] as [number, number, number],
 };
 
-const MODULE_SPECS = [platformerSpec];
+const MODULE_SPECS = [characterControllerSpec];
 /** The manifest modules of the snapshot (a controller entity on the 2D plane). */
-const GAME_MODULES = ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.platformer:controller'];
+const GAME_MODULES = ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.character:controller'];
 
 function hostSnapshot(): unknown {
   return {
@@ -690,7 +690,7 @@ describe('disposal (B15 lifecycle)', () => {
 describe('the manifest module list drives the composition (D17)', () => {
   it('an id this engine does not provide is refused at mount', () => {
     const h = harness();
-    const cfg: GameHostConfig = { ...h.config, modules: ['thirdlight.platformer:controller', 'thirdlight.terrain:heightmap'] };
+    const cfg: GameHostConfig = { ...h.config, modules: ['thirdlight.character:controller', 'thirdlight.terrain:heightmap'] };
     const host = createGameHost(cfg);
     const res = host.mount();
     expect(res.ok).toBe(false);
@@ -702,12 +702,26 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
+  it('phase 24.7: the controller\'s pre-24.7 id (thirdlight.platformer:controller) resolves to the character controller', () => {
+    const h = harness();
+    const renamed = (h.config.modules ?? []).map((id) => (id === 'thirdlight.character:controller' ? 'thirdlight.platformer:controller' : id));
+    expect(renamed).toContain('thirdlight.platformer:controller');
+    const host = createGameHost({ ...h.config, modules: renamed, input: { ...h.config.input, sample: (stepIndex: number) => ({ stepIndex, moveX: 1, jump: 'none' as const }) } });
+    expect(host.mount()).toEqual({ ok: true });
+    for (let i = 0; i < 30; i += 1) host.runtime.tick(i / 60);
+    const o = host.observe();
+    // The controller runs: the character walks right from x 3.
+    expect(o.ok && (o.observation.player?.x ?? 0) > 3).toBe(true);
+    host.dispose();
+    h.host.dispose();
+  });
+
   it('a physics module without an injected physics port is refused', () => {
     const h = harness();
     const base = h.config;
     const { physics: _physics, ...rest } = base;
     void _physics;
-    const host = createGameHost({ ...rest, modules: ['thirdlight.physics-rapier:2d', 'thirdlight.platformer:controller'] });
+    const host = createGameHost({ ...rest, modules: ['thirdlight.physics-rapier:2d', 'thirdlight.character:controller'] });
     const res = host.mount();
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe('host_module_unresolved');
@@ -737,7 +751,7 @@ describe('the manifest module list drives the composition (D17)', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.error.code).toBe('host_module_unresolved');
-      expect(res.error.message).toContain('thirdlight.platformer:controller');
+      expect(res.error.message).toContain('thirdlight.character:controller');
     }
     host.dispose();
     h.host.dispose();
@@ -745,7 +759,7 @@ describe('the manifest module list drives the composition (D17)', () => {
 
   it('phase 24.3: the entity a module needs is its own declaration', () => {
     const h = harness();
-    const needy = { ...platformerSpec, id: 'test.needs:controller', requiresEntityWith: ['controller'] };
+    const needy = { ...characterControllerSpec, id: 'test.needs:controller', requiresEntityWith: ['controller'] };
     const snapshot = hostSnapshot() as { scene: { entities: { components: Record<string, unknown> }[] } };
     for (const e of snapshot.scene.entities) delete e.components['controller'];
     const host = createGameHost({ ...h.config, snapshot: snapshot as unknown as RuntimeSnapshot, modules: ['test.needs:controller'], moduleSpecs: [needy] });

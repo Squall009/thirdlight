@@ -2,7 +2,7 @@
   "ok": true,
   "playSessionId": "play-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "snapshotId": "demo-0001@r12",
-  "buildId": "78f5ca46b3b261a8ced07f68fd459b9cbb1b7ecc61ce1e16061002436f927da9",
+  "buildId": "3dabf35263325cd072b944052ec1c7ace0c6921acc6054640624e70a356d72e3",
   "runId": "demo-0001@r12#0",
   "command": "mute",
   "state": "running",

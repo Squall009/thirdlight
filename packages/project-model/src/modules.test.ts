@@ -18,7 +18,7 @@ describe('resolveRequiredModules', () => {
 
   it('a controller entity pulls the controller and, transitively, physics + input', () => {
     const r = resolveRequiredModules({ scene: { entities: [entity({ controller: {}, collider: {} })] }, game: null });
-    expect(r).toEqual({ ok: true, moduleIds: ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.platformer:controller'] });
+    expect(r).toEqual({ ok: true, moduleIds: ['thirdlight.character:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d'] });
   });
 
   it('a collider alone is inert data (no physics module without a controller)', () => {
@@ -30,28 +30,28 @@ describe('resolveRequiredModules', () => {
     expect(r).toEqual({
       ok: true,
       moduleIds: [
+        'thirdlight.character:controller',
         'thirdlight.input:keyboard-gamepad',
         'thirdlight.physics-rapier:2d',
-        'thirdlight.platformer:controller',
         'thirdlight.three-adapter:gltf-loader',
       ],
     });
     expect(ENGINE_MODULE_IDS.some((id) => id.startsWith('thirdlight.platformer-game:'))).toBe(false);
   });
 
-  it('phase 24.3: modules come only from references — no component, no module; the platformer packages are no behavior dependency', () => {
+  it('phase 24.3: modules come only from references — no component, no module; the character package are no behavior dependency', () => {
     // A camera, lights, boxes and a spawn (the starter's shape) reference nothing.
     expect(resolveRequiredModules({ scene: { entities: [entity({ camera: {} }), entity({ light: {} }), entity({ box: {} }), entity({ playerSpawn: {} })] }, game: null })).toEqual({ ok: true, moduleIds: [] });
     // Each reference is table data: component → module, content block → modules.
-    expect(COMPONENT_MODULES['controller']).toEqual({ plane2d: 'thirdlight.platformer:controller', world3d: 'thirdlight.character3d:controller' });
+    expect(COMPONENT_MODULES['controller']).toEqual({ plane2d: 'thirdlight.character:controller', world3d: 'thirdlight.character3d:controller' });
     expect(CONTENT_BLOCK_MODULES).toEqual({});
-    // A script may not pull the platformer in by package (it is not pinned).
-    const pkg = resolveRequiredModules({ scene: { entities: [] }, game: null, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/platformer'] }] });
-    expect(pkg).toMatchObject({ ok: false, unresolved: [{ id: '@thirdlight/platformer', requiredBy: 'behavior:b1' }] });
+    // A script may not pull the character controller in by package (it is not pinned).
+    const pkg = resolveRequiredModules({ scene: { entities: [] }, game: null, behaviors: [{ behaviorId: 'b1', requiredModules: ['@thirdlight/character'] }] });
+    expect(pkg).toMatchObject({ ok: false, unresolved: [{ id: '@thirdlight/character', requiredBy: 'behavior:b1' }] });
     // Module specs outside the runtime name their export; the table lists modules after those they need.
     const order = ENGINE_MODULES.map((m) => m.id);
     for (const m of ENGINE_MODULES) for (const dep of m.requires) expect(order.indexOf(dep)).toBeLessThan(order.indexOf(m.id));
-    expect(ENGINE_MODULES.filter((m) => m.spec !== undefined).map((m) => m.spec)).toEqual(['platformerSpec']);
+    expect(ENGINE_MODULES.filter((m) => m.spec !== undefined).map((m) => m.spec)).toEqual(['characterControllerSpec']);
   });
 
   it("a behavior's required package maps to modules; an unknown package is unresolved", () => {
@@ -66,7 +66,7 @@ describe('resolveRequiredModules', () => {
   });
 
   it('declared module ids must exist on this engine', () => {
-    const bad = resolveRequiredModules({ scene: { entities: [] }, game: null, declared: ['thirdlight.platformer:controller', 'thirdlight.terrain:heightmap'] });
+    const bad = resolveRequiredModules({ scene: { entities: [] }, game: null, declared: ['thirdlight.character:controller', 'thirdlight.terrain:heightmap'] });
     expect(bad).toMatchObject({ ok: false, unresolved: [{ id: 'thirdlight.terrain:heightmap', requiredBy: 'declared' }] });
   });
 
@@ -89,10 +89,10 @@ describe('resolveRequiredModules', () => {
 
   it('the M2 heuristic entry is the resolver over the scene', () => {
     expect(requiredModuleIds({ entities: [entity({ controller: {} })] }, true, false)).toEqual([
+      'thirdlight.character:controller',
       'thirdlight.demo:box-motion',
       'thirdlight.input:keyboard-gamepad',
       'thirdlight.physics-rapier:2d',
-      'thirdlight.platformer:controller',
     ]);
   });
 });

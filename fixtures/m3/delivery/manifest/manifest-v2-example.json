@@ -85,9 +85,9 @@
   "behaviors": [],
   "modules": [
     {
-      "id": "thirdlight.platformer:controller",
+      "id": "thirdlight.character:controller",
       "apiVersion": 1,
-      "package": "@thirdlight/platformer",
+      "package": "@thirdlight/character",
       "version": "0.1.0"
     }
   ],
@@ -114,5 +114,5 @@
     "optionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751"
   },
   "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
-  "buildId": "78f5ca46b3b261a8ced07f68fd459b9cbb1b7ecc61ce1e16061002436f927da9"
+  "buildId": "3dabf35263325cd072b944052ec1c7ace0c6921acc6054640624e70a356d72e3"
 }

@@ -229,7 +229,7 @@ export const DROP_THROUGH_STEPS = 15;
 
 /**
  * Phase 15.3 / 24.7: the engine timing in whole steps at `hz` (120 Hz gives
- * exactly the old step counts). Phase 24.7: these were the platformer game
+ * exactly the old step counts). Phase 24.7: these were the character controller game
  * block's fields; they are engine defaults now.
  */
 export function engineTimingSteps(hz: number): { settleSteps: number; dropThroughSteps: number } {
@@ -2479,7 +2479,7 @@ class RuntimeInstance implements Runtime {
   /**
    * The viewport the view is drawn in (the renderer reports it): screen↔world
    * projection (`ctx.camera`) uses its aspect (16:9 until reported). Unlike
-   * `setViewport` it never feeds the platformer follow camera, so games
+   * `setViewport` it never feeds the session follow camera, so games
    * without virtual cameras keep their exact framing.
    */
   setCameraViewport(width: number, height: number): boolean {

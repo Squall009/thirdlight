@@ -16,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_MODULES,
+  canonicalModuleId,
+  CHARACTER_MODULE_ID,
   createRecordedActionSource,
   createSimulationRegistry,
   instantiateRuntime,
@@ -236,9 +238,11 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
   it('ownership/combination table (O1–O8)', () => {
     for (const c of doc.ownershipCases) {
       const specs: SimulationModuleSpec[] = [];
-      const owners = c.owners ?? {};
-      for (const [moduleId, entityIds] of Object.entries(owners as Record<string, string[]>)) {
-        const isController = moduleId.includes('platformer');
+      // Phase 24.7: the fixture names the controller by its pre-24.7 id; a resolver maps it (canonicalModuleId).
+      const owners = Object.fromEntries(Object.entries((c.owners ?? {}) as Record<string, string[]>).map(([k, v]) => [canonicalModuleId(k), v]));
+      const caseModules = (c.modules as string[]).map(canonicalModuleId);
+      for (const [moduleId, entityIds] of Object.entries(owners)) {
+        const isController = moduleId === CHARACTER_MODULE_ID;
         specs.push({
           id: moduleId,
           phases: isController ? ['controller', 'transform'] : ['transform'],
@@ -248,15 +252,15 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
           },
         });
       }
-      for (const moduleId of c.modules as string[]) {
+      for (const moduleId of caseModules) {
         if (specs.some((s) => s.id === moduleId)) continue;
-        const isController = moduleId.includes('platformer');
+        const isController = moduleId === CHARACTER_MODULE_ID;
         specs.push({
           id: moduleId,
           phases: isController ? ['controller', 'transform'] : ['transform'],
           ...(isController ? { requiresPhysicsPort: true } : {}),
           ...(c.caseId === 'O6-module-combination' && moduleId === 'thirdlight.demo:box-motion'
-            ? { excludes: ['thirdlight.platformer:controller'] }
+            ? { excludes: ['thirdlight.character:controller'] }
             : {}),
           create() {
             return { transformOwners: [], step() {} };
@@ -273,10 +277,10 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
       const res = instantiateRuntime({
         snapshot: snapshot(scene),
         registry,
-        modules: c.modules,
+        modules: caseModules,
         driver: { kind: 'manual' },
         clock: () => 0,
-        ...(c.modules.some((m: string) => m.includes('platformer')) ? { physics: fakePort() } : {}),
+        ...(caseModules.includes(CHARACTER_MODULE_ID) ? { physics: fakePort() } : {}),
       });
       if (c.reason === 'scene_version') {
         // Phase 9.3: a v1 scene is no longer a snapshot at all; the
@@ -652,21 +656,21 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
     const demo: SimulationModuleSpec = {
       id: 'thirdlight.demo:box-motion',
       phases: ['transform'],
-      excludes: ['thirdlight.platformer:controller'],
+      excludes: ['thirdlight.character:controller'],
       create: () => ({ transformOwners: [], step() {} }),
     };
-    const platformer: SimulationModuleSpec = {
-      id: 'thirdlight.platformer:controller',
+    const controller: SimulationModuleSpec = {
+      id: 'thirdlight.character:controller',
       phases: ['controller', 'transform'],
       requiresPhysicsPort: true,
       create: () => ({ transformOwners: ['char-0001'], step() {} }),
     };
     registerSimulationModule(regCombo, demo.id, demo);
-    registerSimulationModule(regCombo, platformer.id, platformer);
+    registerSimulationModule(regCombo, controller.id, controller);
     const resCombo = instantiateRuntime({
       snapshot: snapshot(v2Scene(1)),
       registry: regCombo,
-      modules: [demo.id, platformer.id],
+      modules: [demo.id, controller.id],
       driver: { kind: 'manual' },
       clock: () => 0,
       physics: fakePort(),
@@ -676,8 +680,8 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
 
     const missing = expectCase('missing_physics_port');
     const regMissing = createSimulationRegistry();
-    registerSimulationModule(regMissing, platformer.id, platformer);
-    const resMissing = instantiateRuntime({ snapshot: snapshot(v2Scene(1)), registry: regMissing, modules: [platformer.id], driver: { kind: 'manual' }, clock: () => 0 });
+    registerSimulationModule(regMissing, controller.id, controller);
+    const resMissing = instantiateRuntime({ snapshot: snapshot(v2Scene(1)), registry: regMissing, modules: [controller.id], driver: { kind: 'manual' }, clock: () => 0 });
     expect(resMissing.ok).toBe(false);
     if (!resMissing.ok) {
       expect(resMissing.error.code).toBe(missing.expect.code);
@@ -686,11 +690,11 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
 
     const target = expectCase('controller_target');
     const regTarget = createSimulationRegistry();
-    registerSimulationModule(regTarget, platformer.id, platformer);
+    registerSimulationModule(regTarget, controller.id, controller);
     const resTarget = instantiateRuntime({
       snapshot: snapshot(v2Scene(0)),
       registry: regTarget,
-      modules: [platformer.id],
+      modules: [controller.id],
       driver: { kind: 'manual' },
       clock: () => 0,
       physics: fakePort(),

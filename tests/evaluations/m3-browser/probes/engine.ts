@@ -14,7 +14,7 @@
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { mapRawInput } from '@thirdlight/input';
-import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
+import { CONTROLLER_CONSTANTS } from '@thirdlight/character';
 import * as THREE from 'three';
 
 interface Results {

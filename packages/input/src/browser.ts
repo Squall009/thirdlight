@@ -29,7 +29,7 @@ import {
   createMenuController,
   type MenuSample,
 } from './menu';
-import { actionKeys, bindsPointerButton, bindsWheel, createActionEvaluator, cursorPresentation, DEFAULT_INPUT_CONFIG, platformerKeys, platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type InputConfigLike, type PlatformerPad, type RawPointerState } from './actions';
+import { actionKeys, bindsPointerButton, bindsWheel, createActionEvaluator, cursorPresentation, DEFAULT_INPUT_CONFIG, characterKeys, characterPad, readCharacterPad, STANDARD_CHARACTER_PAD, type InputConfigLike, type CharacterPad, type RawPointerState } from './actions';
 import {
   DEFAULT_KEYBOARD_MAP,
   GAMEPAD_DEAD_ZONE,
@@ -243,7 +243,7 @@ export function attachBrowserInput(
   /**
    * Phase 23.9a: only the actions of these maps feed the frame (null: every
    * map) — the host switches to a focused UI document's map. With the
-   * gameplay map off the platformer's move and jump read neutral too; when it
+   * gameplay map off the character controller's move and jump read neutral too; when it
    * comes back, a control still held must be released before it acts.
    */
   setActiveMaps(maps: readonly string[] | null): void;
@@ -275,13 +275,13 @@ export function attachBrowserInput(
     return () => candidate.call(nav);
   })();
 
-  // Phase 9.8: the platformer keys come from the project's move/jump actions
+  // Phase 9.8: the character controller keys come from the project's move/jump actions
   // (phase 9.10: `configure` rebinds them at runtime).
   let LEFT_CODES = new Set<string>();
   let RIGHT_CODES = new Set<string>();
   let JUMP_CODES = new Set<string>();
-  /** Phase 14.5: the pad buttons/axes of the platformer's move and jump (rebindable). */
-  let PAD: PlatformerPad = STANDARD_PLATFORMER_PAD;
+  /** Phase 14.5: the pad buttons/axes of the character controller's move and jump (rebindable). */
+  let PAD: CharacterPad = STANDARD_CHARACTER_PAD;
   let evaluator: ReturnType<typeof createActionEvaluator> | null = null;
   /** Phase 23.2: the project's `move` action is a 2D axis (a 3D character's move vector: the frame's moveX and moveY). */
   let MOVE_2D = false;
@@ -295,11 +295,11 @@ export function attachBrowserInput(
   const applyConfig = (cfg: InputConfigLike | undefined): void => {
     SUPPRESS_CONTEXT_MENU = cfg !== undefined && bindsPointerButton(cfg, 'right');
     SUPPRESS_WHEEL = cfg !== undefined && bindsWheel(cfg);
-    const keyMap = cfg !== undefined ? platformerKeys(cfg) : DEFAULT_KEYBOARD_MAP;
+    const keyMap = cfg !== undefined ? characterKeys(cfg) : DEFAULT_KEYBOARD_MAP;
     LEFT_CODES = new Set(keyMap.left);
     RIGHT_CODES = new Set(keyMap.right);
     JUMP_CODES = new Set(keyMap.jump);
-    PAD = cfg !== undefined ? platformerPad(cfg) : STANDARD_PLATFORMER_PAD;
+    PAD = cfg !== undefined ? characterPad(cfg) : STANDARD_CHARACTER_PAD;
     evaluator = cfg !== undefined ? createActionEvaluator(cfg) : null;
     ACTION_CODES = new Set(cfg?.actions.flatMap(actionKeys) ?? []);
     UI_KEYS = uiKeys(cfg ?? DEFAULT_INPUT_CONFIG);
@@ -437,7 +437,7 @@ export function attachBrowserInput(
   // --- gamepad bookkeeping (input.md §4.4/§5.4) ----------------------------
 
   /**
-   * The pad reduced to the snapshot through the platformer's pad bindings
+   * The pad reduced to the snapshot through the character controller's pad bindings
    * (phase 14.5: `button0` is the mapped jump, `button14`/`button15` the
    * mapped left/right buttons, `axis0` the mapped stick — the standard
    * layout unless rebound). `ignore`: buttons that must not count (a
@@ -446,7 +446,7 @@ export function attachBrowserInput(
   const padButtons = (gp: Gamepad): boolean[] => Array.from(gp.buttons, (b) => b?.pressed === true);
   const padAxes = (gp: Gamepad): number[] => Array.from(gp.axes, (a) => (typeof a === 'number' && Number.isFinite(a) ? a : 0));
   const toSnapshot = (gp: Gamepad, ignore?: ReadonlySet<number>): NonNullable<RawInputSnapshot['gamepad']> => {
-    const r = readPlatformerPad(PAD, padButtons(gp), padAxes(gp), ignore);
+    const r = readCharacterPad(PAD, padButtons(gp), padAxes(gp), ignore);
     return {
       index: gp.index,
       id: clipDeviceId(gp.id),
@@ -492,7 +492,7 @@ export function attachBrowserInput(
   };
 
   const deviceHasActivity = (gp: Gamepad): boolean => {
-    const r = readPlatformerPad(PAD, padButtons(gp), padAxes(gp));
+    const r = readCharacterPad(PAD, padButtons(gp), padAxes(gp));
     if (Math.abs(r.axis) > GAMEPAD_DEAD_ZONE) return true;
     // The menu confirm (button 0) wakes a pad too, whatever jump is bound to.
     return r.jump || r.left || r.right || gp.buttons[0]?.pressed === true;

@@ -165,7 +165,7 @@ export function m3ContractJson<T = unknown>(rel: string): T {
 
 /**
  * Phase 24.7: the packet-39 contract envelopes were recorded against the
- * removed platformer layer (the `cameraFollow` and `gameZone` components and
+ * removed game layer (the `cameraFollow` and `gameZone` components and
  * the `content.game` block). A neutral copy for the generic suites: every
  * `cameraFollow` is dropped, every `gameZone` entity is removed, and
  * `content.game` is `null`. Everything else (ids, revision, assets, spawns,

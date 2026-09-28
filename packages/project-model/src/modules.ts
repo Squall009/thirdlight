@@ -47,7 +47,7 @@ export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: ['thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad'] },
   // Listed in dependency order (a module after the modules it needs): a
   // composition registers the selected specs in this order.
-  { id: 'thirdlight.platformer:controller', package: '@thirdlight/platformer', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'], spec: 'platformerSpec' },
+  { id: 'thirdlight.character:controller', package: '@thirdlight/character', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'], spec: 'characterControllerSpec' },
   { id: 'thirdlight.three-adapter:gltf-loader', package: '@thirdlight/three-adapter', kind: 'port', requires: [] },
 ] as EngineModule[]).map((m) => Object.freeze(m)));
 
@@ -59,7 +59,7 @@ export const ENGINE_MODULE_IDS: readonly string[] = Object.freeze([...BY_ID.keys
 /**
  * What a behavior may require, by engine package id → the modules that
  * dependency implies. `@thirdlight/runtime` is the behavior API itself
- * (always present). Phase 24.3: the platformer packages are not a behavior
+ * (always present). Phase 24.3: the character package are not a behavior
  * dependency (the compiler no longer pins them); a script that needs the
  * character controller references it through a `controller` component.
  */
@@ -77,7 +77,7 @@ export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly string[]
  */
 export const COMPONENT_MODULES: Readonly<Record<string, { readonly plane2d: string | null; readonly world3d: string | null }>> = Object.freeze({
   // The character controller (2D: the plane controller; 3D: the kinematic character controller).
-  controller: Object.freeze({ plane2d: 'thirdlight.platformer:controller', world3d: 'thirdlight.character3d:controller' }),
+  controller: Object.freeze({ plane2d: 'thirdlight.character:controller', world3d: 'thirdlight.character3d:controller' }),
   // A glTF model needs the loader port.
   model: Object.freeze({ plane2d: 'thirdlight.three-adapter:gltf-loader', world3d: 'thirdlight.three-adapter:gltf-loader' }),
   // Phase 23.3: in 3D a collider alone needs the backend (rays and picks without a character); the 2D plane builds its world from the controller.
@@ -87,7 +87,7 @@ export const COMPONENT_MODULES: Readonly<Record<string, { readonly plane2d: stri
 
 /**
  * Phase 24.3: the modules a content block references (phase 24.7: none — the
- * platformer game block and its session and camera modules were deleted).
+ * game block and its session and camera modules were deleted).
  */
 export const CONTENT_BLOCK_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 

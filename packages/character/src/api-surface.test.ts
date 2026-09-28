@@ -1,6 +1,6 @@
 /**
  * Packet 32 — public-surface and module-boundary assertions for
- * `@thirdlight/platformer` (dependencies.md §3 `platformer` row and §4.1
+ * `@thirdlight/character` (dependencies.md §3 `platformer` row and §4.1
  * `platformer → runtime (types)` edge).
  *
  * The package must expose exactly the three contracted names, its spec must
@@ -13,9 +13,9 @@
 import { describe, expect, it } from 'vitest';
 import type { CharacterMoveResult, PhysicsStepClient, RuntimeSnapshot, StepContext } from '@thirdlight/runtime';
 
-import * as platformer from './index';
-import { CONTROLLER_CONSTANTS, PLATFORMER_MODULE_ID } from './index';
-import { platformerSpec } from './index';
+import * as character from './index';
+import { CONTROLLER_CONSTANTS, CHARACTER_MODULE_ID } from './index';
+import { characterControllerSpec } from './index';
 
 function snapshotWith(entities: unknown[]): RuntimeSnapshot {
   return {
@@ -32,21 +32,21 @@ const TRANSFORM = {
 
 describe('public exports (dependencies.md §3 platformer row)', () => {
   it('exports exactly the contracted names', () => {
-    expect(Object.keys(platformer).sort()).toEqual([
+    expect(Object.keys(character).sort()).toEqual([
+      'CHARACTER_MODULE_ID',
       'CONTROLLER_CONSTANTS',
-      'PLATFORMER_MODULE_ID',
-      'platformerSpec',
+      'characterControllerSpec',
     ]);
-    expect(PLATFORMER_MODULE_ID).toBe('thirdlight.platformer:controller');
+    expect(CHARACTER_MODULE_ID).toBe('thirdlight.character:controller');
     expect(CONTROLLER_CONSTANTS.jumpBufferSteps).toBe(8);
-    expect(platformerSpec.id).toBe(PLATFORMER_MODULE_ID);
+    expect(characterControllerSpec.id).toBe(CHARACTER_MODULE_ID);
   });
 
   it('declares the platformer.md §2 module metadata', () => {
-    expect(platformerSpec.phases).toEqual(['controller', 'transform']);
-    expect(platformerSpec.excludes).toEqual(['thirdlight.demo:box-motion']);
-    expect(platformerSpec.requiresPhysicsPort).toBe(true);
-    expect(typeof platformerSpec.create).toBe('function');
+    expect(characterControllerSpec.phases).toEqual(['controller', 'transform']);
+    expect(characterControllerSpec.excludes).toEqual(['thirdlight.demo:box-motion']);
+    expect(characterControllerSpec.requiresPhysicsPort).toBe(true);
+    expect(typeof characterControllerSpec.create).toBe('function');
   });
 });
 
@@ -85,7 +85,7 @@ describe('module behaviour through the contracted StepContext only', () => {
   }
 
   it('owns exactly the single controller entity declared at create', () => {
-    const module = platformerSpec.create(
+    const module = characterControllerSpec.create(
       snapshotWith([
         { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
         { id: 'char-0001', components: { ...TRANSFORM, controller: {} } },
@@ -97,7 +97,7 @@ describe('module behaviour through the contracted StepContext only', () => {
 
   it('refuses an ambiguous controller target (defensive; the runtime validates first)', () => {
     expect(() =>
-      platformerSpec.create(
+      characterControllerSpec.create(
         snapshotWith([
           { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
           { id: 'char-0001', components: { ...TRANSFORM } },
@@ -114,7 +114,7 @@ describe('module behaviour through the contracted StepContext only', () => {
       stageCharacterMove: (id, delta) => staged.push({ id, delta: { x: delta.x, y: delta.y } }),
       characterResult: () => last,
     };
-    const module = platformerSpec.create(
+    const module = characterControllerSpec.create(
       snapshotWith([
         { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
         { id: 'char-0001', components: { ...TRANSFORM, controller: {} } },
@@ -157,7 +157,7 @@ describe('module behaviour through the contracted StepContext only', () => {
         stageCharacterMove: (id, delta) => staged.push({ id, delta: { x: delta.x, y: delta.y } }),
         characterResult: () => undefined,
       };
-      const module = platformerSpec.create(
+      const module = characterControllerSpec.create(
         snapshotWith([
           { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
           { id: 'char-0001', components: { ...TRANSFORM, controller: {} } },

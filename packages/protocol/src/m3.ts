@@ -317,7 +317,7 @@ export function validateV3ContentBlock(value: unknown, path = '/content'): Field
     return fieldError('field_type', `${path}/behaviorTrust`, 'behaviorTrust must be `{ entries: [] }`');
   }
   if (value.game !== null) {
-    return fieldError('field_value', `${path}/game`, 'content.game (the platformer game block) was removed in phase 24; it is null', {
+    return fieldError('field_value', `${path}/game`, 'content.game (the game block) was removed in phase 24; it is null', {
       found: typeof value.game,
     });
   }
@@ -397,7 +397,7 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
       }
     }
     if (value.content.game !== undefined && value.content.game !== null) {
-      return fieldError('field_value', `${path}/content/game`, 'content.game (the platformer game block) was removed in phase 24; it is null');
+      return fieldError('field_value', `${path}/content/game`, 'content.game (the game block) was removed in phase 24; it is null');
     }
   }
   return { ok: true, value: value as Record<string, unknown> };

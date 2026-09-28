@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { ActionFrame, CharacterMoveResult, GameplaySettings, PhysicsStepClient } from '@thirdlight/runtime';
-import { CONTROLLER_CONSTANTS, PLATFORMER_MODULE_ID } from './constants';
+import { CONTROLLER_CONSTANTS, CHARACTER_MODULE_ID } from './constants';
 import {
   approach,
   controllerStep,
@@ -109,7 +109,7 @@ function harness() {
 
 describe('contract constants (dependencies.md §3 platformer row)', () => {
   it('exposes the module id and the platformer.md §12 constants', () => {
-    expect(PLATFORMER_MODULE_ID).toBe('thirdlight.platformer:controller');
+    expect(CHARACTER_MODULE_ID).toBe('thirdlight.character:controller');
     expect(CONTROLLER_CONSTANTS).toEqual({
       offsetSkin: 0.01,
       groundSnap: 0.1,

@@ -40,6 +40,7 @@
  */
 import {
   BUILTIN_MODULES,
+  canonicalModuleId,
   character3DSpec,
   behaviorModuleId,
   createBehaviorModuleSpec,
@@ -555,7 +556,9 @@ function selectModules(
   for (const spec of table) if (!byId.has(spec.id)) byId.set(spec.id, spec);
   const picked = new Set<SimulationModuleSpec>();
   const ports: string[] = [];
-  for (const id of modulesIn) {
+  for (const named of modulesIn) {
+    // Phase 24.7: a renamed module resolves under its current id (`thirdlight.platformer:controller`).
+    const id = canonicalModuleId(named);
     const spec = byId.get(id);
     if (spec !== undefined) {
       picked.add(spec);

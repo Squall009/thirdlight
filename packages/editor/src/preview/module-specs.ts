@@ -7,6 +7,6 @@
  * names — `thirdlight:export-modules`.)
  */
 import type { SimulationModuleSpec } from '@thirdlight/runtime';
-import { platformerSpec } from '@thirdlight/platformer';
+import { characterControllerSpec } from '@thirdlight/character';
 
-export const PREVIEW_MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([platformerSpec]);
+export const PREVIEW_MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([characterControllerSpec]);

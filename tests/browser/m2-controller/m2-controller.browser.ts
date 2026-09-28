@@ -4,7 +4,7 @@
  * NOT a production bootstrap and NOT part of any shipped bundle: this file is
  * a manual test host that the packet-37 desktop procedure builds with esbuild
  * and serves statically. It composes the real packages
- * (`@thirdlight/platformer` + `@thirdlight/runtime` + `@thirdlight/physics-rapier`
+ * (`@thirdlight/character` + `@thirdlight/runtime` + `@thirdlight/physics-rapier`
  * + `@thirdlight/input`) exactly as the preview will, renders the frozen
  * course with three.js, and records the per-step action frames + authoritative
  * character positions that the acceptance row A12/A13 requires **from a real
@@ -18,7 +18,7 @@
 import * as THREE from 'three';
 import { attachBrowserInput } from '@thirdlight/input';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { PLATFORMER_MODULE_ID, platformerSpec } from '@thirdlight/platformer';
+import { CHARACTER_MODULE_ID, characterControllerSpec } from '@thirdlight/character';
 import {
   createSimulationRegistry,
   instantiateRuntime,
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
   };
 
   const registry = createSimulationRegistry();
-  registerSimulationModule(registry, PLATFORMER_MODULE_ID, platformerSpec);
+  registerSimulationModule(registry, CHARACTER_MODULE_ID, characterControllerSpec);
   const snapshot = {
     snapshotId: 'demo-0001@r4',
     projectId: 'demo-0001',
@@ -175,7 +175,7 @@ async function main(): Promise<void> {
   const result = instantiateRuntime({
     snapshot,
     registry,
-    modules: [PLATFORMER_MODULE_ID],
+    modules: [CHARACTER_MODULE_ID],
     actions: recordingSource,
     physics: init.port,
     settings: course.settings,

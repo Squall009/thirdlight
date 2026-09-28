@@ -90,7 +90,7 @@ export const UNITS = [
   'asset-pipeline',
   'input',
   'physics-rapier',
-  'platformer',
+  'character',
   'behavior-build',
   // Phase 20.1: the CPU reference semantics of visual-effect graphs.
   'effects',
@@ -183,7 +183,7 @@ export const NODE_SIDE_ALLOWED = {
   // (the host defines the structural HostRenderAdapter surface; the adapter
   // instance is injected) — the §4.1 types-only row entry stays unexercised.
   // The concrete physics-rapier port, three canvas and audio context are
-  // injected (no value edge to them). Phase 24.3: no platformer edges — the
+  // injected (no value edge to them). Phase 24.3: no character edges — the
   // simulation module specs are injected by the composition entries (the
   // preview's module-specs.ts, the export's generated thirdlight:export-modules).
   'game-host': {
@@ -248,11 +248,11 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
     typesOnly: { runtime: true },
   },
-  // §4.1 row: "platformer | runtime (types)" — the controller algorithm over
+  // §4.1 row: "platformer | runtime (types)" (phase 24.7: the character package) — the controller algorithm over
   // the injected input/physics ports; it may not reach the concrete physics
   // adapter, the input package, three.js, authoring, backend or Node built-ins
   // (dependencies.md §4.1/§4.3).
-  platformer: {
+  character: {
     packages: ['runtime'],
     external: [],
     node: [],
@@ -343,32 +343,32 @@ const BUNDLE_ENTRY_EDGES = {
   },
   // dependencies.md §4.2 export bundle row (packet 36): the M2 bootstrap's
   // direct edges are the runtime-bundle graph (runtime/three-adapter/
-  // project-model/input/platformer/physics-rapier + three), plus the two
+  // project-model/input/character/physics-rapier + three), plus the two
   // per-snapshot virtual modules the export build generates in memory
   // (`thirdlight:export-artifacts`, `thirdlight:export-behaviors` — they have
   // no package; the esbuild metafile check allows exactly those two keys).
   'packages/exporter/src/export-bootstrap-m2.ts': {
-    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'physics-rapier'],
+    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'character', 'physics-rapier'],
     external: ['three', 'thirdlight:export-artifacts', 'thirdlight:export-behaviors'],
     node: [],
   },
   // The shared composition module (packet 36) is imported by the M2 bootstrap
   // and also runs in Node for the play/export trace evidence; it is
-  // browser-safe and imports runtime + platformer only.
+  // browser-safe and imports runtime + character only.
   'packages/exporter/src/export-composition.ts': {
-    packages: ['runtime', 'platformer'],
+    packages: ['runtime', 'character'],
     external: [],
     node: [],
   },
   // dependencies.md §4.2 M3 export bundle row (packet 58): the M3 bootstrap's
   // direct edges are the single shared production composition graph — the
   // `game-host` composition (which transitively pulls `runtime`,
-  // `three-adapter`, `project-model`) + `input`/`platformer`/
+  // `three-adapter`, `project-model`) + `input`/`character`/
   // `physics-rapier` + the per-snapshot virtual module the export build
   // generates in memory (`thirdlight:export-artifacts` — it has no package;
   // the esbuild metafile check allows exactly that key for M3). The M2
   // bootstrap (`export-bootstrap-m2.ts`) stays byte-stable above.
-  // Phase 24.3: no platformer edge — the module specs come from the generated
+  // Phase 24.3: no character edge — the module specs come from the generated
   // `thirdlight:export-modules` (only those the manifest names).
   'packages/exporter/src/export-bootstrap-m3.ts': {
     packages: ['runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier', 'game-host'],
@@ -399,7 +399,7 @@ const BUNDLE_ENTRY_EDGES = {
   // Phase 24.3: the host's unit test composes like an entry (it injects the
   // platformer specs its game snapshot's modules name).
   'packages/game-host/src/host.test.ts': {
-    packages: ['runtime', 'input', 'platformer'],
+    packages: ['runtime', 'input', 'character'],
     external: [],
     node: [],
     typesOnly: { input: true },
@@ -407,7 +407,7 @@ const BUNDLE_ENTRY_EDGES = {
   // Phase 24.3: the preview's simulation module spec table (the composition
   // registers module specs; the game host imports no module package).
   'packages/editor/src/preview/module-specs.ts': {
-    packages: ['runtime', 'platformer'],
+    packages: ['runtime', 'character'],
     external: [],
     node: [],
   },
@@ -448,7 +448,7 @@ const BUNDLE_ENTRY_EDGES = {
   // M3 composition; phase 24.7: the platformer-game package was deleted). The M2 preview-bootstrap.ts row
   // above stays byte-stable.
   'packages/editor/src/preview/preview-m3.ts': {
-    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'physics-rapier', 'game-host'],
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'character', 'physics-rapier', 'game-host'],
     external: ['three'],
     node: [],
     // Behavior outputs load from the locator, as in preview-bootstrap.ts.

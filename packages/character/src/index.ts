@@ -1,10 +1,10 @@
 /**
- * `@thirdlight/platformer` — public surface (dependencies.md §3 `platformer`
- * row: `platformerSpec`, `PLATFORMER_MODULE_ID`, `CONTROLLER_CONSTANTS`).
+ * `@thirdlight/character` — public surface (dependencies.md §3 `platformer`
+ * row: `characterControllerSpec`, `CHARACTER_MODULE_ID`, `CONTROLLER_CONSTANTS`).
  *
  * Packet 32 (`docs/contracts/runtime.md` §12, promoted from `platformer.md`
  * and `physics.md`): the pure fixed-step controller module
- * `thirdlight.platformer:controller` for the M2 2.5D character.
+ * `thirdlight.character:controller` for the M2 2.5D character.
  *
  * - **Algorithm** — `platformer.md` §7's exact order A–K: one jump per press,
  *   variable height on release, the integer-step coyote (6) and jump-buffer
@@ -28,5 +28,5 @@
  * bundles and works unchanged in the Node harness, where the injected ports
  * are the real packet-31 adapter and the real packet-30 binding.
  */
-export { CONTROLLER_CONSTANTS, PLATFORMER_MODULE_ID } from './constants';
-export { platformerSpec } from './controller';
+export { CONTROLLER_CONSTANTS, CHARACTER_MODULE_ID } from './constants';
+export { characterControllerSpec } from './controller';

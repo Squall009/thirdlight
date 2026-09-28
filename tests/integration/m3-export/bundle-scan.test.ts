@@ -244,11 +244,11 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
 
   it('phase 24.3: a project with the controller links exactly the modules its manifest names (game-host + the controller spec), page and worker alike', async () => {
     const closure = await closureOf('demo-0006-parity', false);
-    expect(closure.moduleIds).toEqual(expect.arrayContaining(['thirdlight.platformer:controller']));
+    expect(closure.moduleIds).toEqual(expect.arrayContaining(['thirdlight.character:controller']));
     for (const b of await bundlesOf(closure)) {
       // The single shared production composition (the SAME host the preview wraps).
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
-      expect(b.inputs.some((p) => p.includes('packages/platformer/src/'))).toBe(true);
+      expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(true);
       expect(b.text).toContain('controllerStepTuning');
       // No editor/exporter-internal/behavior source in the runtime bundle.
       expect(b.inputs.some((p) => p.includes('packages/editor/src/'))).toBe(false);
@@ -261,7 +261,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     expect(closure.moduleIds.some((id) => id.includes('platformer'))).toBe(false);
     for (const b of await bundlesOf(closure)) {
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
-      expect(b.inputs.some((p) => p.includes('packages/platformer/src/'))).toBe(false);
+      expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(false);
       expect(b.text).not.toContain('controllerStepTuning');
     }
     // The graph check refuses platformer code the manifest does not name.
@@ -270,6 +270,6 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     if (!page.ok) throw new Error('bundle build failed');
     const report = checkBundleGraphM3(page.metafile, BOOTSTRAP, closure.moduleIds);
     expect(report.ok).toBe(false);
-    expect(report.forbidden.some((p) => p.includes('packages/platformer'))).toBe(true);
+    expect(report.forbidden.some((p) => p.includes('packages/character'))).toBe(true);
   }, 180_000);
 });

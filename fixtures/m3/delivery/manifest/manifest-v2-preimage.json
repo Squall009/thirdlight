@@ -85,9 +85,9 @@
   "behaviors": [],
   "modules": [
     {
-      "id": "thirdlight.platformer:controller",
+      "id": "thirdlight.character:controller",
       "apiVersion": 1,
-      "package": "@thirdlight/platformer",
+      "package": "@thirdlight/character",
       "version": "0.1.0"
     }
   ],

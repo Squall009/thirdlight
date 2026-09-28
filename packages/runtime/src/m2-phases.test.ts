@@ -203,7 +203,7 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
 
   it('unsupported combination: demo + controller module is rejected (module_combination_unsupported)', () => {
     const controller = probeSpec({
-      id: 'thirdlight.platformer:controller',
+      id: 'thirdlight.character:controller',
       phases: ['controller', 'transform'],
       owners: ['char-0001'],
       requiresPhysicsPort: true,
@@ -219,7 +219,7 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
 
   it('controller set without a port ⇒ config_invalid physics_port; controller count ≠ 1 ⇒ controller_target; v1/v2 scene ⇒ snapshot_invalid', () => {
     const controller = probeSpec({
-      id: 'thirdlight.platformer:controller',
+      id: 'thirdlight.character:controller',
       phases: ['controller', 'transform'],
       owners: ['char-0001'],
       requiresPhysicsPort: true,

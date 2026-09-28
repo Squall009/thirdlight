@@ -1,9 +1,9 @@
 /**
  * Phase 23.2: the 3D kinematic character controller — the simulation module
  * `thirdlight.character3d:controller` of a project whose `physics_dimension`
- * is 3 (the 2D plane keeps `@thirdlight/platformer` exactly as it was).
+ * is 3 (the 2D plane keeps `@thirdlight/character` exactly as it was).
  *
- * Pure fixed-step logic over the injected ports, like the platformer module:
+ * Pure fixed-step logic over the injected ports, like the character controller module:
  * in the `controller` phase it turns the step's move vector (the input's
  * `moveX`/`moveY`, read relative to the active camera's yaw when a camera
  * provides one, else world axes; or a script's `control_move` /
@@ -234,7 +234,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     const rate = (speedingUp ? S.acceleration : S.deceleration) * (walkable ? 1 : S.airControl);
     [vx, vz] = approach2(vx, vz, tx, tz, rate * dt);
 
-    // Jumping (the platformer's windows: coyote time after an edge, a buffered press, a release cut).
+    // Jumping (the character controller's windows: coyote time after an edge, a buffered press, a release cut).
     const jump = intents.jump ?? action.jump;
     if (jump === 'pressed') buffer = bufferSteps + 1;
     let jumped = false;
@@ -359,7 +359,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
 export const character3DSpec: SimulationModuleSpec = {
   id: CHARACTER_3D_MODULE_ID,
   phases: ['controller', 'transform'],
-  excludes: ['thirdlight.demo:box-motion', 'thirdlight.platformer:controller'],
+  excludes: ['thirdlight.demo:box-motion', 'thirdlight.character:controller'],
   requiresPhysicsPort: true,
   create: createCharacter3DModule,
 };

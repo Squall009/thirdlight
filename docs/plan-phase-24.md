@@ -117,7 +117,7 @@ keeps the gate green.
 | 24.4j | done 2026-09-28: `content.shell {screens?: {title, pause, settings, controls, save, load}, hud?, scenes?: [{scene, spawn?}], pause?, status?}` (`setShell`, Game shell tab); engine actions `open`, `nextScene`; `$flow.counters/health/prompts/shell`; counters in the `components` save section |
 | 24.5 | done 2026-09-28: descriptor `create` entries and `icon`s drive the GameObject menu, the hierarchy and Scene-view icons; zone/pickup/enemy no longer offered; Gameplay panel = settings, camera (+ an existing game block); no lives/score UI; "Character locomotion" preset; MCP wording generic |
 | 24.6 | done 2026-09-28 (fast gate): observations and control results report a play state (`running`/`paused`); the session's run state, checkpoint, deaths, goal, events, level flow and title view moved to an optional `legacy` block (24.7 deletes it); `$flow` lost level/lives/HUD/totals/score/result; `health` is every object's; the 20 `addGameSession` tests run in scene mode (a title shell where they waited for a start) |
-| 24.7 | — |
+| 24.7 | done 2026-09-28 (fast gate): `platformer-game`, the session, flow, enemy, pickup, gameZone, cameraFollow, knockback, legacy block, classic HUD and Beacon Reach deleted; one runtime mode; `packages/platformer` → `packages/character` (`thirdlight.character:controller`, old id aliased) |
 | 24.8 | — |
 | 24.9 | — |
 
@@ -511,3 +511,19 @@ keeps the gate green.
   baseline the medium `command.applyFrameP50` and the sims' heap read
   higher, but 24.6's tree measures the same — its apply→frame read 48 and
   370 ms in two runs — so nothing there is 24.7's).
+- 2026-09-28 (24.7): `packages/platformer` is `packages/character`
+  (`@thirdlight/character`, `characterControllerSpec`,
+  `CHARACTER_MODULE_ID` = `thirdlight.character:controller`; input
+  `characterKeys`, `characterPad`, `readCharacterPad`, `CharacterPad`,
+  `STANDARD_CHARACTER_PAD`). A manifest naming the old id still plays: the
+  runtime's `MODULE_ID_ALIASES`/`canonicalModuleId` map it and the host's
+  module resolver applies it (a host test mounts a manifest with the old
+  id). The recorded M2/M3/M4 fixtures keep the old id (the m2 runtime
+  fixture test maps it the same way); the m3 delivery fixtures were
+  re-derived (buildId → `3dabf352…`). `fixtures/m2/contracts/platformer`
+  keeps its name (the controller's motor contract, not a game's).
+- 2026-09-28 (24.7): left for 24.8/24.9: the always-null `game` key and
+  the manifest's null cue slots (24.8 format bump, with the old preset
+  names as aliases), the `game_*` error codes and the separation guard
+  (24.9). The m3 delivery/audit fixture checkers still read the archived
+  `docs/contracts` and crash (not in the gate).

@@ -10,7 +10,7 @@
  * - the generic primitives (phase 24.4: health, collectibles, patrols,
  *   hitboxes) run in `primitives.ts`.
  *
- * Phase 24.7: the platformer's pickups, enemies, hazard damage and the
+ * Phase 24.7: the pickups, enemies, hazard damage and the
  * session player's health, knockback and bounce were deleted; the blocks test
  * the character (the controller's object) in both dimensions.
  *

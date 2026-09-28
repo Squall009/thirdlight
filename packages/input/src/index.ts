@@ -30,7 +30,7 @@
  *
  * Module ownership (dependencies.md §4.1/§4.3): imports `@thirdlight/runtime`
  * types only — no editor/protocol/backend/workspace/commands/three/
- * three-adapter/physics-rapier/platformer edge, no Node built-ins, no I/O.
+ * three-adapter/physics-rapier/character edge, no Node built-ins, no I/O.
  *
  * Packet 55 (delivery.md §4.1/§4.2): the bounded semantic menu-control
  * channel — `createMenuController` (pure) and the owner's additive
@@ -51,8 +51,8 @@ export { createStepInputSource, type StepInputStep } from './step-source';
 export { DEFAULT_KEYBOARD_MAP, GAMEPAD_DEAD_ZONE } from './types';
 export type { InputBindingOptions, RawInputSnapshot } from './types';
 // Phase 9.8: named input actions.
-export { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, platformerKeys, type InputActionLike, type InputBindingLike, type InputConfigLike, type RawDeviceState } from './actions';
-// Phase 14.5: the platformer's pad controls (rebindable).
-export { platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type PlatformerPad } from './actions';
+export { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, characterKeys, type InputActionLike, type InputBindingLike, type InputConfigLike, type RawDeviceState } from './actions';
+// Phase 14.5: the character controller's pad controls (rebindable).
+export { characterPad, readCharacterPad, STANDARD_CHARACTER_PAD, type CharacterPad } from './actions';
 // Phase 23.3: pointer bindings and the cursor (free/locked per map, a script's request, hidden while a gamepad drives).
 export { bindsPointerButton, bindsWheel, cursorPresentation, type RawPointerState } from './actions';

@@ -62,9 +62,9 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     // The module set is derived from the declared dependencies (D17): the
     // controller entity and the model asset.
     expect(built.moduleIds).toEqual([
+      'thirdlight.character:controller',
       'thirdlight.input:keyboard-gamepad',
       'thirdlight.physics-rapier:2d',
-      'thirdlight.platformer:controller',
       'thirdlight.three-adapter:gltf-loader',
     ]);
 

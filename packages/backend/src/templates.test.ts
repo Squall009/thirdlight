@@ -34,7 +34,7 @@ describe('template dependencies at creation', () => {
     // starter template as it ships.
     for (const [id, requiredModules] of [
       ['needs-terrain', ['thirdlight.terrain:heightmap']],
-      ['plain', ['thirdlight.platformer:controller']],
+      ['plain', ['thirdlight.character:controller']],
     ] as const) {
       const dir = join(engineRoot, 'templates', id);
       mkdirSync(join(dir, 'captured'), { recursive: true });

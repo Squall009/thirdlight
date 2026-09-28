@@ -97,7 +97,7 @@ export interface InputBindingOptions {
    */
   /**
    * Phase 9.8: the project's input actions. Its `move`/`jump` keyboard
-   * bindings drive the platformer; every action is sampled into the frame's
+   * bindings drive the character controller; every action is sampled into the frame's
    * `actions`. Absent: the M2 keys only.
    */
   inputConfig?: InputConfigLike;

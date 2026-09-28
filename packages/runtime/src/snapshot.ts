@@ -51,7 +51,7 @@ export function deepFreeze<T>(value: T): T {
  * Validate the runtime snapshot (runtime.md §2). Returns the normalized
  * scene on success. Never throws.
  *
- * Phase 24.7: the `game` wrapper field (the deleted platformer game block)
+ * Phase 24.7: the `game` wrapper field (the deleted game block)
  * is absent or null; a block is `snapshot_invalid` (`reason: "shape"`).
  */
 export function validateRuntimeSnapshot(
@@ -180,14 +180,14 @@ export function validateRuntimeSnapshot(
     };
   }
   const sceneVersion: 3 | 4 = rawVersion;
-  // Phase 24.7: the `game` wrapper field (the deleted platformer game block) is absent or null.
+  // Phase 24.7: the `game` wrapper field (the deleted game block) is absent or null.
   if (snap.game !== undefined && snap.game !== null) {
     return {
       error: {
         code: 'snapshot_invalid',
         reason: 'shape',
         path: '/game',
-        message: 'snapshot field "game" (the platformer game block) was removed in phase 24; it is absent or null',
+        message: 'snapshot field "game" (the game block) was removed in phase 24; it is absent or null',
       },
     };
   }

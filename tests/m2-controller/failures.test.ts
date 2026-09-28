@@ -18,7 +18,7 @@ import {
   type PhysicsPort,
   type Vec2,
 } from '@thirdlight/runtime';
-import { PLATFORMER_MODULE_ID, platformerSpec } from '@thirdlight/platformer';
+import { CHARACTER_MODULE_ID, characterControllerSpec } from '@thirdlight/character';
 import {
   DT,
   SETTLE_STEPS,
@@ -144,12 +144,12 @@ describe('fail-stop after a physics-phase mutation (A14)', () => {
       },
     };
     const registry = createSimulationRegistry();
-    registerSimulationModule(registry, PLATFORMER_MODULE_ID, platformerSpec);
+    registerSimulationModule(registry, CHARACTER_MODULE_ID, characterControllerSpec);
     let now = 0;
     const runtimeResult = instantiateRuntime({
       snapshot: courseSnapshot(course, start),
       registry,
-      modules: [PLATFORMER_MODULE_ID],
+      modules: [CHARACTER_MODULE_ID],
       actions: createStepInputSource(stepsOf('run-right-240')),
       physics: failing,
       settings: course.settings,
@@ -235,12 +235,12 @@ describe('snapshot immutability and disposal', () => {
     expect(init.ok).toBe(true);
     if (!init.ok) return;
     const registry = createSimulationRegistry();
-    registerSimulationModule(registry, PLATFORMER_MODULE_ID, platformerSpec);
+    registerSimulationModule(registry, CHARACTER_MODULE_ID, characterControllerSpec);
     let now = 0;
     const runtimeResult = instantiateRuntime({
       snapshot,
       registry,
-      modules: [PLATFORMER_MODULE_ID],
+      modules: [CHARACTER_MODULE_ID],
       actions: createStepInputSource(stepsOf('run-right-120')),
       physics: init.port,
       settings: course.settings,

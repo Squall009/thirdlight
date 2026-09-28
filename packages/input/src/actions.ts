@@ -296,8 +296,8 @@ export function bindsWheel(config: InputConfigLike): boolean {
   return config.actions.some((a) => a.bindings.some((b) => b.kind === 'pointerAxis' && (b as { axis?: unknown }).axis === 'wheel'));
 }
 
-/** The keyboard codes the platformer's move and jump come from (the M2 mapping reads these). */
-export function platformerKeys(config: InputConfigLike): { left: string[]; right: string[]; jump: string[] } {
+/** The keyboard codes the character controller's move and jump come from (the M2 mapping reads these). */
+export function characterKeys(config: InputConfigLike): { left: string[]; right: string[]; jump: string[] } {
   const move = config.actions.find((a) => a.name === 'move');
   const jump = config.actions.find((a) => a.name === 'jump');
   const left: string[] = [];
@@ -308,13 +308,13 @@ export function platformerKeys(config: InputConfigLike): { left: string[]; right
       if (typeof b.positive === 'string') right.push(b.positive);
     } else if (b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined) right.push(b.code);
   }
-  // Phase 23.14: a hold binding counts in the action values only (the platformer reads its keys directly).
+  // Phase 23.14: a hold binding counts in the action values only (the character controller reads its keys directly).
   const jumpKeys = (jump?.bindings ?? []).filter((b) => b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined).map((b) => b.code as string);
   return { left, right, jump: jumpKeys };
 }
 
-/** Phase 14.5: the pad controls the platformer's move and jump come from. */
-export interface PlatformerPad {
+/** Phase 14.5: the pad controls the character controller's move and jump come from. */
+export interface CharacterPad {
   /** Buttons that jump (any held = jump down). */
   readonly jump: readonly number[];
   /** Buttons that move left / right (digital, like the D-pad). */
@@ -324,8 +324,8 @@ export interface PlatformerPad {
   readonly axes: readonly number[];
 }
 
-/** The standard layout the platformer used before pad rebinding: A jumps, D-pad left/right and the left stick move. */
-export const STANDARD_PLATFORMER_PAD: PlatformerPad = Object.freeze({ jump: Object.freeze([0]), left: Object.freeze([14]), right: Object.freeze([15]), axes: Object.freeze([0]) });
+/** The standard layout the character controller used before pad rebinding: A jumps, D-pad left/right and the left stick move. */
+export const STANDARD_CHARACTER_PAD: CharacterPad = Object.freeze({ jump: Object.freeze([0]), left: Object.freeze([14]), right: Object.freeze([15]), axes: Object.freeze([0]) });
 
 const PAD_BUTTON_MAX = 31;
 const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= PAD_BUTTON_MAX;
@@ -337,7 +337,7 @@ const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.is
  * project made before pad rebinding (whose pad bindings were never read)
  * plays exactly as before; a rebinding replaces the part.
  */
-export function platformerPad(config: InputConfigLike): PlatformerPad {
+export function characterPad(config: InputConfigLike): CharacterPad {
   const move = config.actions.find((a) => a.name === 'move');
   const jump = config.actions.find((a) => a.name === 'jump');
   const jumpButtons = (jump?.bindings ?? []).filter((b) => b.kind === 'gamepadButton' && padIndex(b.button) && b.hold === undefined).map((b) => b.button as number);
@@ -352,19 +352,19 @@ export function platformerPad(config: InputConfigLike): PlatformerPad {
   }
   const hasButtons = (move?.bindings ?? []).some((b) => b.kind === 'gamepadButtons1d');
   return {
-    jump: jumpButtons.length > 0 ? jumpButtons : STANDARD_PLATFORMER_PAD.jump,
-    left: hasButtons ? left : STANDARD_PLATFORMER_PAD.left,
-    right: hasButtons ? right : STANDARD_PLATFORMER_PAD.right,
-    axes: axes.length > 0 ? axes : STANDARD_PLATFORMER_PAD.axes,
+    jump: jumpButtons.length > 0 ? jumpButtons : STANDARD_CHARACTER_PAD.jump,
+    left: hasButtons ? left : STANDARD_CHARACTER_PAD.left,
+    right: hasButtons ? right : STANDARD_CHARACTER_PAD.right,
+    axes: axes.length > 0 ? axes : STANDARD_CHARACTER_PAD.axes,
   };
 }
 
 /**
- * Phase 14.5: reduce one pad's buttons and axes to the platformer's jump,
+ * Phase 14.5: reduce one pad's buttons and axes to the character controller's jump,
  * left, right and stick values through `pad` (pure; the fake pads of the
  * tests and the browser owner both go through here).
  */
-export function readPlatformerPad(pad: PlatformerPad, buttons: readonly boolean[], axes: readonly number[], ignoreButtons?: ReadonlySet<number>): { jump: boolean; left: boolean; right: boolean; axis: number } {
+export function readCharacterPad(pad: CharacterPad, buttons: readonly boolean[], axes: readonly number[], ignoreButtons?: ReadonlySet<number>): { jump: boolean; left: boolean; right: boolean; axis: number } {
   const down = (i: number): boolean => buttons[i] === true && ignoreButtons?.has(i) !== true;
   let axis = 0;
   for (const i of pad.axes) {

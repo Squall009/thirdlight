@@ -1,5 +1,5 @@
 /**
- * The platformer controller module — `docs/contracts/runtime.md` §12
+ * The character controller module — `docs/contracts/runtime.md` §12
  * (promoted from `platformer.md` §2–§9; packet 32).
  *
  * Pure fixed-step logic over the injected input/physics **ports**: the module
@@ -38,7 +38,7 @@ import type {
   SimulationModuleSpec,
   SimulationPhaseModule,
 } from '@thirdlight/runtime';
-import { CONTROLLER_CONSTANTS, CONTROLLER_DEFAULT_SECONDS, PLATFORMER_MODULE_ID } from './constants';
+import { CONTROLLER_CONSTANTS, CONTROLLER_DEFAULT_SECONDS, CHARACTER_MODULE_ID } from './constants';
 
 /**
  * Phase 15.3: the per-step tuning the algorithm reads — the player's
@@ -308,7 +308,7 @@ export function findControllerEntity(snapshot: RuntimeSnapshot): string {
     // The runtime validates `controller_target` before `create`; this is the
     // defensive path so a direct caller cannot build an ambiguous controller.
     throw new Error(
-      `thirdlight.platformer:controller requires exactly one components.controller entity (found ${ids.length})`,
+      `thirdlight.character:controller requires exactly one components.controller entity (found ${ids.length})`,
     );
   }
   return ids[0] as string;
@@ -323,10 +323,10 @@ export function createControllerModule(
   const entity = snapshot.scene.entities.find((e) => e.id === charId);
   const transform = entity?.components.transform;
   if (!transform) {
-    throw new Error(`thirdlight.platformer:controller entity "${charId}" has no transform component`);
+    throw new Error(`thirdlight.character:controller entity "${charId}" has no transform component`);
   }
   if (cfg.fixedStepHz <= 0 || !Number.isFinite(cfg.fixedStepHz)) {
-    throw new Error('thirdlight.platformer:controller requires a positive fixedStepHz');
+    throw new Error('thirdlight.character:controller requires a positive fixedStepHz');
   }
   const dt = 1 / cfg.fixedStepHz;
   const cosMaxSlopeClimb = Math.cos((cfg.settings.max_slope_climb_deg * Math.PI) / 180);
@@ -405,8 +405,8 @@ export function createControllerModule(
  * entity as its transform owner, mutually exclusive with the M1 demo module
  * and requiring the injected physics port.
  */
-export const platformerSpec: SimulationModuleSpec = {
-  id: PLATFORMER_MODULE_ID,
+export const characterControllerSpec: SimulationModuleSpec = {
+  id: CHARACTER_MODULE_ID,
   phases: ['controller', 'transform'],
   excludes: ['thirdlight.demo:box-motion'],
   requiresPhysicsPort: true,

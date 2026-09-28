@@ -384,7 +384,7 @@ export function blockDimensionErrors(comps: Record<string, unknown>, path: strin
   if (dimension === 3) {
     for (const block of ['switch', 'pickup', 'enemy'] as const) {
       if (comps[block] === undefined) continue;
-      errors.push({ code: 'component_conflict', path: `${path}/components/${block}`, message: `the ${block} block works on the 2D plane only; a 3D project uses triggers (3D forms of the platformer blocks come with game modes)`, expected: 'trigger' } as ModelErrorV3);
+      errors.push({ code: 'component_conflict', path: `${path}/components/${block}`, message: `the ${block} block works on the 2D plane only; a 3D project uses triggers (3D forms of the character controller blocks come with game modes)`, expected: 'trigger' } as ModelErrorV3);
     }
   }
 }
@@ -487,7 +487,7 @@ function nextId(taken: Set<string>, prefix: string): string {
 /**
  * Pure v3 → v4: the one v3 scene becomes scene v4 (same id, name "Main") and
  * the content block gains `startScenes: [that scene]`. Phase 24.7: a v3 game
- * block no longer validates (the platformer game block was deleted), so
+ * block no longer validates (the game block was deleted), so
  * `content.game` is always null here. Retry records are not carried over (the
  * upgrade is a history boundary, charter §6).
  */

@@ -248,7 +248,7 @@ describe('manifest-v2: validateManifestV2 captured-state re-derivation', () => {
       settings: viewRes.normalized.settings as unknown as Record<string, number>,
       game: viewRes.normalized.game,
       media: mediaRes.normalized,
-      moduleIds: ['thirdlight.platformer:controller'],
+      moduleIds: ['thirdlight.character:controller'],
       ...over,
     });
     if (!res.ok) throw new Error('expected a valid manifest');

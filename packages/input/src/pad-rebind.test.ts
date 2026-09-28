@@ -1,12 +1,12 @@
 /**
- * Phase 14.5: the platformer's pad controls come from the project's `move`
+ * Phase 14.5: the character controller's pad controls come from the project's `move`
  * and `jump` actions (rebindable in the game's settings), read through a fake
  * pad. The standard layout (A jumps, D-pad and left stick move) stays for
  * every config without pad bindings of a kind.
  */
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_INPUT_CONFIG, platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type InputConfigLike } from './actions';
+import { DEFAULT_INPUT_CONFIG, characterPad, readCharacterPad, STANDARD_CHARACTER_PAD, type InputConfigLike } from './actions';
 import { attachBrowserInput } from './browser';
 
 type Handler = (event: Event) => void;
@@ -65,15 +65,15 @@ function withJumpButton(button: number): InputConfigLike {
   return { actions: DEFAULT_INPUT_CONFIG.actions.map((a) => (a.name === 'jump' ? { ...a, bindings: [...a.bindings.filter((b) => b.kind !== 'gamepadButton'), { kind: 'gamepadButton', button }] } : a)) };
 }
 
-describe('platformerPad', () => {
+describe('characterPad', () => {
   it('reads the standard layout from the default actions', () => {
-    expect(platformerPad(DEFAULT_INPUT_CONFIG)).toEqual({ jump: [0], left: [14], right: [15], axes: [0] });
+    expect(characterPad(DEFAULT_INPUT_CONFIG)).toEqual({ jump: [0], left: [14], right: [15], axes: [0] });
   });
 
   it('keeps the standard layout for a config without pad bindings (projects made before pad rebinding)', () => {
     const keysOnly: InputConfigLike = { actions: DEFAULT_INPUT_CONFIG.actions.map((a) => ({ ...a, bindings: a.bindings.filter((b) => !b.kind.startsWith('gamepad')) })) };
-    expect(platformerPad(keysOnly)).toEqual(STANDARD_PLATFORMER_PAD);
-    expect(platformerPad({ actions: [] })).toEqual(STANDARD_PLATFORMER_PAD);
+    expect(characterPad(keysOnly)).toEqual(STANDARD_CHARACTER_PAD);
+    expect(characterPad({ actions: [] })).toEqual(STANDARD_CHARACTER_PAD);
   });
 
   it('takes rebound jump and move buttons and move axes', () => {
@@ -83,18 +83,18 @@ describe('platformerPad', () => {
         { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Space' }, { kind: 'gamepadButton', button: 3 }, { kind: 'gamepadButton', button: 7 }] },
       ],
     };
-    expect(platformerPad(cfg)).toEqual({ jump: [3, 7], left: [4], right: [5], axes: [2] });
+    expect(characterPad(cfg)).toEqual({ jump: [3, 7], left: [4], right: [5], axes: [2] });
   });
 
   it('reads a fake pad through the bindings (the furthest axis wins; ignored buttons do not count)', () => {
     const map = { jump: [3], left: [4], right: [5], axes: [0, 2] };
     const buttons = Array.from({ length: 17 }, (_, i) => i === 3 || i === 5);
-    expect(readPlatformerPad(map, buttons, [0.3, 0, -0.9, 0])).toEqual({ jump: true, left: false, right: true, axis: -0.9 });
-    expect(readPlatformerPad(map, buttons, [0, 0, 0, 0], new Set([3])).jump).toBe(false);
+    expect(readCharacterPad(map, buttons, [0.3, 0, -0.9, 0])).toEqual({ jump: true, left: false, right: true, axis: -0.9 });
+    expect(readCharacterPad(map, buttons, [0, 0, 0, 0], new Set([3])).jump).toBe(false);
   });
 });
 
-describe('the platformer on a fake pad', () => {
+describe('the character controller on a fake pad', () => {
   it('jumps with button 0 and moves with the D-pad by default', () => {
     const h = attach(DEFAULT_INPUT_CONFIG);
     h.pad.held.add(0);

@@ -33,7 +33,7 @@ describe('a playable snapshot (phase 9.3 / 24)', () => {
     expect(errorOf(snapshotOf(cloneJson(baseScene())))).toBeNull();
   });
 
-  it('the platformer game block is gone: absent or null plays, a block is refused', () => {
+  it('the game block is gone: absent or null plays, a block is refused', () => {
     const withGame = (game: unknown): unknown => {
       const s = snapshotOf(cloneJson(baseScene())) as Record<string, unknown>;
       if (game === undefined) delete s['game'];

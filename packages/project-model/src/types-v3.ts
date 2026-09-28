@@ -386,7 +386,7 @@ export interface ContentCatalogV3 {
   behaviors: BehaviorRecord[];
   settings: SettingsMap;
   behaviorTrust: BehaviorTrust;
-  /** Phase 24.7: the platformer game block was deleted; the key stays `null` until the 24.8 format bump drops it. */
+  /** Phase 24.7: the game block was deleted; the key stays `null` until the 24.8 format bump drops it. */
   game: null;
   /** Phase 12 (b): the project tag registry, ascending `bit`; absent = no tags. */
   tags?: TagDefinition[];

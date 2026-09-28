@@ -43,7 +43,7 @@ export interface RuntimeScene {
 /**
  * The runtime snapshot (runtime.md §2) — the ONLY input of a runtime
  * instance. `scene` is a complete normalized scene document. Phase 24.7: the
- * `game` wrapper field (the deleted platformer game block) may only be null.
+ * `game` wrapper field (the deleted game block) may only be null.
  */
 export interface RuntimeSnapshot {
   /** Exactly `<projectId>@r<revision>` (project-model §6). */
@@ -419,7 +419,7 @@ export interface SimulationModule {
 
 /**
  * The canonical simulation phase order (runtime.md §12.1). Phase 24.7: the
- * platformer session's `gameplay` and `camera` phases were deleted with it.
+ * game session's `gameplay` and `camera` phases were deleted with it.
  */
 export type SimulationPhase = 'intent' | 'controller' | 'transform';
 
@@ -1050,7 +1050,7 @@ export interface EffectRequest {
   readonly position: readonly [number, number, number];
   /** Overrides of the effect's public parameters (null = none). */
   readonly params: Readonly<Record<string, number | readonly number[] | string>> | null;
-  /** What asked: a script, or the entity's `effect` component (its signal). Phase 24.7: the platformer's gameplay hooks were deleted. */
+  /** What asked: a script, or the entity's `effect` component (its signal). Phase 24.7: the character controller's gameplay hooks were deleted. */
   readonly source: 'script' | 'component';
   /** The step it was asked in (1-based like the step being simulated). */
   readonly stepIndex: number;
@@ -1484,7 +1484,7 @@ export interface BehaviorModes {
  * Phase 23.10: `ctx.lifecycle` — the engine's run lifecycle: respawn the
  * character at a player spawn and restart the run. Lives, scores and goals are
  * the game's own rules (scripts); this is only the mechanism. Phase 24.7: it
- * works on the 2D plane too (the platformer session that owned it is gone).
+ * works on the 2D plane too (the character controller session that owned it is gone).
  */
 export interface BehaviorLifecycle {
   /**

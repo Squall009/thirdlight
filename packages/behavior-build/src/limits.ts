@@ -69,7 +69,7 @@ export const COMPILER_OPTIONS = Object.freeze({
  * The host's pinned engine module table (behaviors.md §5.3; the M2 set at its
  * locked versions). `@thirdlight/behaviors` does not exist (dependencies.md §2
  * D19-A: the browser-safe behavior types live in `runtime`). Phase 24.3: the
- * platformer is not pinned — every build and every script sees only the
+ * character controller is not pinned — every build and every script sees only the
  * generic engine packages; a genre module is never implied.
  */
 export const M2_PINNED_MODULES: readonly PinnedModuleRef[] = Object.freeze([

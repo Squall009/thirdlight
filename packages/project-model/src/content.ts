@@ -227,7 +227,7 @@ const KNOWN_CONTENT_FIELDS_V3 = new Set(['assets', 'prefabs', 'behaviors', 'sett
  * (recorded replays stay valid). Generic reasons: falling through a one-way
  * platform ignores it for 0.125 s (enough to clear a thin platform at any
  * normal fall speed); the world settles for 0.1 s before the first frame so
- * resting bodies start at rest. Phase 24.7: these were the platformer game
+ * resting bodies start at rest. Phase 24.7: these were the character controller game
  * block's fields; with the block deleted they are engine defaults.
  */
 export const ENGINE_TIMING_DEFAULTS = Object.freeze({ dropThroughTime: 0.125, settleTime: 0.1 });
@@ -1997,13 +1997,13 @@ function canonicalTrust(t: BehaviorTrust): BehaviorTrust {
 // ---- content schemaVersion 3: `audio` kind and `content.game` (§23.4) ---------
 
 /**
- * Phase 24.7: the platformer game block (`content.game`: the session's
+ * Phase 24.7: the game block (`content.game`: the session's
  * player, camera, spawn, cues and timing) was deleted. The key stays in the
  * content block as `null` until the 24.8 format bump; a block is refused.
  */
 export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[]): void {
   if (g === null) return;
-  errors.push(withFound({ code: 'game_config_invalid', path, message: 'content.game (the platformer game block) was removed in phase 24: build the game rules as project scripts', reason: 'field_value', expected: 'null' } as ModelErrorV2, g));
+  errors.push(withFound({ code: 'game_config_invalid', path, message: 'content.game (the game block) was removed in phase 24: build the game rules as project scripts', reason: 'field_value', expected: 'null' } as ModelErrorV2, g));
 }
 
 /**
@@ -2167,7 +2167,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
-  // Phase 24.7: the platformer's level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
+  // Phase 24.7: the level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
   if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: 'content.flow (levels, lives, score) was removed in phase 24: use the game shell (content.shell) and project scripts', expected: 'no flow' } as ModelErrorV2, 'flow'));
   // Phase 16.1: standalone graph documents.
   if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);

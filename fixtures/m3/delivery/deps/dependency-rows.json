@@ -23,7 +23,6 @@
   "importEdges": {
     "game-host": [
       "runtime (types + instantiateRuntime/registry values)",
-      "platformer",
       "input (types + attachBrowserInput value)",
       "three-adapter (types only: adapter/resource interfaces and the injected byte resolver)"
     ]

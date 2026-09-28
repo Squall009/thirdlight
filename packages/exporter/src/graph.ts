@@ -10,7 +10,7 @@
  * the 3D backend's `js/physics-3d.js` of a 3D project), and the per-snapshot
  * virtual modules the export build generates in memory
  * (`thirdlight:export-artifacts`, `thirdlight:export-modules`). Phase 24.3: a
- * module package outside that set (the platformer ones) is allowed only when
+ * module package outside that set (the character controller ones) is allowed only when
  * the manifest names one of its modules.
  *
  * Forbidden (any node): `backend`, `editor`, `workspace`, `commands`,

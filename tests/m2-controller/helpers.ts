@@ -4,7 +4,7 @@
  *
  * Every run composes the accepted pieces for real:
  *
- *   `@thirdlight/platformer` (the controller module)
+ *   `@thirdlight/character` (the controller module)
  *   + `@thirdlight/runtime` (phases, pre-roll, transform commit, fail-stop)
  *   + `@thirdlight/physics-rapier` (the pinned `@dimforge/rapier2d-compat@0.20.0`)
  *   + `@thirdlight/input` (the pure raw-snapshot → ActionFrame mapping)
@@ -35,7 +35,7 @@ import {
   type Runtime,
   type Vec2,
 } from '@thirdlight/runtime';
-import { PLATFORMER_MODULE_ID, platformerSpec } from '@thirdlight/platformer';
+import { CHARACTER_MODULE_ID, characterControllerSpec } from '@thirdlight/character';
 
 export const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = join(HERE, '..', '..');
@@ -205,13 +205,13 @@ export async function startRun(
   void lastPosition;
 
   const registry = createSimulationRegistry();
-  const registered = registerSimulationModule(registry, PLATFORMER_MODULE_ID, platformerSpec);
+  const registered = registerSimulationModule(registry, CHARACTER_MODULE_ID, characterControllerSpec);
   if (!registered.ok) throw new Error(`register failed: ${JSON.stringify(registered.error)}`);
   let now = 0;
   const runtimeResult = instantiateRuntime({
     snapshot: courseSnapshot(course, start),
     registry,
-    modules: [PLATFORMER_MODULE_ID],
+    modules: [CHARACTER_MODULE_ID],
     actions: options.actions,
     physics: recordingPort,
     settings: { ...course.settings, ...(options.settings ?? {}) },

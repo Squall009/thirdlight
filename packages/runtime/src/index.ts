@@ -6,7 +6,7 @@
  * `ActionFrame`, `JumpPhase`, `ActionSource`, `createRecordedActionSource`,
  * `SimulationPhase`, `StepContext`, `GameplaySettings`, `PhysicsPort`,
  * `PhysicsStepClient`; `PhysicsResetPort`, `ModuleResetContext` and
- * `SIMULATION_PHASE_ORDER`. Phase 24.7: the platformer game session (its run
+ * `SIMULATION_PHASE_ORDER`. Phase 24.7: the game session (its run
  * states, game view and the `gameplay`/`camera` phases) was deleted.
  *
  * Thirdlight M1 play/runtime core (docs/contracts/runtime.md, packet 08)
@@ -159,8 +159,10 @@ export {
 } from './types';
 export {
   BUILTIN_MODULES,
-  PLATFORMER_MODULE_ID,
+  CHARACTER_MODULE_ID,
+  canonicalModuleId,
   createSimulationRegistry,
+  MODULE_ID_ALIASES,
   registerSimulationModule,
   validatePhaseList,
 } from './registry';

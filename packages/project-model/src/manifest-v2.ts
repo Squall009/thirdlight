@@ -171,7 +171,7 @@ export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVer
 
 /** The package a known M3 module id belongs to (the manifest `modules` rows). */
 export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
-  'thirdlight.platformer:controller': '@thirdlight/platformer',
+  'thirdlight.character:controller': '@thirdlight/character',
   // Phase 23.0: the 3D physics backend (physics_dimension 3).
   'thirdlight.physics-rapier:3d': '@thirdlight/physics-rapier',
   // Phase 23.2: the 3D character controller (a runtime built-in).
@@ -220,7 +220,7 @@ export interface CapturedContentViewV3 {
   /** The resolved six-key gameplay settings, in registry order. */
   settings: GameplaySettings;
   behaviorTrust: unknown;
-  /** Phase 24.7: always null (the platformer game block was deleted; the key goes with the 24.8 format bump). */
+  /** Phase 24.7: always null (the game block was deleted; the key goes with the 24.8 format bump). */
   game: null;
   /** `sha256(JSON.stringify({assets,prefabs,behaviors,settings,behaviorTrust,game},null,2)+"\n")`. */
   contentDigest: string;
@@ -289,7 +289,7 @@ export interface RuntimeContentManifestV2 {
   settingsDigest: string;
   mediaDigest: string;
   settings: GameplaySettings;
-  /** Phase 24.7: always null (the platformer game block was deleted; the key goes with the 24.8 format bump). */
+  /** Phase 24.7: always null (the game block was deleted; the key goes with the 24.8 format bump). */
   game: null;
   /** Phase 12 (b): the tag registry, present only when non-empty. */
   tags?: TagDefinition[];
@@ -593,7 +593,7 @@ export interface CaptureManifestV2Input {
   /** The resolved six-key settings, in registry order. */
   settings: GameplaySettings;
   /** The frozen `content.game` value (canonical `GameConfig` order) or `null`. */
-  /** Phase 24.7: always null (the platformer game block was deleted; the key goes with the 24.8 format bump). */
+  /** Phase 24.7: always null (the game block was deleted; the key goes with the 24.8 format bump). */
   game: null;
   /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
   tags?: readonly TagDefinition[];

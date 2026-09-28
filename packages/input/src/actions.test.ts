@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, type InputConfigLike, type RawDeviceState } from './actions';
+import { createActionEvaluator, DEFAULT_INPUT_CONFIG, characterKeys, type InputConfigLike, type RawDeviceState } from './actions';
 import { attachBrowserInput } from './browser';
 
 const raw = (keys: string[] = [], pressed: string[] = [], gamepad: RawDeviceState['gamepad'] = null): RawDeviceState => ({ keys: new Set(keys), pressedKeys: new Set(pressed), gamepad });
@@ -44,8 +44,8 @@ describe('input actions', () => {
     expect(e.sample(raw([], [], pad([], [0, 0, 0.6, 0])))['look']!.v).toBe(-1);
   });
 
-  it('derives the platformer keys from move/jump', () => {
-    expect(platformerKeys(DEFAULT_INPUT_CONFIG)).toEqual({ left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space'] });
+  it('derives the character controller keys from move/jump', () => {
+    expect(characterKeys(DEFAULT_INPUT_CONFIG)).toEqual({ left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space'] });
   });
 
   it('the browser owner jumps with a rebound key and reports named actions in the frame', () => {

@@ -11,7 +11,7 @@
  * `serializeCanonical` roundtrip (parse→normalize→serialize is idempotent and
  * digest-stable).
  *
- * Phase 24 removed the platformer game layer the packet-39 envelopes were
+ * Phase 24 removed the game layer the packet-39 envelopes were
  * recorded with (`content.game` → null, `cameraFollow`, `gameZone`): phase
  * 24.7 re-recorded the envelopes without it and deleted the invalid envelopes
  * whose subject it was (fixtures/m3/contracts/tools/remove-game-layer.mts).

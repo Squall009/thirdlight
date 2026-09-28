@@ -10,7 +10,7 @@
  *   plate (`stand`) that emits a signal.
  * - `health`: an object's health (phase 24.4b: any object; `ctx.health`).
  *
- * Phase 24.7: the platformer's pickup and enemy components and the session
+ * Phase 24.7: the pickup and enemy components and the session
  * player's grace time, knockback and hit bounce were deleted (collectible,
  * patrol and hitbox are the generic primitives below).
  */

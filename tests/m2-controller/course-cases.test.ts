@@ -2,7 +2,7 @@
  * Packet 32 — the real-adapter diagnostic-course suite.
  *
  * Every case runs the **real** stack in Node:
- * `@thirdlight/platformer` controller + `@thirdlight/runtime` phases/pre-roll +
+ * `@thirdlight/character` controller + `@thirdlight/runtime` phases/pre-roll +
  * `@thirdlight/physics-rapier` (the pinned `@dimforge/rapier2d-compat@0.20.0`
  * WASM) + `@thirdlight/input`'s pure raw-snapshot mapping, over
  * `fixtures/m2/course/**`. The tolerance bands come from the frozen

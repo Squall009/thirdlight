@@ -325,7 +325,7 @@ export function validateCharacterMoveResult(
 // Phase 23.0: the 3D physics port. A project whose `physics_dimension` is 3
 // runs on a separate 3D backend (physics-rapier's `./3d` subpath, rapier3d);
 // the runtime holds this port instead of the 2D `PhysicsPort` above, which —
-// with its fakes, the platformer controller and the graph codegen — stays
+// with its fakes, the character controller and the graph codegen — stays
 // exactly as it was. Positions are PhysicsVec3, rotations unit quaternions.
 // ---------------------------------------------------------------------------
 

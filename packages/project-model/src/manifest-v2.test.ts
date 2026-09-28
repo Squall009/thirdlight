@@ -83,7 +83,7 @@ function v2Input(over: Record<string, unknown> = {}) {
     settings: SETTINGS,
     game: GAME,
     media: MEDIA,
-    moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.platformer:controller'],
+    moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.character:controller'],
     ...over,
   };
 }
@@ -187,9 +187,9 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     expect(ids).toEqual([...ids].sort());
     const physics = res.manifest.modules.find((m) => m['id'] === 'thirdlight.physics-rapier:3d') as Record<string, unknown>;
     expect(physics['package']).toBe('@thirdlight/physics-rapier');
-    const controller = res.manifest.modules.find((m) => m['id'] === 'thirdlight.platformer:controller') as Record<string, unknown>;
-    expect(controller['package']).toBe('@thirdlight/platformer');
-    // Phase 24.7: the platformer game package is no engine pin.
+    const controller = res.manifest.modules.find((m) => m['id'] === 'thirdlight.character:controller') as Record<string, unknown>;
+    expect(controller['package']).toBe('@thirdlight/character');
+    // Phase 24.7: the game package is no engine pin.
     expect(res.manifest.enginePins.map((p) => (p as Record<string, unknown>)['id'])).not.toContain('@thirdlight/platformer-game');
   });
 });

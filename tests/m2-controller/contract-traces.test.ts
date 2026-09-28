@@ -23,7 +23,7 @@ import {
   controllerStep,
   createControllerState,
   type ControllerState,
-} from '../../packages/platformer/src/controller';
+} from '../../packages/character/src/controller';
 import { fixture, readJson, REPO, DT } from './helpers';
 import { join } from 'node:path';
 

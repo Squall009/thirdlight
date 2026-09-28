@@ -6,7 +6,7 @@
  * is a manual test host that the owner builds with the pinned esbuild (the
  * packet-32/37 procedure, `tests/browser/m3-render/README.md`) and serves
  * statically. It composes the real packages (`@thirdlight/runtime` +
- * `@thirdlight/physics-rapier` + `@thirdlight/platformer` +
+ * `@thirdlight/physics-rapier` + `@thirdlight/character` +
  * `@thirdlight/three-adapter`) over a v3
  * scene with an authored key/fill light and surface boxes, and records the
  * B11 named checklist (Gate K: "same preset id → same colour/roughness
@@ -26,7 +26,7 @@
  * diagnostics.
  */
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { PLATFORMER_MODULE_ID, platformerSpec } from '@thirdlight/platformer';
+import { CHARACTER_MODULE_ID, characterControllerSpec } from '@thirdlight/character';
 import {
   createRecordedActionSource,
   createSimulationRegistry,
@@ -142,7 +142,7 @@ async function buildRuntime(snapshot: unknown): Promise<{ runtime: Runtime; disp
   });
   if (!init.ok) throw new Error(`physics init failed: ${JSON.stringify(init.error)}`);
   const registry = createSimulationRegistry();
-  for (const spec of [platformerSpec]) {
+  for (const spec of [characterControllerSpec]) {
     const r = registerSimulationModule(registry, spec.id, spec);
     if (!r.ok) throw new Error(`register failed ${spec.id}: ${JSON.stringify(r.error)}`);
   }
@@ -150,7 +150,7 @@ async function buildRuntime(snapshot: unknown): Promise<{ runtime: Runtime; disp
   const res = instantiateRuntime({
     snapshot: snapshot as RuntimeSnapshot,
     registry,
-    modules: [PLATFORMER_MODULE_ID],
+    modules: [CHARACTER_MODULE_ID],
     actions: createRecordedActionSource(frames),
     physics: init.port,
     settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 },
