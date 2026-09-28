@@ -81,3 +81,38 @@ export function bufferResolver(rows: readonly ManifestBufferRow[], io: SceneCata
     return readVerified(io, `content/sha256/${digest}`, digest, row.byteLength);
   };
 }
+
+/** Phase 25.7b: one `manifest.contentFiles` row (project-model `ManifestContentFileRow`). */
+export interface ManifestContentFileRowLike {
+  readonly key: string;
+  readonly path: string;
+  readonly digest: string;
+  readonly byteLength: number;
+}
+
+/** The content file blocks a reader knows (project-model `MANIFEST_CONTENT_FILE_KEYS`). */
+const CONTENT_FILE_KEYS: ReadonlySet<string> = new Set(['materials', 'materialFunctions', 'uiDocuments', 'dialogue', 'buffers']);
+
+/**
+ * Phase 25.7b: read a verified manifest's content files (materials, material
+ * functions, UI documents, dialogue, the instance buffer table: the blocks
+ * that grow with a project's content) and put each block back under its key.
+ * Each file is read once, in parallel, and checked against its row (length
+ * and SHA-256; the rows are bound by the manifest's buildId) before it is
+ * parsed. A missing, changed or unknown file throws, naming it. The manifest
+ * itself is not changed; the result is a new object.
+ */
+export async function expandManifestContentFiles<M extends { readonly contentFiles?: readonly ManifestContentFileRowLike[] }>(manifest: M, io: SceneCatalogIo): Promise<M> {
+  const rows = manifest.contentFiles ?? [];
+  const blocks = await Promise.all(
+    rows.map(async (row) => {
+      if (!CONTENT_FILE_KEYS.has(row.key)) throw new Error(`content file ${row.path}: unknown block "${row.key}"`);
+      if (Object.prototype.hasOwnProperty.call(manifest, row.key)) throw new Error(`content file ${row.path}: the manifest already has "${row.key}"`);
+      const buf = await readVerified(io, row.path, row.digest, row.byteLength);
+      return [row.key, JSON.parse(new TextDecoder().decode(buf)) as unknown] as const;
+    }),
+  );
+  const out: Record<string, unknown> = { ...manifest };
+  for (const [key, value] of blocks) out[key] = value;
+  return out as M;
+}

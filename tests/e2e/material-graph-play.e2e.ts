@@ -200,7 +200,10 @@ for (const variant of VARIANTS) test(`a graph material (texture × tint, fresnel
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { materials: { materialId: string; graph?: unknown }[]; materialFunctions?: { graphId: string }[] };
+  // Phase 25.7b: materials and material functions are content files the manifest lists by digest.
+  const doc = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { contentFiles: { key: string; path: string }[] };
+  const file = (key: string): unknown => JSON.parse(readFileSync(join(out, doc.contentFiles.find((r) => r.key === key)!.path), 'utf8'));
+  const manifest = { materials: file('materials'), materialFunctions: file('materialFunctions') } as { materials: { materialId: string; graph?: unknown }[]; materialFunctions?: { graphId: string }[] };
   expect(manifest.materials.find((m) => m.materialId === 'mat-graph')?.graph).toBeDefined();
   expect(manifest.materialFunctions?.map((f) => f.graphId)).toEqual(['tint-fn']);
   await page.goto('about:blank');

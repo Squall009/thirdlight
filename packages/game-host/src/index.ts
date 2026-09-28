@@ -105,6 +105,9 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
 }export {
   bufferResolver,
   prepareSceneCatalog,
+  // Phase 25.7b: the manifest's content files read back under their keys.
+  expandManifestContentFiles,
+  type ManifestContentFileRowLike,
   type ManifestBufferRow,
   type ManifestSceneRow,
   type SceneCatalogIo,

@@ -38,12 +38,14 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_3, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   browserContextFactory,
   bufferResolver,
+  expandManifestContentFiles,
+  type ManifestContentFileRowLike,
   createGameAudioOwner,
   createGameHost,
   linkBehaviorModules,
@@ -135,6 +137,8 @@ interface ExportManifestV2 {
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
+  /** Phase 25.7b: the content files; materials, materialFunctions, uiDocuments, dialogue and buffers come from them. */
+  contentFiles?: ManifestContentFileRowLike[];
   assets: ReadonlyArray<{ assetId: string; version: number; sourceDigest: string; sourceByteLength: number; kind: string; path: string }>;
   /** The resolved media identity (delivery.md §2.3): cue slots + one
    * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
@@ -616,10 +620,11 @@ async function main(): Promise<void> {
     const res = await fetch('./manifest.json', { credentials: 'omit' });
     if (!res.ok) throw new Error(`manifest read failed (HTTP ${String(res.status)})`);
     const manifest = JSON.parse(await res.text()) as ExportManifestV2;
-    if (manifest.type !== 'thirdlight-runtime-content' || manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_3) throw new Error('unsupported manifest document');
+    if (manifest.type !== 'thirdlight-runtime-content' || manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_4) throw new Error('unsupported manifest document');
     const expected = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(buildIdInput(manifest as unknown as Record<string, unknown>), null, 2)}\n`));
     if (expected !== manifest.buildId) throw new Error('manifest buildId does not match its own canonical bytes');
-    await start(canvas, manifest);
+    // Phase 25.7b: the content files, each checked against its (buildId-bound) row, back under their keys.
+    await start(canvas, await expandManifestContentFiles(manifest, { read: readArtifactBytes, sha256Hex }));
   } catch (e) {
     hud(`export error: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`, true);
   }

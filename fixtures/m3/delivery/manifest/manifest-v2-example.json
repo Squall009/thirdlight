@@ -1,5 +1,5 @@
 {
-  "manifestVersion": 3,
+  "manifestVersion": 4,
   "type": "thirdlight-runtime-content",
   "projectId": "demo-0001",
   "revision": 12,
@@ -105,5 +105,5 @@
     "optionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751"
   },
   "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
-  "buildId": "6e8f2c6f88871dd85e988cdec1e80fac65847347d8966d0f4dbd6ce6526242c9"
+  "buildId": "e6a0968f4187517ee216b4721bebcfc0afdcf9b073a9d7fde143c50841f336d0"
 }

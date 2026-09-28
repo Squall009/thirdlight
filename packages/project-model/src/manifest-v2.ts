@@ -21,7 +21,16 @@
  * and `gameDigest` keys and the media block's five `cues` slots (all null
  * since phase 24.7) are gone; `media` is `{ animation }` and the captured
  * content view is `{assets, prefabs, behaviors, settings, behaviorTrust}`.
- * A reader refuses any other version.
+ *
+ * Phase 25.7b moves `manifestVersion` 3 → 4: the blocks that grow with a
+ * project's content — `materials` (only the ones the game uses),
+ * `materialFunctions`, `uiDocuments`, `dialogue` and the instance `buffers`
+ * table — leave the capped document for their own content files
+ * (`content/sha256/<digest>`, the block's canonical bytes), listed in
+ * `contentFiles` by key, digest and length and so bound by the `buildId`.
+ * A reader verifies each file against its row and puts the block back under
+ * its key (`expandManifestContentFiles` in game-host). A reader refuses any
+ * other version.
  *
  * **Canonical ordering (normative, delivery.md §2.4).** Every block digest and
  * the `buildId` hash `JSON.stringify(value, null, 2) + "\n"` in the owning
@@ -78,8 +87,35 @@ import {
 // Constants (delivery.md §2.2 / v1-v2-rules.json)
 // ---------------------------------------------------------------------------
 
-/** The manifest shape version (delivery.md §2.1; phase 24.8: 3, without the game block and cue slots). */
-export const RUNTIME_CONTENT_MANIFEST_VERSION_3 = 3 as const;
+/** The manifest shape version (delivery.md §2.1; phase 24.8: 3, without the game block and cue slots; phase 25.7b: 4, content files). */
+export const RUNTIME_CONTENT_MANIFEST_VERSION_4 = 4 as const;
+
+/**
+ * Phase 25.7b: the blocks that ride in their own content files, in their
+ * `contentFiles` order. Each file is the block's canonical JSON bytes
+ * (`JSON.stringify(block, null, 2) + "\n"`) at `content/sha256/<digest>`.
+ */
+export const MANIFEST_CONTENT_FILE_KEYS = ['materials', 'materialFunctions', 'uiDocuments', 'dialogue', 'buffers'] as const;
+export type ManifestContentFileKey = (typeof MANIFEST_CONTENT_FILE_KEYS)[number];
+
+/** Phase 25.7b: one `contentFiles` row. */
+export interface ManifestContentFileRow {
+  key: ManifestContentFileKey;
+  path: string;
+  digest: string;
+  byteLength: number;
+}
+
+/** Phase 25.7b: a content file of a capture (its row and its bytes). */
+export interface ManifestContentFile extends ManifestContentFileRow {
+  bytes: Uint8Array;
+}
+
+/**
+ * Phase 25.7b: the most bytes one content file may hold (the play content
+ * store's single-artifact cap, `PLAY_CONTENT_ARTIFACT_MAX_BYTES`, 32 MiB).
+ */
+export const MANIFEST_CONTENT_FILE_MAX_BYTES = 33_554_432;
 
 /** Phase 12 (c): one scene artifact of a v4 project. */
 export interface ManifestSceneRow {
@@ -92,7 +128,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -108,9 +144,7 @@ export const MANIFEST_KEYS_V2 = [
   'mediaDigest',
   'settings',
   'tags',
-  'materials',
-  // Phase 18.3: the material functions graph materials call (standalone graphs of kind material-function).
-  'materialFunctions',
+  // Phase 25.7b: materials (9.4) and material functions (18.3) are content files (`contentFiles`).
   // Phase 20.2: the visual effects (particle system graphs) the game plays.
   'effects',
   'environment',
@@ -127,9 +161,8 @@ export const MANIFEST_KEYS_V2 = [
   'collisionLayers',
   // Phase 23.19: the project save schema (only when the project declares one).
   'saveSchema',
-  // Phase 23.9a: the project UI (themes, documents) the game host draws.
+  // Phase 23.9a: the project UI themes the game host draws (phase 25.7b: the documents are a content file).
   'uiThemes',
-  'uiDocuments',
   // Phase 23.10: the game modes (the runtime switches them; the host reads their pause screens).
   'modes',
   // Phase 23.17: the timelines (sequencer assets) the game plays.
@@ -138,10 +171,10 @@ export const MANIFEST_KEYS_V2 = [
   'eventCues',
   // Phase 24.4j: the game shell (menus and HUD documents, the ordered scene list; only when the project has one).
   'shell',
-  // Phase 23.16: the compiled conversations, speakers and dialogue settings (only when the project has conversations).
-  'dialogue',
+  // Phase 23.16's dialogue data is a content file since phase 25.7b.
   'scenes',
-  'buffers',
+  // Phase 25.7b: the blocks in their own content files (materials, materialFunctions, uiDocuments, dialogue, buffers).
+  'contentFiles',
   'assets',
   'media',
   'behaviors',
@@ -278,15 +311,10 @@ export interface RuntimeContentManifestV2 {
   settings: GameplaySettings;
   /** Phase 12 (b): the tag registry, present only when non-empty. */
   tags?: TagDefinition[];
-  /** Phase 18.3: the material functions graph materials call. */
-  materialFunctions?: GraphDocument[];
   /** Phase 20.2: the visual effects (present only when the project has some). */
   effects?: EffectDef[];
-  /** Phase 23.9a: the project UI themes and documents (present only when the project has some). */
+  /** Phase 23.9a: the project UI themes (present only when the project has some). */
   uiThemes?: UiTheme[];
-  uiDocuments?: UiDocument[];
-  /** Phase 23.16: the dialogue runner's data (present only when the project has conversations). */
-  dialogue?: RuntimeDialogueData;
   /** Phase 23.10: the game modes (present only when the project has some). */
   modes?: GameMode[];
   /** Phase 23.17: the timelines (present only when the project has some). */
@@ -299,8 +327,8 @@ export interface RuntimeContentManifestV2 {
   prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
   scenes?: ManifestSceneRow[];
-  /** Phase 12 (c): instance-set buffers. */
-  buffers?: { digest: string; byteLength: number }[];
+  /** Phase 25.7b: the content files (present only when the game has one of their blocks). */
+  contentFiles?: ManifestContentFileRow[];
   assets: ReadonlyArray<Record<string, unknown>>;
   media: MediaBlock;
   behaviors: ReadonlyArray<Record<string, unknown>>;
@@ -321,8 +349,20 @@ export interface ManifestErrorV2 {
   expected?: string;
 }
 
+/**
+ * Phase 25.7b: a manifest with its content files read back under their keys
+ * (what a reader works with after `expandManifestContentFiles`).
+ */
+export type ExpandedRuntimeContentManifest = RuntimeContentManifestV2 & {
+  materials?: MaterialDef[];
+  materialFunctions?: GraphDocument[];
+  uiDocuments?: UiDocument[];
+  dialogue?: RuntimeDialogueData;
+  buffers?: { digest: string; byteLength: number }[];
+};
+
 export type CaptureManifestV2Result =
-  | { ok: true; manifest: RuntimeContentManifestV2; bytes: Uint8Array; buildId: string }
+  | { ok: true; manifest: RuntimeContentManifestV2; bytes: Uint8Array; buildId: string; contentFiles: ManifestContentFile[] }
   | { ok: false; error: ManifestErrorV2 };
 
 // ---------------------------------------------------------------------------
@@ -700,8 +740,27 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
   const mediaDigest = blockDigest(input.media);
   const buildOptionsDigest = sha256Hex(buildOptionsRecordBytes());
 
+  // Phase 25.7b: the blocks that grow with the content go to their own files (canonical bytes, by digest).
+  const fileBlocks: Partial<Record<ManifestContentFileKey, unknown>> = {
+    ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
+    ...(input.materialFunctions !== undefined && input.materialFunctions.length > 0 ? { materialFunctions: canonicalGraphDocuments(input.materialFunctions) } : {}),
+    ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
+    ...(input.dialogue !== undefined && input.dialogue !== null ? { dialogue: JSON.parse(JSON.stringify(input.dialogue)) as RuntimeDialogueData } : {}),
+    ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
+  };
+  const contentFiles: ManifestContentFile[] = [];
+  for (const key of MANIFEST_CONTENT_FILE_KEYS) {
+    if (!(key in fileBlocks)) continue;
+    const bytes = new TextEncoder().encode(`${JSON.stringify(fileBlocks[key], null, 2)}\n`);
+    if (bytes.length > MANIFEST_CONTENT_FILE_MAX_BYTES) {
+      return { ok: false, error: manifestError('limits_exceeded', `the manifest's ${key} content file exceeds ${MANIFEST_CONTENT_FILE_MAX_BYTES} bytes`) };
+    }
+    const digest = sha256Hex(bytes);
+    contentFiles.push({ key, path: `content/sha256/${digest}`, digest, byteLength: bytes.length, bytes });
+  }
+
   const withoutBuildId: Record<string, unknown> = {
-    manifestVersion: RUNTIME_CONTENT_MANIFEST_VERSION_3,
+    manifestVersion: RUNTIME_CONTENT_MANIFEST_VERSION_4,
     type: RUNTIME_CONTENT_TYPE,
     projectId: input.projectId,
     revision: input.revision,
@@ -713,8 +772,6 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     mediaDigest,
     settings: input.settings,
     ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
-    ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
-    ...(input.materialFunctions !== undefined && input.materialFunctions.length > 0 ? { materialFunctions: canonicalGraphDocuments(input.materialFunctions) } : {}),
     ...(input.effects !== undefined && input.effects.length > 0 ? { effects: canonicalEffects(input.effects) } : {}),
     ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
@@ -727,14 +784,12 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.collisionLayers !== undefined && input.collisionLayers.length > 0 ? { collisionLayers: [...input.collisionLayers] } : {}),
     ...(input.saveSchema !== undefined ? { saveSchema: canonicalSaveSchema(input.saveSchema) } : {}),
     ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
-    ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
-    ...(input.dialogue !== undefined && input.dialogue !== null ? { dialogue: JSON.parse(JSON.stringify(input.dialogue)) as RuntimeDialogueData } : {}),
     ...(input.modes !== undefined && input.modes.length > 0 ? { modes: canonicalModes(input.modes) } : {}),
     ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
     ...(input.eventCues !== undefined && input.eventCues.length > 0 ? { eventCues: canonicalEventCues(input.eventCues) } : {}),
     ...(input.shell !== undefined ? { shell: canonicalShell(input.shell) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
-    ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
+    ...(contentFiles.length > 0 ? { contentFiles: contentFiles.map((f) => ({ key: f.key, path: f.path, digest: f.digest, byteLength: f.byteLength })) } : {}),
     assets,
     media: input.media,
     behaviors,
@@ -760,7 +815,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
       error: manifestError('limits_exceeded', `the v2 manifest document exceeds ${RUNTIME_CONTENT_MANIFEST_MAX_BYTES} bytes`),
     };
   }
-  return { ok: true, manifest, bytes, buildId };
+  return { ok: true, manifest, bytes, buildId, contentFiles };
 }
 
 /**
@@ -789,6 +844,14 @@ export interface ValidateManifestV2Options {
   scene?: unknown;
   /** The captured v3 content block (re-derives the media identity and asset kinds). */
   content?: unknown;
+  /**
+   * Phase 25.7b: the content files' blocks by key (parsed from their bytes).
+   * Given, each must match its row's digest and validate as its block does
+   * (materials with the material functions, UI documents with the input
+   * maps, the dialogue data, the buffer rows); a row without a block here is
+   * refused.
+   */
+  contentFiles?: Partial<Record<ManifestContentFileKey, unknown>>;
 }
 
 export type ValidateManifestV2Result =
@@ -816,8 +879,8 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   const d = doc as Record<string, unknown>;
 
   // Version gate: a v1 (or unknown) document is not a v2 document.
-  if (d['manifestVersion'] !== RUNTIME_CONTENT_MANIFEST_VERSION_3) {
-    return { ok: false, error: manifestError('manifest_invalid', 'manifestVersion is not 3 (phase 24.8: no game block, no cue slots)', 'manifest_version', d['manifestVersion'], '3') };
+  if (d['manifestVersion'] !== RUNTIME_CONTENT_MANIFEST_VERSION_4) {
+    return { ok: false, error: manifestError('manifest_invalid', 'manifestVersion is not 4 (phase 25.7b: materials, UI documents, dialogue and buffers in content files)', 'manifest_version', d['manifestVersion'], '4') };
   }
 
   // Key set: exactly MANIFEST_KEYS_V2 (unknown or missing ⇒ manifest_invalid).
@@ -861,16 +924,8 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateShell(d['shell'], '/shell', shErrors);
     if (shErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'shell is not valid', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined || d['modes'] !== undefined) {
+  if (d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['uiThemes'] !== undefined || d['modes'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
-    // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
-    if (d['materialFunctions'] !== undefined) {
-      validateGraphDocuments(GRAPH_KINDS, d['materialFunctions'], '/materialFunctions', matErrors);
-      if (Array.isArray(d['materialFunctions']) && (d['materialFunctions'] as unknown[]).some((g) => (g as { kind?: unknown } | null)?.kind !== 'material-function')) {
-        matErrors.push({ code: 'field_value', path: '/materialFunctions', message: 'materialFunctions holds material functions only' } as ModelErrorV2);
-      }
-    }
-    if (d['materials'] !== undefined) validateMaterials(d['materials'], '/materials', matErrors, graphDocumentsContext(GRAPH_KINDS, d['materialFunctions']));
     // Phase 20.2: the effects validate as content.effects does.
     if (d['effects'] !== undefined) validateEffects(d['effects'], '/effects', matErrors);
     if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
@@ -879,12 +934,11 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
     if (d['collisionLayers'] !== undefined) validateCollisionLayers(d['collisionLayers'], '/collisionLayers', matErrors);
-    // Phase 23.9a: the UI validates as content.uiThemes / uiDocuments do.
+    // Phase 23.9a: the UI themes validate as content.uiThemes does (the documents are a content file).
     if (d['uiThemes'] !== undefined) validateUiThemes(d['uiThemes'], '/uiThemes', matErrors);
-    if (d['uiDocuments'] !== undefined) validateUiDocuments(d['uiDocuments'], '/uiDocuments', matErrors, projectInputMaps(d['input']));
     // Phase 23.10: the game modes validate as content.modes does.
     if (d['modes'] !== undefined) validateModes(d['modes'], '/modes', matErrors);
-    if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };
+    if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'effects/environment/lighting are not valid', 'field_value') };
   }
 
   if (d['blockTypes'] !== undefined || d['cellFields'] !== undefined) {
@@ -893,9 +947,14 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
     if (blockErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value') };
   }
-  if (d['dialogue'] !== undefined) {
-    const why = runtimeDialogueDataProblem(d['dialogue']);
-    if (why !== null) return { ok: false, error: manifestError('manifest_invalid', `dialogue: ${why}`.slice(0, 256), 'field_value') };
+  // Phase 25.7b: the content file rows (and, when given, their blocks).
+  if (d['contentFiles'] !== undefined) {
+    const rowsRes = contentFileRowsProblem(d['contentFiles']);
+    if (rowsRes !== null) return { ok: false, error: manifestError('manifest_invalid', `contentFiles: ${rowsRes}`.slice(0, 256), 'field_value') };
+  }
+  if (opts?.contentFiles !== undefined) {
+    const blocksRes = contentFileBlocksProblem((d['contentFiles'] as ManifestContentFileRow[] | undefined) ?? [], opts.contentFiles, d['input']);
+    if (blocksRes !== null) return { ok: false, error: manifestError('manifest_invalid', blocksRes.slice(0, 256), 'content_file') };
   }
   if (d['saveSchema'] !== undefined) {
     const saveErrors: ModelErrorV2[] = [];
@@ -1010,16 +1069,77 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   return { ok: true, manifest: doc as unknown as RuntimeContentManifestV2 };
 }
 
+/** Phase 25.7b: why a `contentFiles` value is not a list of rows in key order (null: it is). */
+function contentFileRowsProblem(v: unknown): string | null {
+  if (!Array.isArray(v) || v.length === 0) return 'a non-empty list of rows';
+  let last = -1;
+  for (let i = 0; i < v.length; i += 1) {
+    const r = v[i] as Record<string, unknown>;
+    if (!isPlainObject(r)) return `row ${i} is not an object`;
+    const keys = Object.keys(r);
+    if (keys.join(',') !== 'key,path,digest,byteLength') return `row ${i} has the keys ${keys.join(', ')} (key, path, digest, byteLength)`;
+    const at = (MANIFEST_CONTENT_FILE_KEYS as readonly unknown[]).indexOf(r['key']);
+    if (at < 0) return `row ${i} names no content file block (${MANIFEST_CONTENT_FILE_KEYS.join(', ')})`;
+    if (at <= last) return 'rows are not in the content file key order, or a key repeats';
+    last = at;
+    if (!isDigest(r['digest']) || r['path'] !== `content/sha256/${String(r['digest'])}`) return `row ${i}: path is content/sha256/<digest>`;
+    const n = r['byteLength'];
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > MANIFEST_CONTENT_FILE_MAX_BYTES) return `row ${i}: byteLength is 1..${MANIFEST_CONTENT_FILE_MAX_BYTES}`;
+  }
+  return null;
+}
+
+/** Phase 25.7b: why the content files' blocks do not match their rows or do not validate (null: they do). */
+function contentFileBlocksProblem(rows: readonly ManifestContentFileRow[], blocks: Partial<Record<ManifestContentFileKey, unknown>>, input: unknown): string | null {
+  for (const key of Object.keys(blocks)) {
+    if (!rows.some((r) => r.key === key)) return `content file ${key} is not listed in contentFiles`;
+  }
+  const errors: ModelErrorV2[] = [];
+  for (const row of rows) {
+    if (!(row.key in blocks)) return `content file ${row.key} is missing`;
+    const block = blocks[row.key];
+    const bytes = new TextEncoder().encode(`${JSON.stringify(block, null, 2)}\n`);
+    if (bytes.length !== row.byteLength || sha256Hex(bytes) !== row.digest) return `content file ${row.key} does not match its digest`;
+    switch (row.key) {
+      case 'materialFunctions':
+        // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
+        validateGraphDocuments(GRAPH_KINDS, block, '/materialFunctions', errors);
+        if (Array.isArray(block) && (block as unknown[]).some((g) => (g as { kind?: unknown } | null)?.kind !== 'material-function')) {
+          errors.push({ code: 'field_value', path: '/materialFunctions', message: 'materialFunctions holds material functions only' } as ModelErrorV2);
+        }
+        break;
+      case 'materials':
+        validateMaterials(block, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, blocks.materialFunctions));
+        break;
+      case 'uiDocuments':
+        validateUiDocuments(block, '/uiDocuments', errors, projectInputMaps(input));
+        break;
+      case 'dialogue': {
+        const why = runtimeDialogueDataProblem(block);
+        if (why !== null) return `dialogue: ${why}`;
+        break;
+      }
+      case 'buffers':
+        if (!Array.isArray(block) || block.length === 0 || block.some((b) => !isPlainObject(b) || Object.keys(b).join(',') !== 'digest,byteLength' || !isDigest((b as Record<string, unknown>)['digest']) || !Number.isInteger((b as Record<string, unknown>)['byteLength']))) {
+          return 'buffers is a list of {digest, byteLength} rows';
+        }
+        break;
+    }
+    if (errors.length > 0) return `content file ${row.key} is not valid: ${errors[0]!.message}`;
+  }
+  return null;
+}
+
 /**
  * delivery.md §2.1 — the version-compatibility rule. A v1 reader must reject a
  * v2 document with `manifest_invalid` (`reason: "manifest_version"`) and a v2
  * reader must reject a v1 document; an in-place upgrade is forbidden. Phase
- * 24.8: the current reader is v3 (it refuses v1 and v2 alike).
+ * 24.8: the reader was v3; phase 25.7b: it is v4 (it refuses v1–v3 alike).
  */
 export function manifestVersionCompat(
   doc: unknown,
-  reader: 1 | 3,
-): { ok: true; version: 1 | 3 } | { ok: false; error: ManifestErrorV2 } {
+  reader: 1 | 4,
+): { ok: true; version: 1 | 4 } | { ok: false; error: ManifestErrorV2 } {
   const version = isPlainObject(doc) ? (doc as Record<string, unknown>)['manifestVersion'] : undefined;
   if (version === reader) return { ok: true, version: reader };
   return { ok: false, error: manifestError('manifest_invalid', `a v${reader} reader cannot load a v${typeof version === 'number' ? version : 'unknown'} manifest document`, 'manifest_version', version, String(reader)) };

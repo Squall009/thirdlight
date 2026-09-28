@@ -143,7 +143,7 @@ describe('v3 play route (real backend + locator)', () => {
     const manifest = await locator(`${path}${manifestPath}`);
     expect(manifest.status).toBe(200);
     const doc = JSON.parse(new TextDecoder().decode(manifest.bytes)) as Record<string, unknown>;
-    expect(doc.manifestVersion).toBe(3);
+    expect(doc.manifestVersion).toBe(4);
     expect(doc.type).toBe('thirdlight-runtime-content');
     expect(doc.buildId).toBe(buildId);
     expect(doc.projectId).toBe(V3_PROJECT);

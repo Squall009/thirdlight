@@ -81,7 +81,7 @@ describe('manifest-v2: independent digest re-derivation', () => {
     expect('gameDigest' in example).toBe(false);
     expect('game' in example).toBe(false);
     expect(Object.keys(example['media'] as object)).toEqual(['animation']);
-    expect(example['manifestVersion']).toBe(3);
+    expect(example['manifestVersion']).toBe(4);
   });
 
   it('the animation profileDigest equals the canonical roles bytes', () => {
@@ -309,22 +309,23 @@ describe('manifest-v2: validateManifestV2 captured-state re-derivation', () => {
 describe('manifest-v2: version compatibility', () => {
   const example = json<Record<string, unknown>>(join(MANIFEST, 'manifest-v2-example.json'));
 
-  it('a v1 reader rejects the v3 example document (manifest_version)', () => {
+  it('a v1 reader rejects the v4 example document (manifest_version)', () => {
     const res = manifestVersionCompat(example, 1);
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toBe('manifest_version');
   });
 
-  it('the v3 reader rejects a v1 or v2 document (manifest_version)', () => {
-    expect(manifestVersionCompat({ manifestVersion: 2 }, 3).ok).toBe(false);
-    const res = manifestVersionCompat({ manifestVersion: 1 }, 3);
+  it('the v4 reader rejects a v1, v2 or v3 document (manifest_version)', () => {
+    expect(manifestVersionCompat({ manifestVersion: 2 }, 4).ok).toBe(false);
+    expect(manifestVersionCompat({ manifestVersion: 3 }, 4).ok).toBe(false);
+    const res = manifestVersionCompat({ manifestVersion: 1 }, 4);
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toBe('manifest_version');
   });
 
-  it('the reader accepts the v3 example (validateManifestV2 success)', () => {
+  it('the reader accepts the v4 example (validateManifestV2 success)', () => {
     expect(validateManifestV2(example).ok).toBe(true);
   });
 });

@@ -233,7 +233,14 @@ export {
   manifestVersionCompat,
   mediaProfileDigest,
   resolveMediaIdentityV3,
-  RUNTIME_CONTENT_MANIFEST_VERSION_3,
+  RUNTIME_CONTENT_MANIFEST_VERSION_4,
+  // Phase 25.7b: the manifest's content files.
+  MANIFEST_CONTENT_FILE_KEYS,
+  MANIFEST_CONTENT_FILE_MAX_BYTES,
+  type ManifestContentFileKey,
+  type ManifestContentFileRow,
+  type ManifestContentFile,
+  type ExpandedRuntimeContentManifest,
   validateManifestV2,
   type CapturedAssetV3,
   type CapturedContentViewV3,
@@ -289,6 +296,8 @@ export {
 } from './upgrade-v24';
 // Phase 25.7: project.json schemaVersion 4 (a 3 is upgraded on load without changing a document).
 export { upgradeProjectDocsV25, type UpgradeV25Result } from './upgrade-v25';
+// Phase 25.7b: the materials a game uses (the manifest leaves the others out).
+export { materialsInUse, type MaterialUseInput } from './material-use';
 // Phase 25.7a: the assigned entity ids (at least six digits; four-digit ids still load).
 export { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';

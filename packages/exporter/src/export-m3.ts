@@ -297,7 +297,7 @@ export async function exportProjectM3(
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
-  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts].map((a) => a.path));
+  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts].map((a) => a.path));
   if (declaredManifestPaths.size !== closure.declaredPaths.length) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
@@ -341,6 +341,13 @@ export async function exportProjectM3(
       return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its digest or size (${b.path})`);
     }
   }
+  // Phase 25.7b: the manifest's content files are JSON text (the rules manifest.json's text had).
+  for (const f of closure.contentFileArtifacts) {
+    const c = textPatternCounts(new TextDecoder().decode(f.bytes), patterns);
+    if (c.a + c.b + c.c + c.e + c.g + c.i !== 0 || digestBytes(f.bytes) !== f.digest) {
+      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in manifest content file ${f.path}`);
+    }
+  }
   const bundleText = new TextDecoder().decode(built.bytes);
   const counts = textPatternCounts(bundleText, patterns);
   // The §5.4 forbidden patterns must be zero in the M3 bundle (the exact
@@ -376,6 +383,7 @@ export async function exportProjectM3(
     { name: 'index.html', text: INDEX_HTML },
     { name: MANIFEST_NAME, text: new TextDecoder().decode(manifestBytes) },
     { name: SCENE_NAME, text: new TextDecoder().decode(closure.sceneBytes) },
+    ...closure.contentFileArtifacts.map((f) => ({ name: f.path, text: new TextDecoder().decode(f.bytes) })),
   ];
   const relative = assertRelativeClosure(textFiles, patterns);
   if (!relative.ok) {
@@ -397,7 +405,7 @@ export async function exportProjectM3(
   const indexBytes = new TextEncoder().encode(INDEX_HTML);
   const assetBytes = closure.assetArtifacts.reduce((n, a) => n + a.bytes.length, 0);
   const behaviorBytes = closure.behaviorArtifacts.reduce((n, a) => n + a.bytes.length, 0);
-  const extraArtifacts = [...closure.sceneArtifacts, ...closure.bufferArtifacts];
+  const extraArtifacts = [...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts];
   const closureEntries = [
     { path: 'index.html', digest: digestBytes(indexBytes), byteLength: indexBytes.length },
     { path: BUNDLE_NAME, digest: digestBytes(built.bytes), byteLength: built.bytes.length },

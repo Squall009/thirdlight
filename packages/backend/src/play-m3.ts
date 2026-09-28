@@ -173,7 +173,8 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
   // captured-state integrity check only.
   // The declared assets (at their manifest-declared digest-addressed path).
   // Phase 12 (c): a v4 project's scene files and instance buffers (loaded by the game on demand).
-  for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts]) {
+  // Phase 25.7b: and the manifest's content files (materials, UI documents, dialogue, the buffer table).
+  for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts]) {
     artifacts.push({ path: a.path, bytes: a.bytes, digest: a.digest, contentType: a.contentType });
   }
   // The M3 play entry: the prebuilt bundle served as game.js (the page

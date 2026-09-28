@@ -19,7 +19,8 @@ import {
   manifestVersionCompat,
   MANIFEST_KEYS_V2,
   mediaProfileDigest,
-  RUNTIME_CONTENT_MANIFEST_VERSION_3,
+  RUNTIME_CONTENT_MANIFEST_VERSION_4,
+  MANIFEST_CONTENT_FILE_KEYS,
   sha256Hex,
   validateManifestV2,
 } from './index';
@@ -110,15 +111,17 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     if (!res.ok) return;
     const keys = Object.keys(res.manifest);
     // `tags` (phase 12 b) is present only when the project defines tags.
-    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
+    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles'));
     expect(keys[keys.length - 1]).toBe('buildId');
     const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'walker' }] } as never);
     expect(tagged.ok).toBe(true);
     if (tagged.ok) {
-      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
+      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles'));
       expect(validateManifestV2(tagged.manifest).ok).toBe(true);
     }
-    expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_3);
+    expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_4);
+    // No content file block given: no contentFiles key and no files.
+    expect(res.contentFiles).toEqual([]);
     expect(res.manifest.snapshotId).toBe('demo-0001@r12');
   });
 
@@ -193,6 +196,9 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
  * Phase 25.1: every optional key at once (TL-15). Each value is the smallest
  * block its canonical form accepts; the point is the key set and order, the
  * buildId the preview and both export paths re-derive, and the strict reader.
+ * Phase 25.7b: materials, materialFunctions, uiDocuments, dialogue and
+ * buffers are capture inputs that become content files (the document's
+ * `contentFiles` key), not document keys.
  */
 function everyOptionalKey(): Record<string, unknown> {
   return {
@@ -226,7 +232,39 @@ describe('manifest-v2: phase 25.1 every optional key present', () => {
   it('the fixture names every optional key (a key added to MANIFEST_KEYS_V2 must be added here)', () => {
     const required = Object.keys(captureManifestOrThrow(v2Input()));
     const optional = MANIFEST_KEYS_V2.filter((k) => !required.includes(k));
-    expect(Object.keys(everyOptionalKey()).sort()).toEqual([...optional].sort());
+    const fileKeys: readonly string[] = MANIFEST_CONTENT_FILE_KEYS;
+    const inputs = Object.keys(everyOptionalKey());
+    expect([...inputs.filter((k) => !fileKeys.includes(k)), 'contentFiles'].sort()).toEqual([...optional].sort());
+    expect(inputs.filter((k) => fileKeys.includes(k)).sort()).toEqual([...fileKeys].sort());
+  });
+
+  it('phase 25.7b: the content file blocks leave the document for their own files, listed by digest', () => {
+    const res = captureManifestV2({ ...v2Input(), ...everyOptionalKey() } as never);
+    if (!res.ok) throw new Error(JSON.stringify(res.error));
+    const doc = res.manifest as unknown as Record<string, unknown>;
+    for (const k of MANIFEST_CONTENT_FILE_KEYS) expect(k in doc, k).toBe(false);
+    expect(res.contentFiles.map((f) => f.key)).toEqual([...MANIFEST_CONTENT_FILE_KEYS]);
+    expect(doc['contentFiles']).toEqual(res.contentFiles.map((f) => ({ key: f.key, path: `content/sha256/${f.digest}`, digest: f.digest, byteLength: f.bytes.length })));
+    const blocks: Record<string, unknown> = {};
+    for (const f of res.contentFiles) {
+      expect(sha256Hex(f.bytes)).toBe(f.digest);
+      blocks[f.key] = JSON.parse(new TextDecoder().decode(f.bytes));
+      // Each file is its block's canonical bytes (the block digest rule).
+      expect(blockDigest(blocks[f.key])).toBe(f.digest);
+    }
+    expect(blocks['buffers']).toEqual([{ digest: 'f'.repeat(64), byteLength: 48 }]);
+    // The strict reader checks the rows, and with the blocks given, the blocks against their rows.
+    const checked = validateManifestV2(JSON.parse(JSON.stringify(doc)), { contentFiles: blocks });
+    expect(checked.ok, JSON.stringify(checked)).toBe(true);
+    const tampered = validateManifestV2(doc, { contentFiles: { ...blocks, buffers: [{ digest: 'e'.repeat(64), byteLength: 48 }] } });
+    expect(tampered.ok).toBe(false);
+    const missing = validateManifestV2(doc, { contentFiles: { ...blocks, dialogue: undefined } as never });
+    expect(missing.ok).toBe(false);
+    // A document carrying a block itself is refused (not a v4 key).
+    expect(validateManifestV2({ ...doc, materials: [] }).ok).toBe(false);
+    // Rows out of order are refused.
+    const rows = [...(doc['contentFiles'] as unknown[])].reverse();
+    expect(validateManifestV2({ ...doc, contentFiles: rows }).ok).toBe(false);
   });
 
   it('the document carries every key in MANIFEST_KEYS_V2 order; the buildId re-derives and the strict reader accepts it', () => {
@@ -375,23 +413,24 @@ describe('manifest-v2: version-compat rule (delivery.md §2.1)', () => {
     expect(res.error.reason).toBe('manifest_version');
   });
 
-  it('a v3 reader rejects a v1 or v2 document (manifest_version)', () => {
-    expect(manifestVersionCompat({ manifestVersion: 2 }, 3).ok).toBe(false);
-    const res = manifestVersionCompat({ manifestVersion: 1 }, 3);
+  it('a v4 reader rejects a v1, v2 or v3 document (manifest_version)', () => {
+    expect(manifestVersionCompat({ manifestVersion: 2 }, 4).ok).toBe(false);
+    expect(manifestVersionCompat({ manifestVersion: 3 }, 4).ok).toBe(false);
+    const res = manifestVersionCompat({ manifestVersion: 1 }, 4);
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toBe('manifest_version');
   });
 
   it('a matching version loads', () => {
-    expect(manifestVersionCompat({ manifestVersion: 3 }, 3).ok).toBe(true);
+    expect(manifestVersionCompat({ manifestVersion: 4 }, 4).ok).toBe(true);
     expect(manifestVersionCompat({ manifestVersion: 1 }, 1).ok).toBe(true);
   });
 });
 
 describe('manifest-v2: contract constants', () => {
   it('the v2 key order carries the six added keys and buildId last', () => {
-    expect(MANIFEST_KEYS_V2).toHaveLength(43); // (phase 24.7: no flow key; 24.8: no game, gameDigest) incl. the 24.4j shell, the 24.4i eventCues, the 23.10 modes, the 23.16 dialogue, the 23.17 timelines, the 23.19 saveSchema, the 23.11 rigs, the 23.3 collisionLayers, the 23.5 blockTypes and cellFields, the 23.9a uiThemes and uiDocuments, the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, the 20.2 effects, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs and the 9.8 input
+    expect(MANIFEST_KEYS_V2).toHaveLength(39); // (phase 25.7b: materials, materialFunctions, uiDocuments, dialogue, buffers → contentFiles) (phase 24.7: no flow key; 24.8: no game, gameDigest) incl. the 24.4j shell, the 24.4i eventCues, the 23.10 modes, the 23.16 dialogue, the 23.17 timelines, the 23.19 saveSchema, the 23.11 rigs, the 23.3 collisionLayers, the 23.5 blockTypes and cellFields, the 23.9a uiThemes and uiDocuments, the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, the 20.2 effects, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs and the 9.8 input
     expect(MANIFEST_KEYS_V2).not.toContain('gameDigest');
     expect(MANIFEST_KEYS_V2).toContain('settingsDigest');
     expect(MANIFEST_KEYS_V2).toContain('mediaDigest');

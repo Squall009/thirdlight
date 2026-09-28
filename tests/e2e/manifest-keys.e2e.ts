@@ -12,6 +12,12 @@
  * - Export: the same with the backend stopped, from a plain static server
  *   (the exported page re-derives the buildId the same way).
  *
+ * Phase 25.7b (manifest version 4): the materials (only the used ones), the
+ * UI documents, the dialogue data and the instance buffer table are content
+ * files listed in `contentFiles`, not manifest keys. Play reads them from the
+ * play's cache root and the export from its own tree (the files are there,
+ * the exported page fetches them, the unused material is in neither).
+ *
  * The every-key-at-once check of the pure builder (all optional keys, the
  * strict reader) is `packages/project-model/src/manifest-v2.test.ts`.
  */
@@ -24,7 +30,7 @@ import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 
 import { MANIFEST_KEYS_V2 } from '@thirdlight/project-model';
 
-import { publishWav, startBackend, type E2EBackend } from './backend';
+import { publishWav, startBackend, STARTER, type E2EBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -81,7 +87,11 @@ const METRONOME = [
 ].join('\n');
 
 /** The keys this project authors (beyond the ones every manifest has). */
-const AUTHORED = ['tags', 'input', 'collisionLayers', 'saveSchema', 'uiDocuments', 'modes', 'timelines', 'eventCues', 'shell', 'dialogue'] as const;
+const AUTHORED = ['tags', 'input', 'collisionLayers', 'saveSchema', 'modes', 'timelines', 'eventCues', 'shell', 'contentFiles'] as const;
+/** Phase 25.7b: the content files this project has, in their order. */
+const CONTENT_FILES = ['materials', 'uiDocuments', 'dialogue', 'buffers'] as const;
+/** The instance set's buffer (published in buildProject). */
+let bufferDigest = '';
 
 async function buildProject(): Promise<void> {
   await cmd('setTags', { tags: [{ name: 'marker' }] });
@@ -101,6 +111,41 @@ async function buildProject(): Promise<void> {
   } } });
   const metronome = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Metronome', transform: { position: [0, -5, 0] } }))['createdId']);
   await script('metronome', METRONOME, metronome);
+  // Phase 25.7b: a material an object wears, one nothing names, and an instance set (its buffer table).
+  await cmd('setMaterial', { material: { materialId: 'mat-used', name: 'Used', shader: 'standard', params: {}, textures: {} } });
+  await cmd('setMaterial', { material: { materialId: 'mat-unused', name: 'Unused', shader: 'standard', params: {}, textures: {} } });
+  await cmd('setComponent', { entityId: STARTER.groundId, component: 'materials', value: { '*': 'mat-used' } });
+  const transforms: number[] = [];
+  for (let i = 0; i < 6; i += 1) transforms.push(2 + i, 0, -3, 0, 0, 0, 1, 0.3, 0.3, 0.3);
+  const published = await api('content/buffers', { transforms });
+  expect(published.status, JSON.stringify(published.json)).toBe(200);
+  bufferDigest = String(published.json.digest);
+  const assets = (await query('queryAssets', { limit: 50, offset: 0 })).assets as { assetId: string; displayName: string }[];
+  const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
+  await cmd('createEntity', { kind: 'group', name: 'Pillars', components: { instances: { asset: { assetId: pillar }, buffer: bufferDigest, count: 6 } } });
+}
+
+/**
+ * Phase 25.7b: the content files the manifest lists, read through `read` and
+ * checked against their rows; the blocks are not in the document itself, only
+ * the used material ships, and the buffer table names the instance set's buffer.
+ */
+async function expectContentFiles(manifest: Record<string, unknown>, read: (path: string) => Promise<Buffer>): Promise<void> {
+  const rows = manifest['contentFiles'] as { key: string; path: string; digest: string; byteLength: number }[];
+  expect(rows.map((r) => r.key)).toEqual([...CONTENT_FILES]);
+  for (const k of CONTENT_FILES) expect(k in manifest, `the manifest itself carries no ${k}`).toBe(false);
+  const blocks: Record<string, unknown> = {};
+  for (const r of rows) {
+    expect(r.path).toBe(`content/sha256/${r.digest}`);
+    const bytes = await read(r.path);
+    expect(bytes.length).toBe(r.byteLength);
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(r.digest);
+    blocks[r.key] = JSON.parse(bytes.toString('utf8'));
+  }
+  expect((blocks['materials'] as { materialId: string }[]).map((m) => m.materialId)).toEqual(['mat-used']);
+  expect((blocks['uiDocuments'] as { uiDocumentId: string }[]).map((d) => d.uiDocumentId).sort()).toEqual(['hud', 'panel']);
+  expect(JSON.stringify(blocks['dialogue'])).toContain('Hello.');
+  expect(blocks['buffers']).toEqual([{ digest: bufferDigest, byteLength: 6 * 40 }]);
 }
 
 /** Every authored key is present and the document's keys follow MANIFEST_KEYS_V2. */
@@ -133,8 +178,8 @@ async function expectRunning(root: Page | FrameLocator, observe: () => Promise<O
   await expect.poll(played, { timeout: 20_000, message: 'the event sound plays on the signal' }).toBeGreaterThan(first);
 }
 
-/** A plain static file server: the exported game gets nothing else. */
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
+/** A plain static file server: the exported game gets nothing else. It records the paths it served. */
+function serveDir(dir: string, served: string[] = []): Promise<{ url: string; close: () => Promise<void> }> {
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
   const server: Server = createServer((req, res) => {
     const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
@@ -145,6 +190,7 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
       return;
     }
     res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
+    served.push(rel);
     createReadStream(file).pipe(res);
   });
   return new Promise((ok) => {
@@ -164,9 +210,16 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const manifestRead = page.waitForResponse((r) => r.url().endsWith('/manifest.json') && r.status() === 200);
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+  // Phase 25.7b: what the Play page read by digest (content files, the instance buffer).
+  const playReads = new Map<string, Buffer>();
+  page.on('response', (r) => {
+    const m = /\/content\/sha256\/([0-9a-f]{64})$/.exec(r.url());
+    if (m !== null && r.status() === 200) void r.body().then((b) => playReads.set(m[1]!, b), () => undefined);
+  });
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
-  expectManifestKeys((await (await manifestRead).json()) as Record<string, unknown>);
+  const playManifest = (await (await manifestRead).json()) as Record<string, unknown>;
+  expectManifestKeys(playManifest);
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
   await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   const frame = page.locator('iframe.tl-app__preview-frame');
@@ -175,6 +228,9 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
+  // The Play page read every content file (checked here against the rows) and the instance buffer the table names.
+  await expect.poll(() => [...(playManifest['contentFiles'] as { digest: string }[]).map((r) => r.digest), bufferDigest].every((d) => playReads.has(d)), { timeout: 20_000 }).toBe(true);
+  await expectContentFiles(playManifest, async (path) => playReads.get(path.slice('content/sha256/'.length))!);
   await page.getByTitle('Stop the play preview').click();
   await expect(frame).toHaveCount(0, { timeout: 30_000 });
 
@@ -182,10 +238,15 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  expectManifestKeys(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as Record<string, unknown>);
+  const served: string[] = [];
+  const exported = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as Record<string, unknown>;
+  expectManifestKeys(exported);
+  // The content files are in the export tree (the same bytes as Play's: one capture of the same project).
+  await expectContentFiles(exported, async (path) => readFileSync(join(out, path)));
+  expect(exported['contentFiles']).toEqual(playManifest['contentFiles']);
   await page.goto('about:blank');
   await be.halt();
-  const site = await serveDir(out);
+  const site = await serveDir(out, served);
   const game = await page.context().newPage();
   const errors: string[] = [];
   game.on('pageerror', (e) => errors.push(e.message));
@@ -194,6 +255,9 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
     const read = async (): Promise<Obs> => (await game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? {}) as Obs));
     await expectRunning(game, read, () => game.mouse.click(400, 300));
     expect(errors).toEqual([]);
+    // The exported page read every content file and the instance buffer from the static server.
+    for (const r of exported['contentFiles'] as { path: string }[]) expect(served, r.path).toContain(r.path);
+    expect(served).toContain(`content/sha256/${bufferDigest}`);
   } finally {
     await game.close();
     await site.close();

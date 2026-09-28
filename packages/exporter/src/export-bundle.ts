@@ -162,6 +162,8 @@ export async function buildM3Bundle(input: {
     ...input.closure.assetArtifacts.map((a) => a.path),
     ...input.closure.sceneArtifacts.map((a) => a.path),
     ...input.closure.bufferArtifacts.map((a) => a.path),
+    // Phase 25.7b: the manifest's content files.
+    ...input.closure.contentFileArtifacts.map((a) => a.path),
   ];
   const plugin = {
     name: 'thirdlight-export-closure-m3',

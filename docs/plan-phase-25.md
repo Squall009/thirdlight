@@ -167,7 +167,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.24h | resolved 2026-09-28, not done: boot is ~0.15 s of the large bench's 2.3–2.6 s first frame (≤ 7 %); the warm page would hold a hidden page, worker and physics world per editor; numbers in §6 |
 | 25.24 | done 2026-09-28: (a)–(h) resolved; targets fixed in §6 (large ≤ 3 s from the second Play, no frame > 250 ms; a scene transition never draws an empty world) |
 | 25.7a | done 2026-09-28: new entity ids `<kind>-N` with at least six digits (`box-000001`), N up to 1,048,576 (64 scenes × 16,384: no `id_exhaustion` below the entity limits), one allocator (`project-model/entity-ids.ts`) for create, paste, prefab copies and the v3 → v4 storage migration; `project.json` schemaVersion 4 (a 3 upgraded on open without a document change, written back; a 2 goes 2 → 3 → 4); four-digit ids load and stay (HTTP test on `fixtures/phase25/legacy-v3-ids`); limit in `docs/deployment.md` engine limits |
-| 25.7b–25.23 | — |
+| 25.7b | done 2026-09-28: runtime content manifest version 4: materials (only the used ones), material functions, UI documents, dialogue and the instance buffer table are content files (`content/sha256/<digest>`, the block's canonical bytes) listed in `contentFiles` and bound by the buildId; Play and the export read each once, check it against its row and put it back under its key (`expandManifestContentFiles`); `manifest-keys.e2e.ts` plays and exports (backend stopped) a project with all four, the material graph e2e checks pixels in Play and the export on both renderers |
+| 25.7c–25.23 | — |
 
 ## 6. Decision log
 
@@ -687,3 +688,31 @@ boundary it changes (Playwright for any editor surface).
   fixtures and the model-authoring messages by a fixed rename of the created
   ids (model-0003 → model-000001, box-0002 → box-000001, group-0002 →
   group-000001, …), verified by their replays.
+- 2026-09-28 (25.7b): the manifest split. The five blocks are written as
+  their canonical bytes (`JSON.stringify(block, null, 2) + "\n"`, so a
+  file's digest is the block digest) at `content/sha256/<digest>`, the path
+  assets and buffers already use: Play serves them from the play's cache
+  root and the export writes them into its tree with no new route or
+  layout. The manifest lists them in a fixed key order (`contentFiles`:
+  key, path, digest, byteLength; only when the game has one of the blocks),
+  so the buildId still covers every byte the game reads. Readers verify the
+  manifest first, then each file against its row, and hand the rest of the
+  page the manifest with the blocks back under their keys: nothing after the
+  read changed. A file may hold 32 MiB (the play store's single-artifact
+  cap); the manifest document keeps its 256 KiB cap for what is left in it.
+  "Libraries" have nothing to move: today a script library is compiled into
+  each behavior that imports it (23.7) and never rides in the manifest; when
+  25.9 makes them shared modules they ship as their own digest-named files
+  like behaviors. Unused materials: a material ships when an object or a
+  prefab maps or overrides it, a shipped model's default mapping, a block
+  type, an effect's material shading or a timeline's material track names it
+  (`materialsInUse`); scripts only set parameters on materials an object
+  wears, so nothing else can reach one. The textures of an unused material
+  still ship (they stay in the captured content view, so the contentDigest
+  is unchanged, and `ctx.materials.set` accepts any texture of the game).
+  A writable material mapping (25.8's generic `set`) would have to add the
+  names a script can set. The recorded m3 delivery fixtures were re-derived
+  by their tool (`derive-manifest.mts`): only `manifestVersion` changed
+  (their project has no content file blocks), buildId `6e8f2c6f…` →
+  `e6a0968f…`. No replay or determinism pin changed (the runtime reads the
+  same blocks).

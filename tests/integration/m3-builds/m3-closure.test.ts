@@ -56,7 +56,7 @@ describe('B19 the M3 shared closure derives the v2 manifest from one capture', (
     // project-model unit tests + the byte-identical fixture re-derivation).
     expect(typeof manifestObj['buildId']).toBe('string');
     expect(manifestObj['buildId']).toBe(c.buildId);
-    expect(manifestObj['manifestVersion']).toBe(3);
+    expect(manifestObj['manifestVersion']).toBe(4);
     expect(manifestObj['settingsDigest']).toBe(c.manifest.settingsDigest);
     void without;
   });

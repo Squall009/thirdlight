@@ -27,7 +27,7 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -183,6 +183,12 @@ export interface ContentClosureM3 {
   sceneArtifacts: readonly ClosureArtifact[];
   /** Phase 12 (c): the instance-set buffers (`content/sha256/<digest>`). */
   bufferArtifacts: readonly ClosureArtifact[];
+  /**
+   * Phase 25.7b: the manifest's content files (`content/sha256/<digest>`,
+   * JSON: materials, material functions, UI documents, dialogue, the buffer
+   * table), in `contentFiles` order.
+   */
+  contentFileArtifacts: readonly ClosureArtifact[];
   behaviors: readonly ClosureBehavior[];
   /** Every manifest-declared artifact path, sorted and deduplicated. */
   declaredPaths: readonly string[];
@@ -590,6 +596,25 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     derivedCaptures.set(contentKey, { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], bufferArtifacts: [...bufferArtifacts], sceneBytes, sceneDigest });
   }
 
+  // 6b. Phase 25.7b: only the materials the game uses (an object, a prefab, a shipped model's default
+  //     mapping, a block type, an effect or a timeline names them), and the functions those call.
+  const allMaterials = (input.content as { materials?: MaterialDef[] } | null)?.materials;
+  const usedMaterials = allMaterials === undefined
+    ? undefined
+    : (() => {
+        const entities = input.scenes !== undefined
+          ? input.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? []))
+          : ((input.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
+        const used = materialsInUse({
+          entities: [...entities, ...((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []).flatMap((d) => d.entities as unknown as { components?: unknown }[])],
+          assets: view.assets,
+          blockTypes: (input.content as { blockTypes?: BlockType[] }).blockTypes ?? [],
+          effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
+          timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
+        });
+        return allMaterials.filter((m) => used.has(m.materialId));
+      })();
+
   // 7. The v2 manifest (pure derivation) + self-identifying buildId.
   const captured = captureManifestV2({
     projectId,
@@ -605,9 +630,10 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     // Phase 9.4: project materials and the environment (the renderer's; bound by the buildId).
     // Phase 18.3: graph materials carry their graphs and parameters (the runtime compiles them to TSL), and the
     // manifest the material functions they call — without editor-only graph text (comments, groups).
-    ...((input.content as { materials?: MaterialDef[] } | null)?.materials !== undefined ? { materials: materialsForRuntime((input.content as { materials: MaterialDef[] }).materials) } : {}),
-    ...((input.content as { materials?: MaterialDef[] } | null)?.materials !== undefined
-      ? { materialFunctions: materialFunctionsForRuntime((input.content as { materials: MaterialDef[] }).materials, (input.content as { graphs?: GraphDocument[] }).graphs ?? []) }
+    // Phase 25.7b: the used ones only (6b); both ride in content files.
+    ...(usedMaterials !== undefined ? { materials: materialsForRuntime(usedMaterials) } : {}),
+    ...(usedMaterials !== undefined
+      ? { materialFunctions: materialFunctionsForRuntime(usedMaterials, (input.content as { graphs?: GraphDocument[] }).graphs ?? []) }
       : {}),
     // Phase 20.2: the visual effects (particle system graphs without editor-only text); the runtime's executors compile them.
     ...((input.content as { effects?: EffectDef[] } | null)?.effects !== undefined ? { effects: effectsForRuntime((input.content as { effects: EffectDef[] }).effects) } : {}),
@@ -652,10 +678,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
 
   stage('manifest');
+  // Phase 25.7b: the content files the manifest lists (JSON, by digest).
+  const contentFileArtifacts: ClosureArtifact[] = captured.contentFiles.map((f) => ({ path: f.path, bytes: f.bytes, digest: f.digest, contentType: 'application/json' }));
   assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviors.sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path)])].sort();
+  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path), ...contentFileArtifacts.map((a) => a.path)])].sort();
   return {
     ok: true,
     closure: {
@@ -673,6 +701,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       behaviorArtifacts,
       sceneArtifacts,
       bufferArtifacts,
+      contentFileArtifacts,
       behaviors,
       declaredPaths,
     },

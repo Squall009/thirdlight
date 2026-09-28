@@ -47,7 +47,7 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     const built = res.built;
 
     // The v2 manifest is self-identifying and contract-valid.
-    expect(built.manifest.manifestVersion).toBe(3);
+    expect(built.manifest.manifestVersion).toBe(4);
     expect(built.buildId).toMatch(/^[0-9a-f]{64}$/);
     const preimage = manifestBuildIdInputV2(built.manifest as unknown as Record<string, unknown>);
     expect(preimage).not.toBeNull();

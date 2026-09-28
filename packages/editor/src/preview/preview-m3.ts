@@ -64,12 +64,14 @@
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { PREVIEW_MODULE_SPECS } from './module-specs';
 import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_3, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
   linkBehaviorModules,
   prepareSceneCatalog,
+  expandManifestContentFiles,
+  type ManifestContentFileRowLike,
   type ManifestBehaviorRow,
   type ManifestBufferRow,
   type ManifestSceneRow,
@@ -126,7 +128,7 @@ const PREVIEW_PHYSICS_3D_FILE = 'physics-3d.js';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
 export interface PreviewManifestV2 {
-  manifestVersion: 3;
+  manifestVersion: 4;
   type: string;
   projectId: string;
   revision: number;
@@ -177,6 +179,12 @@ export interface PreviewManifestV2 {
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
+  /**
+   * Phase 25.7b: the content files the document lists; materials,
+   * materialFunctions, uiDocuments, dialogue and buffers above come from
+   * them (`expandManifestContentFiles`), never from the document itself.
+   */
+  contentFiles?: ManifestContentFileRowLike[];
   assets: Array<{ assetId: string; version: number; path: string; kind: string; sourceDigest: string; sourceByteLength: number }>;
   /** The resolved media identity (delivery.md §2.3): cue slots + one
    * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
@@ -410,24 +418,30 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   //    handshake's expected build). L1 — phase `manifest`.
   timings?.begin('manifest');
   const manifestRes = await readPreviewArtifact(cfg.contentRoot, 'manifest.json');
-  const manifest = JSON.parse(new TextDecoder().decode(manifestRes)) as PreviewManifestV2;
-  if (manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_3 || manifest.type !== 'thirdlight-runtime-content') {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'unsupported manifest document (expected runtime-content v3)');
+  const manifestDoc = JSON.parse(new TextDecoder().decode(manifestRes)) as PreviewManifestV2;
+  if (manifestDoc.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_4 || manifestDoc.type !== 'thirdlight-runtime-content') {
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'unsupported manifest document (expected runtime-content v4)');
   }
   // Phase 24.8: the model's key order (one list; every key but buildId).
   const buildIdKeys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
   const preimage: Record<string, unknown> = {};
-  for (const k of buildIdKeys) if (k in manifest) preimage[k] = (manifest as unknown as Record<string, unknown>)[k];
+  for (const k of buildIdKeys) if (k in manifestDoc) preimage[k] = (manifestDoc as unknown as Record<string, unknown>)[k];
   const recomputed = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(preimage, null, 2)}\n`));
-  if (recomputed !== manifest.buildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the verified capture');
-  if (manifest.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
-  timings?.end('manifest', `${manifestRes.byteLength} B`);
-  // Phase 25.24f: each stage done is progress (the backend's present timeout counts from the last).
-  onProgress('manifest', manifestRes.byteLength, manifestRes.byteLength);
+  if (recomputed !== manifestDoc.buildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the verified capture');
+  if (manifestDoc.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
 
   // Phase 25.24c: the declared artifacts by digest from the project's cache root (checked against the manifest below as before).
-  const urlOf = artifactUrls(manifest, cfg.contentRoot, cfg.cacheRoot);
+  const urlOf = artifactUrls(manifestDoc, cfg.contentRoot, cfg.cacheRoot);
   const readDeclared = (path: string): Promise<ArrayBuffer> => readArtifactUrl(urlOf(path), path);
+  // Phase 25.7b: the content files (materials, UI documents, dialogue, the buffer table), each checked
+  // against its buildId-bound row, back under their keys.
+  const manifest = await expandManifestContentFiles(manifestDoc, { read: readDeclared, sha256Hex }).catch((e: unknown) => {
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', `a manifest content file failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 180)}`);
+  });
+  const contentFileBytes = (manifestDoc.contentFiles ?? []).reduce((n, r) => n + r.byteLength, 0);
+  timings?.end('manifest', `${manifestRes.byteLength} B${contentFileBytes > 0 ? ` + ${String(manifestDoc.contentFiles!.length)} content files ${String(contentFileBytes)} B` : ''}`);
+  // Phase 25.24f: each stage done is progress (the backend's present timeout counts from the last).
+  onProgress('manifest', manifestRes.byteLength + contentFileBytes, manifestRes.byteLength + contentFileBytes);
 
   // 2. The bridge-delivered snapshot: verify its scene re-hashes to
   //    manifest.sceneDigest (§17.6). Phase 24.8: no game block to compare.

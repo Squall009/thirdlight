@@ -16,12 +16,12 @@
     "manifest/manifest-v2-preimage.json": {
       "kind": "fixture",
       "bytes": 3477,
-      "sha256": "6e8f2c6f88871dd85e988cdec1e80fac65847347d8966d0f4dbd6ce6526242c9"
+      "sha256": "e6a0968f4187517ee216b4721bebcfc0afdcf9b073a9d7fde143c50841f336d0"
     },
     "manifest/manifest-v2-example.json": {
       "kind": "fixture",
       "bytes": 3558,
-      "sha256": "7f7f4f96f095b9475a905d05ab61ad739a25f8894ed2cc08961480a5536409d3"
+      "sha256": "8e1de4147fa0cd1cad014a4e066dde18b7e3333db91a76aa1e6e475dabd81c5c"
     },
     "manifest/v1-v2-rules.json": {
       "kind": "fixture",
@@ -46,7 +46,7 @@
     "settings/pinned-run.json": {
       "kind": "fixture",
       "bytes": 935,
-      "sha256": "25e947acd6d18e9e53de57e570a8492bfa64d3506f736e477387bdbb89eb665d"
+      "sha256": "b0e10aa20e911c6416a0d466dab4abe5a9e696d557ac347ca622325a7fe2021e"
     },
     "wire/control-request.json": {
       "kind": "fixture",
@@ -56,7 +56,7 @@
     "wire/control-result.json": {
       "kind": "fixture",
       "bytes": 317,
-      "sha256": "4d07cf3620e245de22e85d6a7f1b78bb52e86578f3856788fc5dde299e46e2b1"
+      "sha256": "4099f259c4d1d0d5b234691efef76881d47c8c56e641e41e5083d08bc2ce6815"
     },
     "wire/observe-request.json": {
       "kind": "fixture",
@@ -66,7 +66,7 @@
     "wire/observe-result.json": {
       "kind": "fixture",
       "bytes": 767,
-      "sha256": "425ab3ca7901a7087f79d89d34dd11dbf16fa11c822863dade40b5c513d15c54"
+      "sha256": "b9e7233bffb3f7a681c1a997917464b107be40d3675f31f2d8f062c1ef429465"
     },
     "wire/relay-cases.json": {
       "kind": "fixture",
@@ -116,7 +116,7 @@
     "digests/expected.json": {
       "kind": "fixture",
       "bytes": 786,
-      "sha256": "e4f1c0303bb67e584225ae4e2048950d858ddde277ec07f4bd44441ba8ebb102"
+      "sha256": "27456e0e6340d57921d28acbd93d150da74a85c88937e95a6abddc478237aa30"
     }
   }
 }
