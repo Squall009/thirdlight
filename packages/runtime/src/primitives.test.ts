@@ -111,14 +111,6 @@ describe('health on any object', () => {
     p.resetRun();
     expect(p.healthOf('crate')).toEqual({ current: 4, max: 5 });
   });
-  it('shares the given record (the game session player keeps one health)', () => {
-    const f = fakeHost(2);
-    const p = new Primitives(f.host);
-    const record = { max: 3, start: 3, current: 3, invulnerableUntil: -1 };
-    p.add('actor', { health: { max: 3 } }, [0, 0, 0], record);
-    p.damage('actor', 1);
-    expect(record.current).toBe(2);
-  });
 });
 
 describe('collectibles', () => {

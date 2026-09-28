@@ -766,12 +766,10 @@ describe('content queries (commands.md §5.6)', () => {
     const example = m2FixtureJson<{ examples: Record<string, { result: { content: unknown } }> }>(
       'contracts/commands/queries.json',
     ).examples['queryProject'] as { result: { content: unknown } };
-    // v3/v4 add the audio/game/zone/spawn counts to the M2 four.
+    // v3/v4 add the audio/spawn counts to the M2 four.
     expect(contentCounts(afterState())).toEqual({
       ...(example.result.content as Record<string, unknown>),
       audioAssets: 0,
-      game: false,
-      zones: 0,
       spawns: 0,
     });
   });

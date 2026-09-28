@@ -36,7 +36,7 @@ export function sceneOf(controller: Any, start: number[], extra: Any[], id = 'c3
   ];
   return {
     entities,
-    snapshot: { snapshotId: `${id}@r1`, projectId: id, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null },
+    snapshot: { snapshotId: `${id}@r1`, projectId: id, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
     physics: physics3DConfigOf(entities, SETTINGS),
   };
 }

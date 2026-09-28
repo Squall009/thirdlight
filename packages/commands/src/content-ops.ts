@@ -69,8 +69,6 @@ import {
   assetKindOf,
   assetsOf,
   commandErrorFromModel,
-  danglingGameReferences,
-  gameOf,
   validateAnimationRoleRange,
   validateAnimationRolesShape,
   validateV3ComponentValue,
@@ -749,31 +747,6 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
   // Removal (`value: null`) is available for every owned component (phase
   // 15.1: box/camera/model too; the resulting scene is validated as always).
   if (args.value === null) {
-    // §23.6 rule 2 (authoring §A4.2): a component removal that would dangle a
-    // `content.game`/checkpoint reference is refused before application.
-    // Phase 15.1: every removable component (the camera and the controller
-    // own game references too), not only the v3 ones.
-    {
-      // §23.6 rule 2: only the removal that owns the reference dangles it —
-      // `playerSpawn` ⇒ game.spawnId/checkpoint safeSpawnId, `controller` ⇒
-      // game.playerId, `cameraFollow` ⇒ game.cameraId. The other v3
-      // components own no game reference.
-      const refs = danglingGameReferences(
-        input.scene as SceneV3,
-        gameOf(catalog),
-        new Set([args.entityId]),
-      ).filter((p) => {
-        if (args.component === 'controller') return p === '/game/playerId';
-        if (args.component === 'playerSpawn') {
-          return p === '/game/spawnId' || p.endsWith('/components/gameZone/safeSpawnId');
-        }
-        if (args.component === 'cameraFollow' || args.component === 'camera') return p === '/game/cameraId';
-        return false;
-      });
-      if (refs.length > 0) {
-        return { ok: false, error: gameReferenceInUse([args.entityId], refs) };
-      }
-    }
     const previous = deepClone(currentComponent);
     const newEntity = withComponent(entity, args.component, null);
     const nextEntities = [...input.scene.entities];

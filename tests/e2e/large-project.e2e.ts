@@ -92,9 +92,6 @@ test('Play of a project whose snapshot exceeds the 1 MiB frame bound starts (the
   // The preview loads and the game runs.
   const relay = async (path: string, b: unknown = {}) => be.post(`/api/v1/projects/bench/play/${psid}/${path}`, b);
   await poll(async () => (await relay('observe')).json['state'], (s) => s === 'running', 300_000, 'the play preview');
-  await relay('control', { command: 'start' });
-  // Phase 24.6: the benchmark's game session reports its run state under `legacy`.
-  await poll(async () => ((await relay('observe')).json['legacy'] as { runState?: string } | undefined)?.runState, (s) => s === 'playing', 60_000, 'playing');
   const frame = page.frames().find((f) => f.url().startsWith(be.previewOrigin));
   expect(frame).toBeDefined();
   // No error was shown and nothing over the frame bound crossed the socket.

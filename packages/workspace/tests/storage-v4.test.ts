@@ -19,9 +19,8 @@ import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type MutationResult, type WorkspaceService } from '@thirdlight/workspace';
 
-import { REPO_ROOT, makeRoot, seedProject } from './helpers';
+import { makeRoot, seedV3DemoProject } from './helpers';
 
-const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const PROJECT_ID = 'demo-0003';
 const SELF = { backendId: 'tb-' + 'c'.repeat(32), pid: 6300 };
 
@@ -53,7 +52,7 @@ const hashOf = (p: string): string => createHash('sha256').update(readFileSync(p
 describe('storage v4', () => {
   it('upgrades a v3 project on open, writes per scene, and keeps ids unique across scenes', () => {
     const root = makeRoot('storage-v4');
-    seedProject(root, join(STORAGE, 'project-v3-demo-0003'), PROJECT_ID);
+    seedV3DemoProject(root, PROJECT_ID);
     const dir = join(root, 'projects', PROJECT_ID);
     const svc = open(root);
     const q = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as unknown as { ok: boolean; scenes: { sceneId: string; name: string }[]; startScenes: string[]; scene: { schemaVersion: number } };
@@ -67,10 +66,7 @@ describe('storage v4', () => {
     expect(readdirSync(join(dir, 'scenes'))).toEqual(['scene-main.json']);
     expect(existsSync(join(dir, '.thirdlight', 'migrated-v3', 'main.json'))).toBe(true);
     const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')) as { content: { game: Record<string, unknown> | null } };
-    if (content.content.game !== null) {
-      expect(content.content.game).not.toHaveProperty('killY');
-      expect(content.content.game['configVersion']).toBe(2);
-    }
+    expect(content.content.game).toBeNull();
 
     // An entity edit writes the scene file only.
     const contentHash = hashOf(join(dir, 'content.json'));
@@ -120,7 +116,7 @@ describe('storage v4', () => {
 
   it('pauses on an external edit of one scene file, and completes a journal left by a crash', () => {
     const root = makeRoot('storage-v4-ext');
-    seedProject(root, join(STORAGE, 'project-v3-demo-0003'), PROJECT_ID);
+    seedV3DemoProject(root, PROJECT_ID);
     const dir = join(root, 'projects', PROJECT_ID);
     const svc = open(root);
     ok(svc, 'createScene', { sceneId: 'scene-b', name: 'B' });

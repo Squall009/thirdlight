@@ -7,7 +7,7 @@
  * Every case draws one shader type of the project material library (or one
  * per-mesh look) through the real three-adapter code — `createRenderer`,
  * `createMaterialLibrary`, `applyLightmap`, `setSelectionHighlight`,
- * `setEmissiveLook` — with fixed time, wind, camera and lights, so the WebGL
+ * `setEntityLook` — with fixed time, wind, camera and lights, so the WebGL
  * reference images (drawn by the archived WebGLRenderer path before the
  * switch-over, phase 17.2) and the node-material renders (WebGPURenderer on
  * WebGL 2 / WebGPU) can be compared pixel by pixel. Textures are generated
@@ -30,7 +30,7 @@ import {
   applyLightmap,
   createMaterialLibrary,
   createRenderer,
-  setEmissiveLook,
+  setEntityLook,
   setSelectionHighlight,
   type MaterialDefLike,
   type RendererPreference,
@@ -216,9 +216,10 @@ const cases: Record<string, () => void | Promise<void>> = {
     put(new THREE.Mesh(box(1.2), new THREE.MeshLambertMaterial({ color: '#8fa0b8' })), 0.9, 0.5, 0, 0.5);
     setSelectionHighlight(a.material, true);
   },
-  checkpoint() {
+  look() {
     // Three boxes share one file material (like placements of one model), so
-    // the library gives them one shared project material; the middle one is the active checkpoint.
+    // the library gives them one shared project material; the middle one gets a look override
+    // (phase 24.4h `ctx.look`; phase 24.7: this case was the deleted checkpoint glow, the same render).
     library.setMaterials([def('pad', 'standard', { color: '#9aa0a8', roughness: 0.5 })]);
     const file = src();
     const pads = [-1.4, 0, 1.4].map((x) => {
@@ -227,9 +228,9 @@ const cases: Record<string, () => void | Promise<void>> = {
       return p;
     });
     const shared = pads[0]!.material as THREE.MeshStandardMaterial;
-    setEmissiveLook(pads[1]!, { emissive: '#ffb030', emissiveIntensity: 1.5 });
+    setEntityLook(pads[1]!, { emissive: '#ffb030', emissiveIntensity: 1.5 });
     // The shared material is untouched (9.4 rule): the other pads do not glow.
-    if (shared.emissive.getHex() !== 0 || pads[2]!.material !== shared || pads[1]!.material === shared) throw new Error('the checkpoint glow touched the shared material');
+    if (shared.emissive.getHex() !== 0 || pads[2]!.material !== shared || pads[1]!.material === shared) throw new Error('the look override touched the shared material');
   },
 };
 

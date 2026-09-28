@@ -1,7 +1,7 @@
 /**
  * Phase 23.13: the audio owner executes the simulation's audio commands over
  * a fake Web Audio graph — handle voices (loop, pitch, fade, stop), the
- * music held by scripts over the flow's track, the duck node, the scripts'
+ * music held by scripts over the host's track, the duck node, the scripts'
  * bus mix, positional voices through an equal-power panner with the
  * listener on the camera, and the observation of the graph.
  */
@@ -65,7 +65,7 @@ async function ready() {
   const owner = createGameAudioOwner({ contextFactory: () => f.ctx });
   owner.registerCue('hum', new Uint8Array([1]));
   owner.registerCue('bark', new Uint8Array([2]));
-  owner.registerMusic!('level', new Uint8Array([3]));
+  owner.registerMusic!('theme', new Uint8Array([3]));
   owner.registerMusic!('battle', new Uint8Array([4]));
   await owner.unlock();
   await flush();
@@ -116,19 +116,19 @@ describe('audio owner: script sound handles', () => {
     expect(owner.observeAudio!()!.voices.map((v) => v.handle)).toEqual([1, 2]);
   });
 
-  it('music: the scripts hold a track over the flow\'s; release gives it back; the duck node sits between the tracks and the music bus', async () => {
+  it('music: the scripts hold a track over the host\'s; release gives it back; the duck node sits between the tracks and the music bus', async () => {
     const { f, owner, musicBus } = await ready();
-    owner.playMusic!('level', 0);
+    owner.playMusic!('theme', 0);
     await flush();
-    expect(owner.musicStatus!()).toMatchObject({ assetId: 'level', playing: true });
+    expect(owner.musicStatus!()).toMatchObject({ assetId: 'theme', playing: true });
     const duck = f.gains[5];
     expect(duck.to).toBe(musicBus);
     expect(f.sources.find((s: Any) => s.loop === true).to.to).toBe(duck);
     owner.command!({ op: 'music', stepIndex: 5, assetId: 'battle', fade: 0 });
     await flush();
     expect(owner.musicStatus!()).toMatchObject({ assetId: 'battle', playing: true });
-    // The flow changes level while the script holds the music: the script's track stays.
-    owner.playMusic!('level', 0);
+    // The host changes its track while the script holds the music: the script's track stays.
+    owner.playMusic!('theme', 0);
     await flush();
     expect(owner.musicStatus!().assetId).toBe('battle');
     expect(owner.observeAudio!()!.music).toMatchObject({ owner: 'script', assetId: 'battle' });
@@ -137,7 +137,7 @@ describe('audio owner: script sound handles', () => {
     expect(owner.observeAudio!()!.music.duck).toBe(0.3);
     owner.command!({ op: 'music', stepIndex: 7, assetId: null, fade: 0, release: true });
     await flush();
-    expect(owner.musicStatus!()).toMatchObject({ assetId: 'level', playing: true });
+    expect(owner.musicStatus!()).toMatchObject({ assetId: 'theme', playing: true });
     // A stinger plays on the music bus beside (not under) the duck.
     owner.command!(play(9, 'bark', { bus: 'music', stinger: true }));
     expect(f.sources.at(-1).to.to).toBe(musicBus);
@@ -156,7 +156,7 @@ describe('audio owner: script sound handles', () => {
     expect(onVoice.stoppedAt).toBe('now');
     const obs = owner.observeAudio!()!;
     expect(obs.voices).toEqual([]);
-    expect(obs.music.owner).toBe('flow');
+    expect(obs.music.owner).toBe('host');
     expect(obs.buses.sfx).toBeCloseTo(0.5, 12);
   });
 });

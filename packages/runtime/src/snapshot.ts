@@ -11,7 +11,7 @@
 import { validateModelRig, type ModelRig } from '@thirdlight/project-model';
 import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
-import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type GameConfig, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
+import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -51,12 +51,8 @@ export function deepFreeze<T>(value: T): T {
  * Validate the runtime snapshot (runtime.md §2). Returns the normalized
  * scene on success. Never throws.
  *
- * M3 (runtime.md §2 `game` row): the `game` wrapper field is present iff
- * `scene.schemaVersion === 3` — required on a v3 snapshot (it may be `null`),
- * refused on v1/v2 (`reason: "shape"`). A non-null `game` value must pass the
- * project-model §23.4 block rules (`validateGameConfig`); a violation is
- * `snapshot_invalid` (`reason: "scene_validation"`) carrying the
- * project-model error objects.
+ * Phase 24.7: the `game` wrapper field (the deleted platformer game block)
+ * is absent or null; a block is `snapshot_invalid` (`reason: "shape"`).
  */
 export function validateRuntimeSnapshot(
   input: unknown,
@@ -67,7 +63,6 @@ export function validateRuntimeSnapshot(
       snapshotId: string;
       projectId: string;
       revision: number;
-      game: GameConfig | null;
       tags: readonly TagDefinition[];
       scenes: readonly RuntimeSceneRow[] | null;
       animators: readonly AnimatorController[];
@@ -185,18 +180,17 @@ export function validateRuntimeSnapshot(
     };
   }
   const sceneVersion: 3 | 4 = rawVersion;
-  // M3 (runtime.md §2): the `game` wrapper field is required (null is legal).
-  if (!('game' in snap)) {
+  // Phase 24.7: the `game` wrapper field (the deleted platformer game block) is absent or null.
+  if (snap.game !== undefined && snap.game !== null) {
     return {
       error: {
         code: 'snapshot_invalid',
         reason: 'shape',
         path: '/game',
-        message: 'snapshot field "game" is required for a schemaVersion 3 snapshot (null is legal)',
+        message: 'snapshot field "game" (the platformer game block) was removed in phase 24; it is absent or null',
       },
     };
   }
-  const rawGame: GameConfig | null = snap.game === undefined ? null : (snap.game as GameConfig | null);
   // v4: the start scenes merged into one runtime scene (no per-scene limits).
   const sceneResult = sceneVersion === 4 ? validateMergedSceneV4(snap.scene) : validateSceneV3(snap.scene);
   if (!sceneResult.ok) {
@@ -214,24 +208,6 @@ export function validateRuntimeSnapshot(
   // Phase 12: the game never sees folders or inactive entities (resolved
   // once here, at scene load).
   const scene: RuntimeScene = resolveSceneHierarchy(sceneResult.normalized);
-  // The §23.4 game-block rules (project-model; references inside the block
-  // are resolved by the cross-block check, never here). `null` is legal —
-  // an M3-enabled module set rejects it at instantiate (`game_config`).
-  if (rawGame !== null) {
-    const gameErrors: ModelErrorV2[] = [];
-    validateGameConfig(rawGame, '/game', gameErrors, sceneVersion === 4 ? 2 : 1);
-    if (gameErrors.length > 0) {
-      return {
-        error: {
-          code: 'snapshot_invalid',
-          reason: 'scene_validation',
-          message: clipSceneMessage(gameErrors),
-          errors: gameErrors.slice(0, 10),
-          errorTotal: gameErrors.length,
-        },
-      };
-    }
-  }
   if (scene.revision !== revision) {
     return {
       error: {
@@ -460,7 +436,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(sceneList !== undefined ? { sceneList } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(sceneList !== undefined ? { sceneList } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

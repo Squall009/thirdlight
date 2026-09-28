@@ -50,26 +50,10 @@ function controlResult(overrides: Record<string, unknown> = {}): Record<string, 
     snapshotId,
     buildId,
     runId,
-    command: 'start',
+    command: 'mute',
     state: 'running',
     acceptedAtStep: 0,
     inputMode: 'physical',
-    ...overrides,
-  };
-}
-
-/** Phase 24.6: the legacy game session's block (a project with the game block; deleted in 24.7). */
-function legacyBlock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    runState: 'playing',
-    checkpointId: null,
-    checkpointActive: false,
-    deathCount: 0,
-    goalReached: false,
-    eventCount: 1,
-    eventDropped: 0,
-    failed: false,
-    events: [{ id: `${runId}/runStarted/0`, kind: 'runStarted', stepIndex: 0, boundary: true, deathCount: 0 }],
     ...overrides,
   };
 }
@@ -89,7 +73,6 @@ function observation(overrides: Record<string, unknown> = {}): Record<string, un
     sound: { status: 'blocked', unlocked: false, voices: 0, muted: false, gesture: 'none' },
     counters: { items: 2 },
     health: { 'box-0001': { current: 3, max: 3 } },
-    legacy: legacyBlock(),
     observedAt: '2026-09-19T10:00:03Z',
     ...overrides,
   };
@@ -145,7 +128,7 @@ describe('packet 48 — §20 relay tools are bounded and never fabricate', () =>
   });
 
   it('returns the contracted session_unavailable while the play is not presented', async () => {
-    const res = await mcp.call('tl_game_control', { playSessionId, command: 'start' });
+    const res = await mcp.call('tl_game_control', { playSessionId, command: 'mute' });
     expect(res.isError).toBe(true);
     const error = res.body.error as { code?: string; reason?: string };
     expect(error.code).toBe('session_unavailable');
@@ -155,7 +138,7 @@ describe('packet 48 — §20 relay tools are bounded and never fabricate', () =>
   });
 
   it('rejects an unknown play and a malformed control command structurally', async () => {
-    const unknown = await mcp.call('tl_game_control', { playSessionId: `play-${'0'.repeat(32)}`, command: 'start' });
+    const unknown = await mcp.call('tl_game_control', { playSessionId: `play-${'0'.repeat(32)}`, command: 'mute' });
     expect(unknown.isError).toBe(true);
     expect((unknown.body.error as { code?: string }).code).toBe('play_not_found');
     const bad = await mcp.call('tl_game_control', { playSessionId, command: 'teleport' });
@@ -166,13 +149,13 @@ describe('packet 48 — §20 relay tools are bounded and never fabricate', () =>
   it('forwards an accepted control and returns the preview result verbatim', async () => {
     ws.send({ type: 'play.preview.ready', playSessionId });
     await new Promise((r) => setTimeout(r, 50));
-    const call = mcp.call('tl_game_control', { playSessionId, command: 'start' });
+    const call = mcp.call('tl_game_control', { playSessionId, command: 'mute' });
     await replyToRelay('control', controlResult());
     const res = await call;
     expect(res.isError, JSON.stringify(res.body)).toBe(false);
     expect(res.body.playSessionId).toBe(playSessionId);
     expect(res.body.runId).toBe(runId);
-    expect(res.body.command).toBe('start');
+    expect(res.body.command).toBe('mute');
     expect(validateGameControlResult(res.body).ok, JSON.stringify(validateGameControlResult(res.body))).toBe(true);
   });
 
@@ -240,23 +223,23 @@ describe('packet 48 — §20 wire shapes are strict and bounded', () => {
     if (!bad.ok) expect(bad.kind).toBe('protocol_error');
   });
 
-  it('rejects an observation carrying binary and one over the event bound', () => {
+  it('rejects an observation carrying binary and one over a block bound', () => {
     expect(validateGameObservation(observation()).ok).toBe(true);
-    const withBinary = observation({ legacy: legacyBlock({ events: [new Uint8Array([1, 2, 3])] }) } as Record<string, unknown>);
+    const withBinary = observation({ hidden: [new Uint8Array([1, 2, 3])] } as Record<string, unknown>);
     expect(validateGameObservation(withBinary).ok).toBe(false);
-    const tooMany = observation({ legacy: legacyBlock({ events: Array.from({ length: 33 }, (_, i) => ({ id: `e${i}`, kind: 'died', stepIndex: i, boundary: false, deathCount: i })) }) });
+    const tooMany = observation({ counters: Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`c${i}`, i])) });
     expect(validateGameObservation(tooMany).ok).toBe(false);
   });
 
-  it('phase 24.6: the core observation is generic (a play state; the session only under legacy)', () => {
-    const { legacy: _legacy, ...generic } = observation();
-    expect(validateGameObservation(generic).ok).toBe(true);
+  it('phase 24.6/24.7: the observation is generic (a play state); the legacy session block is refused', () => {
+    expect(validateGameObservation(observation()).ok).toBe(true);
     expect(validateGameObservation(observation({ state: 'paused' })).ok).toBe(true);
     for (const state of ['playing', 'won', 'awaitingStart', 'scene']) expect(validateGameObservation(observation({ state })).ok, state).toBe(false);
-    expect(validateGameObservation(observation({ legacy: legacyBlock({ runState: 'running' }) })).ok).toBe(false);
+    expect(validateGameObservation(observation({ legacy: { runState: 'playing' } })).ok).toBe(false);
     expect(validateGameObservation(observation({ counters: { items: 'two' } })).ok).toBe(false);
     expect(validateGameObservation(observation({ health: { a: 3 } })).ok).toBe(false);
     expect(validateGameControlResult(controlResult({ state: 'playing' })).ok).toBe(false);
+    expect(validateGameControlResult(controlResult({ command: 'start' })).ok).toBe(false);
   });
 
   it('rejects a control result missing the identity tuple', () => {

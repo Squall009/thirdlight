@@ -9,9 +9,8 @@ import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type MutationResult, type WorkspaceService } from '@thirdlight/workspace';
 
-import { REPO_ROOT, makeRoot, seedProject } from './helpers';
+import { makeRoot, seedV3DemoProject } from './helpers';
 
-const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const PROJECT_ID = 'demo-0003';
 const SELF = { backendId: 'tb-' + 'd'.repeat(32), pid: 6301 };
 
@@ -35,7 +34,7 @@ const gameConfig = (svc: WorkspaceService) => svc.query({ op: 'queryGameConfig',
 describe('materials and environment (storage v4)', () => {
   it('creates, validates, assigns, protects, undoes and reloads materials and wind', () => {
     const root = makeRoot('materials-v4');
-    seedProject(root, join(STORAGE, 'project-v3-demo-0003'), PROJECT_ID);
+    seedV3DemoProject(root, PROJECT_ID);
     const dir = join(root, 'projects', PROJECT_ID);
     let svc = open(root);
 

@@ -28,7 +28,6 @@ import {
   type DebugCommandArgs,
   type DebugCommandOptions,
   type Runtime,
-  type SimulationModuleSpec,
 } from './index';
 
 const HZ = 120;
@@ -59,8 +58,6 @@ function artifact(behaviorId: string, step: (ctx: Ctx) => void): never {
   } as never;
 }
 
-const stubGameplay: SimulationModuleSpec = { id: 'thirdlight.teststub:gameplay', phases: ['gameplay'], create: () => ({ transformOwners: [], step() {} }) };
-const stubCamera: SimulationModuleSpec = { id: 'thirdlight.teststub:camera', phases: ['camera'], create: () => ({ transformOwners: ['cam-main'], step() {} }) };
 
 function port(): unknown {
   const zero = { x: 0, y: 0 };
@@ -84,7 +81,7 @@ function port(): unknown {
 const carrier = (id: string, behaviorId: string): unknown => ({ id, components: { transform: at(5, -5), box: BOX, behavior: { behaviorId, values: {} } } });
 
 function instantiate(behaviors: Record<string, (ctx: Ctx) => void>, entities: unknown[], extra: { variables?: unknown; actions?: ActionSource } = {}) {
-  const specs = [...Object.entries(behaviors).map(([id, step]) => createBehaviorModuleSpec({ declaration: DECL, artifact: artifact(id, step) })), stubGameplay, stubCamera];
+  const specs = [...Object.entries(behaviors).map(([id, step]) => createBehaviorModuleSpec({ declaration: DECL, artifact: artifact(id, step) }))];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
   const now = { t: 0 };
@@ -98,13 +95,12 @@ function instantiate(behaviors: Record<string, (ctx: Ctx) => void>, entities: un
         sceneId: 'scene-main',
         revision: 1,
         entities: [
-          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
-          { id: 'player-0001', components: { transform: at(0, 0) } },
+          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
+          { id: 'player-0001', components: { transform: at(0, 0), controller: {} } },
           { id: 'spawn-0001', components: { transform: at(0, 0), playerSpawn: {} } },
           ...entities,
         ],
       },
-      game: { configVersion: 2, title: 'Debug commands', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
     },
     registry,
     modules: specs.map((s) => s.id),
@@ -124,7 +120,6 @@ function harness(behaviors: Record<string, (ctx: Ctx) => void>, entities: unknow
   const rt: Runtime = res.runtime;
   expect(rt.start().ok).toBe(true);
   expect(rt.tick(now.t).ok).toBe(true);
-  rt.gameCommand('start');
   const tick = (n = 1): void => {
     for (let i = 0; i < n; i += 1) {
       now.t += DT;
@@ -144,15 +139,19 @@ describe('phase 23.8: injected variables', () => {
       if (ctx.phase !== 'intent' || seen.length > 0) return;
       seen.push(`${ctx.stepIndex}:${JSON.stringify(ctx.save!.get('gold'))}:${JSON.stringify(ctx.save!.get('party'))}:${ctx.save!.keys().join(',')}`);
     };
-    const { rt } = harness({ reader }, [carrier('box-0001', 'reader')], { variables: { gold: 100, party: ['a', 'b'] } });
+    harness({ reader }, [carrier('box-0001', 'reader')], { variables: { gold: 100, party: ['a', 'b'] } });
     // The first step any script ran (the settle pre-roll's step 0 included) already saw them.
     expect(seen).toEqual(['0:100:["a","b"]:gold,party']);
-    expect(rt.runState?.().values).toEqual({ gold: 100, party: ['a', 'b'] });
   });
 
   it('without variables nothing is saved (the default start is unchanged)', () => {
-    const { rt } = harness({ idle: () => undefined }, [carrier('box-0001', 'idle')]);
-    expect(rt.runState?.().values).toEqual({});
+    const seen: string[][] = [];
+    const reader = (ctx: Ctx): void => {
+      if (ctx.phase === 'intent' && seen.length === 0) seen.push([...ctx.save!.keys()]);
+    };
+    const { tick } = harness({ reader }, [carrier('box-0001', 'reader')]);
+    tick(2);
+    expect(seen).toEqual([[]]);
   });
 
   it('variables break ctx.save rules: config_invalid', () => {

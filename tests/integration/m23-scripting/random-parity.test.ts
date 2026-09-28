@@ -7,7 +7,7 @@
  * compiled by the real behavior compiler — steps each object by a random
  * amount every step (the main stream), turns it to face a target picked at
  * random among the entities named "Target" (`ctx.world.findAll` and a
- * `facing` pose, a sub-stream), and now and then spawns a coin at a random
+ * `facing` pose, a sub-stream), and now and then spawns a collectible at a random
  * place (another sub-stream). The project sets `random_seed`. The same
  * recording is run in the page (single thread) and in the worker (a Node
  * worker thread running the game-host worker core); the digest of every
@@ -32,7 +32,7 @@ const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
 const SETTINGS = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30, random_seed: 20260926 };
 const BOX = { size: [0.5, 0.5, 0.5], material: { color: '#88aacc' } };
 
-const PREFABS = [{ prefabId: 'coin', displayName: 'Coin', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, pickup: { kind: 'coin', value: 1, size: [0.6, 0.6] } } }] }];
+const PREFABS = [{ prefabId: 'token', displayName: 'Token', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'items', size: [0.6, 0.6] } } }] }];
 
 /** The script (TypeScript, compiled by the real compiler). */
 const WANDERER = `import type { BehaviorContext } from '@thirdlight/runtime';
@@ -49,7 +49,7 @@ export default {
         state.target = ctx.random.stream('aim').pick(ctx.world.findAll('Target'));
       }
       if (ctx.spawn && state.made < 4 && ctx.random.stream('drops').chance(0.01)) {
-        ctx.spawn('coin', { position: [ctx.random.stream('drops').range(2, 40), ctx.random.stream('drops').int(1, 3)] });
+        ctx.spawn('token', { position: [ctx.random.stream('drops').range(2, 40), ctx.random.stream('drops').int(1, 3)] });
         state.made += 1;
       }
       return;
@@ -97,7 +97,7 @@ async function compiledWanderer(): Promise<{ row: Any; url: string }> {
 function level(): { snapshot: Any; physics: Any } {
   const wanderer = (id: string, x: number, y: number) => ({ id, components: { transform: at(x, y), box: BOX, behavior: { behaviorId: 'wanderer', values: {} } } });
   const entities: Any[] = [
-    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
     { id: 'floor-0001', components: { transform: at(20, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
@@ -115,7 +115,6 @@ function level(): { snapshot: Any; physics: Any } {
       projectId: 'wander',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: { configVersion: 2, title: 'Wander', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       prefabs: PREFABS,
     },
     physics: {
@@ -141,8 +140,6 @@ async function run(mode: Mode, behavior: { row: Any; url: string }, settings: An
   const h = await startHarness(mode, { snapshot, settings, physics, behaviors: [behavior], enginePins: M2_PINNED_MODULES, digestSteps: true, replay: recording() });
   let now = 10;
   await h.tick(now);
-  const started = h.host.control('start');
-  if (!started.ok) throw new Error(JSON.stringify(started.error));
   let i = 0;
   while (h.digests.length < STEPS) {
     const steps = PATTERN[i++ % PATTERN.length]!;
@@ -174,7 +171,7 @@ describe('phase 23.7: ctx.random gives identical results in the page, the worker
         expect(firstDiff, `first differing step ${firstDiff}`).toBe(-1);
         expect(other.end).toEqual(a.end);
       }
-      // The script really used its streams: the objects moved off their start, turned, and spawned coins.
+      // The script really used its streams: the objects moved off their start, turned, and spawned tokens.
       expect(a.end.spawned.length).toBeGreaterThan(0);
       for (const w of a.end.wanderers) {
         expect(w.rotation).not.toEqual([0, 0, 0, 1]);

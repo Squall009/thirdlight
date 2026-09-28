@@ -136,6 +136,14 @@ export function seedV3Project(root: string, projectId: string, envelope: Uint8Ar
   return writeSingleEnvelopeProject(root, projectId, envelope);
 }
 
+/**
+ * The committed storage-v3 demo project (fixtures/m3/storage/project-v3-demo-0003,
+ * revision 3) in `<root>/projects/<projectId>`; upgraded to v4 when opened.
+ */
+export function seedV3DemoProject(root: string, projectId: string): string {
+  return seedProject(root, join(REPO_ROOT, 'fixtures', 'm3', 'storage', 'project-v3-demo-0003'), projectId);
+}
+
 /** Copy a fixture disk state into `<root>/projects/<projectId>`. */
 export function seedProject(root: string, diskDir: string, projectId: string): string {
   const dest = join(root, 'projects', projectId);

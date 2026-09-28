@@ -50,37 +50,24 @@ describe('folder validation', () => {
     expect(errorsOf([{ id: 'box-0001', active: 'yes', components: { transform: T } }])[0]?.code).toBe('field_type');
   });
 
-  it('zones, spawns and physics bodies may sit in folders but still not under objects', () => {
+  it('spawns and physics bodies may sit in folders but still not under objects', () => {
     valid([
       { id: 'folder-0001', components: { folder: {} } },
       { id: 'folder-0002', parentId: 'folder-0001', components: { folder: {} } },
-      { id: 'zone-0001', parentId: 'folder-0002', components: { transform: at(1), gameZone: { role: 'hazard', size: [1, 1] } } },
       { id: 'spawn-0001', parentId: 'folder-0001', components: { transform: at(2), playerSpawn: {} } },
       { id: 'box-0001', parentId: 'folder-0002', components: { transform: at(3), box: { size: [1, 1, 1], material: { color: '#ffffff' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } },
     ]);
     const errs = errorsOf([
       { id: 'folder-0001', components: { folder: {} } },
       { id: 'group-0001', parentId: 'folder-0001', components: { transform: T } },
-      { id: 'zone-0001', parentId: 'group-0001', components: { transform: at(1), gameZone: { role: 'hazard', size: [1, 1] } } },
+      { id: 'spawn-0001', parentId: 'group-0001', components: { transform: at(1), playerSpawn: {} } },
     ]);
-    expect(errs[0]).toMatchObject({ code: 'zone_transform_unsupported', reason: 'parented' });
+    expect(errs[0]).toMatchObject({ code: 'spawn_transform_unsupported', reason: 'parented' });
   });
 
-  it('refuses an inactive camera and an inactive safe spawn of an active checkpoint', () => {
+  it('refuses an inactive camera', () => {
     const r = validateSceneV3({ schemaVersion: 3, sceneId: 'scene-main', revision: 1, entities: [{ ...camera, active: false }] });
     expect(r.ok).toBe(false);
-    const errs = errorsOf([
-      { id: 'folder-0001', active: false, components: { folder: {} } },
-      { id: 'spawn-0001', parentId: 'folder-0001', components: { transform: at(1), playerSpawn: {} } },
-      {
-        id: 'zone-0001',
-        components: {
-          transform: at(2),
-          gameZone: { role: 'checkpoint', size: [1, 1], safeSpawnId: 'spawn-0001', activation: { emissive: '#ffffff', emissiveIntensity: 1, cueAssetId: null } },
-        },
-      },
-    ]);
-    expect(errs[0]).toMatchObject({ code: 'game_reference_missing', reason: 'safe_spawn' });
   });
 });
 

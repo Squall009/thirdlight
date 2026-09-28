@@ -426,7 +426,7 @@ describe('phase 24.4f: a script impulse', () => {
     const state = createControllerState(0, 0.91);
     const h = harness();
     h.seed(state);
-    controllerStep(state, 'char-0001', frame(0), SETTINGS, DT, COS_MAX, COS_MIN, TAN_MIN, h.client, undefined, undefined, { x: 3, y: 6 });
+    controllerStep(state, 'char-0001', frame(0), SETTINGS, DT, COS_MAX, COS_MIN, TAN_MIN, h.client, undefined, { x: 3, y: 6 });
     expect(state.airborne).toBe(true);
     expect(state.vy).toBeCloseTo(6 + SETTINGS.gravity_y * DT, 12);
     // Idle input: x approaches 0 at the deceleration (60 m/s²) from the impulse's 3 m/s.

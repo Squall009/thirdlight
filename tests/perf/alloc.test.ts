@@ -40,7 +40,7 @@ describe('steady step allocations (phase 21.2)', () => {
       const sim = await runSimChild(join(root, 'data', 'projects', 'bench'), { warmup: 240, steps: 120, window: 60, windows: 12 });
       if (!sim.ok) throw new Error(`the simulation failed: ${sim.error}`);
       expect(sim.entities).toBe(CLASS_SPECS.medium.entities);
-      expect(sim.state).toBe('playing');
+      expect(sim.state).toBe('running');
       expect(sim.bytesPerStep.windows).toBeGreaterThanOrEqual(6);
       console.log(`alloc: medium ${sim.bytesPerStep.median} B/step (min ${sim.bytesPerStep.min}, ${sim.bytesPerStep.windows} windows of ${sim.bytesPerStep.windowSteps} steps), step p50 ${sim.stepMs.p50} ms`);
       expect(sim.bytesPerStep.median).toBeLessThan(BOUND_BYTES_PER_STEP);

@@ -34,7 +34,7 @@ function scene(): { snapshot: Any; physics: Any } {
     { id: 'crate-0001', components: { transform: T([5, 0.5, 5], turnY(30)), box: { size: [1, 1, 1], material: { color: '#aa8866' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } } } },
   ];
   return {
-    snapshot: { snapshotId: 'd3@r1', projectId: 'd3', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null },
+    snapshot: { snapshotId: 'd3@r1', projectId: 'd3', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
     physics: physics3DConfigOf(entities, SETTINGS),
   };
 }
@@ -51,7 +51,7 @@ async function run(mode: Mode): Promise<{ h: Harness; digests: string[]; player:
     await h.tick(now);
   }
   const player = h.rt.getInterpolatedState().state.transforms.find((t: Any) => t.id === 'player-0001');
-  const sc = h.host.observeScene!();
+  const sc = h.host.observe();
   return { h, digests: [...h.digests], player: { position: [...player.position] }, scene: sc.ok ? { ...sc.observation, sound: null } : sc };
 }
 

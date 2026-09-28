@@ -8,21 +8,17 @@
  *   player enters it (`mode: "stay"`: every step while the player is inside).
  * - `switch`: a lever/button (`interact` + the interact action) or a pressure
  *   plate (`stand`) that emits a signal.
- * - `health`: the player's health; hazard zones with `damage` take some,
- *   `invulnerableSeconds` of grace follow a hit.
- * - `pickup`: a collectable (coin, gem, heart, life, key or a custom counter).
- * - `enemy`: walks back and forth (between two offsets, or until a ledge or a
- *   wall), hurts on contact, can be stomped; with `chase` it walks toward a
- *   player in range (still within its range / not off a ledge).
+ * - `health`: an object's health (phase 24.4b: any object; `ctx.health`).
+ *
+ * Phase 24.7: the platformer's pickup and enemy components and the session
+ * player's grace time, knockback and hit bounce were deleted (collectible,
+ * patrol and hitbox are the generic primitives below).
  */
 import type { ModelErrorV2 } from './errors';
 
 export const MOVER_MODES = ['loop', 'pingpong', 'once'] as const;
 export const MOVER_EASINGS = ['linear', 'smooth'] as const;
 export const SWITCH_MODES = ['interact', 'stand'] as const;
-export const PICKUP_KINDS = ['coin', 'gem', 'heart', 'life', 'key', 'custom'] as const;
-export const PICKUP_RESPAWN = ['never', 'death'] as const;
-export const ENEMY_PATROLS = ['points', 'edges'] as const;
 /** Phase 14.2: a trigger's area (absent: box) and when it emits (absent: enter). */
 export const TRIGGER_SHAPES = ['box', 'circle', 'sphere', 'capsule'] as const;
 /** Phase 23.1: a capsule trigger's total height range (m, end caps included; at least twice its radius). */
@@ -30,54 +26,18 @@ export const TRIGGER_HEIGHT = { min: 0.05, max: 500 } as const;
 export const TRIGGER_MODES = ['enter', 'stay'] as const;
 /** Phase 14.2: a circle trigger's radius range (m) — the same extent a box trigger may have (0.05–500 m across). */
 export const TRIGGER_RADIUS = { min: 0.025, max: 250 } as const;
-/** Phase 15.3: how a defeated enemy leaves (absent: squash). */
-export const DEFEAT_EFFECTS = ['none', 'squash', 'fade'] as const;
 
 /**
- * Phase 15.3: the gameplay blocks' tuning when a component carries none —
- * the values every project played with before they became data (recorded
- * replays stay valid), except the pickup area (see `pickupSize`). Generic
- * reasons: a 9 m/s stomp bounce and a 5 m/s hit bounce throw a character
- * about a jump's height and half of it at standard gravity; a hit pushes for
- * 0.25 s and grants 1 s of grace (the usual flicker window); a defeated
- * enemy squashes for 0.3 s (readable, then gone); an enemy notices a player
- * within 2 m of its feet (one storey); a stomp counts when the feet were at
- * most 0.2 m below the enemy's top (the fall of a few steps at speed); an
- * edge walker looks 0.05 m ahead for walls and 0.4 m down (a drop deeper than
- * 0.3 m below its feet is a ledge); a mover shoves a player out of its way
- * at up to 60 m/s (0.5 m per step at 120 Hz — a safety limit, not a feel);
- * a pickup without a size or a model with recorded bounds collects in a
- * neutral 1 × 1 m square.
+ * Phase 15.3: the gameplay blocks' tuning when a component carries none. A
+ * mover shoves a character out of its way at up to 60 m/s (0.5 m per step at
+ * 120 Hz — a safety limit, not a feel).
  */
 export const BLOCK_DEFAULTS = Object.freeze({
-  hitBounce: 5,
-  knockbackTime: 0.25,
-  invulnerableSeconds: 1,
-  stompBounce: 9,
-  stompTolerance: 0.2,
-  defeat: 'squash' as (typeof DEFEAT_EFFECTS)[number],
-  defeatTime: 0.3,
-  chaseHeight: 2,
-  chaseSpeed: 0,
-  chaseMemory: 0,
-  wallProbe: 0.05,
-  ledgeProbe: 0.4,
   maxPush: 60,
-  pickupSize: Object.freeze([1, 1]) as readonly [number, number],
 });
 
 /** Phase 15.3: the ranges of the blocks' tuning fields. */
 export const BLOCK_TUNING_LIMITS = Object.freeze({
-  hitBounce: { min: 0, max: 50 },
-  knockbackTime: { min: 0, max: 5 },
-  stompBounce: { min: 0, max: 50 },
-  stompTolerance: { min: 0, max: 5 },
-  defeatTime: { min: 0, max: 5 },
-  chaseHeight: { min: 0, max: 100 },
-  chaseSpeed: { min: 0, max: 50 },
-  chaseMemory: { min: 0, max: 10 },
-  wallProbe: { min: 0, max: 5 },
-  ledgeProbe: { min: 0.1, max: 20 },
   maxPush: { min: 1, max: 1000 },
 });
 
@@ -147,78 +107,8 @@ export const SWITCH_DEFAULT_ACTION = 'interact';
 
 export interface HealthComponent {
   max: number;
-  /** Health at the start of a level and after a respawn (default: max). */
+  /** Health at the start of a run (default: max). */
   start?: number;
-  invulnerableSeconds?: number;
-  /** A hit pushes the player away from what hurt it at this speed (m/s). */
-  knockback?: number;
-  /** Phase 15.3: a hit throws the player up at this speed (m/s; absent: 5). */
-  hitBounce?: number;
-  /** Phase 15.3: seconds a knockback pushes (absent: 0.25). */
-  knockbackTime?: number;
-  /** Phase 20.2: a project effect played where the player is when it is hit (visual only). */
-  hitEffect?: string;
-}
-
-export interface PickupComponent {
-  kind: (typeof PICKUP_KINDS)[number];
-  value: number;
-  /** The counter a `custom` pickup adds to. */
-  counter?: string;
-  size?: [number, number];
-  respawn?: (typeof PICKUP_RESPAWN)[number];
-  /** An audio asset played when it is collected. */
-  cue?: string;
-  /** Phase 20.2: a project effect played where it was when it is collected (visual only). */
-  effect?: string;
-}
-
-export interface EnemyComponent {
-  patrol: (typeof ENEMY_PATROLS)[number];
-  /** `points`: walks between these x offsets from where it is placed. */
-  range?: [number, number];
-  speed: number;
-  size: [number, number];
-  contactDamage: number;
-  stompable: boolean;
-  health: number;
-  /** Walks toward the player within this many meters (absent or 0: never). */
-  chase?: number;
-  /** Phase 15.3: notices a chased player within this height of its feet (m; absent: 2). */
-  chaseHeight?: number;
-  /** Phase 24.0: the speed it runs at while chasing (m/s; absent or 0: its walking speed). */
-  chaseSpeed?: number;
-  /** Phase 24.0: it only notices a player it can see (nothing solid between them). */
-  chaseSight?: boolean;
-  /** Phase 24.0: it only notices a player in the direction it is walking. */
-  chaseFacing?: boolean;
-  /** Phase 24.0: keeps chasing for this long after it last noticed the player (s; absent: 0). */
-  chaseMemory?: number;
-  /** Phase 24.0: may leave its patrol range while chasing (it walks back when it gives up). */
-  chaseBeyondPatrol?: boolean;
-  /** Phase 15.3: a stomp throws the player up at this speed (m/s; absent: 9). */
-  stompBounce?: number;
-  /** Phase 15.3: a stomp counts when the feet were at most this far below its top (m; absent: 0.2). */
-  stompTolerance?: number;
-  /** Phase 15.3: how it leaves when defeated (absent: squash). */
-  defeat?: (typeof DEFEAT_EFFECTS)[number];
-  /** Phase 15.3: seconds the squash or fade takes (absent: 0.3). */
-  defeatTime?: number;
-  /** Phase 15.3 (edges patrol): how far ahead of its front it looks for a wall (m; absent: 0.05). */
-  wallProbe?: number;
-  /** Phase 15.3 (edges patrol): how far down it looks for floor, from 0.1 m above its feet (m; absent: 0.4). */
-  ledgeProbe?: number;
-  /** Phase 20.2: a project effect played where it is when a stomp hurts it (visual only). */
-  hitEffect?: string;
-  /** Phase 20.2: a project effect played where it is when it is defeated (visual only). */
-  defeatEffect?: string;
-}
-
-/** Phase 20.2: an effect id (the `content.effects[]` id syntax). */
-const EFFECT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-function effectRef(value: Record<string, unknown>, key: string, path: string, errors: ModelErrorV2[]): void {
-  const v = value[key];
-  if (v !== undefined && (typeof v !== 'string' || !EFFECT_ID_RE.test(v))) err(errors, 'field_value', `${path}/${key}`, `${key} names a project effect (an effect id)`, v);
 }
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_:.-]{0,63}$/;
@@ -239,9 +129,7 @@ function fields(v: Record<string, unknown>, allowed: readonly string[], required
 }
 
 const MOVER_FIELDS = ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'] as const;
-const HEALTH_FIELDS = ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'] as const;
-const ENEMY_FIELDS = ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'] as const;
-const PICKUP_FIELDS = ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'] as const;
+const HEALTH_FIELDS = ['max', 'start'] as const;
 
 /** Phase 15.3: optional tuning numbers within their `BLOCK_TUNING_LIMITS` range. */
 function tuning(value: Record<string, unknown>, keys: readonly (keyof typeof BLOCK_TUNING_LIMITS)[], path: string, errors: ModelErrorV2[]): void {
@@ -327,46 +215,8 @@ export function validateSwitchComponent(value: unknown, path: string, errors: Mo
 export function validateHealthComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'health is an object', value);
   fields(value, HEALTH_FIELDS, ['max'], path, errors);
-  tuning(value, ['hitBounce', 'knockbackTime'], path, errors);
-  effectRef(value, 'hitEffect', path, errors);
   if (value['start'] !== undefined && !(Number.isInteger(value['start']) && num(value['start'], 1, typeof value['max'] === 'number' ? value['max'] : 1000))) err(errors, 'field_value', `${path}/start`, 'start is an integer 1–max', value['start']);
-  if (value['knockback'] !== undefined && !num(value['knockback'], 0, 20)) err(errors, 'field_value', `${path}/knockback`, 'knockback is 0–20 m/s', value['knockback']);
   if (value['max'] !== undefined && !(Number.isInteger(value['max']) && num(value['max'], 1, 1000))) err(errors, 'field_value', `${path}/max`, 'max is an integer 1–1000', value['max']);
-  if (value['invulnerableSeconds'] !== undefined && !num(value['invulnerableSeconds'], 0, 10)) err(errors, 'field_value', `${path}/invulnerableSeconds`, 'invulnerableSeconds is 0–10', value['invulnerableSeconds']);
-}
-
-export function validatePickupComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'pickup is an object', value);
-  fields(value, PICKUP_FIELDS, ['kind', 'value'], path, errors);
-  effectRef(value, 'effect', path, errors);
-  if (value['cue'] !== undefined && (typeof value['cue'] !== 'string' || value['cue'].length === 0 || value['cue'].length > 128)) err(errors, 'field_value', `${path}/cue`, 'cue names an audio asset', value['cue']);
-  if (value['kind'] !== undefined && !(PICKUP_KINDS as readonly unknown[]).includes(value['kind'])) err(errors, 'field_value', `${path}/kind`, 'kind is coin, gem, heart, life, key or custom', value['kind']);
-  if (value['value'] !== undefined && !(Number.isInteger(value['value']) && num(value['value'], 1, 10000))) err(errors, 'field_value', `${path}/value`, 'value is an integer 1–10000', value['value']);
-  if (value['kind'] === 'custom' && (typeof value['counter'] !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(value['counter']))) err(errors, 'field_value', `${path}/counter`, 'a custom pickup names its counter', value['counter']);
-  if (value['kind'] !== 'custom' && value['counter'] !== undefined) err(errors, 'field_unexpected', `${path}/counter`, 'only a custom pickup names a counter', value['counter']);
-  if (value['size'] !== undefined && !vec2(value['size'], 0.05, 20)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
-  if (value['respawn'] !== undefined && !(PICKUP_RESPAWN as readonly unknown[]).includes(value['respawn'])) err(errors, 'field_value', `${path}/respawn`, 'respawn is never or death', value['respawn']);
-}
-
-export function validateEnemyComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'enemy is an object', value);
-  fields(value, ENEMY_FIELDS, ['patrol', 'speed', 'size', 'contactDamage', 'stompable', 'health'], path, errors);
-  tuning(value, ['chaseHeight', 'chaseSpeed', 'chaseMemory', 'stompBounce', 'stompTolerance', 'defeatTime', 'wallProbe', 'ledgeProbe'], path, errors);
-  effectRef(value, 'hitEffect', path, errors);
-  effectRef(value, 'defeatEffect', path, errors);
-  if (value['chaseSight'] !== undefined && typeof value['chaseSight'] !== 'boolean') err(errors, 'field_type', `${path}/chaseSight`, 'chaseSight is true or false', value['chaseSight']);
-  if (value['chaseFacing'] !== undefined && typeof value['chaseFacing'] !== 'boolean') err(errors, 'field_type', `${path}/chaseFacing`, 'chaseFacing is true or false', value['chaseFacing']);
-  if (value['chaseBeyondPatrol'] !== undefined && typeof value['chaseBeyondPatrol'] !== 'boolean') err(errors, 'field_type', `${path}/chaseBeyondPatrol`, 'chaseBeyondPatrol is true or false', value['chaseBeyondPatrol']);
-  if (value['defeat'] !== undefined && !(DEFEAT_EFFECTS as readonly unknown[]).includes(value['defeat'])) err(errors, 'field_value', `${path}/defeat`, 'defeat is none, squash or fade', value['defeat']);
-  if (value['chase'] !== undefined && !num(value['chase'], 0, 50)) err(errors, 'field_value', `${path}/chase`, 'chase is 0–50 m', value['chase']);
-  if (value['patrol'] !== undefined && !(ENEMY_PATROLS as readonly unknown[]).includes(value['patrol'])) err(errors, 'field_value', `${path}/patrol`, 'patrol is points or edges', value['patrol']);
-  if (value['patrol'] === 'points' && !(vec2(value['range'], -500, 500) && (value['range'] as number[])[0]! < (value['range'] as number[])[1]!)) err(errors, 'field_value', `${path}/range`, 'a points patrol walks between two x offsets [left, right]', value['range']);
-  if (value['patrol'] === 'edges' && value['range'] !== undefined) err(errors, 'field_unexpected', `${path}/range`, 'an edges patrol has no range', value['range']);
-  if (value['speed'] !== undefined && !num(value['speed'], 0, 20)) err(errors, 'field_value', `${path}/speed`, 'speed is 0–20 m/s', value['speed']);
-  if (value['size'] !== undefined && !vec2(value['size'], 0.1, 20)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
-  if (value['contactDamage'] !== undefined && !(Number.isInteger(value['contactDamage']) && num(value['contactDamage'], 0, 1000))) err(errors, 'field_value', `${path}/contactDamage`, 'contactDamage is an integer 0–1000 (0: harmless)', value['contactDamage']);
-  if (value['stompable'] !== undefined && typeof value['stompable'] !== 'boolean') err(errors, 'field_type', `${path}/stompable`, 'stompable is true or false', value['stompable']);
-  if (value['health'] !== undefined && !(Number.isInteger(value['health']) && num(value['health'], 1, 100))) err(errors, 'field_value', `${path}/health`, 'health is an integer 1–100', value['health']);
 }
 
 const copy2 = (v: [number, number]): [number, number] => [v[0], v[1]];
@@ -402,46 +252,6 @@ export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode:
 export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
   max: c.max,
   ...(c.start !== undefined ? { start: c.start } : {}),
-  ...(c.invulnerableSeconds !== undefined ? { invulnerableSeconds: c.invulnerableSeconds } : {}),
-  ...(c.knockback !== undefined ? { knockback: c.knockback } : {}),
-  ...(c.hitBounce !== undefined ? { hitBounce: c.hitBounce } : {}),
-  ...(c.knockbackTime !== undefined ? { knockbackTime: c.knockbackTime } : {}),
-  // Phase 20.2: last, so an existing component keeps its exact canonical bytes.
-  ...(c.hitEffect !== undefined ? { hitEffect: c.hitEffect } : {}),
-});
-export const canonicalPickup = (c: PickupComponent): PickupComponent => ({
-  kind: c.kind,
-  value: c.value,
-  ...(c.counter !== undefined ? { counter: c.counter } : {}),
-  ...(c.size !== undefined ? { size: copy2(c.size) } : {}),
-  ...(c.respawn !== undefined ? { respawn: c.respawn } : {}),
-  ...(c.cue !== undefined ? { cue: c.cue } : {}),
-  ...(c.effect !== undefined ? { effect: c.effect } : {}),
-});
-export const canonicalEnemy = (c: EnemyComponent): EnemyComponent => ({
-  patrol: c.patrol,
-  ...(c.range !== undefined ? { range: copy2(c.range) } : {}),
-  speed: c.speed,
-  size: copy2(c.size),
-  contactDamage: c.contactDamage,
-  stompable: c.stompable,
-  health: c.health,
-  ...(c.chase !== undefined ? { chase: c.chase } : {}),
-  ...(c.chaseHeight !== undefined ? { chaseHeight: c.chaseHeight } : {}),
-  // Phase 24.0: last, so an existing component keeps its exact canonical bytes.
-  ...(c.chaseSpeed !== undefined ? { chaseSpeed: c.chaseSpeed } : {}),
-  ...(c.chaseSight !== undefined ? { chaseSight: c.chaseSight } : {}),
-  ...(c.chaseFacing !== undefined ? { chaseFacing: c.chaseFacing } : {}),
-  ...(c.chaseMemory !== undefined ? { chaseMemory: c.chaseMemory } : {}),
-  ...(c.chaseBeyondPatrol !== undefined ? { chaseBeyondPatrol: c.chaseBeyondPatrol } : {}),
-  ...(c.stompBounce !== undefined ? { stompBounce: c.stompBounce } : {}),
-  ...(c.stompTolerance !== undefined ? { stompTolerance: c.stompTolerance } : {}),
-  ...(c.defeat !== undefined ? { defeat: c.defeat } : {}),
-  ...(c.defeatTime !== undefined ? { defeatTime: c.defeatTime } : {}),
-  ...(c.wallProbe !== undefined ? { wallProbe: c.wallProbe } : {}),
-  ...(c.ledgeProbe !== undefined ? { ledgeProbe: c.ledgeProbe } : {}),
-  ...(c.hitEffect !== undefined ? { hitEffect: c.hitEffect } : {}),
-  ...(c.defeatEffect !== undefined ? { defeatEffect: c.defeatEffect } : {}),
 });
 
 /** Every block component, with its validator and canonical form (v4 scenes). */
@@ -731,8 +541,6 @@ export const BLOCK_COMPONENTS = {
   trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: TRIGGER_FIELDS },
   switch: { validate: validateSwitchComponent, canonical: canonicalSwitch, fields: SWITCH_FIELDS },
   health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: HEALTH_FIELDS },
-  pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: PICKUP_FIELDS },
-  enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ENEMY_FIELDS },
   audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: AUDIO_SOURCE_FIELDS },
   faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: FACE_MOVEMENT_FIELDS },
   // Phase 24.4: last, so every existing entity keeps its exact canonical bytes.

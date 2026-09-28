@@ -1,9 +1,8 @@
 /**
  * M3 media authoring planning tests (packet 57) — the pure session layer:
- * the drop validation (row 18/21), the cue pickers (row 5), the light
- * create/edit (rows 13/14), the surface values + presets (rows 15/16), the
- * model animation profile (row 17) and the checkpoint activation appearance
- * (row 11). Pure Node (no DOM, no clock, no Node built-ins — the boundary
+ * the drop validation (row 18/21), the light create/edit (rows 13/14), the
+ * surface values + presets (rows 15/16) and the model animation profile
+ * (row 17). Pure Node (no DOM, no clock, no Node built-ins — the boundary
  * row's `node: []` holds for tests too).
  */
 import { describe, expect, it } from 'vitest';
@@ -96,10 +95,6 @@ describe('validateMediaDrop — the extension decides the kind before any networ
     if (r.ok) expect(r.displayName.length).toBeLessThanOrEqual(128);
   });
 });
-
-// ---------------------------------------------------------------------------
-// planCueEdit (row 5) — the `setGameConfig` partial edit, `cues` replaces whole
-// ---------------------------------------------------------------------------
 
 describe('canonicalColor — #rrggbb to canonical lowercase', () => {
   it('lowercases and validates the exact shape', () => {
@@ -288,7 +283,7 @@ describe('planSetSurface — add = complete, edit = changed fields only', () => 
 
 describe('the built-in presets are the frozen §23.3.1a rows (display mirror)', () => {
   it('lists exactly the three preset names', () => {
-    expect([...SURFACE_PRESET_NAMES]).toEqual(['matte-ground', 'hazard', 'beacon']);
+    expect([...SURFACE_PRESET_NAMES]).toEqual(['matte-ground', 'signal-red', 'emissive-accent']);
   });
 
   it('each row is a complete, frozen surface value', () => {
@@ -303,8 +298,8 @@ describe('the built-in presets are the frozen §23.3.1a rows (display mirror)', 
   it('equals the authoritative project-model rows (phase 15.5: the mirror had drifted)', () => {
     expect(SURFACE_PRESETS).toEqual({
       'matte-ground': { color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 },
-      hazard: { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
-      beacon: { color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 },
+      'signal-red': { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
+      'emissive-accent': { color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 },
     });
   });
 });
@@ -410,7 +405,3 @@ describe('planAnimatedReimport — the §8.5.1 all-or-nothing args', () => {
     expect(planAnimatedReimport(['model-0001', 'model-0002'], 'model-0002', roles)).toEqual({ entityId: 'model-0002', roles });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Checkpoint activation appearance (row 11)
-// ---------------------------------------------------------------------------

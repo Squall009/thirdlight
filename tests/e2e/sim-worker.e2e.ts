@@ -2,11 +2,11 @@
  * Phase 22.0: the game's simulation runs in a worker in Play and in the
  * export by default, and in the page with `?threads=off`.
  *
- * On the starter template with the game session (a pickup with a sound put
- * just ahead of the player):
+ * On the starter template (a collectible with an event sound put just ahead
+ * of the player):
  * - Play reports where its simulation runs (worker, transforms by messages —
  *   the editor is not cross-origin isolated by default) and logs it; a held
- *   key moves the player within a few frames; the pickup's sound request
+ *   key moves the player within a few frames; the collectible's sound request
  *   (made in the simulation) reaches the page's audio owner and plays; the
  *   same holds with `?threads=off` (single thread);
  * - with the backend's cross-origin isolation on, Play is isolated and the

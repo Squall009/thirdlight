@@ -453,7 +453,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'];
 /** Phase 12 (c): the ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -698,7 +698,6 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'removePrefab',
   'instantiatePrefab',
   'applySurfacePreset',
-  'setGameConfig',
   'updateEntity',
   'moveEntities',
   'setTags',
@@ -712,7 +711,6 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'setInput',
   'setCollisionLayers',
   'setSaveSchema',
-  'setFlow',
   'graphEdit',
   'setGraph',
   'setEffect',
@@ -748,7 +746,6 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   removePrefab: ['type', 'prefabId'],
   instantiatePrefab: ['type', 'prefabId', 'rootId', 'entries', 'mapping'],
   applySurfacePreset: ['type', 'id', 'preset', 'previous', 'next', 'changedFields'],
-  setGameConfig: ['type', 'previous', 'next', 'changedFields'],
   updateEntity: ['type', 'id', 'previous', 'next', 'changedFields', 'order'],
   moveEntities: ['type', 'parentId', 'beforeId', 'entities', 'order'],
   setTags: ['type', 'previous', 'next'],
@@ -762,7 +759,6 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setInput: ['type', 'previous', 'next'],
   setCollisionLayers: ['type', 'previous', 'next'],
   setSaveSchema: ['type', 'previous', 'next'],
-  setFlow: ['type', 'previous', 'next'],
   graphEdit: ['type', 'owner', 'ops'],
   setGraph: ['type', 'graphId', 'previous', 'next'],
   setEffect: ['type', 'effectId', 'previous', 'next'],
@@ -798,7 +794,6 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   createPrefab: 'createPrefab',
   instantiatePrefab: 'instantiatePrefab',
   applySurfacePreset: 'applySurfacePreset',
-  setGameConfig: 'setGameConfig',
   updateEntity: 'updateEntity',
   moveEntities: 'moveEntities',
   setTags: 'setTags',
@@ -813,7 +808,6 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   setInput: 'setInput',
   setCollisionLayers: 'setCollisionLayers',
   setSaveSchema: 'setSaveSchema',
-  setFlow: 'setFlow',
   createScene: 'setSceneIndex',
   renameScene: 'setSceneIndex',
   deleteScene: 'setSceneIndex',
@@ -884,20 +878,8 @@ function validateHistoricalEntities(
     const pid = e['parentId'];
     if (typeof pid === 'string' && !present.has(pid) && !placeholders.some((p) => p['id'] === pid)) {
       // A v3 placeholder is a folder: it can hold folders and objects alike,
-      // and filing into a folder keeps the zone/spawn/physics root rules.
+      // and filing into a folder keeps the spawn/physics root rules.
       placeholders.push({ id: pid, components: { folder: {} } });
-    }
-  }
-  // A zone's spawn (a checkpoint's safe spawn, an exit's spawn) need not be in
-  // the payload either: a placeholder spawn stands in for it.
-  for (const e of ents) {
-    if (!isPlainObject(e) || !isPlainObject(e['components'])) continue;
-    const zone = (e['components'] as Record<string, unknown>)['gameZone'];
-    if (!isPlainObject(zone)) continue;
-    for (const ref of [zone['safeSpawnId'], zone['spawnId']]) {
-      if (typeof ref === 'string' && !present.has(ref) && !placeholders.some((p) => p['id'] === ref)) {
-        placeholders.push({ id: ref, components: { transform: ZERO_TRANSFORM, playerSpawn: {} } });
-      }
     }
   }
   const used = new Set(present);

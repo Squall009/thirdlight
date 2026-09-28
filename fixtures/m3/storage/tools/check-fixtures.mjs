@@ -12,7 +12,7 @@
  *  2. canonical JSON bytes (2-space indent, LF, one trailing newline, no BOM)
  *     with a strict parser (duplicate keys rejected);
  *  3. the v3 project fixture: `storageVersion` 3, the six-key envelope and
- *     six-key content order, `scene.schemaVersion` 3, a bounded `game` block,
+ *     six-key content order, `scene.schemaVersion` 3, `game: null` (phase 24),
  *     manifest `schemaVersion` 1 with the identity agreement;
  *  4. the v2 source fixture: `storageVersion` 2, the five-key content order,
  *     `scene.schemaVersion` 2, no v3-only component, and a non-zero derived
@@ -275,17 +275,10 @@ function check(root) {
     if (manifest.scenes[0].id !== env.scene.sceneId) fail('project-v3', 'manifest scene id must equal the envelope sceneId');
     if (manifest.scenes[0].path !== 'scenes/main.json') fail('project-v3', 'manifest scene path must be scenes/main.json');
     if (!eq(Object.keys(env.content), V3_CONTENT_KEYS)) fail('project-v3', `content key order must be ${V3_CONTENT_KEYS.join(',')}`);
-    if (env.content.game === null || typeof env.content.game !== 'object') {
-      fail('project-v3', 'the v3 fixture must carry a non-null game block');
-    } else {
-      const g = env.content.game;
-      const gkeys = ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'level', 'killY', 'cues'];
-      if (!eq(Object.keys(g), gkeys)) fail('project-v3', `game key order must be ${gkeys.join(',')}`);
-      if (!eq(Object.keys(g.cues), ['start', 'jump', 'checkpoint', 'death', 'goal'])) fail('project-v3', 'cues key order wrong');
-      if (typeof g.instructions !== 'string' || g.instructions.length > 320) fail('project-v3', 'instructions bound');
-      if (g.configVersion !== 1) fail('project-v3', 'configVersion must be 1');
-      const ids = new Set(env.scene.entities.map((e) => e.id));
-      for (const ref of [g.playerId, g.cameraId, g.spawnId]) if (!ids.has(ref)) fail('project-v3', `game reference ${ref} must resolve in the scene`);
+    // Phase 24.7: the platformer game block and its components were removed; the key stays and is null.
+    if (env.content.game !== null) fail('project-v3', 'content.game must be null (the game block was removed in phase 24)');
+    for (const e of env.scene.entities) {
+      for (const removed of ['gameZone', 'cameraFollow']) if (e.components[removed] !== undefined) fail('project-v3', `entity ${e.id} carries the removed ${removed} component`);
     }
     if (!failures.some((f) => f.check === 'project-v3')) pass('project-v3', 'v3 envelope/manifest structure and identity');
   } catch (e) {
@@ -464,7 +457,7 @@ if (!CORRUPT) {
     ['flip-envelope-byte', (dir) => {
       const p = join(dir, 'project-v3-demo-0003', 'scenes', 'main.json');
       const b = readFileSync(p);
-      b[b.indexOf('Beacon Reach'.charCodeAt(0))] = 'X'.charCodeAt(0);
+      b[b.indexOf('authoring-state')] = 'X'.charCodeAt(0);
       writeFileSync(p, b);
     }],
     ['remove-game-key', (dir) => {
@@ -489,7 +482,7 @@ if (!CORRUPT) {
     ['v3-only-in-v2-source', (dir) => {
       const p = join(dir, 'project-v2-demo-0002', 'scenes', 'main.json');
       const d = parseStrict(readFileSync(p, 'utf8'));
-      d.scene.entities[0].components.cameraFollow = { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 } };
+      d.scene.entities[0].components.light = { type: 'ambient', color: '#ffffff', intensity: 0.3 };
       writeFileSync(p, JSON.stringify(d, null, 2) + '\n');
     }],
   ];

@@ -18,7 +18,7 @@
  * page's CSP refuses inline styles), else a `<style>` element.
  */
 import type { DebugCommandArgs, DebugCommandSpec, DebugCommandState } from '@thirdlight/runtime';
-import type { HostDom, HostDomNode } from './hud';
+import type { HostDom, HostDomNode } from './dom';
 
 /** The console key (`KeyboardEvent.code`). */
 export const DEBUG_CONSOLE_KEY = 'Backquote';

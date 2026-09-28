@@ -21,7 +21,7 @@
  *     disposal path (the shared `PreparedVisualResource` is never touched).
  *     Phase 21.3: the placements of a realization share one clone per
  *     resource material (counted; marked shared, so a per-instance look —
- *     the checkpoint glow, a fade — copies it first), so equal pieces can
+ *     a look override — copies it first), so equal pieces can
  *     be drawn instanced;
  *   - one `AnimationRoleController` per `modelAnimation` entity with a
  *     prepared instance (§2.4) — independent mixers/actions, no shared
@@ -387,7 +387,7 @@ export function validateModelsBlock(ctx: {
 /**
  * Give one attached instance its own material instances: every mesh
  * material (single or array) is cloned so a per-instance material change
- * (the checkpoint appearance, §41.5.3) never reaches the shared
+ * (a look override, §41.5.3) never reaches the shared
  * `PreparedVisualResource` or another instance. The clones share the
  * resource's textures (released with the resource, once); the CLONES are
  * owned by the attached instance and released by its disposal path.

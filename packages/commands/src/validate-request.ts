@@ -34,7 +34,7 @@
  */
 
 import { validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
-import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type GameFlow, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -59,7 +59,6 @@ import {
   validatePublishBehaviorArgs,
   validateSetBehaviorPropertiesArgs,
   validateSetComponentArgs,
-  validateSetGameConfigArgs,
   validateSetSettingsArgs,
 } from './validate-content-args';
 import {
@@ -84,7 +83,6 @@ import type {
   PublishBehaviorArgs,
   SetBehaviorPropertiesArgs,
   SetComponentArgs,
-  SetGameConfigArgs,
   SetSettingsArgs,
   SetTransformArgs,
   UpdateEntityArgs,
@@ -122,7 +120,6 @@ const OPS: readonly MutationOp[] = [
   'instantiatePrefab',
   // v3 game/presentation ops (packet 45):
   'applySurfacePreset',
-  'setGameConfig',
   'updateEntity',
   // phase 12 hierarchy + tags:
   'moveEntities',
@@ -138,7 +135,6 @@ const OPS: readonly MutationOp[] = [
   'setInput',
   'setCollisionLayers',
   'setSaveSchema',
-  'setFlow',
   'createScene',
   'renameScene',
   'deleteScene',
@@ -195,9 +191,7 @@ type TransformField = (typeof TRANSFORM_FIELDS)[number];
 const CREATE_COMPONENTS: readonly string[] = [
   'collider',
   'controller',
-  'gameZone',
   'playerSpawn',
-  'cameraFollow',
   'light',
   'surface',
   'modelAnimation',
@@ -214,8 +208,6 @@ const CREATE_COMPONENTS: readonly string[] = [
   'trigger',
   'switch',
   'health',
-  'pickup',
-  'enemy',
   'audioSource',
   'faceMovement',
   // Phase 23.5: v4 scenes only.
@@ -234,7 +226,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -852,7 +844,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     if (typeof preset !== 'string' || !(SURFACE_PRESET_NAMES as readonly string[]).includes(preset)) {
       return {
         ok: false,
-        error: fieldValue('/args/surfacePreset', preset, '"matte-ground", "hazard" or "beacon"', 'surfacePreset must be one of the three built-in presets'),
+        error: fieldValue('/args/surfacePreset', preset, '"matte-ground", "signal-red" or "emissive-accent"', 'surfacePreset must be one of the three built-in presets'),
       };
     }
     if (out.components !== undefined && out.components['surface'] !== undefined) {
@@ -1208,7 +1200,6 @@ export type ValidatedOpArgs =
   | { op: 'createPrefab'; args: CreatePrefabArgs }
   | { op: 'instantiatePrefab'; args: InstantiatePrefabArgs }
   | { op: 'applySurfacePreset'; args: ApplySurfacePresetArgs }
-  | { op: 'setGameConfig'; args: SetGameConfigArgs }
   | { op: 'updateEntity'; args: UpdateEntityArgs }
   | { op: 'moveEntities'; args: MoveEntitiesArgs }
   | { op: 'setTags'; args: SetTagsArgs }
@@ -1223,7 +1214,6 @@ export type ValidatedOpArgs =
   | { op: 'setInput'; args: { input: InputConfig | null } }
   | { op: 'setCollisionLayers'; args: { layers: string[] } }
   | { op: 'setSaveSchema'; args: { schema: import('@thirdlight/project-model').SaveSchema | null } }
-  | { op: 'setFlow'; args: { flow: GameFlow | null } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs }
   | { op: 'setGraph'; args: { graph: GraphDocument } }
   | { op: 'deleteGraph'; args: { graphId: string } }
@@ -1418,12 +1408,6 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== 'shell') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'shell') };
       if (args['shell'] === undefined) return { ok: false, error: fieldMissing('/args/shell', 'shell') };
       if (args['shell'] !== null && !isPlainObject(args['shell'])) return { ok: false, error: fieldType('/args/shell', args['shell'], 'object ({ screens?, hud?, scenes?, pause?, status? }) or null (no shell)') };
-      return { ok: true, validated: { op, args } as ValidatedOpArgs };
-    }
-    case 'setFlow': {
-      for (const k of Object.keys(args)) if (k !== 'flow') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'flow') };
-      if (args['flow'] === undefined) return { ok: false, error: fieldMissing('/args/flow', 'flow') };
-      if (args['flow'] !== null && !isPlainObject(args['flow'])) return { ok: false, error: fieldType('/args/flow', args['flow'], 'object ({ levels, lives?, title?, hud?, ui?, texts?, volumes?, score? }) or null (no flow)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setAnimator':
@@ -1622,11 +1606,6 @@ export function validateOpArgs(
       const r = validateApplySurfacePresetArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'applySurfacePreset', args: r.args } };
-    }
-    case 'setGameConfig': {
-      const r = validateSetGameConfigArgs(args);
-      if (!r.ok) return r;
-      return { ok: true, validated: { op: 'setGameConfig', args: r.args } };
     }
     default: {
       // Unreachable: `op` was validated against the five ops by the

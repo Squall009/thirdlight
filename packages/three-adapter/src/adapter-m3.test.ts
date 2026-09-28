@@ -30,12 +30,9 @@ function fakeRuntime(): Runtime {
 }
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
-const LEVEL = { minX: 0, maxX: 48, minY: -4, maxY: 8 };
-const LEVEL_WIDE = { minX: 0, maxX: 200, minY: -4, maxY: 8 };
 
 function v3Snapshot(opts: {
-  key?: { castShadow: boolean };
-  level?: { minX: number; maxX: number; minY: number; maxY: number };
+  key?: { castShadow: boolean; shadowExtent?: number };
   withLights?: boolean;
   withSurfaceBox?: boolean;
 }): RuntimeSnapshot {
@@ -62,6 +59,7 @@ function v3Snapshot(opts: {
             intensity: 2.2,
             direction: [0.5, -1, -0.6],
             castShadow: opts.key?.castShadow ?? true,
+            ...(opts.key?.shadowExtent !== undefined ? { shadowExtent: opts.key.shadowExtent } : {}),
           },
         },
       },
@@ -74,7 +72,7 @@ function v3Snapshot(opts: {
   if (opts.withSurfaceBox !== false) {
     entities.push(
       {
-        id: 'box-hazard',
+        id: 'box-signal',
         components: {
           transform: { ...T },
           box: { size: [1, 1, 1], material: { color: '#6f6f6f' } },
@@ -92,23 +90,12 @@ function v3Snapshot(opts: {
     projectId: 'demo-52',
     revision: 1,
     scene: { schemaVersion: 3, sceneId: 'scene-main', revision: 1, entities },
-    game: {
-      configVersion: 1,
-      title: 't',
-      objective: 'o',
-      instructions: 'i',
-      playerId: 'box-plain',
-      cameraId: 'cam-main',
-      spawnId: 'cam-main',
-      level: opts.level ?? LEVEL,
-      killY: -4,
-      cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
-    },
+    game: null,
   } as unknown as RuntimeSnapshot;
 }
 
 describe('packet 52 — the M3 shadow decision + diagnostics in createSceneAdapter', () => {
-  it('v3 with a shadow-casting key light and in-bounds level ⇒ planned `on` (no reason field)', () => {
+  it('v3 with a shadow-casting key light and an in-bounds shadow region ⇒ planned `on` (no reason field)', () => {
     const adapter = createSceneAdapter(stubCanvas(), { runtime: fakeRuntime(), snapshot: v3Snapshot({}) });
     const res = adapter.diagnostics();
     expect(res.ok).toBe(true);
@@ -133,10 +120,10 @@ describe('packet 52 — the M3 shadow decision + diagnostics in createSceneAdapt
     adapter.dispose();
   });
 
-  it('v3 with the level too wide (halfExtent 102 > 64) ⇒ off / shadow_bounds_exceeded', () => {
+  it('v3 with the shadow region too wide (shadowExtent 100: halfExtent 102 > 64) ⇒ off / shadow_bounds_exceeded', () => {
     const adapter = createSceneAdapter(stubCanvas(), {
       runtime: fakeRuntime(),
-      snapshot: v3Snapshot({ level: LEVEL_WIDE }),
+      snapshot: v3Snapshot({ key: { castShadow: true, shadowExtent: 100 } }),
     });
     const res = adapter.diagnostics();
     expect(res.ok).toBe(true);
@@ -182,8 +169,8 @@ describe('packet 52 — the §41.7.2 D code-set registration + the public surfac
   it('the lighting surface is exported from the root subpath (loader-free, unchanged graph)', () => {
     expect(SHADOW_PROFILE.mapSize).toBe(512);
     expect(SHADOW_PROFILE.type).toBe('PCFShadowMap');
-    expect(SURFACE_PRESETS.hazard.color).toBe('#d42a1e');
-    expect(SURFACE_PRESETS.beacon.emissiveIntensity).toBe(1.2);
+    expect(SURFACE_PRESETS['signal-red'].color).toBe('#d42a1e');
+    expect(SURFACE_PRESETS['emissive-accent'].emissiveIntensity).toBe(1.2);
   });
 });
 

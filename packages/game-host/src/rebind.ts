@@ -29,17 +29,13 @@ import type {
 
 import { bindingGlyph, gamepadFamily, glyphDataUrl, partGlyph } from './glyphs';
 import { applyOverrides, applyRebind, findConflicts, overridesOf, resetBindings, resolveTarget, type Captured, type ConfigData, type RebindResult, type RebindTarget } from './input-bindings';
-import type { SaveStore } from './save';
-import { withSavedBindings } from './bindings';
+import type { SettingsStore } from './storage';
 
 /** Defaults: listen 10 s (long enough to find a key, short enough that a forgotten listen ends); Escape cancels; swap keeps every action bound. */
 export const REBIND_DEFAULT_TIMEOUT_S = 10;
 export const REBIND_DEFAULT_CANCEL = 'Escape';
 export const REBIND_DEFAULT_POLICY: RebindConflictPolicy = 'swap';
 const PROFILE_RE = /^[A-Za-z0-9_-]{1,32}$/;
-/** The settings screens before 23.14 saved these (`settings.keys` / `settings.pad`); read once as the default profile's changes. */
-const LEGACY_KEY_NAMES = ['jump', 'attack', 'interact'];
-const LEGACY_PAD_NAMES = ['jump', 'attack', 'interact', 'left', 'right'];
 
 /** The input-owner surface the controller uses (the browser owner has it all). */
 export interface BindingsInputOwner {
@@ -54,10 +50,10 @@ export interface BindingsControllerDeps {
   /** The project's input config (its bindings are the defaults). */
   readonly defaults: ConfigData;
   readonly input: BindingsInputOwner;
-  readonly store?: SaveStore;
+  readonly store?: SettingsStore;
   /** Milliseconds (timeouts). */
   readonly now?: () => number;
-  /** The effective config changed (the host's HUD prompts follow). */
+  /** The effective config changed (the host's input prompts follow). */
   readonly onChange?: (config: ConfigData) => void;
   /** A texture asset id → an image URL (the project's glyph images); null while it loads or when unknown. */
   readonly imageUrl?: (assetId: string) => string | null;
@@ -135,13 +131,7 @@ export function createInputBindings(deps: BindingsControllerDeps): InputBindings
   };
   const loadProfile = (): ConfigData => {
     const saved = deps.store?.readBindings(profile) ?? null;
-    if (saved !== null) return applyOverrides(defaults, saved);
-    if (profile === 'default') {
-      // The earlier settings screen's rebinding (jump/attack/interact keys, pad buttons).
-      const legacy = deps.store?.readSettings() ?? null;
-      if (legacy !== null && (Object.keys(legacy.keys).length > 0 || Object.keys(legacy.pad ?? {}).length > 0)) return { ...defaults, actions: withSavedBindings(defaults, legacy, LEGACY_KEY_NAMES, LEGACY_PAD_NAMES).actions as ConfigData["actions"] };
-    }
-    return defaults;
+    return saved !== null ? applyOverrides(defaults, saved) : defaults;
   };
   const apply = (next: ConfigData, save: boolean): void => {
     config = next;

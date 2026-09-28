@@ -155,7 +155,7 @@ test('collectible, patrol, hitbox and health from "+ Add component"; in Play a c
   // Health on the character.
   await select(page, STARTER.playerId);
   await add.selectOption({ label: 'Health' });
-  await expect.poll(async () => comp(STARTER.playerId, 'health')).toEqual({ max: 3, invulnerableSeconds: 1 });
+  await expect.poll(async () => comp(STARTER.playerId, 'health')).toEqual({ max: 3 });
 
   // Play (a scene: no game session). Nothing is sent as input.
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));

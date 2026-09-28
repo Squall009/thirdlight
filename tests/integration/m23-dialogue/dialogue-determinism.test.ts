@@ -98,7 +98,6 @@ async function run(mode: Mode): Promise<{ digests: string[]; model: Map<number, 
       { id: 'cam-main', components: { transform: T([0, 4, 12]), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
       { id: 'logic-0001', components: { transform: T([0, 0, 0]), behavior: { behaviorId: 'logic', values: {} } } },
     ] },
-    game: null,
     uiDocuments: [{ uiDocumentId: 'tl-dialogue', layer: 50, modal: false }],
     audioDurations: { 'vo-hello': 400 },
     dialogue: DATA,
@@ -113,7 +112,7 @@ async function run(mode: Mode): Promise<{ digests: string[]; model: Map<number, 
   while (h.digests.length < 700) {
     now += ((i++ % 3) + 1) * DT;
     await h.tick(now);
-    const obs = h.host.observeScene!();
+    const obs = h.host.observe();
     if (obs.ok) {
       model.set(obs.observation.stepIndex, JSON.stringify({ probe: (h.rt.uiView().model as Any).probe, dialogue: obs.observation.dialogue ?? null }));
       drawn.set(obs.observation.stepIndex, allText(container));

@@ -1,9 +1,9 @@
 /**
  * Phase 20.2: effect requests are presentation events — recorded in step
  * order, deterministic for the same inputs, never read back by the
- * simulation: scripts (`ctx.effects.play/stop`), effect components' signals
- * and the gameplay hooks (pickup collected, enemy hit / defeated, player
- * hit, checkpoint / goal reached). Neutral fixtures.
+ * simulation: scripts (`ctx.effects.play/stop`) and effect components'
+ * signals (phase 24.7: the genre hooks — pickup, enemy, player hit,
+ * checkpoint / goal — went with the genre layer). Neutral fixtures.
  */
 import { describe, expect, it } from 'vitest';
 import type { EntityV3 } from '@thirdlight/project-model';
@@ -15,70 +15,29 @@ import type { EffectRequest, StepContext, TransformState } from './types';
 const HZ = 120;
 const T = (x: number, y: number) => ({ position: [x, y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 const ent = (id: string, x: number, y: number, components: Record<string, unknown>): EntityV3 => ({ id, components: { transform: T(x, y), ...components } }) as unknown as EntityV3;
-const FRAME = { stepIndex: 0, moveX: 0, jump: 'none' as const };
 
-function blocksWith(entities: EntityV3[], player: { x: number; y: number }, delta = { x: 0, y: 0 }): { blocks: GameplayBlocks; requests: BlocksEffectRequest[]; player: { x: number; y: number }; delta: { x: number; y: number } } {
+function blocksWith(entities: EntityV3[], character: { x: number; y: number }): { blocks: GameplayBlocks; requests: BlocksEffectRequest[]; character: { x: number; y: number } } {
   const curr = new Map<string, TransformState>();
   for (const e of entities) {
     const t = e.components.transform;
     curr.set(e.id, { position: [...t.position] as [number, number, number], rotation: [...t.rotation] as [number, number, number, number], scale: [...t.scale] as [number, number, number] });
   }
-  const out = { blocks: undefined as unknown as GameplayBlocks, requests: [] as BlocksEffectRequest[], player, delta };
+  const out = { blocks: undefined as unknown as GameplayBlocks, requests: [] as BlocksEffectRequest[], character };
   const host: BlocksHost = {
     hz: HZ,
     physics: undefined,
     curr,
-    playerId: 'player-0001',
-    playerCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    player: () => out.player,
-    playerDelta: () => out.delta,
+    characterId: 'player-0001',
+    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
+    character: () => out.character,
     groundEntityId: () => null,
-    kill: () => undefined,
-    animator: () => null,
     effect: (r) => out.requests.push(r),
   };
   out.blocks = new GameplayBlocks(host, entities);
   return out;
 }
 
-describe('gameplay hooks name effects', () => {
-  it('a collected pickup plays its effect once, where it was', () => {
-    const h = blocksWith([ent('coin-0001', 2, 1, { pickup: { kind: 'coin', value: 1, effect: 'fx-sparkle' } }), ent('coin-0002', 9, 1, { pickup: { kind: 'coin', value: 1 } })], { x: 2, y: 1 });
-    h.blocks.beforeStep(1);
-    h.blocks.afterPhysics(FRAME, true);
-    h.blocks.beforeStep(2);
-    h.blocks.afterPhysics(FRAME, true);
-    expect(h.requests).toEqual([{ op: 'play', effectId: 'fx-sparkle', entityId: null, position: [2, 1, 0], source: 'pickup' }]);
-  });
-
-  it('a stomp plays the enemy\'s hit effect, the last one its defeat effect too', () => {
-    const enemy = ent('enemy-0001', 0, 0, { enemy: { patrol: 'points', range: [-1, 1], speed: 0, size: [1, 1], contactDamage: 1, stompable: true, health: 2, hitEffect: 'fx-hit', defeatEffect: 'fx-poof' } });
-    const h = blocksWith([enemy], { x: 0, y: 1.75 }, { x: 0, y: -0.1 });
-    // The player falls onto its top (its feet were above it the step before).
-    h.blocks.beforeStep(1);
-    h.blocks.afterPhysics(FRAME, true);
-    expect(h.requests.map((r) => [r.effectId, r.source])).toEqual([['fx-hit', 'enemyHit']]);
-    h.player = { x: 0, y: 1.75 };
-    h.blocks.beforeStep(2);
-    h.blocks.afterPhysics(FRAME, true);
-    expect(h.requests.map((r) => [r.effectId, r.source])).toEqual([['fx-hit', 'enemyHit'], ['fx-hit', 'enemyHit'], ['fx-poof', 'enemyDefeat']]);
-    expect(h.requests[2]!.position).toEqual([0, 0, 0]);
-  });
-
-  it('a hit on the player plays its health hit effect where the player is', () => {
-    const h = blocksWith([ent('player-0001', 3, 1, { controller: {}, health: { max: 3, hitEffect: 'fx-ouch' } })], { x: 3, y: 1 });
-    h.blocks.beforeStep(1);
-    expect(h.blocks.damage(1)).toBe('alive');
-    expect(h.requests).toEqual([{ op: 'play', effectId: 'fx-ouch', entityId: null, position: [3, 1, 0], source: 'playerHit' }]);
-  });
-
-  it('a checkpoint or goal reached plays its zone effect', () => {
-    const h = blocksWith([ent('cp-0001', 5, 2, { gameZone: { role: 'checkpoint', size: [1, 1], safeSpawnId: 's', activation: { emissive: '#ffffff', emissiveIntensity: 1, cueAssetId: null }, effect: 'fx-flag' } }), ent('goal-0001', 9, 2, { gameZone: { role: 'goal', size: [1, 1] } })], { x: 0, y: 0 });
-    h.blocks.zoneReached('cp-0001', 'checkpoint');
-    h.blocks.zoneReached('goal-0001', 'goal');
-    expect(h.requests).toEqual([{ op: 'play', effectId: 'fx-flag', entityId: null, position: [5, 2, 0], source: 'checkpoint' }]);
-  });
-
+describe('effect components', () => {
   it('an effect component restarts on its signal and stops on its stop signal (entity order)', () => {
     const h = blocksWith([ent('fire-0001', 0, 0, { effect: { effectId: 'fx-fire', playOnStart: false, signal: 'light', stopSignal: 'douse' } }), ent('fire-0002', 4, 0, { effect: { effectId: 'fx-fire', signal: 'light' } }), ent('lamp-0001', 8, 0, { effect: { effectId: 'fx-glow' } })], { x: 100, y: 100 });
     h.blocks.emit('light');

@@ -1,5 +1,5 @@
 /**
- * Phase 14.4: a level's look laid over the project environment.
+ * Phase 14.4: a look laid over the project environment.
  * Pure (no renderer): the merge rule the renderer, Play, the export and the
  * editor's Scene view share. (The post pipeline's lifetime — no rebuild on a
  * same-size frame — is covered by environment-nodes.test.ts since phase 17.4.)
@@ -32,13 +32,13 @@ describe('layerEnvironment', () => {
     expect(out.quality).toBe('medium');
   });
 
-  it('post merges per effect: a level changes its grading and keeps the project bloom and tone mapping', () => {
+  it('post merges per effect: a layer changes its grading and keeps the project bloom and tone mapping', () => {
     const out = layerEnvironment(BASE, { post: { grading: { lift: 0.1, gamma: 1.3, gain: 0.9 } } })!;
     expect(out.post).toEqual({ toneMapping: 'agx', exposure: 1.2, bloom: { enabled: true, strength: 0.5 }, grading: { lift: 0.1, gamma: 1.3, gain: 0.9 } });
     expect(out.sky).toBe(BASE.sky);
   });
 
-  it('a level look over a project without an environment', () => {
+  it('a layer over a project without an environment', () => {
     const out = layerEnvironment(null, { sky: { mode: 'color', color: '#00ff00' } });
     expect(out).toEqual({ sky: { mode: 'color', color: '#00ff00' } });
     expect(environmentHasLook(out)).toBe(true);

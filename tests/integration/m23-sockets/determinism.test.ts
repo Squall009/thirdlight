@@ -65,13 +65,13 @@ function snapshot(extra: Any[], id: string): Any {
     { id: 'director-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'director', values: {} } } },
     ...extra,
   ];
-  return { snapshotId: `${id}@r1`, projectId: id, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null, animators: [CONTROLLER], rigs: { 'model-socket': RIG } };
+  return { snapshotId: `${id}@r1`, projectId: id, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, animators: [CONTROLLER], rigs: { 'model-socket': RIG } };
 }
 
 const PATTERN = [1, 2, 1, 0, 3, 1, 1, 2, 0, 1];
 
 async function run(mode: Mode, snap: Any, physics: Any, settings: Any, steps: number): Promise<{ h: Harness; digests: string[]; obs: Map<number, Any> }> {
-  const h = await startHarness(mode, { snapshot: snap, settings, physics, behaviors: [behaviorModule('director', DIRECTOR)], replay: Array.from({ length: steps + 40 }, (_, s) => ({ stepIndex: s, moveX: 0, jump: 'none' })), digestSteps: true, host: { buildId: 'b', container: new FakeNode() } });
+  const h = await startHarness(mode, { snapshot: snap, settings, physics, behaviors: [behaviorModule('director', DIRECTOR)], replay: Array.from({ length: steps + 40 }, (_, s) => ({ stepIndex: s, moveX: 0, jump: 'none' })), digestSteps: true, storage: true, host: { buildId: 'b', container: new FakeNode() } });
   let now = 10;
   await h.tick(now);
   const obs = new Map<number, Any>();
@@ -80,7 +80,7 @@ async function run(mode: Mode, snap: Any, physics: Any, settings: Any, steps: nu
     const n = PATTERN[i++ % PATTERN.length]!;
     now += n * DT + DT * 0.1 * ((i % 3) - 1);
     await h.tick(now);
-    const o = h.host.observeScene!();
+    const o = h.host.observe();
     if (o.ok) obs.set(o.observation.stepIndex, { alpha: (h.rt.getInterpolatedState() as Any).state?.alpha ?? 0, sockets: o.observation.sockets ?? [] });
   }
   return { h, digests: [...h.digests], obs };
@@ -154,8 +154,8 @@ async function check(snap: Any, physics: Any, settings: Any): Promise<void> {
     expect(gemEnd[1]).toBeCloseTo(0.75, 9);
     expect(pos('rider-0001')).toEqual([-4, 1, 0]);
     // The script read the hand's world pose and saw its checks hold (a save value, identical in the worker).
-    expect(a.h.rt.runState().values).toMatchObject({ checked: true });
-    expect(w.h.rt.runState().values).toMatchObject({ checked: true });
+    expect(await a.h.storage()).toMatchObject({ checked: true });
+    expect(await w.h.storage()).toMatchObject({ checked: true });
   } finally {
     await a.h.dispose();
     await b.h.dispose();

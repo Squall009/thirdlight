@@ -52,7 +52,6 @@ function snapshot(): Any {
     projectId: 'rebind',
     revision: 1,
     scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: [{ id: 'cam-main', components: { transform: T([0, 0, 10]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } }, box('mark-1', -1), box('mark-2', 0), box('mark-3', 1), box('glyph-k', 2), { id: 'counter-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'counter', values: {} } } }] },
-    game: null,
   };
 }
 
@@ -101,7 +100,7 @@ async function liveRun(keys: [number, 'down' | 'up', string][], rebindAt: number
       now += DT;
       await h.tick(now);
     }
-    const o = h.host.observeScene!();
+    const o = h.host.observe();
     return { frames: live.frames, digests: [...h.digests], hidden: o.ok ? (o.observation.hidden ?? []).join(',') : '' };
   } finally {
     await h.dispose();
@@ -138,7 +137,7 @@ describe('phase 23.14: a rebind changes what drives an action, not what the simu
           await h.tick(now);
         }
         expect(h.digests.slice(0, b.digests.length), mode).toEqual(b.digests);
-        const o = h.host.observeScene!();
+        const o = h.host.observe();
         expect(o.ok && (o.observation.hidden ?? []).join(','), mode).toBe('mark-1,mark-2');
       } finally {
         await h.dispose();

@@ -14,7 +14,7 @@
  * worker runs the runtime's frame (`tick(now)`: the fixed steps the time
  * allows, exactly as the page's runtime would), hands out its scene-load
  * requests, and answers with the frame's state (sim-state.ts). Commands
- * (run start/replay, level switches, pause, scene loads, the viewport) arrive
+ * (pause, scene loads, UI events, the camera viewport) arrive
  * between frames, in order, and apply at the next step boundary — the same
  * boundary they reach in single-thread mode.
  */
@@ -220,12 +220,6 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     if (rt === null) return;
     let r: { ok: true } | { ok: false; error: { code: string; message: string } } = { ok: true };
     switch (c.op) {
-      case 'gameCommand':
-        r = rt.gameCommand(c.cmd);
-        break;
-      case 'startLevel':
-        r = rt.startLevel?.(c.level, c.restore as never) ?? { ok: false, error: { code: 'scene_invalid', message: 'this runtime has no levels' } };
-        break;
       case 'setPaused':
         rt.setPaused?.(c.paused);
         break;
@@ -234,9 +228,6 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         break;
       case 'requestArrival':
         r = rt.requestArrival?.(c.sceneId, c.spawnId) ?? { ok: false, error: { code: 'scene_invalid', message: 'this runtime has no scene set' } };
-        break;
-      case 'setViewport':
-        r = rt.setViewport(c.width, c.height);
         break;
       case 'setCameraViewport':
         rt.setCameraViewport?.(c.width, c.height);

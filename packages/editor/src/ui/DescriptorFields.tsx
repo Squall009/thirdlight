@@ -4,7 +4,7 @@
  * type, grouped, with the descriptor's tooltip on every row and its unit in
  * the label. Every edit is reported as (path, next value | undefined to
  * remove) and turned into one command by the caller (`componentPatch` → one
- * `setComponent`/`setTransform`/`setGameConfig`, one undo step).
+ * `setComponent`/`setTransform`/a content `set…` op, one undo step).
  *
  * The accessible name of a field is its component and path
  * (`fieldAria`: "trigger radius", "mover waypoints 1 x", "position x").

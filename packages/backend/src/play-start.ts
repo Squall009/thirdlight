@@ -4,18 +4,13 @@
  * "Play from…" and `tl_play_start` send the same body) against the captured
  * project, so the preview only applies what the backend already checked:
  *
- * - a scene in a game with levels (`content.flow`) starts the first level
- *   that loads it (the title is skipped); a scene no level loads is refused;
- * - a scene in a game without levels is loaded with the start scenes (they
- *   hold the camera and the player), and the player starts at the scene's
- *   first player spawn when it has one (else the game's own);
- * - a save (a document, or a Play save slot) continues a game with levels —
- *   the save format is the flow's; a document's level must exist;
+ * - a scene is loaded with the start scenes (they hold the camera and the
+ *   character), and the character starts at the scene's first player spawn
+ *   when it has one (phase 24.7: the level flow's level starts were deleted);
  * - phase 23.19: a project save document (`format: "thirdlight.save"`), or a
  *   save slot 1–99, in a project with a save schema (`content.saveSchema`) —
  *   loaded at the first step (the game migrates an older version); a
- *   document newer than the schema is refused. A project with a save schema
- *   reads `saveSlot` as its own slots (`auto` stays the flow's autosave);
+ *   document newer than the schema is refused;
  * - variables pass through (the runtime puts them in `ctx.save` at step 0);
  * - a mode is checked against `content.modes` when the project defines game
  *   modes, and noted as ignored otherwise (modes arrive with phase 23.10).
@@ -48,8 +43,6 @@ function invalid(path: string, message: string): PlayStartResolution {
 export function resolvePlayStart(options: PlayStartOptions, project: PlayStartProject): PlayStartResolution {
   const out: PlayStartResolved = {};
   const notes: string[] = [];
-  const flow = project.content['flow'] as { levels?: ReadonlyArray<{ id: string; scenes: readonly string[] }> } | undefined;
-  const levels = Array.isArray(flow?.levels) ? flow!.levels : [];
 
   if (options.sceneId !== undefined) {
     const sceneId = options.sceneId;
@@ -60,23 +53,16 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
       const scenes = project.scenes as readonly SceneLike[];
       const scene = scenes.find((s) => s.sceneId === sceneId);
       if (scene === undefined) return invalid('/options/sceneId', `the project has no scene "${sceneId}"`);
-      if (levels.length > 0) {
-        const level = levels.find((l) => l.scenes.includes(sceneId));
-        if (level === undefined) return invalid('/options/sceneId', `no level of the game flow loads scene "${sceneId}" (start at a level's scene)`);
-        out.levelId = level.id;
-      } else {
-        const start = project.startScenes ?? [];
-        out.scenes = start.includes(sceneId) ? [...start] : [...start, sceneId];
-        // Phase 24.6: the chosen scene's first spawn, with or without the game session.
-        const spawn = scene.entities.find((e) => e.components?.['playerSpawn'] !== undefined);
-        if (spawn !== undefined) out.spawnId = spawn.id;
-      }
+      const start = project.startScenes ?? [];
+      out.scenes = start.includes(sceneId) ? [...start] : [...start, sceneId];
+      // Phase 24.6: the chosen scene's first spawn.
+      const spawn = scene.entities.find((e) => e.components?.['playerSpawn'] !== undefined);
+      if (spawn !== undefined) out.spawnId = spawn.id;
     }
   }
 
   const schema = project.content['saveSchema'] as { version?: number; slots?: number } | undefined;
-  const projectSave = options.save !== undefined && options.save['format'] === 'thirdlight.save';
-  if (projectSave || (options.saveSlot !== undefined && options.saveSlot !== 'auto' && schema !== undefined)) {
+  if (options.save !== undefined || options.saveSlot !== undefined) {
     // Phase 23.19: project saves.
     if (schema === undefined || typeof schema.version !== 'number' || typeof schema.slots !== 'number') return invalid(options.save !== undefined ? '/options/save' : '/options/saveSlot', 'a project save document needs a project save schema (content.saveSchema); this project declares none');
     if (options.save !== undefined) {
@@ -88,14 +74,6 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
       if (!Number.isInteger(slot) || slot < 1 || slot > schema.slots) return invalid('/options/saveSlot', `the project has save slots 1-${schema.slots}`);
       out.projectSaveSlot = slot;
     }
-  } else if (options.save !== undefined || options.saveSlot !== undefined) {
-    if (options.saveSlot !== undefined && !['auto', '1', '2', '3'].includes(options.saveSlot)) return invalid('/options/saveSlot', 'a game flow has the save slots auto, 1, 2 and 3 (slots 4-99 are project save slots: declare a save schema)');
-    if (levels.length === 0) return invalid(options.save !== undefined ? '/options/save' : '/options/saveSlot', 'a save continues a game with levels (a game flow); this project has none');
-    if (options.save !== undefined) {
-      const levelId = options.save['levelId'];
-      if (!levels.some((l) => l.id === levelId)) return invalid('/options/save/levelId', `the save is for level "${String(levelId).slice(0, 64)}", which the game flow does not have`);
-      out.save = options.save;
-    } else out.saveSlot = options.saveSlot as 'auto' | '1' | '2' | '3';
   }
 
   if (options.variables !== undefined) out.variables = options.variables;

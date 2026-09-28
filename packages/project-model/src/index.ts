@@ -124,13 +124,7 @@ export {
 // component-level validators and `validateGameConfig` are recorded in the
 // packet-44 handoff (CC-44-1).
 export {
-  // Phase 15.3: the follow camera's tuning defaults and ranges.
-  CAMERA_FOLLOW_DEFAULTS,
-  CAMERA_FOLLOW_LIMITS,
   normalizeSceneV3,
-  validateActivationAppearance,
-  validateCameraFollowComponent,
-  validateGameZoneComponent,
   validateLightComponent,
   validateModelAnimationComponent,
   validatePlayerSpawnComponent,
@@ -139,9 +133,10 @@ export {
 } from './scene-v3';
 export {
   AUDIO_PCM_WAV_PROFILE,
-  GAME_ZONE_LIMITS,
-  GAME_ZONE_ROLES,
+  SCENE_LIMITS_V3,
   SURFACE_PRESETS,
+  SURFACE_PRESET_NAMES,
+  type SurfacePresetName,
   V3_REGISTRY,
   isFolderEntity,
   MAX_TAGS,
@@ -157,16 +152,10 @@ export {
   type AssetRecordV3,
   type AssetVersionV3,
   type AuthoringEnvelopeV3,
-  type CameraFollowComponent,
-  type CheckpointActivationAppearance,
   type ComponentV3,
   type ContentCatalogV3,
-  type CueRef,
   type EntityComponentsV3,
   type EntityV3,
-  type GameConfig,
-  type GameZoneComponent,
-  type GameZoneRole,
   type GltfGlbRecipeV3,
   type ImportRecipeV3,
   type LightComponent,
@@ -290,12 +279,11 @@ export {
   type ProjectManifestV2,
   type ProjectV4,
 } from './project-v4';
-export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, MAX_EXIT_SCENES, V4_REGISTRY } from './scene-v3';
-export { validateContentV4, canonicalGame, MAX_SCENES, GAME_TIMING_DEFAULTS, GAME_TIMING_FIELDS, GAME_TIMING_LIMITS } from './content';
+export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
+export { validateContentV4, MAX_SCENES, ENGINE_TIMING_DEFAULTS } from './content';
 // Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 export {
-  GAME_ZONE_ROLES_V4,
   INSTANCE_FLOATS,
   MAX_INSTANCES,
   type ContentCatalogV4,
@@ -307,13 +295,10 @@ export {
 export {
   BLOCK_COMPONENT_NAMES,
   BLOCK_COMPONENTS,
-  // Phase 15.3: the blocks' tuning defaults and ranges, the defeat effects.
+  // Phase 15.3: the blocks' tuning defaults and ranges.
   BLOCK_DEFAULTS,
   BLOCK_TUNING_LIMITS,
-  DEFEAT_EFFECTS,
-  ENEMY_PATROLS,
   MOVER_MODES,
-  PICKUP_KINDS,
   SWITCH_MODES,
   // Phase 14.2: trigger shapes and modes.
   TRIGGER_MODES,
@@ -334,34 +319,13 @@ export {
   type PatrolComponent,
   type HitboxComponent,
   type BlockComponentName,
-  type EnemyComponent,
   type AudioSourceComponent,
   type FaceMovementComponent,
   type HealthComponent,
   type MoverComponent,
-  type PickupComponent,
   type SwitchComponent,
   type TriggerComponent,
 } from './blocks';
-// Phase 9.10: game flow.
-export {
-  canonicalFlow,
-  flowAssetRefs,
-  HUD_PRESETS,
-  MAX_FLOW_LEVELS,
-  MAX_LEVEL_AMBIENCE,
-  MAX_SCORE_COUNTERS,
-  MAX_TITLE_PAN_DISTANCE,
-  MENU_SOUND_KINDS,
-  MAX_SCORE_POINTS,
-  UI_FONTS,
-  validateFlow,
-  type FlowLevel,
-  type FlowScore,
-  type GameFlow,
-  type MenuSounds,
-  type TitlePan,
-} from './flow';
 // Phase 16.1: the generic node-graph model and the registered graph kinds.
 export {
   applyGraphOps,
@@ -481,11 +445,10 @@ export {
   validateScriptLibrary,
 } from './script-libraries';
 export type { BehaviorLibraryPin, ScriptLibrary, ScriptLibraryFile, ScriptLibraryPatch } from './script-libraries';
-// Phase 23.9a: project UI documents and themes (content.uiDocuments / uiThemes, flow.screens).
+// Phase 23.9a: project UI documents and themes (content.uiDocuments / uiThemes, shell.screens).
 export {
   UI_EASINGS,
   UI_ENGINE_ACTIONS,
-  UI_FLOW_SCREENS,
   UI_GENERIC_FONTS,
   UI_LIMITS,
   UI_SAVE_SLOTS,
@@ -507,9 +470,8 @@ export {
   validateUiTheme,
   validateUiThemes,
 } from './ui-documents';
-export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiFlowScreen, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
+export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
 export { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
-export { FLOW_SCREEN_KEYS, type FlowScreenKey } from './flow';
 // Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
 export {
   EFFECT_ATTRIBUTES,
@@ -537,7 +499,6 @@ export {
   canonicalEffects,
   effectAssetRefs,
   effectComponentErrors,
-  effectHookRefs,
   effectMaterialRefs,
   effectsForRuntime,
   effectGraphContext,

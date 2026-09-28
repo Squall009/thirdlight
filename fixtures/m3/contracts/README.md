@@ -30,10 +30,10 @@ fixtures/m3/contracts/
     cue-start.wav                     real 48 kHz mono 16-bit PCM WAV, 96 samples (236 B)
     courier.glb                       opaque placeholder bytes (NOT a GLB)
   envelope/valid/                     byte-exact, fully valid v3 envelopes
-    demo-0003-beacon-min-v3.json      every 39-owned v3 value (zones, spawns, camera, lights, game)
+    demo-0003-beacon-min-v3.json      every 39-owned v3 value still in the model (spawns, camera, lights; game: null)
     demo-0003-fresh-v3.json           a fresh v3 project with content.game === null
-    demo-0003-media-v3.json           audio/model assets, cue refs, modelAnimation (packet-41 placeholders)
-  envelope/invalid/                   one rule isolated per file (19 files)
+    demo-0003-media-v3.json           audio/model assets, modelAnimation (packet-41 placeholders)
+  envelope/invalid/                   one rule isolated per file (10 files)
   catalog/audio-asset-record-v3.json  the audio AssetRecord kind (authoring row 18 / B12)
   migration/
     v2-source/                        a loadable v2 envelope + its manifest
@@ -75,3 +75,8 @@ fixtures/m3/contracts/
 ## Files excluded from the fixture index
 
 `README.md`, `verification.md`, `index.json`, `tools/check-fixtures.mjs`.
+
+Phase 24.7: the platformer game layer (`content.game` block, `cameraFollow`,
+`gameZone`) was removed from the product; `tools/remove-game-layer.mts`
+re-recorded the envelopes without it and deleted the 11 invalid envelopes whose
+subject it was.

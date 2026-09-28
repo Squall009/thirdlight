@@ -3,13 +3,14 @@
  * plain node cannot import the workspace package's .ts entry).
  *
  * The project is the committed v3 fixture, already upgraded in place to
- * storage v4 by the parent; a setGameConfig writes content.json alone.
+ * storage v4 by the parent; a setTags (the project's tag registry) writes
+ * content.json alone.
  *
  * Modes (argv: <mode> <root> <projectId> <backendId>):
- *   v3-env-before       a setGameConfig, SIGKILL before the content.json rename
- *   v3-env-after        a setGameConfig, SIGKILL after the content.json rename
+ *   v3-env-before       a setTags, SIGKILL before the content.json rename
+ *   v3-env-after        a setTags, SIGKILL after the content.json rename
  *                       (the project directory flush, before the ack)
- *   v3-ack              a setGameConfig that completes (lost-ack parent test)
+ *   v3-ack              a setTags that completes (lost-ack parent test)
  *   stale-owner         open + query the project (claim), then SIGKILL
  *
  * Every mode SIGKILLs itself from inside a WriteOps seam, so the process dies
@@ -58,14 +59,14 @@ const REQUEST_ID = 'req-' + 'e'.repeat(32);
 const CREATED_AT = '2026-09-19T10:00:00Z';
 const OPEN = { utcNow: () => CREATED_AT };
 
-function editTitle() {
+function editTags() {
   return {
-    op: 'setGameConfig',
+    op: 'setTags',
     projectId: process.argv[4],
     expectedRevision: 3,
     requestId: REQUEST_ID,
     origin: { kind: 'mcp', clientId: 'pi-crash' },
-    args: { game: { title: 'Crash edited' } },
+    args: { tags: [{ name: 'crash_edited' }] },
   };
 }
 
@@ -99,8 +100,8 @@ function main(): void {
     killSelf();
   }
 
-  const r = svc.runCommand(editTitle());
-  if (!r.ok) fail('setGameConfig', r);
+  const r = svc.runCommand(editTags());
+  if (!r.ok) fail('setTags', r);
   if (mode === 'v3-env-before' || mode === 'v3-env-after') {
     console.log(JSON.stringify({ ok: true, unexpected: r }));
     process.exit(0);

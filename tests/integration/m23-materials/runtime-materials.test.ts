@@ -71,7 +71,6 @@ function snapshot(): Any {
     projectId: 'mat',
     revision: 1,
     scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-    game: null,
     materialCatalog: materialCatalogOf(MATERIALS as Any, []),
   };
 }

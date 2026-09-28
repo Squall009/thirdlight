@@ -2,7 +2,7 @@
  * Phase 17.2: shader parity. Each shader type of the project material
  * library (standard, foliage wind, kit world-X UV + macro normal, unlit,
  * water), lightmaps (UV1, range scaling, no-ambient) and the per-mesh looks
- * (selection highlight, checkpoint glow) render in a neutral test scene
+ * (selection highlight, a look override) render in a neutral test scene
  * (`shader-parity/harness.ts`) and are compared with the WebGL reference
  * images captured from the WebGLRenderer path before the port
  * (`shader-parity/refs/*.png`). Phase 17.4: that path is archived
@@ -36,7 +36,7 @@ const REFS = join(HERE, 'refs');
 const REPO = resolve(import.meta.dirname, '..', '..');
 const SIZE = 256;
 
-export const CASES = ['standard', 'foliage', 'kit', 'unlit', 'water', 'lightmap', 'highlight', 'checkpoint'] as const;
+export const CASES = ['standard', 'foliage', 'kit', 'unlit', 'water', 'lightmap', 'highlight', 'look'] as const;
 /** Cases whose shading needs its own nodes: without them they must fail the comparison. */
 const CONTROL_CASES = ['foliage', 'kit', 'water', 'lightmap'] as const;
 

@@ -10,7 +10,7 @@ import { validateInputStatus } from '@thirdlight/runtime';
 import { bindingGlyph, gamepadFamily, glyphDataUrl, glyphSvg, GLYPH_ICONS, keyName } from './glyphs';
 import type { Captured, ConfigData } from './input-bindings';
 import { createInputBindings } from './rebind';
-import { createSaveStore, type SaveStorage } from './save';
+import { createSettingsStore, type SaveStorage } from './storage';
 
 const CONFIG: ConfigData = {
   actions: [
@@ -117,7 +117,7 @@ describe('the bindings controller', () => {
     const f = fakeOwner();
     const storage = memoryStorage();
     let t = 0;
-    const b = createInputBindings({ defaults: CONFIG, input: f.owner, store: createSaveStore(storage, 'g'), now: () => t });
+    const b = createInputBindings({ defaults: CONFIG, input: f.owner, store: createSettingsStore(storage, 'g'), now: () => t });
     f.frameInput!();
     expect(b.listen('jump', { cancelKey: 'KeyQ' })).toEqual({ ok: true, target: { action: 'jump', index: 0 } });
     expect(f.captureOpts).toEqual({ devices: ['keyboard', 'mouse'], cancelKeys: ['KeyQ'] });
@@ -155,7 +155,7 @@ describe('the bindings controller', () => {
   it('carries out scripts\' requests: rebind with options, reset one and all, profiles saved apart', () => {
     const f = fakeOwner();
     const storage = memoryStorage();
-    const b = createInputBindings({ defaults: CONFIG, input: f.owner, store: createSaveStore(storage, 'g') });
+    const b = createInputBindings({ defaults: CONFIG, input: f.owner, store: createSettingsStore(storage, 'g') });
     b.handle([{ op: 'rebind', action: 'fire', options: { device: 'gamepad', policy: 'allow' } }]);
     f.hear({ device: 'gamepad', button: 0 });
     expect(b.config().actions.find((a) => a.name === 'fire')!.bindings[1]).toEqual({ kind: 'gamepadButton', button: 0, hold: 0.4 });

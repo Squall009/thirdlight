@@ -44,7 +44,6 @@ function snapshot(presets: boolean): Any {
     projectId: 'env',
     revision: 1,
     scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-    game: null,
     ...(presets ? { environmentPresets: ['day', 'night'] } : {}),
   };
 }
@@ -61,7 +60,7 @@ async function run(mode: Mode, source: string, presets: boolean, steps: number):
     const n = PATTERN[i++ % PATTERN.length]!;
     now += n * DT + DT * 0.1 * ((i % 3) - 1);
     await h.tick(now);
-    const obs = h.host.observeScene!();
+    const obs = h.host.observe();
     if (obs.ok) views.set(obs.observation.stepIndex, obs.observation.environment ?? null);
   }
   return { h, digests: [...h.digests], views };

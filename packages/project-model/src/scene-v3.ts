@@ -6,12 +6,11 @@
  * `validateSceneV3`/`normalizeSceneV3` are the explicitly versioned v3 scene
  * entry points (`workspace.md` §16.9; `project-model.md` §12.1). They perform
  * the SCENE-LOCAL rules only: registry and combinations, per-component field
- * values, the `modelAnimation` container, counts/limits, the `gameZone`/
- * `playerSpawn` transform rules and checkpoint `safeSpawnId` resolution.
- * Rules that need `content.game` or `content.assets` — the goal count, the
- * `game.*Id` naming rules, cue/animation asset resolution and the accepted
- * v2 cross-block checks — run in `validateProjectV3`/`validateEnvelopeV3`
- * (§23.8 steps 5–6).
+ * values, the `modelAnimation` container, counts/limits and the
+ * `playerSpawn` transform rules. Rules that need `content.assets` — animation
+ * asset resolution and the accepted v2 cross-block checks — run in
+ * `validateProjectV3`/`validateEnvelopeV3` (§23.8 steps 5–6). Phase 24.7: the
+ * platformer's `gameZone` and `cameraFollow` components were deleted.
  *
  * The accepted v2 component validators are reused verbatim (no v2 component
  * is renumbered or reinterpreted; §23.3). Pure and total: same input → same
@@ -84,15 +83,10 @@ import type {
   PropertyValue,
 } from './types-v2';
 import {
-  GAME_ZONE_LIMITS,
-  GAME_ZONE_ROLES,
+  SCENE_LIMITS_V3,
   V3_REGISTRY,
-  type CameraFollowComponent,
-  type CheckpointActivationAppearance,
   type EntityComponentsV3,
   type EntityV3,
-  type GameZoneComponent,
-  type GameZoneRole,
   type LightComponent,
   type ModelAnimationComponent,
   type SceneV3,
@@ -100,7 +94,6 @@ import {
   type SceneEntityV3,
   type SceneV4,
   isFolderEntity,
-  GAME_ZONE_ROLES_V4,
   MAX_INSTANCES,
   PLAYER_SPAWN_FACINGS,
   type PlayerSpawnFacing,
@@ -131,10 +124,6 @@ const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', '
 export const MAX_ENTITIES_V4 = 16_384;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
 const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
-const KNOWN_GAMEZONE_FIELDS = new Set(['role', 'size', 'safeSpawnId', 'activation']);
-const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect']);
-/** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
-export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
@@ -143,21 +132,6 @@ export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'mat
 // Phase 23.6: `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
 // Phase 23.11: `socketAttach` (rides on a node of another entity's model) after that.
 // Phase 23.10: `behaviorGroup` (the behavior group game modes tick) after that.
-const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
-const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
-/** Phase 15.3 (v4): the follow distance and the speed cap. */
-const KNOWN_CAMERA_FOLLOW_FIELDS_V4 = new Set(['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed']);
-/**
- * Phase 15.3: the follow camera's tuning. `distance` has no fixed default:
- * absent, the camera keeps the distance it is placed at (its authored z
- * minus the player's). `maxSpeed` caps how fast the smoothed camera moves
- * per axis — 480 m/s is the old 4 m per step at 120 Hz (a safety bound, far
- * above any follow speed, so smoothing alone shapes the motion).
- */
-export const CAMERA_FOLLOW_DEFAULTS = Object.freeze({ maxSpeed: 480 });
-export const CAMERA_FOLLOW_LIMITS = Object.freeze({ distance: { min: 0.1, max: 1000 }, maxSpeed: { min: 0.1, max: 100000 } });
-const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
-const KNOWN_BOUNDS_FIELDS = new Set(['minX', 'maxX', 'minY', 'maxY']);
 const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent']);
 
 /**
@@ -247,134 +221,6 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
 
 // ---- the six v3 components ---------------------------------------------------
 
-export function validateActivationAppearance(a: unknown, path: string, errors: ModelErrorV3[]): void {
-  if (!isPlainObject(a)) {
-    errors.push(fieldType(path, a, 'object'));
-    return;
-  }
-  const emissive = a['emissive'];
-  if (emissive === undefined) errors.push(fieldMissing(`${path}/emissive`, 'emissive'));
-  else if (typeof emissive !== 'string') errors.push(fieldType(`${path}/emissive`, emissive, 'string'));
-  else if (!COLOR_RE_V3.test(emissive)) {
-    errors.push(fieldValue(`${path}/emissive`, emissive, '#rrggbb (6 hex digits)', 'activation emissive must be #rrggbb'));
-  }
-  if (a['emissiveIntensity'] === undefined) errors.push(fieldMissing(`${path}/emissiveIntensity`, 'emissiveIntensity'));
-  else {
-    checkFiniteNumber(
-      a['emissiveIntensity'],
-      `${path}/emissiveIntensity`,
-      { min: 0, absMax: MAX_EMISSIVE_INTENSITY },
-      `0 <= v <= ${MAX_EMISSIVE_INTENSITY}`,
-      errors,
-    );
-  }
-  const cue = a['cueAssetId'];
-  if (cue === undefined) errors.push(fieldMissing(`${path}/cueAssetId`, 'cueAssetId'));
-  else if (cue !== null) {
-    if (typeof cue !== 'string') errors.push(fieldType(`${path}/cueAssetId`, cue, 'string or null'));
-    else if (!ID_RE_V2.test(cue)) errors.push(idInvalid(`${path}/cueAssetId`, cue));
-  }
-  for (const k of Object.keys(a)) {
-    if (!KNOWN_ACTIVATION_FIELDS.has(k)) {
-      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'emissive, emissiveIntensity, cueAssetId'));
-    }
-  }
-}
-
-export function validateGameZoneComponent(c: unknown, path: string, errors: ModelErrorV3[], version: 3 | 4 = 3): GameZoneRole | null {
-  if (!isPlainObject(c)) {
-    errors.push(fieldType(path, c, 'object'));
-    return null;
-  }
-  let role: GameZoneRole | null = null;
-  const roles: readonly string[] = version === 4 ? GAME_ZONE_ROLES_V4 : GAME_ZONE_ROLES;
-  const rawRole = c['role'];
-  if (rawRole === undefined) errors.push(fieldMissing(`${path}/role`, 'role'));
-  else if (typeof rawRole !== 'string') errors.push(fieldType(`${path}/role`, rawRole, 'string'));
-  else if (!roles.includes(rawRole)) {
-    errors.push(
-      fieldValue(`${path}/role`, rawRole, roles.map((r) => `"${r}"`).join(' | '), `gameZone role must be one of ${roles.join(', ')}`),
-    );
-  } else {
-    role = rawRole as GameZoneRole;
-  }
-  const size = c['size'];
-  if (size === undefined) errors.push(fieldMissing(`${path}/size`, 'size'));
-  else if (!Array.isArray(size)) errors.push(fieldType(`${path}/size`, size, 'array of 2 finite numbers'));
-  else if (size.length !== 2) {
-    errors.push(fieldValue(`${path}/size`, size.length, 'array of exactly 2 numbers', 'zone size is [widthX, heightY]'));
-  } else {
-    for (let j = 0; j < 2; j++) {
-      checkFiniteNumber(size[j], `${path}/size/${j}`, { positive: true, absMax: MAX_ZONE_SPAN }, `each 0 < v <= ${MAX_ZONE_SPAN} meters`, errors);
-    }
-  }
-  if (role === 'checkpoint') {
-    const safe = c['safeSpawnId'];
-    if (safe === undefined) errors.push(fieldMissing(`${path}/safeSpawnId`, 'safeSpawnId'));
-    else if (typeof safe !== 'string') errors.push(fieldType(`${path}/safeSpawnId`, safe, 'string'));
-    else if (!ID_RE_V2.test(safe)) errors.push(idInvalid(`${path}/safeSpawnId`, safe));
-    if (c['activation'] === undefined) errors.push(fieldMissing(`${path}/activation`, 'activation'));
-    else validateActivationAppearance(c['activation'], `${path}/activation`, errors);
-  } else {
-    if (c['safeSpawnId'] !== undefined) {
-      errors.push(unexpectedField(`${path}/safeSpawnId`, 'safeSpawnId', 'nothing (only a checkpoint carries safeSpawnId)'));
-    }
-    if (c['activation'] !== undefined) {
-      errors.push(unexpectedField(`${path}/activation`, 'activation', 'nothing (only a checkpoint carries activation)'));
-    }
-  }
-  if (role === 'exit') {
-    // Phase 12 (c): the scenes to load / unload (ids resolve at project level).
-    let listed = 0;
-    for (const key of ['load', 'unload'] as const) {
-      const list = c[key];
-      if (list === undefined) continue;
-      if (!Array.isArray(list)) {
-        errors.push(fieldType(`${path}/${key}`, list, 'array of scene ids'));
-        continue;
-      }
-      if (list.length > MAX_EXIT_SCENES) errors.push(fieldValue(`${path}/${key}`, list.length, `at most ${MAX_EXIT_SCENES} scene ids`, 'too many scenes in one exit'));
-      list.forEach((id, i) => {
-        if (typeof id !== 'string') errors.push(fieldType(`${path}/${key}/${i}`, id, 'string (scene id)'));
-        else if (!ID_RE_V2.test(id)) errors.push(idInvalid(`${path}/${key}/${i}`, id));
-      });
-      if (new Set(list).size !== list.length) errors.push(fieldValue(`${path}/${key}`, list, 'distinct scene ids', 'a scene is listed twice'));
-      listed += list.length;
-    }
-    if (listed === 0) {
-      errors.push(fieldMissing(`${path}/load`, 'load or unload (an exit loads or unloads at least one scene)'));
-    }
-    const spawn = c['spawnId'];
-    if (spawn !== undefined) {
-      if (typeof spawn !== 'string') errors.push(fieldType(`${path}/spawnId`, spawn, 'string'));
-      else if (!ID_RE_V2.test(spawn)) errors.push(idInvalid(`${path}/spawnId`, spawn));
-    }
-  } else {
-    for (const key of ['load', 'unload', 'spawnId'] as const) {
-      if (c[key] !== undefined) errors.push(unexpectedField(`${path}/${key}`, key, 'nothing (only an exit zone carries load, unload, spawnId)'));
-    }
-  }
-  // Phase 9.9: a hazard may do damage instead of killing outright.
-  const damage = c['damage'];
-  if (version === 4 && damage !== undefined) {
-    if (role !== 'hazard') errors.push(unexpectedField(`${path}/damage`, 'damage', 'nothing (only a hazard does damage)'));
-    else if (typeof damage !== 'number' || !Number.isInteger(damage) || damage < 0 || damage > 1000) errors.push(fieldValue(`${path}/damage`, damage, 'an integer 0–1000', 'damage is a whole number (0: instant death)'));
-  }
-  // Phase 20.2, v4: a checkpoint or goal may play a project effect where it is when it is reached (visual only).
-  const effect = c['effect'];
-  if (version === 4 && effect !== undefined) {
-    if (role !== 'checkpoint' && role !== 'goal') errors.push(unexpectedField(`${path}/effect`, 'effect', 'nothing (only a checkpoint or a goal plays an effect when reached)'));
-    else if (typeof effect !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(effect)) errors.push(fieldValue(`${path}/effect`, effect, 'an effect id', 'effect names a project effect'));
-  }
-  const known = version === 4 ? KNOWN_GAMEZONE_FIELDS_V4 : KNOWN_GAMEZONE_FIELDS;
-  for (const k of Object.keys(c)) {
-    if (!known.has(k)) {
-      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...known].join(', ')));
-    }
-  }
-  return role;
-}
-
 /**
  * Phase 12 (c): an instance set — one model, `count` placements in a binary
  * buffer stored by SHA-256 (asset and buffer existence are checked against
@@ -430,73 +276,6 @@ export function validatePlayerSpawnComponent(c: unknown, path: string, errors: M
       continue;
     }
     errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'facing, yaw' : '{} (no fields)'));
-  }
-}
-
-export function validateCameraFollowComponent(c: unknown, path: string, errors: ModelErrorV3[], version: 3 | 4 = 3): void {
-  if (!isPlainObject(c)) {
-    errors.push(fieldType(path, c, 'object'));
-    return;
-  }
-  const dz = c['deadZone'];
-  if (dz === undefined) errors.push(fieldMissing(`${path}/deadZone`, 'deadZone'));
-  else if (!isPlainObject(dz)) errors.push(fieldType(`${path}/deadZone`, dz, 'object'));
-  else {
-    for (const k of ['x', 'y'] as const) {
-      if (dz[k] === undefined) errors.push(fieldMissing(`${path}/deadZone/${k}`, k));
-      else checkFiniteNumber(dz[k], `${path}/deadZone/${k}`, { min: 0, absMax: MAX_ABS_V3 }, `0 <= v <= ${MAX_ABS_V3}`, errors);
-    }
-    for (const k of Object.keys(dz)) {
-      if (!KNOWN_DEADZONE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/deadZone/${pointerSegment(k)}`, k, 'x, y'));
-    }
-  }
-  if (c['smoothing'] === undefined) errors.push(fieldMissing(`${path}/smoothing`, 'smoothing'));
-  else checkFiniteNumber(c['smoothing'], `${path}/smoothing`, { min: 0, absMax: 1 }, '0 <= v <= 1', errors);
-  const bounds = c['bounds'];
-  // v4: bounds are optional (without them the camera follows anywhere).
-  if (bounds === undefined) {
-    if (version === 3) errors.push(fieldMissing(`${path}/bounds`, 'bounds'));
-  }
-  else if (!isPlainObject(bounds)) errors.push(fieldType(`${path}/bounds`, bounds, 'object'));
-  else {
-    for (const k of ['minX', 'maxX', 'minY', 'maxY'] as const) {
-      if (bounds[k] === undefined) errors.push(fieldMissing(`${path}/bounds/${k}`, k));
-      else checkFiniteNumber(bounds[k], `${path}/bounds/${k}`, { absMax: MAX_ABS_V3 }, `|v| <= ${MAX_ABS_V3}`, errors);
-    }
-    const minX = bounds['minX'];
-    const maxX = bounds['maxX'];
-    const minY = bounds['minY'];
-    const maxY = bounds['maxY'];
-    if (typeof minX === 'number' && typeof maxX === 'number' && Number.isFinite(minX) && Number.isFinite(maxX)) {
-      if (!(minX < maxX) || !(maxX - minX >= MIN_BOUND_SPAN)) {
-        errors.push(
-          fieldValue(`${path}/bounds`, [minX, maxX], `minX < maxX and maxX - minX >= ${MIN_BOUND_SPAN}`, 'cameraFollow bounds must span X'),
-        );
-      }
-    }
-    if (typeof minY === 'number' && typeof maxY === 'number' && Number.isFinite(minY) && Number.isFinite(maxY)) {
-      if (!(minY < maxY) || !(maxY - minY >= MIN_BOUND_SPAN)) {
-        errors.push(
-          fieldValue(`${path}/bounds`, [minY, maxY], `minY < maxY and maxY - minY >= ${MIN_BOUND_SPAN}`, 'cameraFollow bounds must span Y'),
-        );
-      }
-    }
-    for (const k of Object.keys(bounds)) {
-      if (!KNOWN_BOUNDS_FIELDS.has(k)) errors.push(unexpectedField(`${path}/bounds/${pointerSegment(k)}`, k, 'minX, maxX, minY, maxY'));
-    }
-  }
-  const known = version === 4 ? KNOWN_CAMERA_FOLLOW_FIELDS_V4 : KNOWN_CAMERA_FOLLOW_FIELDS;
-  for (const k of Object.keys(c)) {
-    if (!known.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...known].join(', ')));
-  }
-  if (version === 4) {
-    for (const k of ['distance', 'maxSpeed'] as const) {
-      const v = c[k];
-      const lim = CAMERA_FOLLOW_LIMITS[k];
-      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < lim.min || v > lim.max)) {
-        errors.push(fieldValue(`${path}/${k}`, v, `a number ${lim.min}-${lim.max}`, `cameraFollow ${k} must be ${lim.min}-${lim.max}`));
-      }
-    }
   }
 }
 
@@ -693,13 +472,13 @@ export function validateModelAnimationComponent(c: unknown, path: string, errors
       }
     }
     const bytes = utf8Length(JSON.stringify(roles) ?? '');
-    if (bytes > GAME_ZONE_LIMITS.animationProfileBytes) {
+    if (bytes > SCENE_LIMITS_V3.animationProfileBytes) {
       errors.push(
         limitsError(
           `${path}/roles`,
           'animation_profile_bytes',
           bytes,
-          GAME_ZONE_LIMITS.animationProfileBytes,
+          SCENE_LIMITS_V3.animationProfileBytes,
           'canonical role-binding bytes exceed the cap',
         ),
       );
@@ -727,8 +506,6 @@ function utf8Length(s: string): number {
 // ---- components, conflicts and transforms -----------------------------------
 
 interface EntityV3Counts {
-  zones: number;
-  checkpointZoneIds: string[];
   spawns: number;
   directional: number;
   ambient: number;
@@ -744,8 +521,6 @@ interface EntityV3Counts {
 }
 
 const EMPTY_COUNTS: EntityV3Counts = {
-  zones: 0,
-  checkpointZoneIds: [],
   spawns: 0,
   directional: 0,
   ambient: 0,
@@ -777,18 +552,16 @@ function validateBlockLayerTransform(comps: Record<string, unknown>, parentId: u
   }
 }
 
-/** §23.3.1/§23.3.2 zone and spawn transform rules (distinct codes). */
-function validateZoneSpawnTransform(
+/** §23.3.2 spawn transform rules. */
+function validateSpawnTransform(
   comps: Record<string, unknown>,
   parentId: unknown,
   path: string,
   errors: ModelErrorV3[],
 ): void {
-  const isZone = comps['gameZone'] !== undefined;
-  const isSpawn = comps['playerSpawn'] !== undefined;
-  if (!isZone && !isSpawn) return;
-  const code = isZone ? 'zone_transform_unsupported' : 'spawn_transform_unsupported';
-  const bearer = isZone ? 'gameZone' : 'playerSpawn';
+  if (comps['playerSpawn'] === undefined) return;
+  const code = 'spawn_transform_unsupported';
+  const bearer = 'playerSpawn';
   const t = canonicalTransform(comps['transform']);
   if (parentId !== undefined && parentId !== null) {
     errors.push(
@@ -876,7 +649,7 @@ function validateEntityComponentsV3(
         ),
       );
     }
-    return { ...EMPTY_COUNTS, checkpointZoneIds: [] };
+    return { ...EMPTY_COUNTS };
   }
   if (comps['transform'] === undefined) {
     errors.push({
@@ -887,7 +660,7 @@ function validateEntityComponentsV3(
     });
   }
   // §23.8 step 1: the zone/spawn transform rules (distinct codes per §23.9).
-  validateZoneSpawnTransform(comps, parentId, ePath, errors);
+  validateSpawnTransform(comps, parentId, ePath, errors);
 
   // accepted v2 structural conflicts (+ the v3 conflicts §23.3 adds)
   const structural = (['model', 'box', 'camera'] as const).filter((k) => comps[k] !== undefined);
@@ -928,15 +701,12 @@ function validateEntityComponentsV3(
   if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors, version);
 
   // v3 components (field values, §23.3.1–§23.3.6)
-  let zoneRole: GameZoneRole | null = null;
-  if (comps['gameZone'] !== undefined) zoneRole = validateGameZoneComponent(comps['gameZone'], `${path}/gameZone`, errors, version);
   if (comps['playerSpawn'] !== undefined) validatePlayerSpawnComponent(comps['playerSpawn'], `${path}/playerSpawn`, errors, version);
-  if (comps['cameraFollow'] !== undefined) validateCameraFollowComponent(comps['cameraFollow'], `${path}/cameraFollow`, errors, version);
   if (comps['instances'] !== undefined) {
     validateInstancesComponent(comps['instances'], `${path}/instances`, errors);
     // An instance set is a model placed many times: it carries no box, camera,
     // model, collider or controller of its own.
-    for (const other of ['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'gameZone', 'playerSpawn', 'light'] as const) {
+    for (const other of ['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'playerSpawn', 'light'] as const) {
       if (comps[other] !== undefined) errors.push(collisionConflict(path, `instances and ${other} are mutually exclusive on one entity`, ['instances', other]));
     }
   }
@@ -984,10 +754,9 @@ function validateEntityComponentsV3(
     if (comps[name] !== undefined) BLOCK_COMPONENTS[name].validate(comps[name], `${path}/${name}`, errors as unknown as Parameters<(typeof BLOCK_COMPONENTS)[typeof name]["validate"]>[2]);
   }
   if (comps['mover'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'a mover cannot carry the player controller', ['mover', 'controller']));
-  if (comps['enemy'] !== undefined && (comps['controller'] !== undefined || comps['collider'] !== undefined)) errors.push(collisionConflict(path, 'an enemy has no collider or controller (its size is its body)', ['enemy', comps['controller'] !== undefined ? 'controller' : 'collider']));
-  // Phase 24.4: a patroller moves itself (not by input, a mover, physics or an enemy's rules); the character is never collected.
+  // Phase 24.4: a patroller moves itself (not by input, a mover or physics); the character is never collected.
   if (comps['patrol'] !== undefined) {
-    const clash = (['controller', 'mover', 'collider', 'enemy'] as const).filter((c) => comps[c] !== undefined);
+    const clash = (['controller', 'mover', 'collider'] as const).filter((c) => comps[c] !== undefined);
     if (clash.length > 0) errors.push(collisionConflict(path, `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, ['patrol', ...clash]));
   }
   if (comps['collectible'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'the character collects; it is not collected', ['collectible', 'controller']));
@@ -1028,30 +797,16 @@ function validateEntityComponentsV3(
       }
     }
   }
-  if (comps['cameraFollow'] !== undefined && comps['camera'] === undefined) {
-    errors.push(
-      withFound(
-        {
-          code: 'component_conflict',
-          path: `${path}/cameraFollow`,
-          message: 'cameraFollow appears only on the entity carrying camera (there is no parented or secondary camera in v3)',
-          reason: 'camera_target',
-          expected: 'components.camera on the same entity',
-        },
-        'cameraFollow',
-      ),
-    );
-  }
   // Phase 23.4: a virtual camera is a shot, not the scene camera (which draws whichever shot is live).
-  if (comps['virtualCamera'] !== undefined && (comps['camera'] !== undefined || comps['cameraFollow'] !== undefined)) {
+  if (comps['virtualCamera'] !== undefined && comps['camera'] !== undefined) {
     errors.push(
       withFound(
         {
           code: 'component_conflict',
           path: `${path}/virtualCamera`,
-          message: 'a virtual camera is a separate shot: it does not sit on the scene camera (camera, cameraFollow)',
+          message: 'a virtual camera is a separate shot: it does not sit on the scene camera',
           reason: 'camera_target',
-          expected: 'no camera or cameraFollow on a virtualCamera entity',
+          expected: 'no camera on a virtualCamera entity',
         },
         'virtualCamera',
       ),
@@ -1076,29 +831,15 @@ function validateEntityComponentsV3(
       );
     }
   }
-  if (comps['gameZone'] !== undefined && (comps['collider'] !== undefined || comps['controller'] !== undefined)) {
-    errors.push(
-      withFound(
-        {
-          code: 'component_conflict',
-          path: `${path}/gameZone`,
-          message: 'a gameZone never blocks movement and is never a physics body',
-          reason: 'zone_physics',
-          expected: 'no collider or controller on a gameZone entity',
-        },
-        'gameZone',
-      ),
-    );
-  }
-  if (comps['playerSpawn'] !== undefined && (comps['gameZone'] !== undefined || comps['collider'] !== undefined || comps['controller'] !== undefined)) {
+  if (comps['playerSpawn'] !== undefined && (comps['collider'] !== undefined || comps['controller'] !== undefined)) {
     errors.push(
       withFound(
         {
           code: 'component_conflict',
           path: `${path}/playerSpawn`,
-          message: 'a playerSpawn is a field-less marker and conflicts with gameZone, collider and controller',
+          message: 'a playerSpawn is a marker and conflicts with collider and controller',
           reason: 'spawn_target',
-          expected: 'no gameZone, collider or controller on a playerSpawn entity',
+          expected: 'no collider or controller on a playerSpawn entity',
         },
         'playerSpawn',
       ),
@@ -1126,8 +867,6 @@ function validateEntityComponentsV3(
   const light = comps['light'];
   const lightType = isPlainObject(light) ? light['type'] : undefined;
   return {
-    zones: comps['gameZone'] !== undefined ? 1 : 0,
-    checkpointZoneIds: zoneRole === 'checkpoint' ? [''] : [],
     spawns: comps['playerSpawn'] !== undefined ? 1 : 0,
     directional: lightType === 'directional' ? 1 : 0,
     ambient: lightType === 'ambient' ? 1 : 0,
@@ -1144,55 +883,8 @@ function validateEntityComponentsV3(
 
 // ---- canonicalization (§12.2 + §23.7) ---------------------------------------
 
-function canonicalActivation(a: unknown): CheckpointActivationAppearance {
-  const o = a as Record<string, unknown>;
-  return {
-    emissive: (o['emissive'] as string).toLowerCase(),
-    emissiveIntensity: canonNum(o['emissiveIntensity']),
-    cueAssetId: (o['cueAssetId'] ?? null) as string | null,
-  };
-}
 
-function canonicalGameZone(c: unknown): GameZoneComponent {
-  const o = c as Record<string, unknown>;
-  const size = o['size'] as unknown[];
-  const out: GameZoneComponent = {
-    role: o['role'] as GameZoneRole,
-    size: [canonNum(size[0]), canonNum(size[1])],
-  };
-  if (o['safeSpawnId'] !== undefined) out.safeSpawnId = o['safeSpawnId'] as string;
-  if (o['activation'] !== undefined) out.activation = canonicalActivation(o['activation']);
-  if (o['load'] !== undefined) out.load = [...(o['load'] as string[])];
-  if (o['unload'] !== undefined) out.unload = [...(o['unload'] as string[])];
-  if (o['spawnId'] !== undefined) out.spawnId = o['spawnId'] as string;
-  if (o['damage'] !== undefined) out.damage = o['damage'] as number;
-  if (o['effect'] !== undefined) out.effect = o['effect'] as string;
-  return out;
-}
 
-function canonicalCameraFollow(c: unknown): CameraFollowComponent {
-  const o = c as Record<string, unknown>;
-  const dz = o['deadZone'] as Record<string, unknown>;
-  const b = o['bounds'] as Record<string, unknown> | undefined;
-  return {
-    deadZone: { x: canonNum(dz['x']), y: canonNum(dz['y']) },
-    smoothing: canonNum(o['smoothing']),
-    // v4: optional.
-    ...(b !== undefined
-      ? {
-          bounds: {
-            minX: canonNum(b['minX']),
-            maxX: canonNum(b['maxX']),
-            minY: canonNum(b['minY']),
-            maxY: canonNum(b['maxY']),
-          },
-        }
-      : {}),
-    // Phase 15.3 (v4): the tuning comes last (an existing component keeps its exact canonical bytes).
-    ...(o['distance'] !== undefined ? { distance: canonNum(o['distance']) } : {}),
-    ...(o['maxSpeed'] !== undefined ? { maxSpeed: canonNum(o['maxSpeed']) } : {}),
-  };
-}
 
 function canonicalLight(c: unknown): LightComponent {
   const o = c as Record<string, unknown>;
@@ -1277,12 +969,10 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
   if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}) };
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
-  if (comps['gameZone'] !== undefined) components.gameZone = canonicalGameZone(comps['gameZone']);
   if (comps['playerSpawn'] !== undefined) {
     const { facing, yaw } = comps['playerSpawn'] as { facing?: PlayerSpawnFacing; yaw?: number };
     components.playerSpawn = { ...(facing !== undefined ? { facing } : {}), ...(yaw !== undefined ? { yaw } : {}) };
   }
-  if (comps['cameraFollow'] !== undefined) components.cameraFollow = canonicalCameraFollow(comps['cameraFollow']);
   if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
   if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
@@ -1370,7 +1060,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
 
   if (entities !== null) {
     const idFirstIndex = new Map<string, number>();
-    const counts: EntityV3Counts = { ...EMPTY_COUNTS, checkpointZoneIds: [] };
+    const counts: EntityV3Counts = { ...EMPTY_COUNTS };
     // Phase 12: folders have no transform, so the "must be a root" rules
     // (zones, spawns, physics) look at the nearest non-folder ancestor.
     const rawParent = new Map<string, string>();
@@ -1435,7 +1125,6 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         errors.push(fieldType(`${base}/components`, comps, 'object'));
       } else {
         const c = validateEntityComponentsV3(comps, objectParent(pid) ?? undefined, base, errors, version, merged);
-        counts.zones += c.zones;
         counts.spawns += c.spawns;
         counts.directional += c.directional;
         counts.ambient += c.ambient;
@@ -1447,7 +1136,6 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.colliders += c.colliders;
         counts.polygonVertices += c.polygonVertices;
         counts.points3d += c.points3d;
-        if (c.checkpointZoneIds.length > 0) counts.checkpointZoneIds.push(entityId);
       }
       for (const k of Object.keys(e)) {
         if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, active, locked, static, tags, components'));
@@ -1518,21 +1206,18 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
       errors.push(limitsError('/entities', 'collider_vertices_total', counts.points3d, COLLIDER_3D_LIMITS.pointsTotal, `scene exceeds the total 3D collider point limit of ${COLLIDER_3D_LIMITS.pointsTotal} (hull points and mesh vertices)`));
     }
     // §23.10 v3 scene limits (per scene: a merged runtime scene holds several)
-    if (!merged && counts.zones > GAME_ZONE_LIMITS.zones) {
-      errors.push(limitsError('/entities', 'zones', counts.zones, GAME_ZONE_LIMITS.zones, `scene exceeds the game-zone limit of ${GAME_ZONE_LIMITS.zones}`));
-    }
-    if (!merged && counts.spawns > GAME_ZONE_LIMITS.playerSpawns) {
+    if (!merged && counts.spawns > SCENE_LIMITS_V3.playerSpawns) {
       errors.push(
-        limitsError('/entities', 'player_spawns', counts.spawns, GAME_ZONE_LIMITS.playerSpawns, `scene exceeds the player-spawn limit of ${GAME_ZONE_LIMITS.playerSpawns}`),
+        limitsError('/entities', 'player_spawns', counts.spawns, SCENE_LIMITS_V3.playerSpawns, `scene exceeds the player-spawn limit of ${SCENE_LIMITS_V3.playerSpawns}`),
       );
     }
-    if (counts.directional > GAME_ZONE_LIMITS.lightsDirectional) {
+    if (counts.directional > SCENE_LIMITS_V3.lightsDirectional) {
       errors.push(
-        limitsError('/entities', 'lights_directional', counts.directional, GAME_ZONE_LIMITS.lightsDirectional, 'scene exceeds the directional-light limit'),
+        limitsError('/entities', 'lights_directional', counts.directional, SCENE_LIMITS_V3.lightsDirectional, 'scene exceeds the directional-light limit'),
       );
     }
-    if (counts.ambient > GAME_ZONE_LIMITS.lightsAmbient) {
-      errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, GAME_ZONE_LIMITS.lightsAmbient, 'scene exceeds the ambient-light limit'));
+    if (counts.ambient > SCENE_LIMITS_V3.lightsAmbient) {
+      errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, SCENE_LIMITS_V3.lightsAmbient, 'scene exceeds the ambient-light limit'));
     }
     if (counts.local > MAX_LOCAL_LIGHTS) {
       errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} point and spot lights`));
@@ -1542,49 +1227,6 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
     }
     if (counts.hemisphere > MAX_HEMISPHERE_LIGHTS) {
       errors.push(limitsError('/entities', 'lights_ambient', counts.hemisphere, MAX_HEMISPHERE_LIGHTS, 'a scene holds at most one hemisphere light'));
-    }
-    if (!merged && counts.checkpointZoneIds.length > GAME_ZONE_LIMITS.checkpointZones) {
-      errors.push(
-        withFound(
-          {
-            code: 'zone_checkpoint_count_invalid',
-            path: '/entities',
-            message: 'a scene may contain at most one checkpoint zone',
-            expected: '<= 1 checkpoint zone',
-            zoneIds: [...counts.checkpointZoneIds],
-          },
-          counts.checkpointZoneIds.length,
-        ),
-      );
-    }
-    // §23.5 rule 4: every checkpoint safeSpawnId resolves to a playerSpawn.
-    for (let idx = 0; idx < entities.length; idx++) {
-      const e = entities[idx];
-      if (!isPlainObject(e)) continue;
-      const comps = e['components'];
-      if (!isPlainObject(comps)) continue;
-      const zone = comps['gameZone'];
-      if (!isPlainObject(zone) || zone['role'] !== 'checkpoint') continue;
-      const safe = zone['safeSpawnId'];
-      if (typeof safe !== 'string') continue;
-      const targetIdx = idFirstIndex.get(safe);
-      const target = targetIdx === undefined ? undefined : entities[targetIdx];
-      const targetComps = isPlainObject(target) ? target['components'] : undefined;
-      const resolves = isPlainObject(targetComps) && targetComps['playerSpawn'] !== undefined;
-      if (!resolves) {
-        errors.push(
-          withFound(
-            {
-              code: 'game_reference_missing',
-              path: `/entities/${idx}/components/gameZone/safeSpawnId`,
-              message: 'a checkpoint safeSpawnId must resolve to an entity carrying playerSpawn',
-              reason: 'safe_spawn',
-              expected: 'an existing playerSpawn entity id',
-            },
-            safe,
-          ),
-        );
-      }
     }
     checkDepthLimit(entities, idFirstIndex, errors);
   }
@@ -1635,21 +1277,6 @@ function checkFolderHierarchy(scene: SceneV3, errors: ModelErrorV3[]): void {
         withFound(
           { code: 'camera_count_invalid', path: `/entities/${idx}`, message: 'the scene camera must be active', reason: 'inactive', expected: 'exactly 1 active camera' },
           e.id,
-        ),
-      );
-    }
-    const zone = e.components.gameZone;
-    if (zone?.safeSpawnId !== undefined && flags.get(e.id)?.active !== false && flags.get(zone.safeSpawnId)?.active === false) {
-      errors.push(
-        withFound(
-          {
-            code: 'game_reference_missing',
-            path: `/entities/${idx}/components/gameZone/safeSpawnId`,
-            message: "an active checkpoint's safe spawn must be active",
-            reason: 'safe_spawn',
-            expected: 'an active playerSpawn entity id',
-          },
-          zone.safeSpawnId,
         ),
       );
     }

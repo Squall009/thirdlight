@@ -7,7 +7,7 @@
  * bounds tables are local mirrors of the accepted contract values
  * (project-model §23.3.4/§23.3.5/§23.10; commands.md §3.1.9/§3.1.10/§8.5.1) —
  * the editor's boundary row keeps project-model types-only, so the frozen
- * numbers are mirrored here exactly as in `session/gameplay.ts` (packet 56).
+ * numbers are mirrored here.
  */
 import type { ProjectedEntity } from './projection';
 import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
@@ -246,7 +246,7 @@ export interface SurfaceForm {
 }
 
 /** The three built-in preset names (§3.1.9, commands.md). */
-export const SURFACE_PRESET_NAMES = ['matte-ground', 'hazard', 'beacon'] as const;
+export const SURFACE_PRESET_NAMES = ['matte-ground', 'signal-red', 'emissive-accent'] as const;
 export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];
 
 /**
@@ -257,8 +257,8 @@ export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];
 export const SURFACE_PRESETS: Readonly<Record<SurfacePresetName, SurfaceView>> = Object.freeze({
   // Phase 15.5: these had drifted from the authoritative rows; they are the model's rows again (media.test.ts pins them).
   'matte-ground': Object.freeze({ color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 }),
-  hazard: Object.freeze({ color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 }),
-  beacon: Object.freeze({ color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 }),
+  'signal-red': Object.freeze({ color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 }),
+  'emissive-accent': Object.freeze({ color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 }),
 });
 
 /**

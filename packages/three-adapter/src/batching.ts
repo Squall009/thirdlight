@@ -21,14 +21,14 @@
  * `materialParams` are per-object uniforms, as are the values scripts set
  * while the game runs), or no partner. A per-object
  * override that gives a mesh its own material copy (the selection highlight,
- * the checkpoint glow, a fade, a lightmap) takes it out of its group by
+ * a look override, a lightmap) takes it out of its group by
  * itself — the material is part of the key.
  *
  * The key is (draw geometry, material, casts shadow, receives shadow), plus
  * a coarse cell of the world for detailed geometry (≥ `detailedTriangles`
- * triangles): one group per cell keeps the frustum culling of a large level
+ * triangles): one group per cell keeps the frustum culling of a large scene
  * for meshes whose off-screen vertices are worth culling, while cheap
- * geometry (boxes) stays one draw for the whole level. A host may give a
+ * geometry (boxes) stays one draw for the whole scene. A host may give a
  * mesh a shared draw geometry and a scale (`{ geometry, scale }`): every box
  * draws the one unit box scaled by its size, so boxes of any size batch.
  *
@@ -169,7 +169,7 @@ export interface AutoBatcherOptions {
    */
   readonly minGroup?: number;
   /**
-   * Side of a world cell for detailed geometry, m (default 64: a level is
+   * Side of a world cell for detailed geometry, m (default 64: a scene is
    * cut into a few cells a view usually sees one or two of, so the rest is
    * culled, while a group still holds many objects).
    */

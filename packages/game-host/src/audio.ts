@@ -27,7 +27,7 @@
  *     never queued; every voice is released on ended/stop.
  *  4. Dedupe by run/event identity — each id plays at most once per owner;
  *     the current runId's ids are kept; a runId change clears them
- *     (checkpointActivated never refires on re-entry — 40 §4.5).
+ *     (an event never refires on re-entry).
  *  5. Stale async work is cancelled — a runId change (stop/replay) and
  *     dispose() mark every in-flight decode and pending voice stale; a
  *     decode that resolves afterwards is discarded, never played; a cue
@@ -71,13 +71,14 @@ export const AUDIO_MAX_DIAGNOSTICS = 64;
 /** The bounded per-asset registration store cap (distinct cue assets ≤ 6, §41.4.5). */
 const AUDIO_MAX_REGISTERED_ASSETS = 16;
 
-export type CueKind = 'start' | 'jump' | 'checkpoint' | 'death' | 'goal';
-
-/** Typed, committed cue events (derived by the host from GameView.events +
- * content.game.cues). The id `${runId}/${kind}/${stepIndex}` is the dedupe key. */
+/**
+ * One cue event: a registered sound to play at most once per run. The id is
+ * the dedupe key (a caller's convention, e.g. `${runId}/${kind}/${stepIndex}`);
+ * `kind` is the caller's label (diagnostics only).
+ */
 export interface GameCueEvent {
   readonly id: string;
-  readonly kind: CueKind;
+  readonly kind: string;
   readonly assetId: string;
   readonly runId: string;
   readonly stepIndex: number;
@@ -257,7 +258,7 @@ export interface AudioObservation {
   readonly voices: readonly AudioVoiceInfo[];
   /** Every live voice (script sounds and panned audio sources). */
   readonly voiceCount: number;
-  readonly music: { readonly owner: 'script' | 'flow'; readonly assetId: string | null; readonly playing: boolean; readonly duck: number };
+  readonly music: { readonly owner: 'script' | 'host'; readonly assetId: string | null; readonly playing: boolean; readonly duck: number };
   /** Phase 23.16: the SFX duck node's value now (a dialogue voice ducks effects; 1 = not ducked). */
   readonly sfxDuck: number;
   /** Each bus gain node's value (the player's volume × the scripts' mix). */
@@ -394,8 +395,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   /** Phase 23.13: the scripts' mix per bus (each bus gain = the player's volume × this). */
   const mix: Record<'sfx' | 'music' | 'voice' | 'ui', number> = { sfx: 1, music: 1, voice: 1, ui: 1 };
   const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
-  /** Phase 23.13: the flow's track and the scripts' (undefined: the flow owns the music). */
-  let flowMusic: string | null = null;
+  /** Phase 23.13: the host's track (`playMusic`) and the scripts' (undefined: the host owns the music). */
+  let hostMusic: string | null = null;
   let scriptMusic: string | null | undefined = undefined;
   let wantedMusic: string | null = null;
   let wantedFade = 1;
@@ -609,7 +610,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   }
 
   function refreshWantedMusic(fade: number): void {
-    wantedMusic = scriptMusic !== undefined ? scriptMusic : flowMusic;
+    wantedMusic = scriptMusic !== undefined ? scriptMusic : hostMusic;
     wantedFade = Math.max(0, Math.min(10, fade));
     syncMusic();
   }
@@ -844,7 +845,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         () => {
           entry.decoding = false;
           entry.failed = true;
-          diag('audio_decode_failed', id, 'music decode failed; the level plays without it');
+          diag('audio_decode_failed', id, 'music decode failed; the game plays without it');
         },
       );
       return;
@@ -1220,8 +1221,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
     playMusic(assetId, fadeSeconds = 1) {
       if (disposed) return;
-      // Phase 23.13: the flow's track; a script holding the music keeps it until it releases.
-      flowMusic = assetId;
+      // Phase 23.13: the host's track; a script holding the music keeps it until it releases.
+      hostMusic = assetId;
       if (scriptMusic !== undefined) return;
       refreshWantedMusic(fadeSeconds);
     },
@@ -1375,7 +1376,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       return {
         voices: out.slice(0, AUDIO_OBSERVED_VOICES),
         voiceCount: out.length,
-        music: { owner: scriptMusic !== undefined ? 'script' : 'flow', assetId: wantedMusic, playing: track !== null && track.assetId === wantedMusic, duck: r4(duckNode !== null ? duckNode.gain.value : duckLevel) },
+        music: { owner: scriptMusic !== undefined ? 'script' : 'host', assetId: wantedMusic, playing: track !== null && track.assetId === wantedMusic, duck: r4(duckNode !== null ? duckNode.gain.value : duckLevel) },
         sfxDuck: r4(sfxDuckLevel),
         buses: {
           sfx: r4(b !== null ? b.sfx.gain.value : busGain('sfx')),

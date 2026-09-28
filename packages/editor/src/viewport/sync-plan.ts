@@ -6,7 +6,7 @@
  * its object, and `takeDirty()` names the ones it did. A sync looks at the
  * named entities plus any whose object differs from the one the view last
  * synced (a scene opened, a caller without the dirty set); the hierarchy
- * flags, the zone overlay and the selection are re-derived only when
+ * flags, the helper overlay and the selection are re-derived only when
  * something they read changed. Without a dirty set (or `all`), everything.
  */
 import type { ProjectedEntity } from '../session/projection';
@@ -18,15 +18,15 @@ export interface SyncPlan {
   readonly changed: readonly ProjectedEntity[];
   /** Parents, flags, kinds or the entity set changed: the hierarchy flags and folders are re-derived. */
   readonly structural: boolean;
-  /** Something the zone overlay draws changed (zones, spawns, camera follow, colliders, the player, blocks). */
-  readonly zones: boolean;
+  /** Something the helper overlay draws changed (colliders, the character capsule, component areas). */
+  readonly helpers: boolean;
   /** The selected entity changed (its gizmo, highlight and handles follow). */
   readonly selectionTouched: boolean;
 }
 
-/** Whether the zone overlay draws something for an entity. */
-export function zoneRelevant(e: ProjectedEntity | undefined): boolean {
-  return e !== undefined && (e.gameZone !== undefined || e.playerSpawn !== undefined || e.cameraFollow !== undefined || e.collider !== undefined || e.controller === true || e.blocks !== undefined);
+/** Whether the helper overlay draws something for an entity. */
+export function helperRelevant(e: ProjectedEntity | undefined): boolean {
+  return e !== undefined && (e.collider !== undefined || e.controller === true || e.blocks !== undefined);
 }
 
 /** What the hierarchy flags, folders and parents are made of (a change re-derives them). */
@@ -45,15 +45,15 @@ export function planSync(
   if (full) changed.push(...entities);
   else for (const e of entities) if (synced.get(e.id) !== e || dirty.ids.has(e.id)) changed.push(e);
   let structural = full;
-  let zones = full;
+  let helpers = full;
   let selectionTouched = full;
   for (const e of changed) {
     const before = synced.get(e.id);
     if (before === undefined || structureOf(before) !== structureOf(e)) structural = true;
-    if (zoneRelevant(before) || zoneRelevant(e)) zones = true;
+    if (helperRelevant(before) || helperRelevant(e)) helpers = true;
     if (e.id === selectedId) selectionTouched = true;
   }
-  return { full, changed, structural, zones, selectionTouched };
+  return { full, changed, structural, helpers, selectionTouched };
 }
 
 /**

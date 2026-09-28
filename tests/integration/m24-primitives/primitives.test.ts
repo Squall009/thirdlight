@@ -101,7 +101,8 @@ async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record
   const walk = dim === 3 ? 270 : 150;
   const replay = Array.from({ length: 480 }, (_, i) => ({ stepIndex: i, moveX: i < walk ? 1 : 0, ...(dim === 3 ? { moveY: 0 } : {}), jump: 'none' as const }));
   const h = await startHarness(mode, {
-    snapshot: { snapshotId: `prims${dim}@r1`, projectId: `prims${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null },
+    snapshot: { snapshotId: `prims${dim}@r1`, projectId: `prims${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
+    storage: true,
     settings,
     physics,
     replay,
@@ -120,7 +121,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record
   }
   const d = rt.getDiagnostics();
   expect(d.ok ? d.diagnostics.errors : d).toEqual([]);
-  return { h, values: rt.runState().values, counters: rt.gameCounters().counters, hiddenAt };
+  return { h, values: await h.storage(), counters: rt.gameCounters().counters, hiddenAt };
 }
 
 function expectInOrder(log: string[], expected: string[]): void {
@@ -162,7 +163,8 @@ describe.each([2, 3] as const)('generic primitives (dimension %s)', (dim) => {
     // Deterministic across threading modes: the same events and the same committed states.
     if (logs['single'] !== undefined && logs['worker'] !== undefined) {
       expect(logs['worker']).toEqual(logs['single']);
-      expect(digests['worker']!.slice(0, 400)).toEqual(digests['single']!.slice(0, 400));
+      const firstDiff = digests['worker']!.slice(0, 400).findIndex((d, k) => d !== digests['single']![k]);
+      expect(firstDiff, `first differing step ${firstDiff}`).toBe(-1);
     }
   }, 60_000);
 });
@@ -191,13 +193,15 @@ export default {
       ctx.patrol.setActive('rover-0001', true);
       ctx.hitbox.setActive('ward-0001', true);
     }
-    if (s === 79) ctx.save.set('touch79', ctx.hitbox.touching('ward-0001'));
+    // (Kept in the script's own state: the load at 80 restores ctx.save.)
+    if (s === 79) _s.touch79 = ctx.hitbox.touching('ward-0001');
     if (s === 80) ctx.saves.load(1);
     if (s === 100) {
       ctx.save.set('hp', ctx.health.get('crate-0001'));
       ctx.save.set('patrol', ctx.patrol.get('rover-0001'));
       ctx.save.set('x100', at());
       ctx.save.set('touch100', ctx.hitbox.touching('ward-0001'));
+      ctx.save.set('touch79', _s.touch79);
     }
   },
 };
@@ -214,7 +218,8 @@ describe('the components save section (page and worker)', () => {
     ];
     const store = new Map<string, string>();
     const h = await startHarness(mode, {
-      snapshot: { snapshotId: 'psave@r1', projectId: 'psave', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null, saveSchema: { version: 1, slots: 2, sections: ['components'] } },
+      snapshot: { snapshotId: 'psave@r1', projectId: 'psave', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, saveSchema: { version: 1, slots: 2, sections: ['components', 'storage'] } },
+      storage: true,
       settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 },
       physics: null,
       digestSteps: true,
@@ -236,7 +241,7 @@ describe('the components save section (page and worker)', () => {
     expect(body.sections.components.health).toEqual({ 'crate-0001': 3 });
     expect(body.sections.components.off).toEqual(['ward-0001']);
     expect(body.sections.components.patrol['rover-0001'].a).toBe(false);
-    const v = rt.runState().values;
+    const v: Any = await h.storage();
     // The hitboxes touched again after they were switched back on; after the load the ward is off again.
     expect(v['touch79']).toEqual(['rover-0001']);
     expect(v['touch100']).toEqual([]);

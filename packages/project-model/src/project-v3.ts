@@ -31,7 +31,7 @@ import type {
 } from './errors';
 import type { BehaviorComponent, ContentCatalog, DeclaredProperty, ModelComponent, PrefabProvenanceComponent, PropertyValue } from './types-v2';
 import type { Manifest as M1Manifest } from './types';
-import type { SceneV3, ContentCatalogV3, AuthoringEnvelopeV3, GameConfig } from './types-v3';
+import type { SceneV3, ContentCatalogV3, AuthoringEnvelopeV3 } from './types-v3';
 
 const ENVELOPE_V3_FIELDS = ['storageVersion', 'type', 'projectId', 'scene', 'content', 'retry'] as const;
 const CONTENT_V3_FIELDS = ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game'] as const;
@@ -73,7 +73,6 @@ export function composeV3(
   content: ContentCatalogV3,
   errors: ModelErrorV3[],
 ): void {
-  const game: GameConfig | null = content.game;
   const indexById = new Map<string, number>();
   scene.entities.forEach((e, i) => {
     if (!indexById.has(e.id)) indexById.set(e.id, i);
@@ -105,122 +104,9 @@ export function composeV3(
     }
   });
 
-  if (game !== null) {
-    // Rule 1: exactly one controller, named by game.playerId.
-    const controllers = scene.entities.filter((e) => e.components.controller !== undefined).length;
-    if (controllers === 0) {
-      errors.push(
-        withFound(
-          {
-            code: 'controller_count_invalid',
-            path: '',
-            document: 'scene',
-            message: 'content.game requires exactly one controller entity',
-            expected: 'exactly 1 controller',
-          },
-          0,
-        ),
-      );
-    }
-    const player = entityById(game.playerId);
-    if (!player || player.components.controller === undefined) {
-      errors.push(
-        gameRef(
-          '/game/playerId',
-          'player',
-          'game.playerId must name the scene controller entity',
-          'the id of the entity carrying controller',
-          'content',
-          game.playerId,
-        ),
-      );
-    }
-    // Rule 2: the camera entity carries cameraFollow and is named by cameraId.
-    const camera = entityById(game.cameraId);
-    if (!camera || camera.components.camera === undefined) {
-      errors.push(
-        gameRef('/game/cameraId', 'camera', 'game.cameraId must name the scene camera entity', 'the id of the entity carrying camera', 'content', game.cameraId),
-      );
-    } else if (camera.components.cameraFollow === undefined) {
-      errors.push(
-        gameRef(
-          '/game/cameraId',
-          'camera_follow',
-          'the camera entity must carry cameraFollow when content.game is non-null',
-          'components.cameraFollow on the camera entity',
-          'content',
-          game.cameraId,
-        ),
-      );
-    }
-    // Rule 3: the start spawn.
-    const spawn = entityById(game.spawnId);
-    if (!spawn || spawn.components.playerSpawn === undefined) {
-      errors.push(
-        gameRef('/game/spawnId', 'spawn', 'game.spawnId must name a playerSpawn entity', 'the id of an entity carrying playerSpawn', 'content', game.spawnId),
-      );
-    }
-    // Rule 5: at least one goal zone.
-    const goals = scene.entities.filter((e) => e.components.gameZone?.role === 'goal').length;
-    if (goals < 1) {
-      errors.push({
-        code: 'zone_goal_missing',
-        path: '/entities',
-        document: 'scene',
-        message: 'content.game requires at least one role: "goal" gameZone',
-        expected: '>= 1 goal zone',
-      });
-    }
-  }
-
   // Step 6: cross-block asset/cue/animation resolution (never a dangling ref).
   const assetById = new Map(content.assets.map((a) => [a.assetId, a]));
-  if (game !== null) {
-    for (const k of ['start', 'jump', 'checkpoint', 'death', 'goal'] as const) {
-      const ref = game.cues[k];
-      if (ref === null) continue;
-      const record = assetById.get(ref);
-      if (!record) {
-        errors.push(
-          assetRef('asset_reference_missing', `/game/cues/${k}`, 'cue asset reference resolves to no catalog record', 'an existing assetId in content.assets', 'content', undefined, ref),
-        );
-      } else if (record.kind !== 'audio') {
-        errors.push(
-          assetRef('asset_kind_mismatch', `/game/cues/${k}`, 'a cue asset reference must resolve to kind "audio"', '"audio"', 'content', 'cue', record.kind),
-        );
-      }
-    }
-  }
   scene.entities.forEach((e, i) => {
-    const activation = e.components.gameZone?.activation;
-    if (activation && activation.cueAssetId !== null) {
-      const record = assetById.get(activation.cueAssetId);
-      if (!record) {
-        errors.push(
-          assetRef(
-            'asset_reference_missing',
-            `/entities/${i}/components/gameZone/activation/cueAssetId`,
-            'activation cue reference resolves to no catalog record',
-            'an existing assetId in content.assets',
-            'scene',
-            undefined,
-            activation.cueAssetId,
-          ),
-        );
-      } else if (record.kind !== 'audio') {
-        errors.push(
-          assetRef(
-            'asset_kind_mismatch',
-            `/entities/${i}/components/gameZone/activation/cueAssetId`,
-            'an activation cue reference must resolve to kind "audio"',
-            '"audio"',
-            'scene',
-            'cue',
-            record.kind,
-          ),
-        );
-      }
-    }
     const model = e.components.model;
     if (model) {
       const record = assetById.get(model.asset.assetId);

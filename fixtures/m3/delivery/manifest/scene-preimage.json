@@ -29,18 +29,6 @@
           "fovY": 45,
           "near": 0.1,
           "far": 100
-        },
-        "cameraFollow": {
-          "deadZone": {
-            "x": 3,
-            "y": 2
-          },
-          "bounds": {
-            "minX": -40,
-            "maxX": 40,
-            "minY": -6,
-            "maxY": 20
-          }
         }
       }
     },
@@ -141,42 +129,6 @@
       },
       "components": {
         "playerSpawn": {}
-      }
-    },
-    {
-      "id": "zone-0004",
-      "name": "Checkpoint",
-      "parentId": null,
-      "transform": {
-        "position": [
-          24,
-          3,
-          0
-        ],
-        "rotation": [
-          0,
-          0,
-          0
-        ],
-        "scale": [
-          1,
-          1,
-          1
-        ]
-      },
-      "components": {
-        "gameZone": {
-          "role": "checkpoint",
-          "size": [
-            2,
-            4
-          ],
-          "safeSpawnId": "spawn-0003",
-          "activation": {
-            "cueAssetId": "asset-0003",
-            "emissive": "#22d3ee"
-          }
-        }
       }
     }
   ]

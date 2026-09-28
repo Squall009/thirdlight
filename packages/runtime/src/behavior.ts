@@ -266,7 +266,7 @@ export interface BehaviorContext {
   readonly dialogue?: BehaviorDialogue;
   /** Phase 23.10: the game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. */
   readonly modes?: BehaviorModes;
-  /** Phase 23.10: the run lifecycle of a game without the platformer session — respawn the player at a spawn, restart the run. */
+  /** Phase 23.10: the run lifecycle — respawn the character at a spawn, restart the run. */
   readonly lifecycle?: BehaviorLifecycle;
   /** Phase 23.17: timelines — play, pause, skip, seek and stop project timelines; their events and markers. */
   readonly timeline?: BehaviorTimeline;
@@ -1071,7 +1071,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
          * the first step" runs again at the start of each run.
          */
         reset(rctx): void {
-          if (rctx.reason !== 'start' && rctx.reason !== 'replay') return;
+          if (rctx.reason !== 'replay') return;
           for (const instance of instances) {
             instance.timers.clear();
             // Phase 23.7: every random stream starts over with the run.

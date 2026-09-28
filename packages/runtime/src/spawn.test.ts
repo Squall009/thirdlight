@@ -4,10 +4,10 @@
  * the runtime: requests queue with the step and apply at the next boundary in
  * order, colliders go to the physics port, scripts and gameplay blocks attach,
  * destroy releases all of it, engine limits refuse with a diagnostic, a new
- * run removes every copy (ids are never reused), saves keep none, and
+ * run removes every copy (ids are never reused), and
  * the same inputs give the same ids and transforms.
  *
- * The gameplay/camera modules are test stubs and the physics port records
+ * The character is the scene's controller entity; the physics port records
  * the collider calls; Rapier is covered by tests/integration/m14-spawn.
  */
 import { describe, expect, it } from 'vitest';
@@ -35,7 +35,7 @@ const at = (x: number, y: number, z = 0): { position: number[]; rotation: number
 /** Neutral prefabs: a crate that blocks, a coin, a sliding block (mover), a two-part thing with a script whose property names its child. */
 const PREFABS = [
   { prefabId: 'crate', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0001', components: { transform: at(5, 5, -1), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } }] },
-  { prefabId: 'coin', displayName: 'Coin', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, pickup: { kind: 'coin', value: 1, size: [0.6, 0.6] } } }] },
+  { prefabId: 'coin', displayName: 'Coin', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'coins', size: [0.6, 0.6] } } }] },
   { prefabId: 'slider', displayName: 'Slider', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0003', components: { transform: at(0, 0), box: { size: [0.2, 0.2, 0.2], material: { color: '#ffffff' } }, mover: { waypoints: [[10, 0, 0]], speed: 30, mode: 'once' } } }] },
   {
     prefabId: 'pair',
@@ -84,8 +84,6 @@ function recordingPort(log: PortLog): unknown {
   };
 }
 
-const stubGameplay: SimulationModuleSpec = { id: 'thirdlight.teststub:gameplay', phases: ['gameplay'], create: () => ({ transformOwners: [], step() {} }) };
-const stubCamera: SimulationModuleSpec = { id: 'thirdlight.teststub:camera', phases: ['camera'], create: () => ({ transformOwners: ['cam-main'], step() {} }) };
 
 interface SpawnCtx {
   stepIndex: number;
@@ -124,7 +122,7 @@ function harness(script: (ctx: SpawnCtx) => void, more: { specs?: SimulationModu
   const calls: string[] = [];
   const spawner = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('spawner', script, calls) });
   const part = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('part', () => {}, calls) });
-  const specs = [spawner, part, ...(more.specs ?? []), stubGameplay, stubCamera];
+  const specs = [spawner, part, ...(more.specs ?? [])];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
   const now = { t: 0 };
@@ -138,14 +136,13 @@ function harness(script: (ctx: SpawnCtx) => void, more: { specs?: SimulationModu
         sceneId: 'scene-main',
         revision: 1,
         entities: [
-          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
-          { id: 'player-0001', components: { transform: at(0, 0) } },
+          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
+          { id: 'player-0001', components: { transform: at(0, 0), controller: {} } },
           { id: 'spawn-0001', components: { transform: at(0, 0), playerSpawn: {} } },
           { id: 'box-spawner', components: { transform: at(0, -5), box: { size: [1, 1, 1], material: { color: '#ffffff' } }, behavior: { behaviorId: 'spawner', values: {} } } },
           ...(more.entities ?? []),
         ],
       },
-      game: { configVersion: 2, title: 'Spawns', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       prefabs: [...PREFABS, ...(more.prefabs ?? [])],
     },
     registry,
@@ -160,7 +157,6 @@ function harness(script: (ctx: SpawnCtx) => void, more: { specs?: SimulationModu
   const rt: Runtime = res.runtime;
   expect(rt.start().ok).toBe(true);
   expect(rt.tick(now.t).ok).toBe(true); // settle pre-roll
-  expect(rt.gameCommand('start').ok).toBe(true);
   const tick = (n = 1): void => {
     for (let i = 0; i < n; i += 1) {
       now.t += DT;
@@ -270,8 +266,6 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(destroyed).toBe(true);
     expect(h.log.removed).toEqual(['spawn-1']);
     expect(h.transforms().get('spawn-3')![0]).toBeCloseTo(10, 6); // `once`: it stops at its last point
-    // Saves never keep spawned entities.
-    expect(h.rt.runState!().collected).toEqual([]);
   });
 
   it('refuses authored entities and unknown prefabs (a script error fail-stops like ctx.scenes)', () => {
@@ -332,8 +326,9 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect([...a.h.transforms()]).toEqual([...b.h.transforms()]);
     expect(a.h.spawned().length).toBeGreaterThan(3);
     const before = a.h.spawned();
-    // A replay: none left (colliders freed); ids keep counting, so an old id names nothing.
-    expect(a.h.rt.gameCommand('replay').ok).toBe(true);
+    // A restart (the engine's, a new run): none left (colliders freed); ids keep counting, so an old id names nothing.
+    expect(a.h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
+    a.h.tick(1); // the restart is sampled in this step (a spawn it asked for is made at the restart boundary, then removed)
     const firstAfter = a.ids.length;
     a.h.tick(1);
     expect(a.h.spawned()).toEqual([]);

@@ -352,8 +352,6 @@ export interface PrefabComponentsV4Extra {
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];
   switch?: EntityComponentsV3['switch'];
-  pickup?: EntityComponentsV3['pickup'];
-  enemy?: EntityComponentsV3['enemy'];
   /** Phase 24.4: generic health and primitives travel with a copy. */
   health?: EntityComponentsV3['health'];
   collectible?: EntityComponentsV3['collectible'];

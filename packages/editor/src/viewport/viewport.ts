@@ -60,12 +60,12 @@ import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
 import { clampScale, getSnapSettings } from '../session/snapping';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
-import { ZoneOverlay, type ZoneTool } from './zone-overlay';
+import { HelperOverlay } from './helper-overlay';
 import { commitValue, type HandleShape } from '../session/handles';
 import { BRUSH_SPACING_M, copyAt, type CopyTransform } from '../session/instance-copies';
 import { fitSprite, iconKindFor, iconTableOf, makeIconSprite, setSpriteSelected, type IconKind, type IconTable } from './icons';
 import { materialOverridesOf, type ModelInstances } from './model-instances';
-import { planSync, removedIds, zoneRelevant } from './sync-plan';
+import { planSync, removedIds, helperRelevant } from './sync-plan';
 import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
 
 export interface ViewportCallbacks {
@@ -73,21 +73,6 @@ export interface ViewportCallbacks {
   onGestureBegin: (entityId: string) => void;
   onGestureFrame: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
   onGestureEnd: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
-  /**
-   * M3 (packet 56): zone gesture routing. The overlay begins the gesture on
-   * a consumed pointer down (create from the placement tool; move/resize
-   * from a zone body / its resize handle); the frames carry the pointer's
-   * game-plane WORLD hits (the App owns the pure ZoneGesture decisions and
-   * the single commit command).
-   */
-  onZoneGestureBegin: (
-    g: { kind: 'create'; tool: ZoneTool; anchor: { x: number; y: number } }
-      | { kind: 'move'; entityId: string; anchor: { x: number; y: number } }
-      | { kind: 'resize'; entityId: string; anchor: { x: number; y: number } },
-  ) => void;
-  onZoneGestureFrame: (hit: { x: number; y: number }) => void;
-  onZoneGestureEnd: (hit: { x: number; y: number }) => void;
-  onZoneGestureCancel: () => void;
   /**
    * Phase 15.2 (generalises 9.12's waypoint and 14.0's size handles): a
    * handle was dragged and dropped, or a corner deleted — the component
@@ -170,8 +155,8 @@ export class Viewport {
   private models: ModelInstances | null = null;
   private readonly ground: THREE.Mesh;
   private readonly grid: THREE.GridHelper;
-  /** M3 (packet 56): the imperative zone/spawn/cameraFollow overlay. */
-  private readonly zones: ZoneOverlay;
+  /** The helper overlay: collider outlines, component areas, the selection's handles. */
+  private readonly helpers: HelperOverlay;
   /** Phase 9.12: which helpers the Scene view draws (the Gizmos menu). */
   private gizmos = { icons: true, lights: true, colliders: true, gameplay: true };
   private readonly orbit: OrbitControls;
@@ -182,8 +167,6 @@ export class Viewport {
   private draggingGizmo = false;
   /** Esc during a gizmo drag: the object is reset and the release commits nothing. */
   private gizmoCancelled = false;
-  /** M3 (packet 56): a zone gesture is in flight (the overlay consumed the down). */
-  private draggingZone = false;
   private downAt: { x: number; y: number } | null = null;
   private renderQueued = false;
   private readonly raycaster = new THREE.Raycaster();
@@ -236,7 +219,7 @@ export class Viewport {
     this.scene.add(fill);
     this.editorLights.push(key, fill);
 
-    this.zones = new ZoneOverlay(this.scene, this.camera, canvas);
+    this.helpers = new HelperOverlay(this.scene, this.camera, canvas);
 
     this.snapping = options.snapping ?? (() => false);
 
@@ -1148,8 +1131,8 @@ export class Viewport {
     requestAnimationFrame(() => {
       this.renderQueued = false;
       // Phase 14.0/15.2: where the handle grips are on screen (tests drag them); grips keep their screen size.
-      this.zones.scaleGrips();
-      this.root.setAttribute('data-size-handles', JSON.stringify(this.zones.sizeHandleClientPoints()));
+      this.helpers.scaleGrips();
+      this.root.setAttribute('data-size-handles', JSON.stringify(this.helpers.sizeHandleClientPoints()));
       // Phase 15.2: the selected instance set's copies and the gizmo's X arrow on screen (tests click and drag them).
       const setId = this.selectedId !== null && this.projected.find((x) => x.id === this.selectedId)?.instances !== undefined ? this.selectedId : null;
       this.root.setAttribute('data-instance-copies', setId === null ? '[]' : JSON.stringify(this.copyClientPoints(setId)));
@@ -1254,7 +1237,7 @@ export class Viewport {
     this.orbit.connect(next);
     this.gizmo.disconnect();
     this.gizmo.connect(next);
-    this.zones.setCanvas(next);
+    this.helpers.setCanvas(next);
     this.rendererHandle = this.makeRenderer(next);
     this.resize();
     this.cb.onRendererChange?.(this.rendererHandle.info());
@@ -1347,22 +1330,6 @@ export class Viewport {
     this.root.setAttribute('data-snap-step', on ? String(s.translateM) : '');
   }
 
-  /** M3 (packet 56): arm/clear a zone placement tool (the panel's action). */
-  setZoneTool(tool: ZoneTool | null): void {
-    this.zones.setTool(tool);
-  }
-
-  /** M3 (packet 56): the live zone placement tool, when armed. */
-  getZoneTool(): ZoneTool | null {
-    return this.zones.activeTool;
-  }
-
-  /** M3 (packet 56): render/clear the zone gesture preview at a pose. */
-  previewZonePose(pose: { position: [number, number, number]; size: [number, number] } | null, isSpawn = false, role?: 'hazard' | 'checkpoint' | 'goal' | 'exit'): void {
-    this.zones.setPreviewPose(pose, isSpawn, role);
-    this.render();
-  }
-
   /** Cancel an in-flight gizmo gesture (Esc): revert, send nothing. */
   cancelGesture(): boolean {
     // Phase 23.6: a block stroke in flight is dropped (nothing is sent).
@@ -1370,21 +1337,11 @@ export class Viewport {
       this.orbit.enabled = true;
       return true;
     }
-    // M3 (packet 56): a zone gesture cancels through the overlay (the App
-    // reverts its preview from `onZoneGestureCancel`; nothing is sent).
-    if (this.draggingZone) {
-      this.draggingZone = false;
-      if (this.zones.cancel()) {
-        this.cb.onZoneGestureCancel();
-        this.render();
-        return true;
-      }
-    }
     // Phase 15.2: a handle drag or a brush stroke cancels with nothing stored.
     if (this.handleDragging) {
       this.handleDragging = false;
       this.orbit.enabled = true;
-      this.zones.cancelHandleDrag();
+      this.helpers.cancelHandleDrag();
       this.render();
       return true;
     }
@@ -1406,7 +1363,7 @@ export class Viewport {
    * Phase 21.3: incremental. With `dirty` (the projection's `takeDirty()`)
    * only the entities it names — plus any whose projected object changed
    * since the last sync (the projection is copy-on-write) and the ones added
-   * or removed — are rebuilt; the hierarchy flags, the zone overlay and the
+   * or removed — are rebuilt; the hierarchy flags, the helper overlay and the
    * selection are re-derived only when something they read changed. Without
    * it (or `dirty.all`), everything is synced as before. `data-sync` on the
    * view element says what the last sync did.
@@ -1418,7 +1375,7 @@ export class Viewport {
     this.projected = entities;
     const plan = planSync(entities, this.synced, dirty, this.selectedId);
     const { full, changed, selectionTouched } = plan;
-    let { structural, zones } = plan;
+    let { structural, helpers } = plan;
     if (structural) {
       this.hierarchyFlags = effectiveFlagsOf(entities);
       this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
@@ -1458,7 +1415,7 @@ export class Viewport {
       const seen = new Set(entities.map((e) => e.id));
       for (const id of removed) {
         const m = this.meshes.get(id)!;
-        if (zoneRelevant(this.synced.get(id))) zones = true;
+        if (helperRelevant(this.synced.get(id))) helpers = true;
         // Nodes of entities that stay go back to the scene (a later sync of theirs re-parents them).
         for (const c of [...m.children]) {
           const cid = (c as { entityId?: string }).entityId;
@@ -1484,12 +1441,12 @@ export class Viewport {
     this.syncVirtualCameraPreviews(entities);
     // Phase 23.17: a timeline scrub preview stays on top of the synced transforms.
     if (this.timelinePreview !== null) this.applyTimelinePreview();
-    // M3 (packet 56): the zone overlay syncs from the SAME projection pass
-    // (phase 12: an inactive zone is hidden like any inactive object).
+    // The helper overlay syncs from the SAME projection pass
+    // (phase 12: an inactive entity's helpers are hidden like the entity).
     // The selected entity's handles come from any of its sized components: its change re-syncs the overlay too.
     const shown = entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false);
-    if (zones || structural || selectionTouched) this.zones.sync(shown);
-    else this.zones.setEntities(shown);
+    if (helpers || structural || selectionTouched) this.helpers.sync(shown);
+    else this.helpers.setEntities(shown);
     this.stampGizmoCounts();
     this.applyLightmaps();
     // A selection that became locked or a folder loses its gizmo.
@@ -1635,18 +1592,17 @@ export class Viewport {
     this.scene.traverse((o) => {
       if (o.userData['gizmo'] === 'light') o.visible = this.gizmos.lights;
     });
-    this.zones.setGizmos({ colliders: this.gizmos.colliders, gameplay: this.gizmos.gameplay });
+    this.helpers.setGizmos({ colliders: this.gizmos.colliders, gameplay: this.gizmos.gameplay });
     this.stampGizmoCounts();
     this.requestRender();
   }
 
   /** Phase 9.12: the drawn helper counts on the view element (tests read them). */
   private stampGizmoCounts(): void {
-    const c = this.zones.blockHelpers();
+    const c = this.helpers.blockHelpers();
     this.root.setAttribute('data-collider-outlines', String(c.colliders));
     this.root.setAttribute('data-mover-paths', String(c.moverPaths.length));
     this.root.setAttribute('data-capsule-outlines', String(c.capsules));
-    this.root.setAttribute('data-chase-bands', String(c.chaseBands));
     this.root.setAttribute('data-gizmos', (Object.keys(this.gizmos) as (keyof typeof this.gizmos)[]).filter((k) => this.gizmos[k]).join(' '));
   }
 
@@ -1743,7 +1699,7 @@ export class Viewport {
     disposeObjectTree(obj, { skip: (c) => (c as { entityId?: string }).entityId !== own });
   }
 
-  /** Set the selected entity (drives the gizmo + the zone overlay handle). */
+  /** Set the selected entity (drives the gizmo + the selection's helper handles). */
   setSelected(id: string | null, mode: GizmoMode = this.gizmoMode): void {
     if (this.selectedId !== id) this.copySel = null;
     this.selectedId = id;
@@ -1779,7 +1735,7 @@ export class Viewport {
       this.gizmo.detach();
       this.gizmoTargetId = null;
     }
-    this.zones.setSelected(id);
+    this.helpers.setSelected(id);
     this.render();
   }
 
@@ -1870,7 +1826,7 @@ export class Viewport {
     // Phase 14.0: the player's capsule outline selects the player (before
     // whatever model is drawn over it); inside the outline it does when
     // nothing else is hit.
-    const capsule = this.zones.capsuleAt(clientX, clientY);
+    const capsule = this.helpers.capsuleAt(clientX, clientY);
     const capsuleId = capsule !== null && (this.hierarchyFlags.get(capsule.entityId) === undefined || (this.hierarchyFlags.get(capsule.entityId)!.active && !this.hierarchyFlags.get(capsule.entityId)!.locked)) ? capsule.entityId : null;
     if (capsuleId !== null && capsule!.onOutline) return capsuleId;
     const hit = this.pickMesh(clientX, clientY);
@@ -1915,7 +1871,7 @@ export class Viewport {
   }
 
   private bindCanvasEvents(): void {
-    // Capture phase: the zone overlay routes before the orbit/gizmo controls.
+    // Capture phase: the handle grips route before the orbit/gizmo controls.
     this.root.addEventListener('pointerdown', this.onPointerDown, { capture: true });
     this.root.addEventListener('pointermove', this.onPointerMove, { capture: true });
     this.root.addEventListener('pointerup', this.onPointerUp, { capture: true });
@@ -1950,18 +1906,18 @@ export class Viewport {
       return;
     }
     // Phase 15.2: a handle grip of the selected entity: Alt+click deletes a corner/point, a drag edits (one command on release).
-    const grip = this.zones.activeTool === null ? this.zones.pickHandle(e.clientX, e.clientY) : null;
+    const grip = this.helpers.pickHandle(e.clientX, e.clientY);
     if (grip !== null) {
       e.stopImmediatePropagation();
       // A press on a grip is never a click that picks (or deselects) what is under it.
       this.downAt = null;
       if (e.altKey && grip.role === 'vertex') {
-        const del = this.zones.deleteHandlePoint(grip);
+        const del = this.helpers.deleteHandlePoint(grip);
         if (!del.ok) this.cb.onHandleRefused?.(del.message);
         else this.commitHandle(del.shape);
         return;
       }
-      if (!this.zones.beginHandleDrag(grip)) return;
+      if (!this.helpers.beginHandleDrag(grip)) return;
       this.handleDragging = true;
       this.orbit.enabled = false;
       this.root.setPointerCapture(e.pointerId);
@@ -1969,7 +1925,7 @@ export class Viewport {
       return;
     }
     // Phase 15.2: the brush paints copies onto the selected instance set (not while the gizmo is under the pointer).
-    if (this.brush !== null && this.brush === this.selectedId && this.zones.activeTool === null && this.gizmo.axis === null) {
+    if (this.brush !== null && this.brush === this.selectedId && this.gizmo.axis === null) {
       e.stopImmediatePropagation();
       const dots = new THREE.Group();
       this.scene.add(dots);
@@ -1978,18 +1934,6 @@ export class Viewport {
       this.root.setPointerCapture(e.pointerId);
       this.brushAt(e.clientX, e.clientY);
       return;
-    }
-    // M3 (packet 56): a consumed pointer down drives a zone gesture
-    // (create/move/resize) and skips orbit/gizmo/pick.
-    const zoneDown = this.zones.pointerDown(e.clientX, e.clientY);
-    if (zoneDown.consumed) {
-      e.stopImmediatePropagation();
-      this.draggingZone = true;
-      this.orbit.enabled = false;
-      this.root.setPointerCapture(e.pointerId);
-      const g = zoneDown.gesture;
-      if (g.kind !== 'create') this.cb.onPick(g.entityId);
-      this.cb.onZoneGestureBegin(g);
     }
   };
 
@@ -2049,21 +1993,13 @@ export class Viewport {
     }
     if (this.handleDragging) {
       e.stopImmediatePropagation();
-      this.zones.moveHandleDrag(e.clientX, e.clientY, this.snapping());
+      this.helpers.moveHandleDrag(e.clientX, e.clientY, this.snapping());
       this.requestRender();
       return;
     }
     if (this.brushStroke !== null) {
       e.stopImmediatePropagation();
       this.brushAt(e.clientX, e.clientY);
-      return;
-    }
-    if (this.draggingZone) {
-      e.stopImmediatePropagation();
-      // The frame carries the pointer's game-plane WORLD hit (zero commands
-      // during the drag).
-      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
-      if (hit) this.cb.onZoneGestureFrame(hit);
       return;
     }
     if (this.draggingGizmo) this.applySnapping();
@@ -2081,7 +2017,7 @@ export class Viewport {
       e.stopImmediatePropagation();
       this.handleDragging = false;
       this.orbit.enabled = true;
-      const shape = this.zones.endHandleDrag();
+      const shape = this.helpers.endHandleDrag();
       this.requestRender();
       if (shape !== null) this.commitHandle(shape);
       return;
@@ -2090,15 +2026,6 @@ export class Viewport {
       e.stopImmediatePropagation();
       this.orbit.enabled = true;
       this.endBrush(false);
-      return;
-    }
-    if (this.draggingZone) {
-      e.stopImmediatePropagation();
-      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
-      this.draggingZone = false;
-      this.orbit.enabled = true;
-      this.zones.pointerUp();
-      if (hit) this.cb.onZoneGestureEnd(hit);
       return;
     }
     // A left click (no drag, not on a gizmo handle) picks or deselects.
@@ -2128,7 +2055,7 @@ export class Viewport {
 
   /** The component descriptors: the handles (and, phase 24.5, the objects' icons) come from them. */
   setDescriptors(reg: DescriptorRegistry | null): void {
-    this.zones.setHandleSources(reg, (id) => this.meshes.get(id) ?? null);
+    this.helpers.setHandleSources(reg, (id) => this.meshes.get(id) ?? null);
     this.iconTable = iconTableOf(reg);
     for (const e of this.projected) {
       const m = this.meshes.get(e.id);
@@ -2139,7 +2066,7 @@ export class Viewport {
 
   /** Phase 23.2: the project's physics dimension (handles of the other dimension are not shown). */
   setPhysicsDimension(dimension: 2 | 3): void {
-    this.zones.setPhysicsDimension(dimension);
+    this.helpers.setPhysicsDimension(dimension);
     this.requestRender();
   }
 
@@ -2422,7 +2349,7 @@ export class Viewport {
       this.disposeMesh(m);
     }
     this.meshes.clear();
-    this.zones.dispose();
+    this.helpers.dispose();
     this.unbindCanvasEvents();
     window.removeEventListener('resize', this.onWindowResize);
     this.gizmo.detach();

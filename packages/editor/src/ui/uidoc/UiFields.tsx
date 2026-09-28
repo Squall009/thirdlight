@@ -320,7 +320,7 @@ export function StyleMapEditor(p: {
 // ---------------------------------------------------------------------------
 
 // Phase 24.4j: + open (a game shell screen) and nextScene (the shell's scene list).
-const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
+const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
 const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 // Phase 23.16: + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
 const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play', 'dialogue'] as const;

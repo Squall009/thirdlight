@@ -1,8 +1,8 @@
 /**
- * Packet 45 — implementation-level tests for the pure v3 game/presentation
+ * Packet 45 — implementation-level tests for the pure v3 presentation
  * command surface (commands.md §§2/3.1/5.3/5.4/8.5.1/8.10/8.13–8.14).
  *
- * Covers: creation of every new component kind, illegal deletion/reference,
+ * Covers: creation of the add-capable component kinds, component removal,
  * invalid reimport role/kind, no-change, exact inverse and redo IDs, stale
  * request ordering, failed-atomic-edit (no partial write), mixed UI/MCP
  * history, copied surface presets staying independent, the reusable
@@ -22,7 +22,7 @@ import {
   ERROR_CODES,
 } from './index';
 import type { CommandState, ContentDocument, MutationSuccess } from './index';
-import { m3ContractJson } from './test-fixtures';
+import { m3NeutralJson } from './test-fixtures';
 
 interface EnvelopeFixture {
   projectId: string;
@@ -30,9 +30,9 @@ interface EnvelopeFixture {
   content: ContentDocument;
 }
 
-const BEFORE = m3ContractJson<EnvelopeFixture>('commands/scenario.before.json');
-const AFTER = m3ContractJson<EnvelopeFixture>('commands/scenario.after.json');
-const MEDIA = m3ContractJson<EnvelopeFixture>('envelope/valid/demo-0003-media-v3.json');
+const BEFORE = m3NeutralJson<EnvelopeFixture>('commands/scenario.before.json');
+const AFTER = m3NeutralJson<EnvelopeFixture>('commands/scenario.after.json');
+const MEDIA = m3NeutralJson<EnvelopeFixture>('envelope/valid/demo-0003-media-v3.json');
 
 type State = CommandState<SceneV3>;
 
@@ -81,7 +81,6 @@ function nextState(state: State, request: unknown): State {
 describe('createEntity with v3 components (authoring §A3.1/§A4.1)', () => {
   it('creates each add-capable component kind with the derived ID prefix', () => {
     const cases: Array<{ components: Record<string, unknown>; kind: string; id: string }> = [
-      { kind: 'group', components: { gameZone: { role: 'hazard', size: [1, 2] } }, id: 'zone-0002' },
       { kind: 'group', components: { playerSpawn: {} }, id: 'spawn-0002' },
       { kind: 'group', components: { light: { type: 'directional', color: '#ffffff', intensity: 1, direction: [0, -1, 0] } }, id: 'light-0001' },
       { kind: 'box', components: { collider: { shape: { type: 'box', hx: 1, hy: 1 } } }, id: 'box-0002' },
@@ -99,50 +98,20 @@ describe('createEntity with v3 components (authoring §A3.1/§A4.1)', () => {
     }
   });
 
-  it('supports a checkpoint in one transaction and copies a surface preset', () => {
-    const checkpoint = ok(
-      applyMutation(
-        stateOf(BEFORE),
-        req(
-          'createEntity',
-          {
-            kind: 'group',
-            transform: { position: [22, 1, 0] },
-            components: {
-              gameZone: {
-                role: 'checkpoint',
-                size: [2, 2],
-                safeSpawnId: 'spawn-0001',
-                activation: { emissive: '#00c8ff', emissiveIntensity: 1, cueAssetId: null },
-              },
-            },
-          },
-          0,
-        ),
-      ),
-    );
-    expect(checkpoint.createdId).toBe('zone-0002');
+  it('copies a surface preset on create', () => {
     const preset = ok(
-      applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'box', surfacePreset: 'hazard' }, 0)),
+      applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'box', surfacePreset: 'signal-red' }, 0)),
     );
+    expect(preset.change.type).toBe('createEntity');
     if (preset.change.type === 'createEntity') {
-      expect((preset.change.entity.components as unknown as Record<string, unknown>)['surface']).toEqual(SURFACE_PRESETS.hazard);
+      expect((preset.change.entity.components as unknown as Record<string, unknown>)['surface']).toEqual(SURFACE_PRESETS['signal-red']);
     }
   });
 
   it('rejects unknown keys, nullable values, preset/surface coexistence and illegal targets', () => {
     expect(fail(applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components: { nope: {} } }, 0)))).toBe('component_unknown');
     expect(fail(applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components: { light: null } }, 0)))).toBe('field_value');
-    expect(fail(applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'box', surfacePreset: 'hazard', components: { surface: { color: '#ffffff' } } }, 0)))).toBe('field_value');
-    // A `gameZone` on a parented entity is `zone_transform_unsupported`.
-    expect(
-      fail(
-        applyMutation(
-          stateOf(BEFORE),
-          req('createEntity', { kind: 'group', parentId: 'group-0001', components: { gameZone: { role: 'hazard', size: [1, 1] } } }, 0),
-        ),
-      ),
-    ).toBe('zone_transform_unsupported');
+    expect(fail(applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'box', surfacePreset: 'signal-red', components: { surface: { color: '#ffffff' } } }, 0)))).toBe('field_value');
     // A second controller is refused by the composition rule.
     const second = applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components: { controller: {} } }, 0));
     expect(second.ok).toBe(false);
@@ -159,11 +128,6 @@ describe('v3 setComponent add/edit/remove and reference safety', () => {
       ),
     );
     expect(added.change).toMatchObject({ type: 'setComponent', id: 'group-0001', component: 'light', previous: null });
-    // cameraFollow is an edit on the single camera entity (add-capable).
-    const follow = ok(
-      applyMutation(stateOf(BEFORE), req('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { smoothing: 0.5 } }, 0)),
-    );
-    expect(follow.change).toMatchObject({ type: 'setComponent', component: 'cameraFollow', changedFields: ['smoothing'] });
     const surface = ok(
       applyMutation(stateOf(BEFORE), req('setComponent', { entityId: 'box-0001', component: 'surface', value: { color: '#112233' } }, 0)),
     );
@@ -176,49 +140,15 @@ describe('v3 setComponent add/edit/remove and reference safety', () => {
   });
 
   it('removes add-capable components and audits conflicting fields', () => {
-    // Removing the checkpoint zone frees its reference (legal).
-    const removed = ok(applyMutation(stateOf(AFTER), req('setComponent', { entityId: 'zone-0003', component: 'gameZone', value: null }, 7)));
-    expect(removed.change).toMatchObject({ type: 'setComponent', component: 'gameZone', next: null });
+    // Removing a spawn nothing references is legal.
+    const removed = ok(applyMutation(stateOf(AFTER), req('setComponent', { entityId: 'spawn-0002', component: 'playerSpawn', value: null }, 7)));
+    expect(removed.change).toMatchObject({ type: 'setComponent', id: 'spawn-0002', component: 'playerSpawn', next: null });
     // An ambient light may not carry `direction` (model value rule): add one,
     // then try to add the forbidden field in a second edit.
     const ambientState = nextState(stateOf(BEFORE), req('setComponent', { entityId: 'group-0001', component: 'light', value: { type: 'ambient', color: '#404860', intensity: 0.6 } }, 0));
     const bad = applyMutation(ambientState, req('setComponent', { entityId: 'group-0001', component: 'light', value: { direction: [0, -1, 0] } }, 1));
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.result.error.code).toBe('field_value');
-  });
-
-  it('refuses a removal or deletion that would dangle a game/checkpoint reference', () => {
-    const spawn = applyMutation(stateOf(AFTER), req('setComponent', { entityId: 'spawn-0001', component: 'playerSpawn', value: null }, 7));
-    expect(spawn.ok).toBe(false);
-    if (!spawn.ok) {
-      expect(JSON.stringify(spawn.result.error)).toContain('game_reference_in_use');
-    }
-    const controller = applyMutation(stateOf(AFTER), req('setComponent', { entityId: 'group-0001', component: 'controller', value: null }, 7));
-    expect(controller.ok).toBe(false);
-    if (!controller.ok) expect(JSON.stringify(controller.result.error)).toContain('/game/playerId');
-    const follow = applyMutation(stateOf(AFTER), req('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: null }, 7));
-    expect(follow.ok).toBe(false);
-    if (!follow.ok) expect(JSON.stringify(follow.result.error)).toContain('/game/cameraId');
-    // A component that owns no game reference may be removed from the
-    // referenced player entity: add a light to it, then remove the light.
-    const lit = nextState(stateOf(AFTER), req('setComponent', { entityId: 'group-0001', component: 'light', value: { type: 'ambient', color: '#101010', intensity: 0.5 } }, 7));
-    expect(ok(applyMutation(lit, req('setComponent', { entityId: 'group-0001', component: 'light', value: null }, 8))).change).toMatchObject({
-      type: 'setComponent',
-      component: 'light',
-      next: null,
-    });
-    const deleted = applyMutation(stateOf(AFTER), req('deleteEntity', { entityId: 'spawn-0001' }, 7));
-    expect(deleted.ok).toBe(false);
-    if (!deleted.ok) expect(deleted.result.error.code).toBe('game_reference_in_use');
-    // Deleting the goal zone leaves content.game without a goal.
-    const goal = applyMutation(stateOf(AFTER), req('deleteEntity', { entityId: 'zone-0001' }, 7));
-    expect(goal.ok).toBe(false);
-    if (!goal.ok) expect(goal.result.error.code).toBe('zone_goal_missing');
-    // Deleting the checkpoint is legal.
-    expect(ok(applyMutation(stateOf(AFTER), req('deleteEntity', { entityId: 'zone-0003' }, 7))).change).toMatchObject({
-      type: 'deleteEntity',
-      rootId: 'zone-0003',
-    });
   });
 
   it('validates the animation role stages against the named version', () => {
@@ -247,23 +177,23 @@ describe('v3 setComponent add/edit/remove and reference safety', () => {
 describe('applySurfacePreset (commands.md §8.13)', () => {
   it('copies the frozen row, keeps copies independent and re-applies the recorded value on redo', () => {
     let state = stateOf(BEFORE);
-    const applied = ok(applyMutation(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'hazard' }, 0)));
+    const applied = ok(applyMutation(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'signal-red' }, 0)));
     expect(applied.change).toEqual({
       type: 'applySurfacePreset',
       id: 'box-0001',
-      preset: 'hazard',
+      preset: 'signal-red',
       previous: null,
-      next: SURFACE_PRESETS.hazard,
+      next: SURFACE_PRESETS['signal-red'],
       changedFields: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
     });
-    state = nextState(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'hazard' }, 0));
+    state = nextState(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'signal-red' }, 0));
     // A second entity's copy is independent.
-    const second = ok(applyMutation(state, req('createEntity', { kind: 'box', surfacePreset: 'beacon' }, 1)));
+    const second = ok(applyMutation(state, req('createEntity', { kind: 'box', surfacePreset: 'emissive-accent' }, 1)));
     if (second.change.type === 'createEntity') {
-      expect((second.change.entity.components as unknown as Record<string, unknown>)['surface']).toEqual(SURFACE_PRESETS.beacon);
+      expect((second.change.entity.components as unknown as Record<string, unknown>)['surface']).toEqual(SURFACE_PRESETS['emissive-accent']);
     }
     // Editing one entity's surface leaves the other and the constant untouched.
-    const afterCreate = nextState(state, req('createEntity', { kind: 'box', surfacePreset: 'beacon' }, 1));
+    const afterCreate = nextState(state, req('createEntity', { kind: 'box', surfacePreset: 'emissive-accent' }, 1));
     const edited = applyMutation(afterCreate, req('setComponent', { entityId: second.createdId as string, component: 'surface', value: { color: '#000001' } }, 2));
     expect(edited.ok).toBe(true);
     if (!edited.ok) throw new Error('unreachable');
@@ -272,67 +202,29 @@ describe('applySurfacePreset (commands.md §8.13)', () => {
       components: Record<string, unknown>;
     }[];
     const first = entities.find((e) => e.id === 'box-0001')!.components['surface'];
-    expect(first).toEqual(SURFACE_PRESETS.hazard);
-    expect(SURFACE_PRESETS.hazard.color).toBe('#d42a1e');
+    expect(first).toEqual(SURFACE_PRESETS['signal-red']);
+    expect(SURFACE_PRESETS['signal-red'].color).toBe('#d42a1e');
     // Undo/redo round-trip with the exact inverse.
     const undo = ok(applyMutation(state, req('undo', {}, 1)));
     expect(undo.change).toMatchObject({ type: 'setComponent', component: 'surface', next: null });
     const redo = ok(applyMutation(nextState(state, req('undo', {}, 1)), req('redo', {}, 2)));
-    expect(redo.change).toMatchObject({ type: 'applySurfacePreset', next: SURFACE_PRESETS.hazard });
-    expect(fail(applyMutation(stateOf(BEFORE), req('applySurfacePreset', { entityId: 'group-0001', preset: 'hazard' }, 0)))).toBe('component_missing');
+    expect(redo.change).toMatchObject({ type: 'applySurfacePreset', next: SURFACE_PRESETS['signal-red'] });
+    expect(fail(applyMutation(stateOf(BEFORE), req('applySurfacePreset', { entityId: 'group-0001', preset: 'signal-red' }, 0)))).toBe('component_missing');
     expect(fail(applyMutation(stateOf(BEFORE), req('applySurfacePreset', { entityId: 'box-0001', preset: 'nope' }, 0)))).toBe('field_value');
   });
 });
 
-describe('setGameConfig and queryGameConfig (commands.md §8.14/§A6)', () => {
-  const COMPLETE = {
-    configVersion: 1,
-    title: 'Beacon Reach',
-    objective: 'Reach the beacon',
-    instructions: 'Move and jump.',
-    playerId: 'group-0001',
-    cameraId: 'cam-main',
-    spawnId: 'spawn-0001',
-    level: { minX: 0, maxX: 48, minY: -4, maxY: 8 },
-    killY: -4,
-    cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
-  };
-
-  it('creates, partially edits and removes the block with exact change data', () => {
-    const created = ok(applyMutation(stateOf(BEFORE), req('setGameConfig', { game: COMPLETE }, 0)));
-    expect(created.change).toEqual({
-      type: 'setGameConfig',
-      previous: null,
-      next: COMPLETE,
-      changedFields: ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'level', 'killY', 'cues'],
-    });
-    const state = nextState(stateOf(BEFORE), req('setGameConfig', { game: COMPLETE }, 0));
-    const edited = ok(applyMutation(state, req('setGameConfig', { game: { title: 'Renamed' } }, 1)));
-    expect(edited.change).toMatchObject({ type: 'setGameConfig', changedFields: ['title'] });
-    const editedState = nextState(state, req('setGameConfig', { game: { title: 'Renamed' } }, 1));
-    const removed = ok(applyMutation(editedState, req('setGameConfig', { game: null }, 2)));
-    expect(removed.change).toMatchObject({ type: 'setGameConfig', next: null });
-    expect(nextState(editedState, req('setGameConfig', { game: null }, 2)).content?.game).toBeNull();
-  });
-
-  it('rejects partial creates, empty and unknown edits, and unresolved references', () => {
-    expect(fail(applyMutation(stateOf(BEFORE), req('setGameConfig', { game: { title: 'x' } }, 0)))).toBe('field_missing');
-    expect(fail(applyMutation(stateOf(AFTER), req('setGameConfig', { game: {} }, 7)))).toBe('field_value');
-    expect(fail(applyMutation(stateOf(AFTER), req('setGameConfig', { game: { nope: 1 } }, 7)))).toBe('field_unexpected');
-    const unresolved = applyMutation(stateOf(BEFORE), req('setGameConfig', { game: { ...COMPLETE, spawnId: 'spawn-0009' } }, 0));
-    expect(unresolved.ok).toBe(false);
-    if (!unresolved.ok) expect(unresolved.result.error.code).toBe('game_reference_missing');
-  });
-
-  it('reads the block through queryGameConfig and reports it in the content counts', () => {
+describe('queryGameConfig and the content counts (commands.md §A6)', () => {
+  it('queryGameConfig reports the tags (no game block); the counts report spawns and audio assets', () => {
     const state = stateOf(AFTER);
     const q = queryGameConfig(state, { op: 'queryGameConfig', projectId: BEFORE.projectId, args: {} });
     expect(q.ok).toBe(true);
-    if (q.ok) expect(q.game).toEqual(AFTER.content.game);
-    const empty = queryGameConfig(stateOf(BEFORE), { op: 'queryGameConfig', projectId: BEFORE.projectId, args: {} });
-    if (empty.ok) expect(empty.game).toBeNull();
-    const counts = contentCounts(state);
-    expect(counts).toMatchObject({ game: true, zones: 3, spawns: 2, audioAssets: 0 });
+    if (q.ok) {
+      expect(q.tags).toEqual([]);
+      expect(q.revision).toBe(7);
+      expect('game' in q).toBe(false);
+    }
+    expect(contentCounts(state)).toEqual({ assets: 0, prefabs: 0, behaviors: 0, settingsKeys: 0, audioAssets: 0, spawns: 2 });
   });
 });
 
@@ -478,8 +370,8 @@ describe('engine invariants (packet 45)', () => {
     const sceneBefore = JSON.stringify(state.scene);
     const contentBefore = JSON.stringify(state.content);
     const depthsBefore = JSON.stringify(state.history);
-    expect(fail(applyMutation(state, req('applySurfacePreset', { entityId: 'nope', preset: 'hazard' }, 7)))).toBe('entity_not_found');
-    expect(fail(applyMutation(state, req('setGameConfig', { game: { playerId: 'missing' } }, 7)))).toBe('game_reference_missing');
+    expect(fail(applyMutation(state, req('applySurfacePreset', { entityId: 'nope', preset: 'signal-red' }, 7)))).toBe('entity_not_found');
+    expect(fail(applyMutation(state, req('setComponent', { entityId: 'box-0001', component: 'surface', value: { color: 'not-a-colour' } }, 7)))).toBe('field_value');
     expect(JSON.stringify(state.scene)).toBe(sceneBefore);
     expect(JSON.stringify(state.content)).toBe(contentBefore);
     expect(JSON.stringify(state.history)).toBe(depthsBefore);
@@ -487,8 +379,8 @@ describe('engine invariants (packet 45)', () => {
 
   it('records mixed browser/MCP origins and reports the applied origin', () => {
     let state = stateOf(BEFORE);
-    state = nextState(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'hazard' }, 0, { kind: 'browser', clientId: 'browser-1' }));
-    const mcp = applyMutation(state, req('setGameConfig', { game: { title: 't', objective: 'o', instructions: 'i', playerId: 'group-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', level: { minX: 0, maxX: 1, minY: 0, maxY: 1 }, killY: -1, cues: { start: null, jump: null, checkpoint: null, death: null, goal: null }, configVersion: 1 } as unknown as Record<string, unknown> }, 1, { kind: 'mcp', clientId: 'mcp-1' }));
+    state = nextState(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'signal-red' }, 0, { kind: 'browser', clientId: 'browser-1' }));
+    const mcp = applyMutation(state, req('setComponent', { entityId: 'group-0001', component: 'light', value: { type: 'ambient', color: '#404860', intensity: 0.6 } }, 1, { kind: 'mcp', clientId: 'mcp-1' }));
     if (!mcp.ok) throw new Error(`expected success, got ${JSON.stringify(mcp.result)}`);
     state = mcp.state as State;
     const undo = ok(applyMutation(state, req('undo', {}, 2)));
@@ -517,9 +409,9 @@ describe('engine invariants (packet 45)', () => {
 
   it('filters queryEntities by component and rejects unknown names', () => {
     const entities = stateOf(BEFORE).scene.entities as unknown as { components: Record<string, unknown> }[];
-    const zones = filterEntitiesByComponent(entities, 'gameZone');
-    expect(zones.ok).toBe(true);
-    if (zones.ok) expect(zones.entities.map((e) => (e as { id?: string }).id)).toEqual(['zone-0001']);
+    const bodies = filterEntitiesByComponent(entities, 'collider');
+    expect(bodies.ok).toBe(true);
+    if (bodies.ok) expect(bodies.entities.map((e) => (e as { id?: string }).id)).toEqual(['box-0001']);
     const spawns = filterEntitiesByComponent(entities, 'playerSpawn');
     if (spawns.ok) expect(spawns.entities.length).toBe(1);
     const bad = filterEntitiesByComponent(entities, 'nope');
@@ -530,26 +422,11 @@ describe('engine invariants (packet 45)', () => {
   });
 
   it('exposes every contract failure code in ERROR_CODES (reachable set)', () => {
-    const fixtureCodes = ['game_reference_in_use', 'component_missing', 'field_value', 'field_unexpected', 'field_missing', 'revision_conflict', 'no_change'];
+    const fixtureCodes = ['component_missing', 'field_value', 'field_unexpected', 'field_missing', 'revision_conflict', 'no_change'];
     for (const code of fixtureCodes) expect(ERROR_CODES as readonly string[]).toContain(code);
-    const v3Codes = ['game_reference_missing', 'zone_transform_unsupported', 'spawn_transform_unsupported', 'zone_checkpoint_count_invalid', 'zone_goal_missing', 'asset_kind_mismatch', 'game_config_invalid', 'animation_role_out_of_range', 'animation_role_duplicate'];
+    const v3Codes = ['spawn_transform_unsupported', 'asset_kind_mismatch', 'animation_role_out_of_range', 'animation_role_duplicate'];
     for (const code of v3Codes) expect(ERROR_CODES as readonly string[]).toContain(code);
-    // Reachability spot-checks for codes the fixture set does not exercise:
-    // an unresolvable cue asset is a game_reference_missing.
-    const cue = applyMutation(stateOf(BEFORE), req('setGameConfig', { game: { configVersion: 1, title: 'T', objective: 'O', instructions: 'I', playerId: 'group-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', level: { minX: 0, maxX: 1, minY: 0, maxY: 1 }, killY: -1, cues: { start: 'asset-missing', jump: null, checkpoint: null, death: null, goal: null } } }, 0));
-    expect(cue.ok).toBe(false);
-    // §23.5 rule 9: an unresolvable cue asset is an asset reference failure.
-    if (!cue.ok) expect(cue.result.error.code).toBe('asset_reference_missing');
-    // An unresolvable entity role is `game_reference_missing`.
-    const role = applyMutation(stateOf(BEFORE), req('setGameConfig', { game: { configVersion: 1, title: 'T', objective: 'O', instructions: 'I', playerId: 'group-0001', cameraId: 'cam-9999', spawnId: 'spawn-0001', level: { minX: 0, maxX: 1, minY: 0, maxY: 1 }, killY: -1, cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } } }, 0));
-    expect(role.ok).toBe(false);
-    if (!role.ok) expect(role.result.error.code).toBe('game_reference_missing');
     // A spawn on a parented entity is `spawn_transform_unsupported`.
     expect(fail(applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', parentId: 'group-0001', components: { playerSpawn: {} } }, 0)))).toBe('spawn_transform_unsupported');
-    // A second checkpoint is `zone_checkpoint_count_invalid` (the scenario
-    // state already carries one).
-    expect(fail(applyMutation(stateOf(AFTER), req('createEntity', { kind: 'group', components: { gameZone: { role: 'checkpoint', size: [1, 1], safeSpawnId: 'spawn-0001', activation: { emissive: '#00c8ff', emissiveIntensity: 1, cueAssetId: null } } } }, 7)))).toBe('zone_checkpoint_count_invalid');
-    // A non-null game with no goal zone is `zone_goal_missing`.
-    expect(fail(applyMutation(stateOf(AFTER), req('deleteEntity', { entityId: 'zone-0001' }, 7)))).toBe('zone_goal_missing');
   });
 });

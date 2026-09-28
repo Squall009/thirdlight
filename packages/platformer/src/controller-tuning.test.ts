@@ -33,7 +33,7 @@ function run(tuningSource: unknown, hz: number, frames: { moveX: number; jump: A
   const client: PhysicsStepClient = { stageCharacterMove: (_id, d) => (staged = { x: d.x, y: d.y }), characterResult: () => undefined };
   frames.forEach((f, i) => {
     state.prevResult = ground(f.grounded);
-    controllerStep(state, 'char', { stepIndex: i, moveX: f.moveX, jump: f.jump }, SETTINGS, 1 / hz, COS_MAX, COS_MIN, TAN_MIN, client, undefined, tuning);
+    controllerStep(state, 'char', { stepIndex: i, moveX: f.moveX, jump: f.jump }, SETTINGS, 1 / hz, COS_MAX, COS_MIN, TAN_MIN, client, tuning);
     out.push({ vx: state.vx, vy: state.vy, dy: staged.y });
   });
   return out;

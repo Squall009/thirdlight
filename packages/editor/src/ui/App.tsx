@@ -21,7 +21,7 @@ import { resetLayout, useDockSizes } from './layout';
 import { MenuBar, type Menu, type MenuEntry, type MenuItem } from './MenuBar';
 import { Dialog } from './Dialog';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
-import { mergeDocumentEdit } from '../session/own-commands';
+import { mergeDocumentEdit, mergeListEdit } from '../session/own-commands';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
 import { draggedRoots, effectiveFlagsOf, subtreeOrder } from '../session/hierarchy';
@@ -70,22 +70,19 @@ import {
   type BehaviorPublicationState,
 } from '../session/behavior-publication';
 import { Gesture, type Transform } from '../session/gesture';
-import { ZoneGesture, type ZoneCommit } from '../session/zone-gesture';
 import { fitCapsule } from '../session/size-handles';
 import { maxPolygonCorners } from '../session/handles';
 import { boxFromBounds3D, boxFromOutline, polygonFromOutline } from '../session/outline';
 import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../session/instance-copies';
-import type { GameConfigLike } from '../session/gameplay';
-import type { ZonePose } from '../session/zone-gesture';
 import { Viewport } from '../viewport/viewport';
 import { iconTableOf } from '../viewport/icons';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { TimelineAsset } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -100,7 +97,6 @@ import { AnimatorPanel, type AnimatorPanelProps, type AnimatorPreview } from './
 import { AnimatorInspector } from './animator/AnimatorInspector';
 import { ClipsForField } from './ClipsForField';
 import { InputPanel } from './InputPanel';
-import { FlowPanel } from './FlowPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel, type BehaviorPanelProps } from './BehaviorPanel';
@@ -176,60 +172,6 @@ function commandError(res: { response: MutationResponse }): GameplayBackendError
   const r = res.response;
   if (r.ok) return { code: 'unexpected_response', message: 'unexpected response shape' };
   return { code: r.code, message: r.message ?? r.code };
-}
-
-/**
- * M3 (packet 56): issue a zone gesture's single commit command (the gesture
- * DECIDED it; this issues it + the bounded conflict rebase for a move).
- * Returns the outcome — the caller owns the UI state (error surfacing, tool
- * clearing, undo enablement).
- */
-async function issueZoneCommand(
-  client: SessionClient,
-  gesture: ZoneGesture,
-  command: ZoneCommit,
-): Promise<{ ok: true } | { ok: false; error: GameplayBackendError }> {
-  if (command.op === 'createEntity') {
-    const res = await client.createGameEntity(command.args as unknown as Record<string, unknown>, gesture.expectedRevision);
-    if (res.ok) return { ok: true };
-    return { ok: false, error: commandError(res) };
-  }
-  if (command.op === 'setTransform') {
-    const res = await client.command('setTransform', { entityId: command.entityId, transform: command.args.transform }, gesture.expectedRevision);
-    if (res.ok) return { ok: true };
-    if (res.response.ok === false && res.response.code === 'revision_conflict') {
-      const retried = gesture.handleResult(
-        { ok: false, code: 'revision_conflict', currentRevision: res.response.currentRevision ?? 0 },
-        () => {
-          const e = client.projection.getEntity(command.entityId);
-          return e
-            ? { position: [e.position[0] ?? 0, e.position[1] ?? 0, e.position[2] ?? 0], size: [e.gameZone?.size[0] ?? 1, e.gameZone?.size[1] ?? 1] }
-            : { position: [0, 0, 0], size: [1, 1] };
-        },
-      );
-      if (retried.kind === 'commit') {
-        const cmd = retried.command;
-        if (cmd.op !== 'setTransform') {
-          return { ok: false, error: { code: 'unexpected_command', message: 'the zone gesture decided an unexpected command' } };
-        }
-        const r2 = await client.command('setTransform', { entityId: cmd.entityId, transform: cmd.args.transform }, gesture.expectedRevision);
-        if (r2.ok) return { ok: true };
-        return { ok: false, error: commandError(r2) };
-      }
-      if (retried.kind === 'conflict') {
-        return {
-          ok: false,
-          error: { code: 'revision_conflict', message: `the zone moved while you were dragging (the scene is now at revision ${retried.conflict.currentRevision}) — the edit was not applied; try again` },
-        };
-      }
-      return { ok: false, error: { code: 'revision_conflict', message: 'the zone edit was rebased but no change remained to apply' } };
-    }
-    return { ok: false, error: commandError(res) };
-  }
-  // resize: one `setComponent(gameZone, { size })`.
-  const res = await client.setComponent(command.entityId, 'gameZone', command.args.value, gesture.expectedRevision);
-  if (res.ok) return { ok: true };
-  return { ok: false, error: commandError(res) };
 }
 
 /** The capture preflight view of one projected entity (packet 28). */
@@ -535,7 +477,6 @@ function EditorApp(): JSX.Element {
   }, [playing, playInfo, playDiagnostics]);
   // ---- packet 56: M3 gameplay authoring (game config / camera / settings) ---
   const [gameplayError, setGameplayError] = useState<GameplayBackendError | null>(null);
-  const [gameConfig, setGameConfig] = useState<GameConfigLike | null>(null);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   /** Phase 12 (b): the project tag registry and the last setTags error. */
   const [tags, setTags] = useState<{ bit: number; name: string }[]>([]);
@@ -580,8 +521,6 @@ function EditorApp(): JSX.Element {
       window.clearInterval(timer);
     };
   }, [playing, playInfo, playDiagnostics, modes.length]);
-
-  const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number } } | null>(null);
 
   // ---- packet 27: content browser + local snapping -------------------------
   const [assets, setAssets] = useState<AssetView[]>([]);
@@ -637,19 +576,8 @@ function EditorApp(): JSX.Element {
   const [inputConfig, setInputConfig] = useState<InputConfig | null>(null);
   const [inputDefaults, setInputDefaults] = useState<InputConfig>({ actions: [] });
   const [inputError, setInputError] = useState<string | null>(null);
-  // Phase 9.10: the game flow (null = one level, as before).
-  const [flow, setFlow] = useState<GameFlow | null>(null);
-  const [flowError, setFlowError] = useState<string | null>(null);
-  const [flowNote, setFlowNote] = useState<string | null>(null);
-  // Phase 14.4: level looks. The Scene view shows the look of the level the
-  // active scene belongs to (or of the level being edited in the Environment
-  // window) while "level look" is on; the toolbar offers the toggle only when
-  // that level has a look of its own.
-  const [levelLookOn, setLevelLookOn] = useState(true);
-  const levelLookOnRef = useRef(true);
-  const [envLevelId, setEnvLevelId] = useState<string | null>(null);
-  const envLevelIdRef = useRef<string | null>(null);
-  const [lookLevel, setLookLevel] = useState<{ id: string; name: string } | null>(null);
+  // The note of the editor's own Play control (clearing the Play save).
+  const [playSaveNote, setPlaySaveNote] = useState<string | null>(null);
   // Phase 9.12: the Scene view's helpers (Gizmos menu).
   const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
@@ -806,20 +734,12 @@ function EditorApp(): JSX.Element {
     setCaptureError(null);
   }, [selectedId]);
 
-  /** Phase 14.4: the environment the Scene view shows — the project's, with the look level's own parts over it. */
+  /** Phase 14.4: the environment the Scene view shows (the project's). */
   const applyEnvironmentView = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
     const env = c.getEnvironment();
-    const flowNow = c.getFlow();
-    const active = c.projection.scenes.length > 0 ? c.getSceneView().active : null;
-    const level =
-      (envLevelIdRef.current !== null ? flowNow?.levels.find((l) => l.id === envLevelIdRef.current) : undefined) ??
-      (active !== null ? flowNow?.levels.find((l) => l.scenes.includes(active)) : undefined);
-    const withLook = level?.environment !== undefined ? { id: level.id, name: level.name } : null;
-    setLookLevel((prev) => (prev?.id === withLook?.id && prev?.name === withLook?.name ? prev : withLook));
-    const layer = levelLookOnRef.current && level?.environment !== undefined ? (level.environment as unknown as EnvironmentLayerLike) : null;
-    const shown = layerEnvironment(env as unknown as (EnvironmentLike & { wind?: unknown }) | null, layer);
+    const shown = layerEnvironment(env as unknown as (EnvironmentLike & { wind?: unknown }) | null, null);
     materialLibraryRef.current?.setWind(((shown as { wind?: WindLike } | null)?.wind ?? null) as WindLike | null);
     const envKey = JSON.stringify(shown);
     if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {
@@ -827,11 +747,6 @@ function EditorApp(): JSX.Element {
       viewportRef.current?.setEnvironment(shown === null ? null : (shown as EnvironmentLike), loadTextureRef.current);
     }
   }, []);
-  useEffect(() => {
-    levelLookOnRef.current = levelLookOn;
-    envLevelIdRef.current = envLevelId;
-    applyEnvironmentView();
-  }, [levelLookOn, envLevelId, applyEnvironmentView]);
 
   // Phase 21.4: a refresh after every applied change must not hand React new
   // objects for what did not change — every panel keyed on them would redraw
@@ -869,10 +784,9 @@ function EditorApp(): JSX.Element {
     setPrefabSummaries(stable('prefabSummaries', c.prefabs.listSummaries()));
     setDeclarations(stable('declarations', c.prefabs.declarationMap()));
     setBehaviorViews(stable('behaviorViews', [...c.prefabs.listDeclarations()]));
-    // M3 (packet 56): the game block + settings map converge from the client
-    // state (full states + the applied change records — the backend stays
-    // the sole authority).
-    setGameConfig(stable('gameConfig', c.getGameConfig()));
+    // M3 (packet 56): the settings map converges from the client state (full
+    // states + the applied change records — the backend stays the sole
+    // authority).
     setRegistry(c.getDescriptors());
     setSettings(stable('settings', c.getSettings()));
     setTags(stable('tags', c.getTags()));
@@ -896,7 +810,7 @@ function EditorApp(): JSX.Element {
       // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
       viewportRef.current?.requestRender();
     }
-    // Phase 14.4: the project environment with the look level's own parts (wind included).
+    // Phase 14.4: the project environment (wind included).
     applyEnvironmentView();
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
@@ -911,11 +825,10 @@ function EditorApp(): JSX.Element {
     setUiThemes(c.getUiThemes());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
-    // The graphs arrive with the game block (the same full-state query).
-    setGraphsLoaded(c.getGameConfigLoaded());
+    // The graphs arrive with the content (the same full-state query).
+    setGraphsLoaded(c.getContentLoaded());
     setInputConfig(stable('inputConfig', c.getInput()));
     setInputDefaults(stable('inputDefaults', c.getInputDefaults()));
-    setFlow(stable('flow', c.getFlow()));
     // Phase 9.6: the scenes' bakes (lightmaps in the Scene view with game lighting).
     const lit = c.getLighting();
     const lightingKey = JSON.stringify(lit);
@@ -1042,55 +955,6 @@ function EditorApp(): JSX.Element {
           }
         }
         restore();
-      },
-      // ---- M3 (packet 56): zone gesture routing --------------------------------
-      // The overlay (viewport) reports the pointer's game-plane WORLD hits;
-      // the pure ZoneGesture decides the single commit; the client issues it
-      // (zero commands during the gesture, one on release, none on cancel).
-      // Phase 24.5: zones are no longer placed from the editor (no placement tool is armed); an
-      // existing zone object still moves and resizes here until phase 24.7 removes the component.
-      onZoneGestureBegin: (g) => {
-        setGameplayError(null);
-        if (g.kind === 'create') return;
-        const e = client.projection.getEntity(g.entityId);
-        if (!e) return;
-        zoneGestureRef.current = {
-          gesture: new ZoneGesture(
-            g.kind,
-            client.projection.revision,
-            { position: [e.position[0] ?? 0, e.position[1] ?? 0, e.position[2] ?? 0], size: e.gameZone ? [e.gameZone.size[0], e.gameZone.size[1]] : [1, 1] },
-            { entityId: g.entityId },
-          ),
-          anchor: { x: g.anchor.x, y: g.anchor.y },
-        };
-      },
-      onZoneGestureFrame: (hit) => {
-        const zg = zoneGestureRef.current;
-        if (!zg) return;
-        const pose = zg.gesture.preview({ dx: hit.x - zg.anchor.x, dy: hit.y - zg.anchor.y });
-        viewportRef.current?.previewZonePose(pose);
-      },
-      onZoneGestureEnd: (hit) => {
-        const zg = zoneGestureRef.current;
-        if (!zg) return;
-        zg.gesture.preview({ dx: hit.x - zg.anchor.x, dy: hit.y - zg.anchor.y });
-        const outcome = zg.gesture.decideCommit();
-        zoneGestureRef.current = null;
-        if (outcome.kind !== 'commit') return;
-        void issueZoneCommand(client, zg.gesture, outcome.command).then((r) => {
-          if (r.ok) {
-            refreshEntities();
-            return;
-          }
-          setGameplayError(r.error);
-        });
-      },
-      onZoneGestureCancel: () => {
-        const zg = zoneGestureRef.current;
-        if (zg) zg.gesture.cancel();
-        zoneGestureRef.current = null;
-        // The placement tool stays armed (Esc cancels the GESTURE, not the
-        // tool — the user can try again; the panel's button disarms it).
       },
       // Phase 15.2: a dragged handle (any descriptor handle: sizes, radii, capsules, ranges, cones,
       // directions, paths, polygon corners) — one setComponent on release, one undo step.
@@ -1530,7 +1394,7 @@ function EditorApp(): JSX.Element {
       const r = m as Record<string, unknown>;
       // Phase 9.11: the editor's own requests (clear the Play save) are not the backend's relays.
       if (localRelaysRef.current.delete(String(r.relayId))) {
-        setFlowNote(r.ok === true ? 'The Play save was cleared (restart Play to see the title without Continue).' : 'Clearing the Play save failed.');
+        setPlaySaveNote(r.ok === true ? 'The Play save was cleared (restart Play to start without it).' : 'Clearing the Play save failed.');
         return;
       }
       ack({ type: 'game.control.ack', relayId: r.relayId, ...outcome(r, ['result']) });
@@ -1929,19 +1793,25 @@ function EditorApp(): JSX.Element {
     if (res.ok) setModesError(null);
     else setModesError((res.response as { message?: string }).message ?? 'the behavior groups could not be saved');
   }, []);
-  /** Phase 24.4j: replace the game shell (one setShell command; null removes it). */
-  const saveShell = useCallback(async (next: GameShell | null) => {
+  /**
+   * Phase 24.4j: replace the game shell (one setShell command; null removes it). Phase 24.7 (D40):
+   * the args are built at send time on top of the shell as it is then (an edit made while an earlier
+   * one's result is still on its way keeps both).
+   */
+  const saveShell = useCallback(async (next: GameShell | null, base: GameShell | null) => {
     const c = clientRef.current;
     if (!c) return;
-    const res = await c.command('setShell', { shell: next }, c.projection.revision);
+    const build = (): { shell: GameShell | null } => ({ shell: next === null ? null : (mergeDocumentEdit(base, next, c.getShell()) ?? next) });
+    const res = await c.command('setShell', build, c.projection.revision);
     if (res.ok) setShellError(null);
     else setShellError((res.response as { message?: string }).message ?? 'the game shell could not be saved');
   }, []);
-  /** Phase 24.4i: replace the event → cue table (one setEventCues command). */
-  const saveEventCues = useCallback(async (next: EventCue[]) => {
+  /** Phase 24.4i: replace the event → cue table (one setEventCues command; phase 24.7, D40: built at send time, row by row on the table as it is then). */
+  const saveEventCues = useCallback(async (next: EventCue[], base: EventCue[]) => {
     const c = clientRef.current;
     if (!c) return;
-    const res = await c.command('setEventCues', { cues: next }, c.projection.revision);
+    const build = (): { cues: EventCue[] } => ({ cues: mergeListEdit(base, next, c.getEventCues()) });
+    const res = await c.command('setEventCues', build, c.projection.revision);
     if (res.ok) setEventCuesError(null);
     else setEventCuesError((res.response as { message?: string }).message ?? 'the event sounds could not be saved');
   }, []);
@@ -2103,7 +1973,7 @@ function EditorApp(): JSX.Element {
     const start = {
       ...(f.sceneId !== '' ? { sceneId: f.sceneId } : {}),
       ...(variables !== undefined ? { variables } : {}),
-      ...(f.saveSlot !== '' ? { saveSlot: f.saveSlot as 'auto' | '1' | '2' | '3' } : {}),
+      ...(f.saveSlot !== '' ? { saveSlot: f.saveSlot } : {}),
       // Phase 23.10: the game mode the run starts in.
       ...(f.mode !== '' ? { mode: f.mode } : {}),
     };
@@ -2134,26 +2004,6 @@ function EditorApp(): JSX.Element {
 
   // ---- packet 56: M3 gameplay authoring actions (all delegated to the
   // backend through the ordinary command path; one command per action) ------
-
-  const saveGameConfig = useCallback(
-    async (game: Record<string, unknown> | null) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setGameplayError(null);
-      // An edit of an existing block is a partial patch (only its changed top-level fields), which
-      // is what mergeDocumentEdit would send anyway: built at send time it is rebased over this
-      // editor's own earlier edits, so a quick second edit (title, then a cue) no longer conflicts.
-      // Create (the complete block) and remove keep their revision.
-      const partial = game !== null && c.getGameConfig() !== null;
-      const res = await c.command('setGameConfig', partial ? () => ({ game }) : { game }, c.projection.revision);
-      if (res.ok) {
-        refreshEntities();
-        return;
-      }
-      setGameplayError(commandError(res));
-    },
-    [refreshEntities],
-  );
 
   const saveSettings = useCallback(
     async (settings: Record<string, number>) => {
@@ -2787,40 +2637,6 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     setInputError(refusal(await c.command('setInput', { input }, c.projection.revision)));
   }, []);
-  // The panel's edit was made on `base` (the flow it showed); it is re-applied
-  // onto the flow as it is when the command is sent, so an edit made before
-  // the previous one's result arrived keeps that result (own-commands.ts).
-  const saveFlow = useCallback(async (next: GameFlow | null, base: GameFlow | null) => {
-    const c = clientRef.current;
-    if (!c) return;
-    const build = (): { flow: GameFlow | null } => {
-      const merged = mergeDocumentEdit(base, next, c.getFlow());
-      return { flow: merged === null ? null : (JSON.parse(JSON.stringify(merged)) as GameFlow) };
-    };
-    setFlowError(refusal(await c.command('setFlow', build, c.projection.revision)));
-  }, []);
-  /** Phase 14.4: set or clear one level's look (one `setFlow`, one undo). */
-  const saveLevelLook = useCallback(async (levelId: string, look: LevelEnvironment | null, base: LevelEnvironment | null = null) => {
-    const c = clientRef.current;
-    if (!c || c.getFlow() === null) return;
-    // Built from the flow as it is when the command is sent (after any earlier edit's result).
-    const build = (): { flow: GameFlow | null } => {
-      const current = c.getFlow();
-      if (current === null) return { flow: null };
-      const levels = current.levels.map((l) => {
-        if (l.id !== levelId) return l;
-        const { environment: _e, ...rest } = l;
-        const merged = mergeDocumentEdit(base, look, l.environment ?? null);
-        return merged === null ? rest : { ...rest, environment: merged };
-      });
-      return { flow: JSON.parse(JSON.stringify({ ...current, levels })) as GameFlow };
-    };
-    setMaterialError(refusal(await c.command('setFlow', build, c.projection.revision)));
-  }, []);
-  // The Environment window edits the project environment again once another window is chosen.
-  useEffect(() => {
-    if (bottomTab !== 'environment') setEnvLevelId(null);
-  }, [bottomTab]);
   // Phase 23.16: dialogue commands (one undo step each).
   const dialogueCommand = useCallback(async (op: 'setDialogue' | 'deleteDialogue' | 'setSpeaker' | 'deleteSpeaker' | 'setDialogueSettings', args: Record<string, unknown>): Promise<boolean> => {
     const c = clientRef.current;
@@ -4115,8 +3931,6 @@ function EditorApp(): JSX.Element {
           viewportRef.current?.setLighting(next);
           setLightingMode(next);
         }}
-        {...(lookLevel !== null ? { levelLook: { on: levelLookOn, levelName: lookLevel.name } } : {})}
-        onToggleLevelLook={() => setLevelLookOn((v) => !v)}
         onPlay={() => void play()}
         onPlayFrom={() => {
           setPlayFromForm((f) => ({ ...f, busy: false, error: null }));
@@ -4532,9 +4346,7 @@ function EditorApp(): JSX.Element {
           {bottomTab === 'gameplay' && (
             <GameplayPanel
               entities={entities}
-              gameConfig={gameConfig}
               settings={settings}
-              onSaveGameConfig={(g) => void saveGameConfig(g)}
               onSelectEntity={(id) => setSelection({ ids: [id], primary: id })}
               registry={registry}
               fieldContext={gameFieldContext}
@@ -4564,43 +4376,6 @@ function EditorApp(): JSX.Element {
                 lights: entities.filter((e) => e.light !== undefined).map((e) => ({ id: e.id, type: e.light!.type, color: e.light!.color, intensity: e.light!.intensity, ...(e.light!.direction !== undefined ? { direction: e.light!.direction } : {}), ...(e.light!.groundColor !== undefined ? { groundColor: e.light!.groundColor } : {}) })),
                 onPreview: (weights) => viewportRef.current?.previewEnvironmentBlend(weights === null ? null : { weights }, new Map((clientRef.current?.getTags() ?? []).map((t) => [t.name, t.bit]))),
               }}
-              {...(() => {
-                const l = envLevelId !== null ? flow?.levels.find((x) => x.id === envLevelId) : undefined;
-                return l !== undefined
-                  ? { level: { id: l.id, name: l.name, environment: l.environment ?? null, onSave: (look: LevelEnvironment | null) => void saveLevelLook(l.id, look, l.environment ?? null), onBack: () => setEnvLevelId(null) } }
-                  : {};
-              })()}
-            />
-          )}
-          {bottomTab === 'game' && (
-            <FlowPanel
-              flow={flow}
-              scenes={[...(sceneHeaders ?? []).map((h) => ({ sceneId: h.sceneId, name: h.name, start: h.start, open: true })), ...closedScenes.map((cs) => ({ ...cs, start: false, open: false }))]}
-              spawns={entities.filter((e) => e.playerSpawn === true).map((e) => ({ id: e.id, name: e.name, sceneId: e.sceneId ?? null }))}
-              music={assets.filter((a) => a.kind === 'music').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
-              sounds={assets.filter((a) => a.kind === 'audio').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
-              textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
-              gameSpawnId={gameConfig?.spawnId ?? null}
-              uiDocuments={uiDocuments.map((d) => ({ id: d.uiDocumentId, name: d.name }))}
-              onSave={(next) => void saveFlow(next, flow)}
-              onEditLook={(levelId) => {
-                setEnvLevelId(levelId);
-                setLevelLookOn(true);
-                setBottomTab('environment');
-              }}
-              error={flowError}
-              note={flowNote}
-              onClearPlaySave={
-                playInfo !== null && bridgeRef.current !== null
-                  ? () => {
-                      let hex = '';
-                      for (let i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
-                      const relayId = `relay-${hex}`;
-                      localRelaysRef.current.add(relayId);
-                      bridgeRef.current?.requestGameControl(playInfo.playSessionId, relayId, 'clearSave');
-                    }
-                  : null
-              }
             />
           )}
           {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))} />}
@@ -4625,7 +4400,7 @@ function EditorApp(): JSX.Element {
               />
             )
           )}
-          {bottomTab === 'shell' && <ShellPanel registry={registry} shell={shell} fieldContext={fieldContextMemo} error={shellError} onSetShell={(next) => void saveShell(next)} />}
+          {bottomTab === 'shell' && <ShellPanel registry={registry} shell={shell} fieldContext={fieldContextMemo} error={shellError} onSetShell={(next, base) => void saveShell(next, base)} />}
           {bottomTab === 'modes' && (
             <ModesPanel
               registry={registry}
@@ -4655,7 +4430,25 @@ function EditorApp(): JSX.Element {
               onSetLayers={(next) => void saveCollisionLayers(next)}
             />
           )}
-          {bottomTab === 'saves' && <SavesPanel schema={saveSchema} error={saveSchemaError} onSave={(next) => void saveSaveSchema(next)} />}
+          {bottomTab === 'saves' && (
+            <SavesPanel
+              schema={saveSchema}
+              error={saveSchemaError}
+              onSave={(next) => void saveSaveSchema(next)}
+              note={playSaveNote}
+              onClearPlaySave={
+                playInfo !== null && bridgeRef.current !== null
+                  ? () => {
+                      let hex = '';
+                      for (let i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
+                      const relayId = `relay-${hex}`;
+                      localRelaysRef.current.add(relayId);
+                      bridgeRef.current?.requestGameControl(playInfo.playSessionId, relayId, 'clearSave');
+                    }
+                  : null
+              }
+            />
+          )}
           {bottomTab === 'media' && (
             <MediaPanel
               assets={assets}
@@ -4667,7 +4460,7 @@ function EditorApp(): JSX.Element {
               eventCues={eventCues}
               fieldContext={fieldContextMemo}
               eventCuesError={eventCuesError}
-              onSetEventCues={(next) => void saveEventCues(next)}
+              onSetEventCues={(next, base) => void saveEventCues(next, base)}
             />
           )}
           </div>
@@ -5015,7 +4808,7 @@ function EditorApp(): JSX.Element {
       )}
       {dialog === 'playFrom' && (
         <Dialog title="Play from…" onClose={() => setDialog(null)}>
-          <p>Start Play somewhere other than the game's start: at a scene (a game with levels starts the level that loads it), with script variables (the values the scripts read with ctx.save from the first step), or from a save in one of Play's save slots. MCP's tl_play_start takes the same options.</p>
+          <p>Start Play somewhere other than the game's start: at a scene (with the start scenes, at its first spawn), with script variables (the values the scripts read with ctx.save from the first step), or from one of Play's project save slots (a project with a save schema). MCP's tl_play_start takes the same options.</p>
           <div className="tl-exit">
             <label className="tl-field">
               <span className="tl-field__label">Scene</span>
@@ -5032,16 +4825,19 @@ function EditorApp(): JSX.Element {
               <span className="tl-field__label">Variables (JSON object)</span>
               <textarea className="tl-input" aria-label="play from variables" rows={4} placeholder='{"gold": 100, "chapter": 2}' value={playFromForm.variables} onChange={(e) => setPlayFromForm((f) => ({ ...f, variables: e.target.value, error: null }))} />
             </label>
-            <label className="tl-field">
-              <span className="tl-field__label">Save slot</span>
-              <select className="tl-input" aria-label="play from save slot" value={playFromForm.saveSlot} onChange={(e) => setPlayFromForm((f) => ({ ...f, saveSlot: e.target.value, error: null }))}>
-                <option value="">— none —</option>
-                <option value="auto">Autosave</option>
-                <option value="1">Slot 1</option>
-                <option value="2">Slot 2</option>
-                <option value="3">Slot 3</option>
-              </select>
-            </label>
+            {saveSchema !== null && (
+              <label className="tl-field">
+                <span className="tl-field__label">Save slot</span>
+                <select className="tl-input" aria-label="play from save slot" value={playFromForm.saveSlot} onChange={(e) => setPlayFromForm((f) => ({ ...f, saveSlot: e.target.value, error: null }))}>
+                  <option value="">— none —</option>
+                  {Array.from({ length: Math.max(0, Math.min(99, saveSchema.slots)) }, (_, i) => String(i + 1)).map((n) => (
+                    <option key={n} value={n}>
+                      Slot {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {modes.length > 0 && (
               <label className="tl-field">
                 <span className="tl-field__label">Game mode</span>
@@ -5177,7 +4973,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'dialogue' | 'libraries' | 'modes' | 'shell' | 'ui' | 'problems';
+type BottomTab = 'blocks' | 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'saves' | 'media' | 'graphs' | 'effects' | 'timelines' | 'dialogue' | 'libraries' | 'modes' | 'shell' | 'ui' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -5186,7 +4982,6 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'lighting', label: 'Lighting' },
   { id: 'animator', label: 'Animator' },
   { id: 'input', label: 'Input' },
-  { id: 'game', label: 'Game flow' },
   { id: 'prefabs', label: 'Prefabs' },
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },

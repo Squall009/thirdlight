@@ -1,11 +1,12 @@
 /**
  * Phase 9.9: the gameplay building blocks through the production composition
  * — the real game host, the platformer controller, Rapier physics — on small
- * v4 levels, driven by a scripted input source:
- * pickups count and disappear, an enemy hurts on contact and is stomped from
- * above, a moving platform carries the player, a one-way platform is jumped
- * through from below and stood on, a pressure plate opens a door, a damaging
- * hazard takes health instead of a life.
+ * v4 scenes (every game plays as a scene), driven by a scripted input source:
+ * a moving platform carries the character, a one-way platform is jumped
+ * through from below and stood on, a pressure plate opens a door, a lift
+ * started by a trigger carries the character, a trigger sends its exit
+ * signal, a circle trigger tests the capsule, a face-movement model child
+ * faces where its parent goes, and a scene transition's spawn turns it.
  *
  * Phase 22.0: every case runs in both threading modes — the simulation in
  * the page and in the simulation worker (a Node worker thread running the
@@ -29,14 +30,17 @@ afterEach(async () => {
   for (const h of live.splice(0)) await h.dispose();
 });
 
-/** One level: the player at `spawn`, a long floor, a goal far away, plus `extra` entities. */
-async function makeLevel(mode: Mode, spawn: [number, number], extra: Any[], drive: Drive, playerExtra: Record<string, unknown> = {}, spawnComponent: Record<string, unknown> = {}) {
+/**
+ * One scene: the character at `spawn`, a long floor, plus `extra` entities;
+ * with `second`, a second scene (loaded by a scene transition) holding those
+ * entities.
+ */
+async function makeLevel(mode: Mode, spawn: [number, number], extra: Any[], drive: Drive, second?: Any[]) {
   const entities: Any[] = [
-    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
-    { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller: {}, ...playerExtra } },
-    { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: spawnComponent } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
+    { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller: {} } },
+    { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: {} } },
     { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
-    { id: 'goal-0001', components: { transform: at(38, 1), gameZone: { role: 'goal', size: [1, 2] } } },
     ...extra,
   ];
   const scene = { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities };
@@ -56,15 +60,29 @@ async function makeLevel(mode: Mode, spawn: [number, number], extra: Any[], driv
     markConfirmConsumed: () => undefined,
     dispose: () => undefined,
   };
-  // The sounds the host plays (ctx.audio and pickup cues) are recorded by the harness.
   const h = await startHarness(mode, {
     snapshot: {
       snapshotId: 'blocks@r1',
       projectId: 'blocks',
       revision: 1,
       scene,
-      game: { configVersion: 2, title: 'Blocks', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
+      ...(second !== undefined
+        ? {
+            scenes: [
+              { sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) },
+              { sceneId: 'scene-two', start: false },
+            ],
+          }
+        : {}),
     },
+    ...(second !== undefined
+      ? {
+          loadScene: async (sceneId: string) => {
+            if (sceneId !== 'scene-two') throw new Error('unknown scene');
+            return second;
+          },
+        }
+      : {}),
     settings: SETTINGS,
     physics: {
       character: { x: spawn[0], y: spawn[1] },
@@ -83,63 +101,26 @@ async function makeLevel(mode: Mode, spawn: [number, number], extra: Any[], driv
       await h.tick(now);
     }
   };
-  await tick();
-  const started = rt.gameCommand('start');
-  if (!started.ok) throw new Error(JSON.stringify(started.error));
-  await tick(2);
+  await tick(3);
   const pos = (id: string): [number, number] => {
     const t = rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
     return [t.position[0], t.position[1]];
   };
-  return { rt, tick, pos, sounds: h.sounds, view: () => rt.getGameView().view, counters: () => rt.gameCounters(), hidden: () => rt.hiddenEntities() as ReadonlySet<string> };
+  /** The run failed (a fail-stop) or logged an error. */
+  const failed = (): boolean => {
+    const d = rt.getDiagnostics();
+    return !d.ok || d.diagnostics.failed === true || d.diagnostics.errors.length > 0;
+  };
+  return { rt, tick, pos, failed };
 }
 
 const box = (id: string, x: number, y: number, components: Record<string, unknown>) => ({ id, components: { transform: at(x, y), ...components } });
 
 describe.each(MODES)('threading: %s', (mode) => {
-const level = (spawn: [number, number], extra: Any[], drive: Drive, playerExtra: Record<string, unknown> = {}, spawnComponent: Record<string, unknown> = {}) => makeLevel(mode, spawn, extra, drive, playerExtra, spawnComponent);
+const level = (spawn: [number, number], extra: Any[], drive: Drive, second?: Any[]) => makeLevel(mode, spawn, extra, drive, second);
 
 describe('gameplay blocks (real host, platformer, Rapier)', () => {
-  it('pickups add to counters and disappear; a heart heals', async () => {
-    const L = await level([0, 0.91], [
-      box('coin-0001', 2, 0.9, { pickup: { kind: 'coin', value: 1 } }),
-      box('coin-0002', 3, 0.9, { pickup: { kind: 'coin', value: 1 } }),
-      box('gem-0001', 4, 0.9, { pickup: { kind: 'gem', value: 5 } }),
-      box('key-0001', 5, 0.9, { pickup: { kind: 'custom', counter: 'stars', value: 2 } }),
-    ], () => ({ moveX: 1, jump: 'none' }));
-    await L.tick(180);
-    expect(L.counters().counters).toEqual({ coins: 2, gems: 5, stars: 2 });
-    expect([...L.hidden()].sort()).toEqual(['coin-0001', 'coin-0002', 'gem-0001', 'key-0001']);
-  });
-
-  it('an enemy hurts on contact (health, invulnerability, bounce) and is stomped from above', async () => {
-    const enemy = { patrol: 'points', range: [-0.5, 0.5], speed: 0, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 };
-    // Walk into it: one hit (invulnerable afterwards), health 3 → 2.
-    const walk = await level([0, 0.91], [box('enemy-0001', 3, 0, { enemy })], () => ({ moveX: 1, jump: 'none' }), { health: { max: 3, invulnerableSeconds: 2 } });
-    await walk.tick(90);
-    expect(walk.counters().health).toEqual({ current: 2, max: 3 });
-    expect(walk.view().deathCount).toBe(0);
-    // Drop on it from above: stomped (hidden, counted), the player bounces up.
-    const stomp = await level([3, 3], [box('enemy-0001', 3, 0, { enemy })], () => ({ moveX: 0, jump: 'none' }), { health: { max: 3 } });
-    let peakAfter = -Infinity;
-    let stomped = -1;
-    for (let i = 0; i < 120; i++) {
-      await stomp.tick();
-      if (stomped < 0 && stomp.hidden().has('enemy-0001')) stomped = i;
-      if (stomped >= 0 && i > stomped) peakAfter = Math.max(peakAfter, stomp.pos('player-0001')[1]);
-    }
-    expect(stomped).toBeGreaterThan(0);
-    expect(stomp.counters()).toEqual({ counters: { defeated: 1 }, health: { current: 3, max: 3 } });
-    expect(peakAfter).toBeGreaterThan(2.2); // bounced back up above the enemy's top
-  });
-
-  it('without a health component an enemy touch is a death (as hazards are)', async () => {
-    const L = await level([0, 0.91], [box('enemy-0001', 3, 0, { enemy: { patrol: 'points', range: [-0.5, 0.5], speed: 0, size: [0.8, 0.8], contactDamage: 1, stompable: false, health: 1 } })], () => ({ moveX: 1, jump: 'none' }));
-    await L.tick(90);
-    expect(L.view().deathCount).toBe(1);
-  });
-
-  it('a moving platform carries the player standing on it', async () => {
+  it('a moving platform carries the character standing on it', async () => {
     const platform = box('lift-0001', 10, 1, { box: { size: [2, 0.4, 2], material: { color: '#ffffff' } }, collider: { shape: { type: 'box', hx: 1, hy: 0.2 } }, mover: { waypoints: [[0, 3, 0]], speed: 1, mode: 'once' } });
     const L = await level([10, 2.2], [platform], () => ({ moveX: 0, jump: 'none' }));
     await L.tick(60);
@@ -181,7 +162,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
     expect(L.pos('door-0001')[1]).toBeCloseTo(6, 3); // open
   });
 
-  it('a lift started by a trigger carries a player who walks onto it from a one-way shelf', async () => {
+  it('a lift started by a trigger carries a character who walks onto it from a one-way shelf', async () => {
     // The lift starts rising while the player is still stepping across its
     // edge (walking in short bursts, as a relay drives it): the player is
     // scooped up and carried — not pushed into the lift, not sliding on it.
@@ -198,7 +179,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
         stoppedAt = L.pos('player-0001')[0];
       }
     }
-    expect(L.view().failed).toBe(false);
+    expect(L.failed()).toBe(false);
     expect(L.pos('lift-0001')[1]).toBeCloseTo(2.7, 3);
     const [x, y] = L.pos('player-0001');
     expect(Math.abs(x - stoppedAt)).toBeLessThan(0.1); // no drift while carried
@@ -206,16 +187,8 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
     expect(y).toBeLessThan(2.9 + 0.95);
   });
 
-  it('a damaging hazard takes health; at zero it is a death', async () => {
-    const lava = box('lava-0001', 3, 0.5, { gameZone: { role: 'hazard', size: [1, 1], damage: 1 } });
-    const L = await level([0, 0.91], [lava], () => ({ moveX: 0.5, jump: 'none' }), { health: { max: 2, invulnerableSeconds: 0.5 } });
-    await L.tick(150);
-    expect(L.counters().health!.current).toBeLessThan(2);
-    await L.tick(360);
-    expect(L.view().deathCount).toBeGreaterThanOrEqual(1);
-  });
-
-  it('phase 9.13: a model child faces where its parent goes (the player, a patrolling enemy)', async () => {
+  it('phase 9.13: a model child faces where its parent goes (the character, a patroller)', async () => {
+    // (Phase 24.7: a left/right model reads as a velocity facer, offset yawRight − 90°.)
     const yawOf = (L: Any, id: string): number => {
       const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
       return (2 * Math.atan2(t.rotation[1], t.rotation[3]) * 180) / Math.PI;
@@ -224,8 +197,8 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
       [0, 0.91],
       [
         { id: 'look-0001', parentId: 'player-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } },
-        box('enemy-0001', 12, 0, { enemy: { patrol: 'points', range: [-1, 1], speed: 2, size: [0.8, 0.8], contactDamage: 0, stompable: false, health: 1 } }),
-        { id: 'snout-0001', parentId: 'enemy-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } },
+        box('walker-0001', 12, 0.4, { patrol: { mode: 'waypoints', waypoints: [[1, 0, 0], [-1, 0, 0]], speed: 2 } }),
+        { id: 'snout-0001', parentId: 'walker-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } },
       ],
       (s) => ({ moveX: s < 100 ? 1 : -1, jump: 'none' }),
     );
@@ -233,7 +206,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
     expect(yawOf(L, 'look-0001')).toBeCloseTo(90, 3);
     await L.tick(80);
     expect(yawOf(L, 'look-0001')).toBeCloseTo(-90, 3);
-    // The enemy turns at each end of its patrol: both directions are seen.
+    // The patroller turns at each end of its path: both directions are seen.
     const seen = new Set<number>();
     for (let i = 0; i < 180; i++) {
       await L.tick();
@@ -243,75 +216,56 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
   });
 });
 
-describe('phase 15.2: a spawn says which way the player faces', () => {
+describe('phase 15.2: a spawn says which way the character faces (on arrival)', () => {
+  // Phase 24.7: only an arrival (a scene transition's spawn) applies a spawn's
+  // facing; left/right read as a yaw of ∓90°. The character stands still in a
+  // transition trigger and arrives, from rest, at a spawn in a second scene.
   const yawOf = (L: Any, id: string): number => {
     const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
     return (2 * Math.atan2(t.rotation[1], t.rotation[3]) * 180) / Math.PI;
   };
   const look = { id: 'look-0001', parentId: 'player-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } };
-  const still = () => ({ moveX: 0, jump: 'none' as const });
+  const door = box('door-0001', 0, 1, { trigger: { size: [1, 2], signal: 'through', sceneTransition: { scene: 'scene-two', spawn: 'spawn-two' } } });
+  /** Stand in the transition trigger; arrive at a spawn 6 m to the right carrying `marker`. */
+  const arrive = async (marker: Record<string, unknown>) => {
+    const L = await level([0, 0.91], [look, door], () => ({ moveX: 0, jump: 'none' }), [{ id: 'spawn-two', components: { transform: at(6, 0.91), playerSpawn: marker } }]);
+    let arrived = false;
+    for (let i = 0; i < 400 && !arrived; i++) {
+      await L.tick();
+      arrived = L.pos('player-0001')[0] > 5.9;
+    }
+    expect(arrived, 'arrived at the second scene\'s spawn').toBe(true);
+    expect(L.failed()).toBe(false);
+    return L;
+  };
 
-  it('left or right: the face-movement model starts turned that way (the player stands still)', async () => {
-    const left = await level([0, 0.91], [look], still, {}, { facing: 'left' });
+  it('left or right: the face-movement model is turned that way on arrival (the character stands still)', async () => {
+    const left = await arrive({ facing: 'left' });
     expect(yawOf(left, 'look-0001')).toBeCloseTo(-90, 3);
     await left.tick(30);
     expect(yawOf(left, 'look-0001')).toBeCloseTo(-90, 3);
-    const right = await level([0, 0.91], [look], still, {}, { facing: 'right' });
+    const right = await arrive({ facing: 'right' });
+    expect(yawOf(right, 'look-0001')).toBeCloseTo(90, 3);
+    await right.tick(30);
     expect(yawOf(right, 'look-0001')).toBeCloseTo(90, 3);
   });
 
   it('none (or absent): the model keeps its placed turn', async () => {
-    const none = await level([0, 0.91], [look], still, {}, { facing: 'none' });
+    const none = await arrive({ facing: 'none' });
+    await none.tick(30);
     expect(yawOf(none, 'look-0001')).toBeCloseTo(0, 3);
-    const absent = await level([0, 0.91], [look], still);
+    const absent = await arrive({});
+    await absent.tick(30);
     expect(yawOf(absent, 'look-0001')).toBeCloseTo(0, 3);
   });
 });
 
 describe('gameplay blocks: the 9.9 wrap-up additions', () => {
-  it('a chasing enemy walks toward the player in range; a patrolling one does not', async () => {
-    const enemy = { patrol: 'points', range: [-4, 4], speed: 1, size: [0.8, 0.8], contactDamage: 0, stompable: true, health: 1 };
-    const still = () => ({ moveX: 0, jump: 'none' as const });
-    const chaser = await level([0, 0.91], [box('enemy-0001', 5, 0, { enemy: { ...enemy, chase: 6 } })], still);
-    const walker = await level([0, 0.91], [box('enemy-0001', 5, 0, { enemy })], still);
-    await chaser.tick(120);
-    await walker.tick(120);
-    expect(chaser.pos('enemy-0001')[0]).toBeLessThan(4.2); // one second toward the player
-    expect(walker.pos('enemy-0001')[0]).toBeGreaterThan(5.8); // patrols right first
-  });
-
-  it('a stomped enemy squashes toward its feet, then disappears', async () => {
-    const enemy = { patrol: 'points', range: [-0.5, 0.5], speed: 0, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 };
-    const L = await level([3, 3], [box('enemy-0001', 3, 0, { enemy })], () => ({ moveX: 0, jump: 'none' }), { health: { max: 3 } });
-    const scaleY = (): number => L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === 'enemy-0001').scale[1];
-    let squashed = Infinity;
-    for (let i = 0; i < 120 && !L.hidden().has('enemy-0001'); i++) {
-      await L.tick();
-      if (L.counters().counters['defeated'] === 1) squashed = Math.min(squashed, scaleY());
-    }
-    expect(L.counters().counters['defeated']).toBe(1);
-    expect(squashed).toBeLessThan(0.5);
-    expect(L.hidden().has('enemy-0001')).toBe(true);
-  });
-
-  it('a hit with knockback pushes the player away; health starts at `start`', async () => {
-    const enemy = { patrol: 'points', range: [-0.5, 0.5], speed: 0, size: [0.8, 0.8], contactDamage: 1, stompable: false, health: 1 };
-    const walkIn = (s: number) => ({ moveX: s < 40 ? 1 : 0, jump: 'none' as const });
-    const soft = await level([0, 0.91], [box('enemy-0001', 1.6, 0, { enemy })], walkIn, { health: { max: 5, start: 3, invulnerableSeconds: 2 } });
-    const hard = await level([0, 0.91], [box('enemy-0001', 1.6, 0, { enemy })], walkIn, { health: { max: 5, start: 3, invulnerableSeconds: 2, knockback: 8 } });
-    await soft.tick(120);
-    await hard.tick(120);
-    expect(soft.counters().health).toEqual({ current: 2, max: 5 });
-    expect(hard.counters().health).toEqual({ current: 2, max: 5 });
-    expect(soft.pos('player-0001')[0] - hard.pos('player-0001')[0]).toBeGreaterThan(1); // pushed back ~2 m
-  });
-
-  it('a trigger emits its exit signal when the player leaves it; a pickup plays its cue', async () => {
+  it('a trigger emits its exit signal when the character leaves it', async () => {
     const trigger = box('trig-0001', 3, 1, { trigger: { size: [1, 2], signal: 'in', exitSignal: 'out' } });
     const door = box('door-0001', 12, 2, { box: { size: [0.6, 4, 2], material: { color: '#553311' } }, collider: { shape: { type: 'box', hx: 0.3, hy: 2 } }, mover: { waypoints: [[0, 4, 0]], speed: 8, mode: 'once', startOn: 'out' } });
-    const coin = box('coin-0001', 2, 0.9, { pickup: { kind: 'coin', value: 1, cue: 'asset-ding' } });
     let x = 0;
-    const L = await level([0, 0.91], [trigger, door, coin], () => ({ moveX: x, jump: 'none' }));
+    const L = await level([0, 0.91], [trigger, door], () => ({ moveX: x, jump: 'none' }));
     const run = (n: number): Promise<void> => L.tick(n);
     x = 0.5;
     // Walk into the trigger and stop inside it: the door stays shut.
@@ -319,7 +273,6 @@ describe('gameplay blocks: the 9.9 wrap-up additions', () => {
     x = 0;
     await run(60);
     expect(L.pos('door-0001')[1]).toBeCloseTo(2, 3);
-    expect(L.sounds).toEqual(['asset-ding']);
     // Walk out of it: the exit signal opens the door.
     x = 1;
     await run(120);
@@ -328,7 +281,7 @@ describe('gameplay blocks: the 9.9 wrap-up additions', () => {
 });
 
 describe('gameplay blocks: phase 14.2 circle triggers', () => {
-  it('a circle trigger opens a door when the player walks into it (not while passing below it)', async () => {
+  it('a circle trigger opens a door when the character walks into it (not while passing below it)', async () => {
     // A circle 2.9 m up with radius 0.5 (bottom at 2.4 m): the default capsule
     // (top at 1.81 m when standing) passes below it; the low one is walked through.
     const high = box('trig-0001', 3, 2.9, { trigger: { shape: 'circle', radius: 0.5, signal: 'hi' } });

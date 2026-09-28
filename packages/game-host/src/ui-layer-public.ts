@@ -5,5 +5,5 @@
  * Only the layer and its types; the host composition stays behind `.`.
  */
 export { createUiLayer, type UiLayer, type UiLayerDeps, type UiLayerObservation, type UiProjector } from './ui-layer';
-export type { HostDom, HostDomNode } from './hud';
-export type { FlowUiEdges } from './flow';
+export type { HostDom, HostDomNode } from './dom';
+export type { FlowUiEdges, UiEdges } from './dom';

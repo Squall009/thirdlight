@@ -15,8 +15,8 @@
 import { AudioMixer, DialogueRunner, UiState, uiDocumentsForRuntime, withDialogueUiDocument, type DialogueInputRecord, type RuntimeDialogueData, type UiDocument, type UiTheme } from '@thirdlight/runtime';
 
 import type { GameAudioOwner, AudioObservation } from './audio';
-import type { FlowUiEdges } from './flow';
-import type { HostDom, HostDomNode } from './hud';
+import type { UiEdges } from './dom';
+import type { HostDom, HostDomNode } from './dom';
 import { createUiLayer, type UiLayer, type UiLayerObservation } from './ui-layer';
 
 export interface DialoguePreviewDeps {
@@ -61,7 +61,7 @@ export interface DialoguePreview {
   /** A dialogue input, as the document's buttons send them. */
   input(input: DialogueInputRecord): void;
   /** Keyboard edges (arrows, submit, cancel) for the focused dialogue document. */
-  edges(e: Partial<FlowUiEdges>): void;
+  edges(e: Partial<UiEdges>): void;
   /** Advance by the real time since the last frame (fixed steps, at most 10 per frame). */
   frame(dtSeconds: number): void;
   observe(): DialoguePreviewObservation;

@@ -1,10 +1,11 @@
 /**
  * Phase 22.0: the simulation worker computes exactly what the page computes.
  *
- * A neutral level with most of the simulation's moving parts — the player
- * controller on Rapier, pickups, a patrolling stompable enemy, a moving
- * platform, a one-way shelf, a checkpoint, a pressure plate and a door, and a
- * script that spawns coins on a timer, plays sounds and reads the input — is
+ * A neutral scene with most of the simulation's moving parts — the character
+ * controller on Rapier with health, collectibles, a patroller with a damaging
+ * hitbox, a moving platform, a one-way shelf, a pressure plate and a door, and
+ * a script that spawns collectibles on a timer, plays sounds and reads the
+ * input — is
  * run twice through the production game host: once in the page (single
  * thread) and once in the simulation worker (a Node worker thread with the
  * same game-host worker core the browser bundles run). The same inputs go in;
@@ -32,16 +33,16 @@ const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
 const SETTINGS = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 const box = (id: string, x: number, y: number, components: Record<string, unknown>) => ({ id, components: { transform: at(x, y), ...components } });
 
-const PREFABS = [{ prefabId: 'coin', displayName: 'Coin', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, pickup: { kind: 'coin', value: 1, size: [0.6, 0.6] } } }] }];
+const PREFABS = [{ prefabId: 'token', displayName: 'Token', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'items', size: [0.6, 0.6] } } }] }];
 
-/** A script: a coin ahead of the player every 0.75 s (at most 6), a sound on each, a sound on every jump press. */
+/** A script: a token ahead of the character every 0.75 s (at most 6), a sound on each, a sound on every jump press. */
 const DIRECTOR = `
 export default {
   instantiate() { return { made: 0 }; },
   step(state, ctx) {
     ctx.timers.every('drop', 0.75);
     if (ctx.timers.fired('drop') && state.made < 6 && ctx.spawn) {
-      ctx.spawn('coin', { position: [4 + state.made * 3, 1.2] });
+      ctx.spawn('token', { position: [4 + state.made * 3, 1.2] });
       state.made += 1;
       ctx.audio && ctx.audio.play('asset-drop', { volume: 0.5 });
     }
@@ -52,16 +53,13 @@ export default {
 
 function level(): { snapshot: Any; physics: Any } {
   const entities: Any[] = [
-    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
-    { id: 'player-0001', components: { transform: at(0, 0.91), controller: {}, health: { max: 3, invulnerableSeconds: 1 } } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
+    { id: 'player-0001', components: { transform: at(0, 0.91), controller: {}, health: { max: 3 } } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
     box('floor-0001', 20, -0.5, { box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } }),
-    box('goal-0001', 58, 1, { gameZone: { role: 'goal', size: [1, 2] } }),
-    box('cp-0001', 14, 1, { gameZone: { role: 'checkpoint', size: [1, 2], safeSpawnId: 'spawn-0002', activation: { emissive: '#1bc8ff', emissiveIntensity: 1, cueAssetId: null } } }),
-    { id: 'spawn-0002', components: { transform: at(14, 0.91), playerSpawn: {} } },
-    box('coin-0001', 2, 0.9, { pickup: { kind: 'coin', value: 1 } }),
-    box('gem-0001', 9, 2.2, { pickup: { kind: 'gem', value: 5 } }),
-    box('enemy-0001', 11, 0, { enemy: { patrol: 'points', range: [-1.5, 1.5], speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 } }),
+    box('token-0001', 2, 0.9, { collectible: { counter: 'items' } }),
+    box('shard-0001', 9, 2.2, { collectible: { counter: 'items', amount: 5 } }),
+    box('walker-0001', 11, 0.4, { patrol: { mode: 'waypoints', waypoints: [[-1.5, 0, 0], [1.5, 0, 0]], loop: true, speed: 1.5 }, hitbox: { size: [0.8, 0.8], damage: 1 } }),
     box('lift-0001', 20, 0.4, { box: { size: [2, 0.4, 2], material: { color: '#ffffff' } }, collider: { shape: { type: 'box', hx: 1, hy: 0.2 } }, mover: { waypoints: [[0, 1.5, 0]], speed: 1, mode: 'pingpong' } }),
     box('shelf-0001', 26, 1.2, { box: { size: [4, 0.2, 2], material: { color: '#ffffff' } }, collider: { shape: { type: 'box', hx: 2, hy: 0.1 }, oneWay: true } }),
     box('plate-0001', 30, 0.5, { switch: { mode: 'stand', signal: 'open', size: [1, 1] } }),
@@ -77,7 +75,6 @@ function level(): { snapshot: Any; physics: Any } {
       projectId: 'parity',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: { configVersion: 2, title: 'Parity', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       prefabs: PREFABS,
     },
     physics: {
@@ -130,8 +127,6 @@ async function run(mode: Mode, opts: { replay: boolean; varied: boolean }): Prom
   });
   let now = 10;
   await h.tick(now); // the settle pre-roll
-  const started = h.host.control('start');
-  if (!started.ok) throw new Error(JSON.stringify(started.error) + JSON.stringify(h.rt.getDiagnostics().diagnostics.errors));
   let i = 0;
   while (h.digests.length < 1200) {
     const steps = opts.varied ? PATTERN[i++ % PATTERN.length]! : 1;
@@ -164,7 +159,9 @@ describe('phase 22.0: identical results in the page and in the simulation worker
       expect(firstDiff, `first differing step ${firstDiff}`).toBe(-1);
       expect(b.end).toEqual(a.end);
       // The run did exercise the moving parts.
-      expect(a.end.counters.counters['coins']).toBeGreaterThan(0);
+      expect(a.end.counters.counters['items']).toBeGreaterThan(0);
+      expect(a.end.counters.health).not.toBeNull();
+      expect(a.end.counters.health.current).toBeLessThan(3);
       expect(a.end.spawned.length).toBeGreaterThan(0);
       expect(a.end.sounds).toContain('asset-drop');
       expect(a.end.sounds).toContain('asset-hop');

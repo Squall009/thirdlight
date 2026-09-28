@@ -8,9 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { curveValueError, gradientValueError, validateGraphData } from './graph';
 import { EFFECT_CONTEXTS, EFFECT_CONTEXT_FLOWS, EFFECT_GRAPH_KIND, newEffectSystemGraph } from './effect-graph-kinds';
-import { canonicalEffect, canonicalEffectComponent, effectAssetRefs, effectComponentErrors, effectHookRefs, effectMaterialRefs, effectsForRuntime, parseEffectSystemOwnerId, validateEffect, validateEffectComponent, type EffectDef } from './effects';
-import { canonicalEnemy, canonicalHealth, canonicalPickup, validateEnemyComponent, validateHealthComponent, validatePickupComponent } from './blocks';
-import { validateGameZoneComponent } from './scene-v3';
+import { canonicalEffect, canonicalEffectComponent, effectAssetRefs, effectComponentErrors, effectMaterialRefs, effectsForRuntime, parseEffectSystemOwnerId, validateEffect, validateEffectComponent, type EffectDef } from './effects';
 import { captureManifestV2, validateManifestV2 } from './manifest-v2';
 import { GRAPH_KINDS } from './graph-kinds';
 import { validateContentV4 } from './content';
@@ -135,31 +133,6 @@ describe('effects', () => {
     expect(Object.keys(canonicalEffectComponent({ stopSignal: 'halt', signal: 'go', effectId: 'fx-a', params: { tint: '#00FF00' } }))).toEqual(['effectId', 'params', 'signal', 'stopSignal']);
     // An existing component keeps its exact canonical bytes.
     expect(JSON.stringify(canonicalEffectComponent({ effectId: 'fx-a', playOnStart: false }))).toBe('{"effectId":"fx-a","playOnStart":false}');
-  });
-
-  it('phase 20.2: gameplay hooks name effects (pickup, enemy, health, checkpoint/goal zones)', () => {
-    expect(errs((e) => validatePickupComponent({ kind: 'coin', value: 1, effect: 'fx-a' }, '', e))).toEqual([]);
-    expect(errs((e) => validatePickupComponent({ kind: 'coin', value: 1, effect: 'Not an id' }, '', e))[0]!.path).toBe('/effect');
-    expect(errs((e) => validateHealthComponent({ max: 3, hitEffect: 'fx-a' }, '', e))).toEqual([]);
-    const enemy = { patrol: 'edges', speed: 1, size: [1, 1], contactDamage: 1, stompable: true, health: 1 };
-    expect(errs((e) => validateEnemyComponent({ ...enemy, hitEffect: 'fx-a', defeatEffect: 'fx-b' }, '', e))).toEqual([]);
-    expect(canonicalPickup({ kind: 'coin', value: 1, effect: 'fx-a' } as never)).toEqual({ kind: 'coin', value: 1, effect: 'fx-a' });
-    expect(canonicalHealth({ max: 3, hitEffect: 'fx-a' } as never)).toEqual({ max: 3, hitEffect: 'fx-a' });
-    expect(Object.keys(canonicalEnemy({ ...enemy, defeatEffect: 'fx-b', hitEffect: 'fx-a' } as never)).slice(-2)).toEqual(['hitEffect', 'defeatEffect']);
-    const zone = (z: Record<string, unknown>): string[] => {
-      const e: { path: string }[] = [];
-      validateGameZoneComponent(z, '', e as never, 4);
-      return e.map((x) => x.path);
-    };
-    expect(zone({ role: 'goal', size: [1, 1], effect: 'fx-a' })).toEqual([]);
-    expect(zone({ role: 'hazard', size: [1, 1], effect: 'fx-a' })).toEqual(['/effect']);
-    expect(effectHookRefs({ pickup: { effect: 'fx-a' }, enemy: { hitEffect: 'fx-b', defeatEffect: 'fx-c' }, health: { hitEffect: 'fx-d' }, gameZone: { effect: 'fx-e' } })).toEqual([
-      ['pickup/effect', 'fx-a'],
-      ['enemy/hitEffect', 'fx-b'],
-      ['enemy/defeatEffect', 'fx-c'],
-      ['health/hitEffect', 'fx-d'],
-      ['gameZone/effect', 'fx-e'],
-    ]);
   });
 
   it('phase 20.2: the runtime view (manifest effects): graphs without editor text, the assets and materials the graphs name', () => {

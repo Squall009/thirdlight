@@ -39,7 +39,6 @@ import type {
   PublishBehaviorArgs,
   SetBehaviorPropertiesArgs,
   SetComponentArgs,
-  SetGameConfigArgs,
   SetSettingsArgs,
 } from './types';
 
@@ -269,36 +268,12 @@ export function validateApplySurfacePresetArgs(
       error: fieldValue(
         '/args/preset',
         preset,
-        '"matte-ground", "hazard" or "beacon"',
+        '"matte-ground", "signal-red" or "emissive-accent"',
         'preset must be one of the three built-in surface presets',
       ),
     };
   }
   return { ok: true, args: { entityId: args['entityId'], preset: preset as ApplySurfacePresetArgs['preset'] } };
-}
-
-/**
- * `setGameConfig` args (commands.md §3.1.10/§8.14): `null` (remove), a
- * complete block (create) or a non-empty partial object (edit). The
- * create-completeness and field rules are the model block validator's, mapped
- * by the op to the §5.4 `field_*` codes.
- */
-export function validateSetGameConfigArgs(
-  args: Record<string, unknown>,
-): ArgsOk<SetGameConfigArgs> | { ok: false; error: CommandError } {
-  for (const key of Object.keys(args)) {
-    if (key !== 'game') {
-      return { ok: false, error: fieldUnexpected(`/args/${key}`, key, 'game') };
-    }
-  }
-  if (args['game'] === undefined) {
-    return { ok: false, error: fieldMissing('/args/game', 'game') };
-  }
-  const game = args['game'];
-  if (game !== null && !isPlainObject(game)) {
-    return { ok: false, error: fieldType('/args/game', game, 'object (GameConfig) or null') };
-  }
-  return { ok: true, args: { game: game as SetGameConfigArgs['game'] } };
 }
 
 export function validatePublishBehaviorArgs(
@@ -467,10 +442,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   collider: ['shape', 'oneWay', 'layers'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'],
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
   // Phase 15.2: which way the player faces at this spawn (v4).
   playerSpawn: ['facing', 'yaw'],
-  cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
@@ -483,9 +456,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],
   switch: ['mode', 'signal', 'size', 'once', 'action'],
-  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
-  pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
+  health: ['max', 'start'],
   // Phase 20.0: the effect played from the entity.
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
   // Phase 23.4: the camera framework.
@@ -511,9 +482,7 @@ const OWNED: readonly OwnedComponent[] = [
   'model',
   'collider',
   'controller',
-  'gameZone',
   'playerSpawn',
-  'cameraFollow',
   'light',
   'surface',
   'modelAnimation',
@@ -525,8 +494,6 @@ const OWNED: readonly OwnedComponent[] = [
   'trigger',
   'switch',
   'health',
-  'pickup',
-  'enemy',
   'audioSource',
   'faceMovement',
   'materialParams',
@@ -549,9 +516,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'model',
   'collider',
   'controller',
-  'gameZone',
   'playerSpawn',
-  'cameraFollow',
   'light',
   'surface',
   'modelAnimation',
@@ -563,8 +528,6 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'trigger',
   'switch',
   'health',
-  'pickup',
-  'enemy',
   'audioSource',
   'faceMovement',
   'materialParams',
@@ -583,7 +546,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
 const COMPONENT_EXPECTED =
-  'one of "box", "camera", "model", "collider", "controller", "gameZone", "playerSpawn", "cameraFollow", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
+  'one of "box", "camera", "model", "collider", "controller", "playerSpawn", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
 
 export function validateSetComponentArgs(
   args: Record<string, unknown>,
@@ -743,8 +706,6 @@ export function validateSetComponentArgs(
       return { ok: false, error: fieldType('/args/value/facing', facing, 'string ("none", "left", "right") or null') };
     }
   } else if (
-    component === 'gameZone' ||
-    component === 'cameraFollow' ||
     component === 'light' ||
     component === 'surface' ||
     component === 'modelAnimation' ||
@@ -764,8 +725,6 @@ export function validateSetComponentArgs(
     component === 'trigger' ||
     component === 'switch' ||
     component === 'health' ||
-    component === 'pickup' ||
-    component === 'enemy' ||
     component === 'audioSource' ||
     component === 'faceMovement' ||
     component === 'collectible' ||

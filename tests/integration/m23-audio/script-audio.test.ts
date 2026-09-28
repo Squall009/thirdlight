@@ -60,7 +60,6 @@ function scene(): { snapshot: Any; physics: Any } {
       projectId: 'audio3d',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: null,
       // The recorded lengths: the bark 250 ms (30 steps), the stinger 1 s (120 steps).
       audioDurations: { 'asset-hum': 400, 'asset-bark': 250, 'asset-sting': 1000, 'asset-done': 100 },
     },

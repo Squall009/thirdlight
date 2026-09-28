@@ -7,7 +7,8 @@
  * survives a reload of the editor (saved per player profile in the browser);
  * "Reset controls" brings Space back. The glyph lookup switches from the key
  * cap "K" to the pad's "A" (south face button) when the pad becomes the
- * device used last.
+ * device used last. Phase 24.7: a pad button is rebound the same way (the
+ * deleted level flow's pad-menus test, on the shell's controls screen).
  */
 import { randomBytes } from 'node:crypto';
 
@@ -177,4 +178,54 @@ test('rebind jump to K on a controls screen: K jumps, it survives a reload, rese
   ({ frame, observe } = await startPlay(page));
   await expect.poll(async () => (await observe()).inputBindings?.glyphs['jump']).toEqual({ label: 'Space', icon: 'key' });
   expect((await observe()).inputBindings!.changed).toEqual([]);
+});
+
+test('rebind jump to a pad button on a controls screen: the pad button jumps, A no longer does (phase 24.7: from the level flow\'s pad menus)', async ({ page }) => {
+  test.setTimeout(240_000);
+  const padDocs = [
+    DOCS[0]!,
+    {
+      uiDocumentId: 'controls',
+      name: 'Controls',
+      root: { type: 'panel', ...FULL, css: { background: '#304020' }, children: [
+        { type: 'button', id: 'rebind-pad', anchor: [0.5, 0.3], pivot: [0.5, 0.5], size: [260, 48], text: 'Jump (pad)', css: BUTTON, onClick: { do: 'engine', action: 'rebind', input: 'jump', device: 'gamepad' } },
+        { type: 'button', id: 'back', anchor: [0.5, 0.7], pivot: [0.5, 0.5], size: [260, 48], text: 'Back', css: BUTTON, onClick: { do: 'engine', action: 'back' } },
+      ] },
+    },
+  ];
+  for (const d of padDocs) await cmd('setUiDocument', { document: d });
+  await cmd('setShell', { shell: { screens: { title: 'title', controls: 'controls' } } });
+  await page.addInitScript(FAKE_PAD);
+  const { frame, observe } = await startPlay(page);
+  const setButton = (button: number, pressed: boolean): Promise<void> =>
+    frame.evaluate(([b, p]) => void ((window as unknown as { __tlPad: { buttons: boolean[] } }).__tlPad.buttons[b as number] = p as boolean), [button, pressed] as const);
+  await openControls(frame, observe);
+
+  // Listen for jump's pad button and press button 3 (Y); it was interact's, so the two swap.
+  await frame.locator('[data-tl-ui-doc="controls"] [data-widget="rebind-pad"]').click();
+  await expect.poll(async () => (await observe()).inputBindings?.listening ?? null).not.toBeNull();
+  await setButton(3, true);
+  await expect.poll(async () => [...((await observe()).inputBindings?.changed ?? [])].sort()).toEqual(['interact', 'jump']);
+  await setButton(3, false);
+
+  // A new game: pad A (button 0) no longer jumps, button 3 does.
+  await frame.locator('[data-tl-ui-doc="controls"] [data-widget="back"]').click();
+  await expect.poll(async () => (await observe()).shell?.screen).toBe('title');
+  await frame.locator('[data-tl-ui-doc="title"] [data-widget="start"]').click();
+  await expect.poll(async () => (await observe()).shell?.screen, { timeout: 20_000 }).toBe('playing');
+  await page.waitForTimeout(700); // settle on the ground
+  const ground = (await observe()).player!.y;
+  const padPeak = async (button: number): Promise<number> => {
+    let top = -Infinity;
+    await setButton(button, true);
+    for (let i = 0; i < 8; i++) {
+      top = Math.max(top, (await observe()).player!.y);
+      await page.waitForTimeout(60);
+    }
+    await setButton(button, false);
+    await page.waitForTimeout(1200); // land again
+    return top;
+  };
+  expect(await padPeak(0)).toBeLessThan(ground + 0.1);
+  expect(await padPeak(3)).toBeGreaterThan(ground + 0.6);
 });

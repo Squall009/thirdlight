@@ -34,19 +34,6 @@
             "fovY": 45,
             "near": 0.1,
             "far": 100
-          },
-          "cameraFollow": {
-            "deadZone": {
-              "x": 0.5,
-              "y": 0.5
-            },
-            "smoothing": 0.2,
-            "bounds": {
-              "minX": 0,
-              "maxX": 48,
-              "minY": 0,
-              "maxY": 8
-            }
           }
         }
       },
@@ -150,7 +137,7 @@
       },
       {
         "id": "zone-0001",
-        "name": "Beacon",
+        "name": "Marker",
         "components": {
           "transform": {
             "position": [
@@ -179,19 +166,12 @@
             "material": {
               "color": "#2f7fd4"
             }
-          },
-          "gameZone": {
-            "role": "goal",
-            "size": [
-              1,
-              2
-            ]
           }
         }
       },
       {
         "id": "zone-0003",
-        "name": "Mid checkpoint",
+        "name": "Mid marker",
         "components": {
           "transform": {
             "position": [
@@ -220,25 +200,12 @@
             "material": {
               "color": "#2f7fd4"
             }
-          },
-          "gameZone": {
-            "role": "checkpoint",
-            "size": [
-              2,
-              2
-            ],
-            "safeSpawnId": "spawn-0002",
-            "activation": {
-              "emissive": "#00c8ff",
-              "emissiveIntensity": 1,
-              "cueAssetId": null
-            }
           }
         }
       },
       {
         "id": "spawn-0002",
-        "name": "Checkpoint spawn",
+        "name": "Second spawn",
         "components": {
           "transform": {
             "position": [
@@ -335,29 +302,7 @@
     "behaviorTrust": {
       "entries": []
     },
-    "game": {
-      "configVersion": 1,
-      "title": "Beacon Reach",
-      "objective": "Reach the beacon",
-      "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
-      "playerId": "group-0001",
-      "cameraId": "cam-main",
-      "spawnId": "spawn-0001",
-      "level": {
-        "minX": 0,
-        "maxX": 48,
-        "minY": -4,
-        "maxY": 8
-      },
-      "killY": -4,
-      "cues": {
-        "start": null,
-        "jump": null,
-        "checkpoint": null,
-        "death": null,
-        "goal": null
-      }
-    }
+    "game": null
   },
   "retry": {
     "retention": 128,

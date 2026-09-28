@@ -14,7 +14,6 @@
 import { ID_RE, fieldType, fieldUnexpected, fieldValue, invalidRequest, isPlainObject } from './errors';
 import { assetKindOf } from './v3';
 import { contentOf } from './content-ops';
-import type { GameConfig } from '@thirdlight/project-model';
 import type {
   AssetSummary,
   BehaviorQueryEntry,
@@ -343,17 +342,15 @@ export function contentCounts(state: CommandState<SceneDocument>): ContentCounts
       components: Record<string, unknown>;
     }[];
     counts.audioAssets = content.assets.filter((a) => assetKindOf(a) === 'audio').length;
-    counts.game = (content.game ?? null) !== null;
-    counts.zones = entities.filter((e) => e.components['gameZone'] !== undefined).length;
     counts.spawns = entities.filter((e) => e.components['playerSpawn'] !== undefined).length;
   }
   return counts;
 }
 
 /**
- * `queryGameConfig` (commands.md §3.1.11/authoring §A6): the full normalized
- * `content.game` block or `null`; no page args, no mutation fields. A v2
- * catalog (no `game` key) reads as `null`.
+ * `queryGameConfig` (commands.md §3.1.11/authoring §A6): the project tag
+ * registry; no page args, no mutation fields. Phase 24.7: the game block it
+ * returned was deleted.
  */
 export function queryGameConfig(
   state: CommandState<SceneDocument>,
@@ -375,8 +372,7 @@ export function queryGameConfig(
     ok: true,
     projectId,
     revision: state.scene.revision,
-    game: (content.game ?? null) as GameConfig | null,
-    // Phase 12 (b): the project tag registry travels with the game block.
+    // Phase 12 (b): the project tag registry (phase 24.7: the game block was deleted).
     tags: (content.tags ?? []).map((t) => ({ bit: t.bit, name: t.name })),
   };
 }
@@ -419,9 +415,7 @@ const KNOWN_COMPONENTS: readonly string[] = [
   'prefab',
   'collider',
   'controller',
-  'gameZone',
   'playerSpawn',
-  'cameraFollow',
   'light',
   'surface',
   'modelAnimation',

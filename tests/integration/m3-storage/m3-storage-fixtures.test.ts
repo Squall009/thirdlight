@@ -4,7 +4,9 @@
  * Runs the committed fixture checker (positive + corruption control) as a real
  * process, then drives the real workspace service over the committed v3
  * project: it opens (upgraded in place to storage v4), writes and replays a
- * lost ack.
+ * lost ack. Phase 24 removed the platformer game layer the committed v3
+ * project was recorded with; it is seeded without that layer
+ * (`seedV3DemoProject`) and the edit is a generic scene edit.
  *
  * The `migrateProjectCopyV3` case (v2 source → contracts destination) was
  * removed with the operator (phase 9.3 step B); the original suite is archived
@@ -17,7 +19,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openWorkspaceService } from '@thirdlight/workspace';
 
-import { REPO_ROOT, makeRoot, seedProject } from '../../../packages/workspace/tests/helpers';
+import { REPO_ROOT, makeRoot, seedV3DemoProject } from '../../../packages/workspace/tests/helpers';
 
 const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const CREATED_AT = '2026-09-19T10:00:00Z';
@@ -35,32 +37,35 @@ describe('packet 46 — committed storage fixtures', () => {
 
   it('loads the committed v3 project, writes a v3 edit and replays the lost ack', () => {
     const root = makeRoot('m3int-v3');
-    seedProject(root, join(STORAGE, 'project-v3-demo-0003'), 'demo-0003');
+    seedV3DemoProject(root, 'demo-0003');
     const svc = openWorkspaceService({ root, utcNow: () => CREATED_AT });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0003' }) as { ok: boolean; revision: number };
     expect(q.ok).toBe(true);
     // The open upgraded the v3 project in place to storage v4.
     const content = JSON.parse(readFileSync(join(root, 'projects', 'demo-0003', 'content.json'), 'utf8')) as { storageVersion: number };
     expect(content.storageVersion).toBe(4);
-    const r = svc.runCommand({
-      op: 'setGameConfig',
+    const edit = {
+      op: 'createEntity',
       projectId: 'demo-0003',
       expectedRevision: q.revision,
       requestId: 'req-' + '7'.repeat(32),
       origin: { kind: 'mcp', clientId: 'pi' },
-      args: { game: { title: 'Integrated' } },
-    }) as { ok: boolean; revision?: number; duplicated?: boolean };
+      args: { kind: 'box', name: 'Integrated' },
+    } as const;
+    const r = svc.runCommand(edit) as { ok: boolean; revision?: number; duplicated?: boolean };
     expect(r.ok, JSON.stringify(r)).toBe(true);
-    const replay = svc.runCommand({
-      op: 'setGameConfig',
-      projectId: 'demo-0003',
-      expectedRevision: q.revision,
-      requestId: 'req-' + '7'.repeat(32),
-      origin: { kind: 'mcp', clientId: 'pi' },
-      args: { game: { title: 'Integrated' } },
-    }) as { ok: boolean; duplicated?: boolean };
+    expect(r.revision).toBe(q.revision + 1);
+    const after = svc.query({ op: 'queryProject', projectId: 'demo-0003' }) as { ok: boolean; revision: number };
+    expect(after.revision).toBe(q.revision + 1);
+    // The edit is durable in the scene file.
+    const scene = JSON.parse(readFileSync(join(root, 'projects', 'demo-0003', 'scenes', 'scene-main.json'), 'utf8')) as {
+      scene: { entities: { name: string }[] };
+    };
+    expect(scene.scene.entities.filter((e) => e.name === 'Integrated')).toHaveLength(1);
+    const replay = svc.runCommand(edit) as { ok: boolean; revision?: number; duplicated?: boolean };
     expect(replay.ok).toBe(true);
     expect(replay.duplicated).toBe(true);
+    expect(replay.revision).toBe(q.revision + 1);
     svc.dispose();
   });
 });

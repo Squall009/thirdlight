@@ -8,7 +8,7 @@
  * simulation worker (the game-host worker core) from the same recorded input,
  * every step's digest — the resolved camera included — is identical; the
  * camera the renderer gets (the host's observation) agrees frame by frame.
- * A 2D platformer game keeps its cameraFollow view until a virtual camera is
+ * A 2D-plane scene keeps its scene camera's view until a virtual camera is
  * activated and blends back to it afterwards, the same in page and worker.
  */
 import { describe, expect, it } from 'vitest';
@@ -60,7 +60,7 @@ function scene3d(): { snapshot: Any; physics: Any } {
     { id: 'director-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'director', values: {} } } },
   ];
   return {
-    snapshot: { snapshotId: 'cam3d@r1', projectId: 'cam3d', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null },
+    snapshot: { snapshotId: 'cam3d@r1', projectId: 'cam3d', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
     physics: physics3DConfigOf(entities, SETTINGS_3D),
   };
 }
@@ -80,15 +80,11 @@ function recording(): Any[] {
 
 const PATTERN = [1, 2, 1, 0, 3, 1, 1, 2, 0, 1];
 
-async function run(mode: Mode, snapshot: Any, physics: Any, settings: Any, steps: number, game: boolean): Promise<{ h: Harness; digests: string[]; views: Map<number, Any>; bars: Map<number, string> }> {
+async function run(mode: Mode, snapshot: Any, physics: Any, settings: Any, steps: number): Promise<{ h: Harness; digests: string[]; views: Map<number, Any>; bars: Map<number, string> }> {
   const container = new FakeNode();
   const h = await startHarness(mode, { snapshot, settings, physics, behaviors: [behaviorModule('director', DIRECTOR)], replay: recording(), digestSteps: true, host: { buildId: 'b', container } });
   let now = 10;
   await h.tick(now);
-  if (game) {
-    const started = h.host.control('start');
-    if (!started.ok) throw new Error(JSON.stringify(started.error));
-  }
   const views = new Map<number, Any>();
   const bars = new Map<number, string>();
   let i = 0;
@@ -96,7 +92,7 @@ async function run(mode: Mode, snapshot: Any, physics: Any, settings: Any, steps
     const n = PATTERN[i++ % PATTERN.length]!;
     now += n * DT + DT * 0.1 * ((i % 3) - 1);
     await h.tick(now);
-    const obs = game ? h.host.observe() : h.host.observeScene!();
+    const obs = h.host.observe();
     if (obs.ok) {
       views.set(obs.observation.stepIndex, obs.observation.camera ?? null);
       // The letterbox bars the host draws (their style), after this frame.
@@ -115,9 +111,9 @@ function firstDiff(a: string[], b: string[]): number {
 describe('phase 23.4: the camera is resolved in the simulation (two runs, page and worker)', () => {
   it('3D: follow → eased orbit → snapped turns → rail → back, identical step digests and camera frames', async () => {
     const { snapshot, physics } = scene3d();
-    const a = await run('single', snapshot, physics, SETTINGS_3D, 900, false);
-    const b = await run('single', snapshot, physics, SETTINGS_3D, 900, false);
-    const w = await run('worker', snapshot, physics, SETTINGS_3D, 900, false);
+    const a = await run('single', snapshot, physics, SETTINGS_3D, 900);
+    const b = await run('single', snapshot, physics, SETTINGS_3D, 900);
+    const w = await run('worker', snapshot, physics, SETTINGS_3D, 900);
     try {
       expect(firstDiff(a.digests, b.digests), 'first differing step (two page runs)').toBe(-1);
       expect(firstDiff(a.digests, w.digests), 'first differing step (page vs worker)').toBe(-1);
@@ -174,9 +170,9 @@ describe('phase 23.4: the camera is resolved in the simulation (two runs, page a
     }
   }, 180_000);
 
-  it('2D: the cameraFollow view until a virtual camera goes live, blended back to it after, alike in page and worker', async () => {
+  it('2D: the scene camera view until a virtual camera goes live, blended back to it after, alike in page and worker', async () => {
     const entities: Any[] = [
-      { id: 'cam-main', components: { transform: T([0, 4, 12]), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+      { id: 'cam-main', components: { transform: T([0, 4, 12]), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
       { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: {} } },
       { id: 'spawn-0001', components: { transform: T([0, 0.91, 0]), playerSpawn: {} } },
       { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5 } } } },
@@ -191,7 +187,6 @@ describe('phase 23.4: the camera is resolved in the simulation (two runs, page a
       projectId: 'cam2d',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: { configVersion: 2, title: 'Cameras', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
     };
     const physics = {
       character: { x: 0, y: 0.91 },
@@ -199,13 +194,13 @@ describe('phase 23.4: the camera is resolved in the simulation (two runs, page a
       solver: { hz: HZ, gravityY: settings.gravity_y },
       controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
     };
-    const a = await run('single', snapshot, physics, settings, 900, true);
-    const w = await run('worker', snapshot, physics, settings, 900, true);
+    const a = await run('single', snapshot, physics, settings, 900);
+    const w = await run('worker', snapshot, physics, settings, 900);
     try {
       expect(firstDiff(a.digests, w.digests), 'first differing step (page vs worker)').toBe(-1);
       const views = [...a.views.entries()].sort((x, y) => x[0] - y[0]);
       const before = views.find(([s]) => s > 20 && s < 55)![1];
-      // No virtual camera live yet: the view is the scene camera's (its follow pose).
+      // No virtual camera live yet: the view is the scene camera's.
       expect(before.live).toBeNull();
       const mainAt = a.h.rt.getInterpolatedState().state.transforms.find((t: Any) => t.id === 'cam-main');
       expect(mainAt).toBeDefined();
@@ -213,7 +208,7 @@ describe('phase 23.4: the camera is resolved in the simulation (two runs, page a
       expect(orbit.live).toBe('cam-orbit');
       const rail = views.find(([s]) => s > 470 && s < 490)![1];
       expect(rail.live).toBe('cam-rail');
-      // The rail ended: both virtual cameras off, the view blended back to the follow camera's pose.
+      // The rail ended: both virtual cameras off, the view blended back to the scene camera's pose.
       const last = views[views.length - 1]![1];
       expect(last.live).toBeNull();
       expect(last.blend).toBeNull();

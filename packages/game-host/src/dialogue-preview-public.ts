@@ -7,4 +7,4 @@
  */
 export { createDialoguePreview, type DialoguePreview, type DialoguePreviewDeps, type DialoguePreviewObservation } from './dialogue-preview';
 export { createGameAudioOwner, type AudioContextLike, type GameAudioOwner } from './audio';
-export type { FlowUiEdges } from './flow';
+export type { FlowUiEdges, UiEdges } from './dom';

@@ -1216,7 +1216,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     roughness: pbr ? slot('roughness', false) : null,
     // A tangent-space normal to view space, as three's normal map does.
     normal: normalIn !== null ? T.TBNViewMatrix.mul(normalIn).normalize() : null,
-    // The material's own emissive stays added: the selection tint and the checkpoint glow write it (per-mesh copies).
+    // The material's own emissive stays added: the selection tint and a look override write it (per-mesh copies).
     emissive: emissiveIn !== null ? emissiveIn.add(T.materialEmissive) : null,
     ao: pbr ? slot('ao', true) : null,
     opacity: litAlpha ? null : slot('opacity', true),

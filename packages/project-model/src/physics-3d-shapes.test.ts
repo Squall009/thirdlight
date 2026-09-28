@@ -105,11 +105,10 @@ describe('the dimension rules for 3D shapes, scale and blocks', () => {
     expect(problems({}, [trig({ size: [1, 2, 3] })])).toEqual([]);
   });
 
-  it('switches, pickups and enemies are 2D-plane blocks: refused in a 3D project', () => {
+  it('switches are 2D-plane blocks: refused in a 3D project', () => {
     const e = (c: Record<string, unknown>) => ({ id: 'blk-0001', components: { transform: T(), ...c } });
     expect(problems(THREE, [e({ switch: { mode: 'stand', signal: 'open', size: [1, 1] } })])).toEqual(['component_conflict /entities/0/components/switch']);
-    expect(problems(THREE, [e({ pickup: { kind: 'coin', value: 1 } })])).toEqual(['component_conflict /entities/0/components/pickup']);
-    expect(problems({}, [e({ pickup: { kind: 'coin', value: 1 } })])).toEqual([]);
+    expect(problems({}, [e({ switch: { mode: 'stand', signal: 'open', size: [1, 1] } })])).toEqual([]);
   });
 
   it('trigger component: a capsule needs a height of at least twice its radius; only a capsule has a height', () => {

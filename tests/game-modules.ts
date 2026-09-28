@@ -8,22 +8,20 @@
  */
 import { physicsDimensionOf, resolveRequiredModules } from '@thirdlight/project-model';
 import { platformerSpec } from '@thirdlight/platformer';
-import { platformerGameCameraSpec, platformerGameSessionSpec } from '@thirdlight/platformer-game';
 import type { SimulationModuleSpec } from '@thirdlight/runtime';
 
 /** The module specs a composition provides beyond the runtime's built-ins (dependency order). */
-export const MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec]);
+export const MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([platformerSpec]);
 
 interface SnapshotLike {
   readonly scene?: { readonly entities?: readonly unknown[] } | null;
-  readonly game?: unknown;
   readonly prefabs?: readonly { readonly entities?: readonly unknown[] }[];
 }
 
 /** The manifest `modules` a build of this snapshot would carry (throws on an unresolved module). */
 export function modulesOf(snapshot: SnapshotLike, settings?: unknown): string[] {
   const entities = [...(snapshot.scene?.entities ?? []), ...(snapshot.prefabs ?? []).flatMap((p) => p.entities ?? [])] as Record<string, unknown>[];
-  const r = resolveRequiredModules({ scene: { entities }, game: snapshot.game ?? null, physicsDimension: physicsDimensionOf(settings) });
+  const r = resolveRequiredModules({ scene: { entities }, physicsDimension: physicsDimensionOf(settings) });
   if (!r.ok) throw new Error(r.message);
   return r.moduleIds;
 }

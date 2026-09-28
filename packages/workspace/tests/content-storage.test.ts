@@ -6,7 +6,8 @@
  *
  * Every test uses a disposable data root on ext4 (/home/dadmin/.tl07-tmp-*),
  * seeds the committed storage v3 media project (a model and an audio asset,
- * fixtures/m3/contracts/envelope/valid/demo-0003-media-v3.json, revision 5)
+ * fixtures/m3/contracts/envelope/valid/demo-0003-media-v3.json, revision 5;
+ * phase 24.7: without the removed game layer it was recorded with)
  * with its source blobs under `sources/sha256/`, and drives the real
  * `@thirdlight/workspace` service, which upgrades it to storage v4 on open.
  * Nothing is mocked where the contract requires real filesystem behavior;
@@ -294,16 +295,16 @@ describe('staging and immutable blob publication (workspace.md §7.6/§13.2)', (
     // in its pre-write check (v4 checks the files a transaction writes).
     expect(queryRevision(ctx.svc)).toBe(REV);
     const contentPath = join(ctx.dir, 'content.json');
-    const doc = JSON.parse(readFileSync(contentPath, 'utf8')) as { content: { game: { title: string } } };
-    doc.content.game.title = 'Hand edited';
+    const doc = JSON.parse(readFileSync(contentPath, 'utf8')) as { content: { tags?: { bit: number; name: string }[] } };
+    doc.content.tags = [{ bit: 0, name: 'handEdited' }];
     writeFileSync(contentPath, JSON.stringify(doc, null, 2) + '\n');
     const cmd = ctx.svc.runCommand({
-      op: 'setGameConfig',
+      op: 'setTags',
       projectId: PROJECT_ID,
       expectedRevision: REV,
       requestId: 'req-' + 'a'.repeat(32),
       origin: { kind: 'mcp', clientId: 'pi' },
-      args: { game: { title: 'Nope' } },
+      args: { tags: [{ name: 'nope' }] },
     });
     expect(cmd.ok).toBe(false);
     if (!cmd.ok) expect(cmd.error.code).toBe('external_change_unresolved');

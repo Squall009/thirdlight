@@ -305,15 +305,16 @@ const rules = readJson('manifest/v1-v2-rules.json');
   const obsRes = readJson('wire/observe-result.json');
   const relay = readJson('wire/relay-cases.json');
   const runs = readJson('runs/run-identity.json');
-  check('wire[controlCommands]', eq(req.commands, ['start', 'replay', 'mute', 'unmute']) && req.commands.includes(req.body.command));
+  // Phase 24.7: the game session (its `start` command, run states, zones, events) was removed; the control
+  // commands and the observation are the generic ones (packages/protocol GAME_CONTROL_COMMANDS, validateGameObservation).
+  check('wire[controlCommands]', eq(req.commands, ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand']) && req.commands.includes(req.body.command) && req.commands.includes(res.command));
   check('wire[controlBodyKeys]', eq(Object.keys(req.body).sort(), ['command', 'expectedRunId']));
   check('wire[controlResultKeys]', eq(Object.keys(res), ['ok', 'playSessionId', 'snapshotId', 'buildId', 'runId', 'command', 'state', 'acceptedAtStep', 'inputMode']));
   check('wire[observeRequestKeys]', eq(Object.keys(obs.body), ['timeoutMs']) && obs.bounds.timeoutMs.default === 5000);
-  check('wire[observeResultKeys]', eq(Object.keys(obsRes).sort(), ['buildId', 'checkpointActive', 'checkpointId', 'deathCount', 'eventCount', 'eventDropped', 'events', 'failed', 'goalReached', 'inputMode', 'observedAt', 'ok', 'playSessionId', 'revision', 'runId', 'simTime', 'snapshotId', 'sound', 'state', 'stepIndex'].sort()));
+  check('wire[observeResultKeys]', ['ok', 'playSessionId', 'snapshotId', 'buildId', 'runId', 'revision', 'observedAt', 'stepIndex', 'simTime', 'state', 'inputMode', 'sound'].every((k) => k in obsRes) && !('legacy' in obsRes) && !('events' in obsRes));
   check('wire[observeIdentity]', runs.tuple.every((k) => k === 'playSessionId' || k in obsRes));
-  const states = ['awaitingStart', 'playing', 'respawning', 'won', 'failed'];
-  check('wire[observeState]', states.includes(obsRes.state));
-  check('wire[eventsBound]', obsRes.events.length <= 32 && obsRes.events.every((e) => typeof e.id === 'string' && typeof e.stepIndex === 'number' && typeof e.deathCount === 'number'));
+  const states = ['running', 'paused', 'stopped'];
+  check('wire[observeState]', states.includes(obsRes.state) && states.includes(res.state));
   check('wire[soundStatus]', ['muted', 'blocked', 'ready', 'unavailable'].includes(obsRes.sound.status) && typeof obsRes.sound.unlocked === 'boolean' && typeof obsRes.sound.voices === 'number');
   check('wire[noBinaryOrCapability]', !jp(obsRes).match(/base64|data:image|\/play-content\/|Bearer |contentId/i));
   check('relay[caseCount]', relay.cases.length === 12, `${relay.cases.length}`);
@@ -412,7 +413,8 @@ const rules = readJson('manifest/v1-v2-rules.json');
   check('graph[noGameJson]', g.noGameJsonSidecar === true && !jp([g.preview, g.export]).includes('game.json'));
   check('graph[previewList]', g.preview.fetches.includes('./manifest.json') && g.preview.fetches.includes('./scene.json') && g.preview.fetches.some((f) => f.includes('unique declared asset path')));
   check('graph[exportList]', g.export.fetches.includes('./manifest.json') && g.export.fetches.includes('./scene.json'));
-  check('graph[newUnitsInGraphs]', [...g.graphEdges.preview, ...g.graphEdges.export].includes('game-host') && [...g.graphEdges.preview, ...g.graphEdges.export].includes('platformer-game'));
+  // Phase 24.7: the platformer-game package was deleted; game-host is the one new unit.
+  check('graph[newUnitsInGraphs]', [...g.graphEdges.preview, ...g.graphEdges.export].includes('game-host') && ![...g.graphEdges.preview, ...g.graphEdges.export].includes('platformer-game'));
   check('graph[noExporterInternals]', g.graphEdges.forbiddenInRuntimeBundles.some((f) => f.includes('exporter internals')) && g.graphEdges.forbiddenInRuntimeBundles.some((f) => f.includes('editor internals')));
   check('graph[forbiddenKinds]', ['absolute URL', 'cross-origin', 'undeclared path'].every((f) => g.forbidden.includes(f)));
 
@@ -431,9 +433,9 @@ const rules = readJson('manifest/v1-v2-rules.json');
 // ---------------------------------------------------------------------------
 {
   const d = readJson('deps/dependency-rows.json');
-  check('deps[units]', eq(d.units.map((u) => u.unit).sort(), ['game-host', 'platformer-game']));
-  check('deps[publicSurface]', d.publicSurface['game-host'][0] === '.' && d.publicSurface['game-host'][1].includes('createGameHost') && d.publicSurface['platformer-game'][1].includes('zoneOverlap'));
-  check('deps[platformerGameEdges]', eq(d.importEdges['platformer-game'], ['runtime (types)']));
+  check('deps[units]', eq(d.units.map((u) => u.unit).sort(), ['game-host']));
+  check('deps[publicSurface]', d.publicSurface['game-host'][0] === '.' && d.publicSurface['game-host'][1].includes('createGameHost') && !('platformer-game' in d.publicSurface));
+  check('deps[noPlatformerGame]', !('platformer-game' in d.importEdges) && !d.importEdges['game-host'].includes('platformer-game'));
   check('deps[gameHostEdges]', d.importEdges['game-host'].some((e) => e.startsWith('runtime')) && d.importEdges['game-host'].some((e) => e.startsWith('input')));
   check('deps[forbidEditor]', d.forbiddenEdges['game-host'].includes('editor (any subpath)') && d.forbiddenEdges['game-host'].includes('exporter (any subpath)'));
   check('deps[forbidConcrete]', d.forbiddenEdges['game-host'].includes('three (direct)') && d.forbiddenEdges['game-host'].includes('physics-rapier (concrete)'));
@@ -442,7 +444,6 @@ const rules = readJson('manifest/v1-v2-rules.json');
   check('deps[bundleGraphs]', d.bundleGraphs.preview.includes('game-host') && d.bundleGraphs.export.includes('game-host') && d.bundleGraphs.editor.includes('must not appear'));
   check('deps[checks]', d.checks.some((c) => c.includes('packages/editor/src/ui/**')) && d.checks.some((c) => c.includes('no duplicate gameplay bootstrap')));
   check('deps[remeasureOwners]', eq(d.fetchRemeasureOwners, ['58', '60']));
-  check('deps[forbidRuntimeImport]', d.forbiddenEdges['platformer-game'].includes('three') && d.forbiddenEdges['platformer-game'].includes('DOM'));
 }
 
 // ---------------------------------------------------------------------------

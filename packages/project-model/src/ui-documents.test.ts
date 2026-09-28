@@ -1,14 +1,13 @@
 /**
  * Phase 23.9a — UI documents and themes as project data: shape rules,
  * engine limits, document-local references, project references (themes,
- * styles, icons, assets, show/hide targets, flow.screens) and the canonical
+ * styles, icons, assets, show/hide targets) and the canonical
  * form. Neutral fixtures.
  */
 import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
 import { canonicalUiDocument, uiAssetRefs, uiDocumentsForRuntime, validateUiDocument, validateUiReferences, validateUiTheme, UI_LIMITS, type UiDocument, type UiTheme } from './ui-documents';
-import { validateFlow } from './flow';
 
 const doc = (over: Partial<UiDocument> = {}): UiDocument => ({
   uiDocumentId: 'hud',
@@ -92,10 +91,10 @@ describe('UI documents: project references', () => {
     return e;
   };
 
-  it('resolves styles and icons through the theme, assets by kind, show/hide targets and flow screens', () => {
+  it('resolves styles and icons through the theme, assets by kind, show/hide targets', () => {
     const d = doc({ theme: 'base', root: { type: 'text', text: '[icon=coin]', style: ['title'] } });
     expect(validateUiTheme(theme, '', [])).not.toBeNull();
-    expect(check({ uiDocuments: [d], uiThemes: [theme], flow: { levels: [], screens: { paused: 'hud' } } })).toEqual([]);
+    expect(check({ uiDocuments: [d], uiThemes: [theme] })).toEqual([]);
     expect(check({ uiDocuments: [d], uiThemes: [] }).map((e) => e.path)).toContain('/uiDocuments/0/theme');
     const noStyle = doc({ root: { type: 'text', text: '', style: 'ghost' } });
     expect(check({ uiDocuments: [noStyle] }).some((e) => e.message.includes('ghost'))).toBe(true);
@@ -103,14 +102,7 @@ describe('UI documents: project references', () => {
     expect(check({ uiDocuments: [wrongKind] }).some((e) => e.code === 'asset_reference_missing')).toBe(true);
     const badShow = doc({ root: { type: 'button', onClick: { do: 'show', doc: 'ghost' } } });
     expect(check({ uiDocuments: [badShow] }).some((e) => e.message.includes('ghost'))).toBe(true);
-    expect(check({ uiDocuments: [d], uiThemes: [theme], flow: { levels: [], screens: { paused: 'ghost' } } }).map((e) => e.path)).toContain('/flow/screens/paused');
     expect(uiAssetRefs([d], [theme])).toEqual({ textures: ['tex-star'], fonts: ['font-a'] });
-  });
-
-  it('flow.screens names only known screens', () => {
-    const e: ModelErrorV2[] = [];
-    validateFlow({ levels: [{ id: 'l1', name: 'L1', scenes: ['scene-main'], spawnId: 's' }], screens: { paused: 'hud', shop: 'x' } }, '/flow', e);
-    expect(e.map((x) => x.path)).toContain('/flow/screens/shop');
   });
 
   it('canonical form sorts keys and drops nothing; runtime rows carry id, layer and modal', () => {

@@ -3,14 +3,20 @@
   "origin": "authoring",
   "auth": "project bearer token or admin scope",
   "body": {
-    "command": "start",
+    "command": "mute",
     "expectedRunId": "demo-0001@r12#0"
   },
   "commands": [
-    "start",
     "replay",
     "mute",
-    "unmute"
+    "unmute",
+    "loadScene",
+    "unloadScene",
+    "clearSave",
+    "debugPause",
+    "debugResume",
+    "debugStep",
+    "debugCommand"
   ],
   "bounds": {
     "bodyBytes": 4096

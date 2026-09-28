@@ -407,23 +407,3 @@ export function effectMaterialRefs(effect: EffectDef): string[] {
   return [...out].sort();
 }
 
-/**
- * The effects an entity's gameplay hooks name (phase 20.2), as
- * [component-relative path, effectId]: pickup `effect` (collected), enemy
- * `hitEffect`/`defeatEffect`, health `hitEffect` (the player is hit), game
- * zone `effect` (a checkpoint or goal reached).
- */
-export function effectHookRefs(components: Readonly<Record<string, unknown>>): [string, string][] {
-  const out: [string, string][] = [];
-  const at = (component: string, key: string): void => {
-    const c = components[component] as Record<string, unknown> | undefined;
-    const v = c?.[key];
-    if (typeof v === 'string') out.push([`${component}/${key}`, v]);
-  };
-  at('pickup', 'effect');
-  at('enemy', 'hitEffect');
-  at('enemy', 'defeatEffect');
-  at('health', 'hitEffect');
-  at('gameZone', 'effect');
-  return out;
-}

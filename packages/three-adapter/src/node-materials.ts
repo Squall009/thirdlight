@@ -12,9 +12,9 @@
  * - `cloneMaterial`: a per-mesh copy that keeps the hooks (both kinds).
  * - `instanceOrigin`: the instance's translation in an `InstancedMesh`
  *   (the kit's world-X UV shift works per instance).
- * - `setEmissiveLook` / `setSelectionHighlight`: the checkpoint glow and the
- *   editor's selection tint — per-mesh overrides that never change a shared
- *   project material (phase 9.4 rule).
+ * - `setEntityLook` / `setSelectionHighlight`: a script's look override
+ *   (`ctx.look`) and the editor's selection tint — per-mesh overrides that
+ *   never change a shared project material (phase 9.4 rule).
  *
  * Pure three.js (`three/webgpu`, `three/tsl`); nothing here needs a GPU until
  * a renderer builds the nodes.
@@ -200,7 +200,7 @@ const OWN_KEY = '__tlOwnMaterial';
 export const SHARED_MATERIAL_KEY = '__tlSharedMaterial';
 
 /**
- * Phase 21.5: release the own copies `setEmissiveLook` made under `root` (the
+ * Phase 21.5: release the own copies `setEntityLook` made under `root` (the
  * object leaves the scene; a shared material is never disposed here).
  */
 export function releaseEmissiveLooks(root: THREE.Object3D): void {
@@ -213,21 +213,12 @@ export function releaseEmissiveLooks(root: THREE.Object3D): void {
 }
 
 /**
- * An emissive look on every mesh under `root` (the checkpoint glow), or back
- * to each material's own emissive (`look` null). A mesh wearing a shared
- * project material (or a material marked shared, phase 21.3) first gets its
- * own copy (hooks included), so no other mesh glows.
- */
-export function setEmissiveLook(root: THREE.Object3D, look: { emissive: string; emissiveIntensity: number } | null): void {
-  setEntityLook(root, look);
-}
-
-/**
  * Phase 24.4h: a look override on every mesh under `root` — an emissive
  * colour and intensity and/or a tint multiplied into each material's own
  * colour — or back to each material's own (`look` null; a field left out
- * keeps the material's own value). Like the activation glow, a mesh wearing a
- * shared material first gets its own copy, so nothing else changes. Works on
+ * keeps the material's own value). A mesh wearing a shared project material
+ * (or a material marked shared, phase 21.3) first gets its own copy (hooks
+ * included), so nothing else changes. Works on
  * both renderers: the node materials read `color`, `emissive` and
  * `emissiveIntensity` as uniforms every frame.
  */

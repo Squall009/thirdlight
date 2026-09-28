@@ -82,7 +82,7 @@ describe('ctx.tags', () => {
     // v3 scene is exercised end to end by the Play e2e.
     const loaded = resolveSnapshotHierarchy(snapshot());
     const settings = { gravity_y: -20, run_speed: 6, jump_velocity: 9, max_fall_speed: 20, max_slope_climb_deg: 50, min_slope_slide_deg: 40 };
-    const mod = spec.create(loaded, { fixedStepHz: 120, settings, sceneVersion: 3, game: null }) as SimulationPhaseModule;
+    const mod = spec.create(loaded, { fixedStepHz: 120, settings, sceneVersion: 3 }) as SimulationPhaseModule;
     const ctx = { stepIndex: 0, phase: 'intent', action: {}, settings, physics: {}, state: {}, intents: Object.freeze([]), emit: () => undefined };
     mod.step('intent', ctx as never);
     expect(seen.instantiate).toEqual(['box-0001', 'box-0002']);

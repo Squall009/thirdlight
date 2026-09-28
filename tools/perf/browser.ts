@@ -181,15 +181,14 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
     const frame = await poll(async () => page.frames().find((f) => f.url().startsWith(be.previewOrigin)), (f) => f !== undefined, 90_000, 'the preview iframe (the play.started message never reached the editor)');
     await poll(async () => (await relay(`${psid}/observe`)).json['state'], (s) => s === 'running', 180_000, 'the play preview');
     const readyMs = Date.now() - t0;
-    await relay(`${psid}/control`, { command: 'start' });
     const firstEpoch = await poll(async () => frame!.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the first Play frame');
     await new Promise((r) => setTimeout(r, opts.warmupMs));
     const { sample, mainThread } = await recordWithMainThread(page, frame!, opts);
     const la = await loadavg();
     const diag = (await relay(`${psid}/diagnostics`)).json['diagnostics'] as { renderer?: { gpu?: { geometries: number; textures: number; programs: number } } } | undefined;
-    // Phase 24.6: the benchmark's game session reports its run state under `legacy` (24.7 moves the benchmark off it).
-    const observed = (await relay(`${psid}/observe`)).json as { state?: string; legacy?: { runState?: string } };
-    const state = String(observed.legacy?.runState ?? observed.state);
+    // Phase 24.7: the benchmark plays as a scene (the play state: running).
+    const observed = (await relay(`${psid}/observe`)).json as { state?: string };
+    const state = String(observed.state);
     const out = result('play', renderer, sample, { firstFrameMs: firstEpoch! - t0, readyMs }, notes, la);
     if (diag?.renderer?.gpu !== undefined) out.three = diag.renderer.gpu;
     out.state = state;

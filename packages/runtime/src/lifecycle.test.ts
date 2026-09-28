@@ -9,7 +9,7 @@
  * scheduled callbacks so single-loop ownership is observable.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
+import { BUILTIN_MODULES, createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, registerSimulationModule, type BehaviorLifecycle } from './index';
 import { baseScene, cloneJson, snapshotOf } from './test-helpers';
 
 interface RafFake {
@@ -256,5 +256,145 @@ describe('lifecycle (runtime.md §3)', () => {
     }
     // The fake stays installed (restored by afterEach); nothing to pump.
     expect(fake.live.size).toBe(0);
+  });
+});
+
+describe('ctx.lifecycle.respawn on the 2D plane (phase 24.7)', () => {
+  const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+  const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
+  interface Ctx {
+    phase: string;
+    stepIndex: number;
+    lifecycle: BehaviorLifecycle;
+    world: { transform(id: string): { position: readonly number[] } | undefined };
+  }
+
+  /** A scene whose character (the controller entity) starts at (0, 5), two spawns, one script; the port keeps the character where it was last placed. */
+  function run(script: (ctx: Ctx) => void) {
+    const placed: { x: number; y: number }[] = [];
+    let where = { x: 0, y: 5 };
+    const zero = { x: 0, y: 0 };
+    const port = {
+      stageCharacterMove() {},
+      step: () => ({ requested: { ...zero }, applied: { ...zero }, position: { ...where }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false }),
+      reset() {},
+      clearCharacterMotion() {},
+      placeCharacter(c: { x: number; y: number }) {
+        placed.push({ ...c });
+        where = { x: c.x, y: c.y };
+        return { ok: true, supportNormal: { x: 0, y: 1 } };
+      },
+      characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1 } }),
+      addStaticColliders() {},
+      removeStaticColliders() {},
+      setKinematicPositions() {},
+      diagnostics: () => ({}),
+      dispose() {},
+    };
+    const spec = createBehaviorModuleSpec({
+      declaration: { properties: [] } as never,
+      artifact: {
+        behaviorId: 'keeper',
+        sourceDigest: 'a'.repeat(64),
+        manifestDigest: 'b'.repeat(64),
+        outputDigest: 'c'.repeat(64),
+        ownedTransforms: [],
+        requiredModules: [],
+        enginePins: [],
+        namespace: { default: { step: (_s: unknown, ctx: Ctx) => script(ctx) } },
+      } as never,
+    });
+    const r = createSimulationRegistry();
+    registerSimulationModule(r, spec.id, spec);
+    const now = { t: 0 };
+    const res = instantiateRuntime({
+      snapshot: {
+        snapshotId: 'respawn@r1',
+        projectId: 'respawn',
+        revision: 1,
+        scene: {
+          schemaVersion: 4,
+          sceneId: 'scene-main',
+          revision: 1,
+          entities: [
+            { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
+            { id: 'player-0001', components: { transform: at(0, 5), controller: {} } },
+            { id: 'spawn-a', components: { transform: at(2, 1), playerSpawn: {} } },
+            { id: 'spawn-b', components: { transform: at(8, 3), playerSpawn: {} } },
+            { id: 'box-keeper', components: { transform: at(0, -5), box: { size: [1, 1, 1], material: { color: '#ffffff' } }, behavior: { behaviorId: 'keeper', values: {} } } },
+          ],
+        },
+      },
+      registry: r,
+      modules: [spec.id],
+      actions: { sample: (i: number) => neutralFrame(i) },
+      physics: port as never,
+      settings: {},
+      fixedStepHz: 120,
+      clock: () => now.t,
+      driver: { kind: 'manual' },
+    } as never);
+    if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
+    const rt = res.runtime;
+    expect(rt.start().ok).toBe(true);
+    expect(rt.tick(now.t).ok).toBe(true);
+    const tick = (n = 1): void => {
+      for (let i = 0; i < n; i++) {
+        now.t += 1 / 120;
+        const t = rt.tick(now.t);
+        if (!t.ok) throw new Error(`tick failed: ${JSON.stringify(t.error)} ${JSON.stringify(rt.getDiagnostics())}`);
+      }
+    };
+    const character = (): number[] => {
+      const s = rt.getInterpolatedState();
+      if (!s.ok) throw new Error('no state');
+      return [...s.state.transforms.find((x) => x.id === 'player-0001')!.position];
+    };
+    return { rt, tick, placed, character };
+  }
+
+  it('moves the character to the active spawn at the next step boundary; a named spawn becomes the active one', () => {
+    const seen: string[] = [];
+    let ask: (() => boolean) | null = null;
+    let lifecycle: BehaviorLifecycle | null = null;
+    const h = run((ctx) => {
+      if (ctx.phase !== 'intent') return;
+      lifecycle = ctx.lifecycle;
+      const p = ctx.world.transform('player-0001')!.position;
+      seen.push(`${p[0]},${p[1]}`);
+      if (ask !== null) {
+        expect(ask()).toBe(true);
+        ask = null;
+      }
+    });
+    h.tick(3);
+    expect(h.character().slice(0, 2)).toEqual([0, 5]);
+    expect(h.placed).toEqual([]);
+    expect(lifecycle!.spawnPoint()).toBe('spawn-a'); // the first spawn until one is set
+
+    // Asked in a step: that step still sees the character where it was; the next one sees it at the spawn.
+    seen.length = 0;
+    ask = () => lifecycle!.respawn();
+    h.tick(1);
+    expect(h.placed).toEqual([]);
+    expect(seen).toEqual(['0,5']);
+    h.tick(1);
+    expect(h.placed).toEqual([{ x: 2, y: 1 }]);
+    expect(seen).toEqual(['0,5', '2,1']);
+    h.tick(2);
+    expect(h.character().slice(0, 2)).toEqual([2, 1]);
+
+    // A named spawn: it becomes the active one, and later respawns use it.
+    ask = () => lifecycle!.respawn('spawn-b');
+    h.tick(2);
+    expect(h.placed.at(-1)).toEqual({ x: 8, y: 3 });
+    expect(lifecycle!.spawnPoint()).toBe('spawn-b');
+    expect(h.character().slice(0, 2)).toEqual([8, 3]);
+    // An unknown spawn is refused and moves nothing.
+    expect(lifecycle!.respawn('box-keeper')).toBe(false);
+    const before = h.placed.length;
+    h.tick(2);
+    expect(h.placed.length).toBe(before);
+    expect(h.rt.getDiagnostics().ok && (h.rt.getDiagnostics() as { diagnostics: { state: string } }).diagnostics.state).toBe('running');
   });
 });

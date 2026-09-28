@@ -20,7 +20,7 @@ import {
   planSceneLights,
   SHADOW_PROFILE,
   SURFACE_PRESETS,
-  type ShadowLevel,
+  type ShadowRegion,
 } from './lighting';
 
 // The fixture's shadow block (presentation.md §41.1.2 frozen profile).
@@ -37,12 +37,12 @@ const FIXTURE_SHADOW = {
 // The fixture's preset table (presentation.md §41.2.1 frozen rows).
 const FIXTURE_PRESETS = {
   'matte-ground': { color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 },
-  hazard: { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
-  beacon: { color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 },
+  'signal-red': { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
+  'emissive-accent': { color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 },
 };
 
-const LEVEL: ShadowLevel = { minX: 0, maxX: 48, minY: -4, maxY: 8 };
-const LEVEL_WIDE: ShadowLevel = { minX: 0, maxX: 200, minY: -4, maxY: 8 };
+const REGION: ShadowRegion = { minX: 0, maxX: 48, minY: -4, maxY: 8 };
+const REGION_WIDE: ShadowRegion = { minX: 0, maxX: 200, minY: -4, maxY: 8 };
 const DIR: [number, number, number] = [0.5, -1, -0.6];
 
 describe('packet 52 — the §41.1.2 frozen shadow profile', () => {
@@ -61,8 +61,8 @@ describe('packet 52 — the §41.1.2 frozen shadow profile', () => {
 });
 
 describe('packet 52 — the §41.1.3 exact shadow camera derivation', () => {
-  it('derives the fixture case: level X[0,48] Y[-4,8], direction (0.5,-1,-0.6)', () => {
-    const p = deriveShadowCamera(LEVEL, DIR);
+  it('derives the fixture case: region X[0,48] Y[-4,8], direction (0.5,-1,-0.6)', () => {
+    const p = deriveShadowCamera(REGION, DIR);
     // centre = ((0+48)/2, (-4+8)/2, 0)
     expect(p.centre).toEqual([24, 2, 0]);
     // halfExtent = max((48-0)/2, (8-(-4))/2) + 2 = max(24, 6) + 2 = 26
@@ -86,23 +86,23 @@ describe('packet 52 — the §41.1.3 exact shadow camera derivation', () => {
     expect(p.lightPosition[0]).toBe(24 - n[0] * 20);
     expect(p.lightPosition[1]).toBe(2 - n[1] * 20);
     expect(p.lightPosition[2]).toBe(0 - n[2] * 20);
-    // The light sits on the far side of the level centre from the direction
-    // (shining DOWN the authored direction over the level).
+    // The light sits on the far side of the region centre from the direction
+    // (shining DOWN the authored direction over the region).
     expect(p.lightPosition[1]).toBeGreaterThan(2); // d.y < 0 ⇒ light above
   });
 
   it('flags shadow_bounds_exceeded: halfExtent = max(100, 6) + 2 = 102 > 64', () => {
-    const p = deriveShadowCamera(LEVEL_WIDE, DIR);
+    const p = deriveShadowCamera(REGION_WIDE, DIR);
     expect(p.halfExtent).toBe(102);
     expect(p.withinBounds).toBe(false);
   });
 
   it('the half-extent boundary is inclusive at exactly 64', () => {
-    // level X[0,124] Y[-4,8]: halfExtent = max(62, 6) + 2 = 64 ⇒ still on
+    // region X[0,124] Y[-4,8]: halfExtent = max(62, 6) + 2 = 64 ⇒ still on
     const p = deriveShadowCamera({ minX: 0, maxX: 124, minY: -4, maxY: 8 }, DIR);
     expect(p.halfExtent).toBe(64);
     expect(p.withinBounds).toBe(true);
-    // one more metre of level ⇒ 64.5 > 64 ⇒ off
+    // one more metre of region ⇒ 64.5 > 64 ⇒ off
     const p2 = deriveShadowCamera({ minX: 0, maxX: 125, minY: -4, maxY: 8 }, DIR);
     expect(p2.halfExtent).toBe(64.5);
     expect(p2.withinBounds).toBe(false);
@@ -110,14 +110,14 @@ describe('packet 52 — the §41.1.3 exact shadow camera derivation', () => {
 
   it('is deterministic and derived-copy only (the input direction array is untouched)', () => {
     const dir: [number, number, number] = [0.5, -1, -0.6];
-    const a = deriveShadowCamera(LEVEL, dir);
-    const b = deriveShadowCamera(LEVEL, dir);
+    const a = deriveShadowCamera(REGION, dir);
+    const b = deriveShadowCamera(REGION, dir);
     expect(a.lightPosition).toEqual(b.lightPosition);
     expect(dir).toEqual([0.5, -1, -0.6]); // never normalized in place
   });
 
   it('degrades finitely on a degenerate direction (defensive; unreachable on a validated snapshot)', () => {
-    const p = deriveShadowCamera(LEVEL, [0, 0, 0]);
+    const p = deriveShadowCamera(REGION, [0, 0, 0]);
     expect(Number.isFinite(p.lightPosition[0])).toBe(true);
     expect(p.lightPosition).toEqual([24, 2, 0]); // the zero normalized copy ⇒ centre
   });
@@ -128,27 +128,27 @@ describe('packet 52 — the §41.1.4 decision (the fixture shadowCases replay)',
   const cases = [
     {
       id: 'shadow-on',
-      input: { webgl2: true, castShadow: true, probeOk: true, level: LEVEL, direction: DIR },
+      input: { webgl2: true, castShadow: true, probeOk: true, region: REGION, direction: DIR },
       expect: { shadows: 'on' as const },
     },
     {
       id: 'shadow-author-off',
-      input: { webgl2: true, castShadow: false, probeOk: true, level: LEVEL, direction: DIR },
+      input: { webgl2: true, castShadow: false, probeOk: true, region: REGION, direction: DIR },
       expect: { shadows: 'off' as const, shadowReason: 'cast_shadow_false' as const },
     },
     {
       id: 'shadow-degraded-capability',
-      input: { webgl2: true, castShadow: true, probeOk: false, level: LEVEL, direction: DIR },
+      input: { webgl2: true, castShadow: true, probeOk: false, region: REGION, direction: DIR },
       expect: { shadows: 'off' as const, shadowReason: 'shadow_unsupported' as const },
     },
     {
       id: 'shadow-degraded-bounds',
-      input: { webgl2: true, castShadow: true, probeOk: true, level: LEVEL_WIDE, direction: DIR },
+      input: { webgl2: true, castShadow: true, probeOk: true, region: REGION_WIDE, direction: DIR },
       expect: { shadows: 'off' as const, shadowReason: 'shadow_bounds_exceeded' as const },
     },
     {
       id: 'no-webgl2',
-      input: { webgl2: false, castShadow: true, probeOk: false, level: LEVEL, direction: DIR },
+      input: { webgl2: false, castShadow: true, probeOk: false, region: REGION, direction: DIR },
       expect: { error: 'render_unsupported' as const },
     },
   ];
@@ -174,18 +174,18 @@ describe('packet 52 — the §41.1.4 decision (the fixture shadowCases replay)',
   it('the priority order is webgl2 → castShadow → probe → bounds (the fixture reference order)', () => {
     // probe failure beats bounds: the reference derivation checks probeOk
     // first (no fixture case has both, but the order is pinned anyway).
-    const got = decideShadows({ webgl2: true, castShadow: true, probeOk: false, level: LEVEL_WIDE, direction: DIR });
+    const got = decideShadows({ webgl2: true, castShadow: true, probeOk: false, region: REGION_WIDE, direction: DIR });
     expect(got.ok && got.shadows === 'off' && got.shadowReason === 'shadow_unsupported').toBe(true);
     // castShadow false beats probe failure and bounds (the author's choice).
-    const got2 = decideShadows({ webgl2: true, castShadow: false, probeOk: false, level: LEVEL_WIDE, direction: DIR });
+    const got2 = decideShadows({ webgl2: true, castShadow: false, probeOk: false, region: REGION_WIDE, direction: DIR });
     expect(got2.ok && got2.shadows === 'off' && got2.shadowReason === 'cast_shadow_false').toBe(true);
     // the hard outcome beats everything.
-    const got3 = decideShadows({ webgl2: false, castShadow: false, probeOk: false, level: LEVEL_WIDE, direction: DIR });
+    const got3 = decideShadows({ webgl2: false, castShadow: false, probeOk: false, region: REGION_WIDE, direction: DIR });
     expect(got3).toEqual({ ok: false, error: 'render_unsupported' });
   });
 
   it('the plan is present on every ok outcome (the directional position is derived even when shadows are off)', () => {
-    const off = decideShadows({ webgl2: true, castShadow: false, probeOk: true, level: LEVEL, direction: DIR });
+    const off = decideShadows({ webgl2: true, castShadow: false, probeOk: true, region: REGION, direction: DIR });
     expect(off.ok).toBe(true);
     if (!off.ok) return;
     const norm = Math.hypot(0.5, -1, -0.6);
@@ -198,10 +198,10 @@ describe('packet 52 — the §41.2.1 frozen preset rows', () => {
   it('carries exactly the three fixture rows (bit-equal, deep-frozen, closed)', () => {
     expect({
       'matte-ground': SURFACE_PRESETS['matte-ground'],
-      hazard: SURFACE_PRESETS.hazard,
-      beacon: SURFACE_PRESETS.beacon,
+      'signal-red': SURFACE_PRESETS['signal-red'],
+      'emissive-accent': SURFACE_PRESETS['emissive-accent'],
     }).toEqual(FIXTURE_PRESETS);
-    expect(Object.keys(SURFACE_PRESETS).sort()).toEqual(['beacon', 'hazard', 'matte-ground']); // no fourth row
+    expect(Object.keys(SURFACE_PRESETS).sort()).toEqual(['emissive-accent', 'matte-ground', 'signal-red']); // no fourth row
     expect(Object.isFrozen(SURFACE_PRESETS)).toBe(true);
     for (const row of Object.values(SURFACE_PRESETS)) expect(Object.isFrozen(row)).toBe(true);
   });
@@ -218,8 +218,8 @@ describe('packet 52 — the §41.1.2 light realization plans', () => {
   };
 
   it('ambients plan with no position dependence; directionals carry the derived position/target', () => {
-    const decision = decideShadows({ webgl2: true, castShadow: true, probeOk: true, level: LEVEL, direction: DIR });
-    const plans = planSceneLights([keyLight, ambientLight], LEVEL, decision);
+    const decision = decideShadows({ webgl2: true, castShadow: true, probeOk: true, region: REGION, direction: DIR });
+    const plans = planSceneLights([keyLight, ambientLight], REGION, decision);
     expect(plans).toHaveLength(2);
     const key = plans.find((p) => p.kind === 'directional');
     const amb = plans.find((p) => p.kind === 'ambient');
@@ -241,8 +241,8 @@ describe('packet 52 — the §41.1.2 light realization plans', () => {
 
   it('the castShadow flag follows the decision (author-off ⇒ the light is realized without a shadow)', () => {
     const keyOff = { ...keyLight, castShadow: false };
-    const decision = decideShadows({ webgl2: true, castShadow: false, probeOk: true, level: LEVEL, direction: DIR });
-    const plans = planSceneLights([keyOff], LEVEL, decision);
+    const decision = decideShadows({ webgl2: true, castShadow: false, probeOk: true, region: REGION, direction: DIR });
+    const plans = planSceneLights([keyOff], REGION, decision);
     expect(plans).toHaveLength(1);
     const key = plans[0]!;
     expect(key.kind).toBe('directional');
@@ -254,15 +254,15 @@ describe('packet 52 — the §41.1.2 light realization plans', () => {
   });
 
   it('rule 4: at most one directional node and one ambient node per realized scene (first of each wins)', () => {
-    const decision = decideShadows({ webgl2: true, castShadow: true, probeOk: true, level: LEVEL, direction: DIR });
-    const plans = planSceneLights([keyLight, keyLight, ambientLight, ambientLight], LEVEL, decision);
+    const decision = decideShadows({ webgl2: true, castShadow: true, probeOk: true, region: REGION, direction: DIR });
+    const plans = planSceneLights([keyLight, keyLight, ambientLight, ambientLight], REGION, decision);
     expect(plans.filter((p) => p.kind === 'directional')).toHaveLength(1);
     expect(plans.filter((p) => p.kind === 'ambient')).toHaveLength(1);
   });
 
   it('bounds-exceeded ⇒ the key light is realized without a shadow (soft degradation)', () => {
-    const decision = decideShadows({ webgl2: true, castShadow: true, probeOk: true, level: LEVEL_WIDE, direction: DIR });
-    const plans = planSceneLights([keyLight], LEVEL_WIDE, decision);
+    const decision = decideShadows({ webgl2: true, castShadow: true, probeOk: true, region: REGION_WIDE, direction: DIR });
+    const plans = planSceneLights([keyLight], REGION_WIDE, decision);
     expect(plans).toHaveLength(1);
     const key = plans[0]!;
     expect(key.kind).toBe('directional');
@@ -270,8 +270,8 @@ describe('packet 52 — the §41.1.2 light realization plans', () => {
   });
 
   it('no authored lights ⇒ no light nodes (the M1 fixed pair is v1/v2 only)', () => {
-    const decision = decideShadows({ webgl2: true, castShadow: false, probeOk: true, level: LEVEL, direction: DIR });
-    expect(planSceneLights([], LEVEL, decision)).toEqual([]);
+    const decision = decideShadows({ webgl2: true, castShadow: false, probeOk: true, region: REGION, direction: DIR });
+    expect(planSceneLights([], REGION, decision)).toEqual([]);
   });
 });
 describe('phase 17.4: the directional light shadow settings as data', () => {

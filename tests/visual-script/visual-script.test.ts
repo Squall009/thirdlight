@@ -22,7 +22,7 @@ import type { GraphData } from '@thirdlight/project-model';
 import { compileGraph, compileTs, level, node, trace, wire } from './harness';
 
 /**
- * On start: add `amount` coins, emit "go". On step: a sequence of (1) count
+ * On start: add `amount` items, emit "go". On step: a sequence of (1) count
  * "heard" when "go" was received, (2) ticks += 1, then "late" once ticks ≥ 5
  * else log the tick count, (3) a For loop 1..3 adding the index to "loops".
  */
@@ -31,7 +31,7 @@ const GRAPH: GraphData = {
     { ...node('amount', 'var.number', { name: 'amount', default: 2 }), position: [0, -300] },
     { ...node('ticks', 'var.number', { name: 'ticks', visibility: 'private' }), position: [0, -200] },
     node('start', 'event.start'),
-    node('coins', 'api.game.add', { name: 'coins' }),
+    node('items', 'api.game.add', { name: 'items' }),
     node('get-amount', 'var.get', { variable: 'amount' }),
     node('go', 'api.signals.emit', { name: 'go' }),
     node('step', 'event.step'),
@@ -50,9 +50,9 @@ const GRAPH: GraphData = {
     node('loops', 'api.game.add', { name: 'loops' }),
   ],
   edges: [
-    wire('w1', 'start', 'then', 'coins', 'in'),
-    wire('w2', 'get-amount', 'value', 'coins', 'amount'),
-    wire('w3', 'coins', 'then', 'go', 'in'),
+    wire('w1', 'start', 'then', 'items', 'in'),
+    wire('w2', 'get-amount', 'value', 'items', 'amount'),
+    wire('w3', 'items', 'then', 'go', 'in'),
     wire('w4', 'step', 'then', 'seq', 'in'),
     wire('w5', 'seq', 'then1', 'heard-branch', 'in'),
     wire('w6', 'go-on', 'value', 'heard-branch', 'condition'),
@@ -90,7 +90,7 @@ export default {
     if (ctx.phase !== 'intent') return;
     if (!s.started) {
       s.started = true;
-      ctx.game?.add('coins', s.amount);
+      ctx.game?.add('items', s.amount);
       ctx.signals?.emit('go');
     }
     if (ctx.signals?.on('go') ?? false) ctx.game?.add('heard', 1);
@@ -108,17 +108,17 @@ describe('visual scripts in the running game', () => {
     expect(graphRun).toHaveLength(121);
     expect(graphRun).toEqual(tsRun);
     expect(graphRun).toEqual(graphAgain);
-    // What the script did: coins once per run start (the amount), loops 1+2+3 per step, late from the 5th step.
+    // What the script did: items once per run start (the amount), loops 1+2+3 per step, late from the 5th step.
     const afterStart = JSON.parse(graphRun[1]!) as [Record<string, number>, number];
-    expect(afterStart[0]['coins']).toBe(2);
+    expect(afterStart[0]['items']).toBe(2);
     expect(afterStart[0]['loops']).toBe(6);
     const endOfRun = JSON.parse(graphRun[60]!) as [Record<string, number>, number, number, boolean];
     expect(endOfRun[0]['loops']).toBe(360);
     expect(endOfRun[0]['late']).toBe(56);
     expect(endOfRun[3]).toBe(false);
-    // The replay starts fresh: On start ran again (coins = amount) and the ticks restarted (late counts from 5 again).
+    // The replay starts fresh: On start ran again (items = amount) and the ticks restarted (late counts from 5 again).
     const afterReplay = JSON.parse(graphRun[61]!) as [Record<string, number>];
-    expect(afterReplay[0]['coins']).toBe(2);
+    expect(afterReplay[0]['items']).toBe(2);
     expect(afterReplay[0]['late']).toBeUndefined();
     expect(JSON.parse(graphRun[120]!)[0]).toEqual(endOfRun[0]);
   });
@@ -144,7 +144,7 @@ describe('visual scripts in the running game', () => {
     });
     const L = await level(compiled);
     L.tick();
-    expect(L.rt.gameCommand('start').ok).toBe(true);
+    L.replay();
     const line = JSON.parse(L.tick());
     expect(line[3]).toBe(false);
     expect(line[0]).toEqual({ spins: 10_000 });

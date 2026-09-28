@@ -397,7 +397,7 @@ describe('packet 47 — recipe and metadata digests over supplied records', () =
     for (const rel of [
       'catalog/audio-asset-record-v3.json',
       'envelope/valid/demo-0003-media-v3.json',
-      'envelope/invalid/cue-kind-mismatch.json',
+      // Phase 24.7: envelope/invalid/cue-kind-mismatch.json (a game-cue rule) was deleted with the game layer.
     ]) {
       const doc = json<{ content: { assets: { kind: string; versions: { sourceDigest: string; sourceByteLength: number; importRecipe: unknown; metrics: unknown }[] }[] } }>(
         join(CONTRACTS, rel),

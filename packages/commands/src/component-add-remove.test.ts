@@ -14,7 +14,7 @@ import { applyMutation, createCommandState } from './index';
 import type { CommandState, ContentDocument } from './index';
 import { ALL_OWNED_COMPONENTS } from './v3';
 import { validateSetComponentArgs } from './validate-content-args';
-import { m3ContractJson } from './test-fixtures';
+import { m3NeutralJson } from './test-fixtures';
 
 interface EnvelopeFixture {
   projectId: string;
@@ -22,7 +22,7 @@ interface EnvelopeFixture {
   content: ContentDocument;
 }
 
-const BEFORE = m3ContractJson<EnvelopeFixture>('commands/scenario.before.json');
+const BEFORE = m3NeutralJson<EnvelopeFixture>('commands/scenario.before.json');
 type State = CommandState<SceneV3>;
 
 let counter = 0;

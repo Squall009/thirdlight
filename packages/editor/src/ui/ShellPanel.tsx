@@ -22,7 +22,8 @@ interface Props {
   shell: GameShell | null;
   fieldContext: FieldContext;
   error: string | null;
-  onSetShell: (next: GameShell | null) => void;
+  /** `base`: the shell the edit was made on (phase 24.7: the edit is re-applied onto the shell as it is at send time). */
+  onSetShell: (next: GameShell | null, base: GameShell | null) => void;
 }
 
 function shellDesc(registry: DescriptorRegistry | null): ObjectFieldDescriptor | null {
@@ -38,10 +39,10 @@ export function ShellPanel(p: Props): JSX.Element {
     <div className="tl-panel tl-shell" aria-label="game shell">
       <div className="tl-panel__title">Game shell</div>
       <p className="tl-tags__hint">
-        The menus around the game and its HUD, drawn with the project&apos;s UI documents (make them in the UI tab). A title shows before play; pause, settings, controls, save and load screens open from buttons with engine actions; the HUD documents show while the game plays and bind to <code>$flow.counters</code>, <code>$flow.health</code>, <code>$flow.prompts</code> or script values. For a game without the game session.
+        The menus around the game and its HUD, drawn with the project&apos;s UI documents (make them in the UI tab). A title shows before play; pause, settings, controls, save and load screens open from buttons with engine actions; the HUD documents show while the game plays and bind to <code>$flow.counters</code>, <code>$flow.health</code>, <code>$flow.prompts</code> or script values.
       </p>
       {shell === null ? (
-        <button className="tl-btn" aria-label="add game shell" onClick={() => p.onSetShell({})}>
+        <button className="tl-btn" aria-label="add game shell" onClick={() => p.onSetShell({}, shell)}>
           add game shell
         </button>
       ) : desc !== null ? (
@@ -63,10 +64,10 @@ export function ShellPanel(p: Props): JSX.Element {
                 if (v === null) delete out[k];
                 else out[k] = v;
               }
-              p.onSetShell(out as GameShell);
+              p.onSetShell(out as GameShell, shell);
             }}
           />
-          <button className="tl-btn" aria-label="remove game shell" title="Remove the shell (the game starts at once, with no menus)" onClick={() => p.onSetShell(null)}>
+          <button className="tl-btn" aria-label="remove game shell" title="Remove the shell (the game starts at once, with no menus)" onClick={() => p.onSetShell(null, shell)}>
             remove game shell
           </button>
         </div>

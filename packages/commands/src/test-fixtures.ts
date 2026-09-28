@@ -162,3 +162,31 @@ export function m3ContractText(rel: string): string {
 export function m3ContractJson<T = unknown>(rel: string): T {
   return JSON.parse(m3ContractText(rel)) as T;
 }
+
+/**
+ * Phase 24.7: the packet-39 contract envelopes were recorded against the
+ * removed platformer layer (the `cameraFollow` and `gameZone` components and
+ * the `content.game` block). A neutral copy for the generic suites: every
+ * `cameraFollow` is dropped, every `gameZone` entity is removed, and
+ * `content.game` is `null`. Everything else (ids, revision, assets, spawns,
+ * surfaces, lights, models) is the recorded value.
+ */
+export function neutralM3Envelope<T>(env: T): T {
+  const copy = structuredClone(env) as unknown as {
+    scene: { entities: Array<{ components: Record<string, unknown> }> };
+    content: Record<string, unknown>;
+  };
+  copy.scene.entities = copy.scene.entities
+    .filter((e) => e.components['gameZone'] === undefined)
+    .map((e) => {
+      const { cameraFollow: _cameraFollow, ...components } = e.components;
+      return { ...e, components };
+    });
+  copy.content = { ...copy.content, game: null };
+  return copy as unknown as T;
+}
+
+/** `neutralM3Envelope` of the parsed `fixtures/m3/contracts/<rel>` envelope. */
+export function m3NeutralJson<T = unknown>(rel: string): T {
+  return neutralM3Envelope(m3ContractJson<T>(rel));
+}

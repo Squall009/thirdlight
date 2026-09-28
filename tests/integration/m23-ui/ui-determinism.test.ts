@@ -65,7 +65,6 @@ async function run(mode: Mode): Promise<{ digests: string[]; shown: Map<number, 
       { id: 'cam-main', components: { transform: T([0, 4, 12]), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
       { id: 'logic-0001', components: { transform: T([0, 0, 0]), behavior: { behaviorId: 'logic', values: {} } } },
     ] },
-    game: null,
     uiDocuments: [{ uiDocumentId: 'hud', layer: 0, modal: false }, { uiDocumentId: 'menu', layer: 0, modal: true }],
   };
   const h = await startHarness(mode, { snapshot, settings: {}, physics: null, behaviors: [behaviorModule('logic', SCRIPT)], replay: recording(), digestSteps: true, host: { buildId: 'b', container, ui: { documents: DOCS } } });
@@ -78,7 +77,7 @@ async function run(mode: Mode): Promise<{ digests: string[]; shown: Map<number, 
   while (h.digests.length < 600) {
     now += ((i++ % 3) + 1) * DT;
     await h.tick(now);
-    const obs = h.host.observeScene!();
+    const obs = h.host.observe();
     if (obs.ok && obs.observation.ui !== undefined) {
       shown.set(obs.observation.stepIndex, obs.observation.ui.shown.join(','));
       texts.set(obs.observation.stepIndex, `${allText(container).length}|${JSON.stringify(h.rt.uiView().model)}`);

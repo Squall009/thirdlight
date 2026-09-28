@@ -12,7 +12,7 @@
  *   the variant that holds).
  * - `componentPatch`: one edit (a path and a new value, or `undefined` to
  *   remove it) → the partial top-level value the existing commands take
- *   (`setComponent`, `setTransform`, `setGameConfig`): fields that stop
+ *   (`setComponent`, `setTransform`, the content `set…` ops): fields that stop
  *   applying are dropped, required fields that start applying get the value
  *   of a preset of that variant, a fitting reference or their default
  *   (`Fill`), an optional
@@ -277,7 +277,7 @@ export function startValue(f: FieldDescriptor, parent?: Level, refs?: StartRefs)
       return [0, 0];
     case 'vec3':
       return [0, 0, 0];
-    // A required text without a default (a custom pickup's counter) starts as its
+    // A required text without a default (a collectible's counter) starts as its
     // key name — a valid name in every text format — and is renamed after.
     case 'string':
     case 'signal':

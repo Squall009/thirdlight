@@ -108,7 +108,7 @@ export function advancePath(m: PathState, dt: number): void {
 
 // ---- state -----------------------------------------------------------------------
 
-/** One object's health (the game session's player shares its record with the session's own health). */
+/** One object's health. */
 export interface HealthRecord {
   max: number;
   start: number;
@@ -276,12 +276,12 @@ export class Primitives {
 
   // ---- loading -----------------------------------------------------------------
 
-  /** An object's components (a loaded scene, a spawned copy); `health` is the record to use (the session player's own). */
-  add(id: string, c: Readonly<Record<string, Record<string, unknown> | undefined>>, position: readonly number[], health?: HealthRecord): void {
+  /** An object's components (a loaded scene, a spawned copy). */
+  add(id: string, c: Readonly<Record<string, Record<string, unknown> | undefined>>, position: readonly number[]): void {
     const h = c['health'];
     if (h !== undefined) {
       const max = num(h['max'], 3);
-      this.healths.set(id, health ?? { max, start: Math.min(max, num(h['start'], max)), current: Math.min(max, num(h['start'], max)) });
+      this.healths.set(id, { max, start: Math.min(max, num(h['start'], max)), current: Math.min(max, num(h['start'], max)) });
     }
     const k = c['collectible'];
     if (k !== undefined) {

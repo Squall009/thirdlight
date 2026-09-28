@@ -85,7 +85,7 @@ describe('visual-script debugging (phase 19.2)', () => {
     expect(p.outputDigest).not.toBe(d.outputDigest);
     const L = await level(d);
     L.tick();
-    expect(L.rt.gameCommand('start').ok).toBe(true);
+    L.replay();
     let hitStep = -1;
     for (let i = 0; i < 80 && hitStep < 0; i++) {
       L.tick();
@@ -127,7 +127,7 @@ describe('visual-script debugging (phase 19.2)', () => {
     const run = async (perFrame: number, total: number): Promise<{ heldAt: number; stepped: number; end: string; frozen: boolean }> => {
       const L = await level(d);
       L.tick();
-      expect(L.rt.gameCommand('start').ok).toBe(true);
+      L.replay();
       const rt = L.rt;
       const start = rt.getDiagnostics().diagnostics.stepIndex as number;
       rt.setStepWatcher(() => debugOf(rt).trace.includes('add'));
@@ -170,7 +170,7 @@ describe('visual-script debugging (phase 19.2)', () => {
     // An uninterrupted run of the same length ends in the same state.
     const L = await level(d);
     L.tick();
-    L.rt.gameCommand('start');
+    L.replay();
     const start = L.rt.getDiagnostics().diagnostics.stepIndex as number;
     let now = 1;
     L.rt.tick(now);
@@ -192,7 +192,7 @@ describe('visual-script debugging (phase 19.2)', () => {
     if (!r.ok) throw new Error(JSON.stringify(r.failure));
     const L = await level(r.result);
     L.tick();
-    L.rt.gameCommand('start');
+    L.replay();
     L.tick();
     L.tick();
     const v = debugOf(L.rt);

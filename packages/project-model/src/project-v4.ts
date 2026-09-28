@@ -32,12 +32,11 @@ import { ID_RE_V2, physicsRotationErrors, physicsScaleErrors } from './component
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
-import type { ContentCatalogV3, ContentCatalogV4, GameConfig, SceneEntityV3, SceneV3, SceneV4 } from './types-v3';
+import type { ContentCatalogV3, ContentCatalogV4, SceneEntityV3, SceneV3, SceneV4 } from './types-v3';
 import { isFolderEntity } from './types-v3';
-import type { GameFlow } from './flow';
 import { materialOverrideErrors } from './materials';
 import { behaviorGroupErrors } from './modes';
-import { effectComponentErrors, effectHookRefs } from './effects';
+import { effectComponentErrors } from './effects';
 
 /** Phase 12 (c): `project.json` schemaVersion 2 — scenes are the files in `scenes/`. */
 export interface ProjectManifestV2 {
@@ -177,53 +176,6 @@ export function composeV4(
   if (directional > 1) errors.push(projectError('/startScenes', 'limits_exceeded', 'the start scenes hold at most one directional light', '<= 1', { document: 'content', limit: 'lights_directional' as never, current: directional, max: 1 } as never));
   if (ambient > 1) errors.push(projectError('/startScenes', 'limits_exceeded', 'the start scenes hold at most one ambient light', '<= 1', { document: 'content', limit: 'lights_ambient' as never, current: ambient, max: 1 } as never));
 
-  // The game block (project-level references).
-  const game: GameConfig | null = content.game;
-  if (game !== null) {
-    const ref = (key: 'playerId' | 'cameraId' | 'spawnId', ok: (e: SceneEntityV3) => boolean, what: string): void => {
-      const hit = entityById.get(game[key]);
-      const reason = key === 'playerId' ? 'player' : key === 'cameraId' ? 'camera' : 'spawn';
-      if (hit === undefined || !ok(hit.entity)) {
-        errors.push(projectError(`/game/${key}`, 'game_reference_missing', `game.${key} must name ${what}`, what, { document: 'content', reason } as never, game[key]));
-      } else if (!start.has(hit.sceneId)) {
-        errors.push(projectError(`/game/${key}`, 'game_reference_missing', `game.${key} must be in a start scene (it is in "${hit.sceneId}")`, 'an entity in a start scene', { document: 'content', reason } as never, game[key]));
-      }
-    };
-    ref('playerId', (e) => e.components.controller !== undefined, 'the entity carrying the player controller');
-    ref('cameraId', (e) => e.components.camera !== undefined && e.components.cameraFollow !== undefined, 'the camera entity (carrying cameraFollow)');
-    ref('spawnId', (e) => e.components.playerSpawn !== undefined, 'an entity carrying playerSpawn');
-    const goals = scenes.reduce((n, s) => n + s.entities.filter((e) => e.components.gameZone?.role === 'goal').length, 0);
-    if (goals < 1) errors.push(projectError('/game', 'zone_goal_missing', 'content.game requires at least one goal zone in the project', '>= 1 goal zone', { document: 'content' } as never));
-  }
-
-  // Phase 9.10: every level loads known scenes, starts at a spawn among them,
-  // and keeps the player and the camera loaded.
-  const flow = (content as { flow?: GameFlow }).flow;
-  if (flow !== undefined) {
-    const sceneIds = new Set(scenes.map((sc) => sc.sceneId));
-    const holder = (id: string | undefined): string | undefined => (id === undefined ? undefined : entityById.get(id)?.sceneId);
-    // Phase 14.5: the title background is a scene of this project.
-    if (flow.title?.scene !== undefined && !sceneIds.has(flow.title.scene)) {
-      errors.push(projectError('/flow/title/scene', 'reference_missing', 'the title background names an unknown scene', 'a sceneId of this project', { document: 'content' } as never, flow.title.scene));
-    }
-    flow.levels.forEach((level, i) => {
-      const p = `/flow/levels/${i}`;
-      for (const id of level.scenes) {
-        if (!sceneIds.has(id)) errors.push(projectError(`${p}/scenes`, 'reference_missing', `level "${level.name}" names an unknown scene`, 'a sceneId of this project', { document: 'content' } as never, id));
-      }
-      const spawn = entityById.get(level.spawnId);
-      if (spawn === undefined || spawn.entity.components.playerSpawn === undefined || !level.scenes.includes(spawn.sceneId)) {
-        errors.push(projectError(`${p}/spawnId`, 'reference_missing', `level "${level.name}" must start at a player spawn in one of its scenes`, 'a playerSpawn entity in the level', { document: 'content' } as never, level.spawnId));
-      }
-      if (game !== null) {
-        for (const [what, id] of [['player', game.playerId], ['camera', game.cameraId]] as const) {
-          const sc = holder(id);
-          if (sc !== undefined && !level.scenes.includes(sc)) errors.push(projectError(`${p}/scenes`, 'reference_missing', `level "${level.name}" must load the ${what}'s scene "${sc}"`, `the scene holding the ${what}`, { document: 'content' } as never, sc));
-        }
-      }
-    });
-  }
-
   // Phase 24.4j: the shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
   const shell = (content as { shell?: { scenes?: { scene: string; spawn?: string }[] } }).shell;
   if (shell?.scenes !== undefined) {
@@ -307,16 +259,6 @@ export function composeV4(
       }
     });
   }
-  // Phase 20.2: gameplay hooks (pickup collected, enemy hit/defeated, player hit, checkpoint/goal reached) name project effects.
-  const effectIds = new Set((content.effects ?? []).map((e) => e.effectId));
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      for (const [path, id] of effectHookRefs(e.components as unknown as Record<string, unknown>)) {
-        if (!effectIds.has(id)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/${path}`, message: 'the hook names no effect of this project', expected: 'an effectId in content.effects' }, id)));
-      }
-    });
-  }
-
   // Phase 14.1: a prefab's gameplay components name project things too.
   (content.prefabs ?? []).forEach((d, di) => {
     d.entities.forEach((e, ei) => {
@@ -329,34 +271,9 @@ export function composeV4(
       for (const [slot, id] of Object.entries(c.materials ?? {})) if (!materialIds.has(id)) bad(`materials/${slot}`, 'reference_missing', 'the material mapping names no material of this project', 'a materialId in content.materials', id);
       if (c.materialParams !== undefined) for (const x of materialOverrideErrors(c.materialParams, content.materials ?? [])) bad(`materialParams${x.path}`, x.code, x.message, 'a public parameter of a graph material, with a value that fits it', x.found);
       if (c.effect !== undefined) for (const x of effectComponentErrors(c.effect, content.effects ?? [])) bad(`effect${x.path}`, x.code, x.message, 'an effect of this project and its public parameters', x.found);
-      for (const [path, id] of effectHookRefs(c as unknown as Record<string, unknown>)) if (!effectIds.has(id)) bad(path, 'reference_missing', 'the hook names no effect of this project', 'an effectId in content.effects', id);
       if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio' && soundKinds.get(c.audioSource.assetId) !== 'music') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio or music asset of this project', 'an audio or music assetId', c.audioSource.assetId);
-      const cue = (c.pickup as { cue?: string } | undefined)?.cue;
-      if (cue !== undefined && soundKinds.get(cue) !== 'audio') bad('pickup/cue', 'asset_reference_missing', 'a pickup cue plays an audio asset of this project', 'an audio assetId', cue);
     });
   });
-
-  // Exit zones.
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const z = e.components.gameZone;
-      if (z?.role !== 'exit') return;
-      for (const key of ['load', 'unload'] as const) {
-        (z[key] ?? []).forEach((id, j) => {
-          if (!sceneIds.has(id)) {
-            errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/gameZone/${key}/${j}`, reason: 'scene', message: 'an exit names no scene of the project', expected: 'an existing scene id' }, id)));
-          }
-        });
-      }
-      if (z.spawnId !== undefined) {
-        const hit = entityById.get(z.spawnId);
-        const reachable = hit !== undefined && (hit.sceneId === s.sceneId || (z.load ?? []).includes(hit.sceneId));
-        if (hit === undefined || hit.entity.components.playerSpawn === undefined || !reachable) {
-          errors.push(sceneError(s.sceneId, withFound({ code: 'game_reference_missing', path: `/entities/${i}/components/gameZone/spawnId`, reason: 'spawn', message: 'an exit spawn must be a playerSpawn in a scene the exit loads (or its own)', expected: 'a playerSpawn entity id' }, z.spawnId)));
-        }
-      }
-    });
-  }
 
   // Phase 24.4e: triggers' scene transitions (the scenes exist; the spawn is a player spawn the character can reach).
   for (const s of scenes) {
@@ -568,41 +485,15 @@ function nextId(taken: Set<string>, prefix: string): string {
 }
 
 /**
- * Pure v3 → v4: the one v3 scene becomes scene v4 (same id, name "Main"),
- * the content block gains `startScenes: [that scene]`, and `content.game`
- * becomes configVersion 2. A v3 kill height becomes a hazard zone ("Fall
- * zone") spanning the old level width below it, so a game that relied on
- * falling to its death keeps working; the level bounds are dropped (the
- * camera keeps its own cameraFollow bounds). Retry records are not carried
- * over (the upgrade is a history boundary, charter §6).
+ * Pure v3 → v4: the one v3 scene becomes scene v4 (same id, name "Main") and
+ * the content block gains `startScenes: [that scene]`. Phase 24.7: a v3 game
+ * block no longer validates (the platformer game block was deleted), so
+ * `content.game` is always null here. Retry records are not carried over (the
+ * upgrade is a history boundary, charter §6).
  */
 export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, content: ContentCatalogV3): MigrationV4Result {
   const notes: string[] = [];
   const entities: SceneEntityV3[] = JSON.parse(JSON.stringify(scene.entities)) as SceneEntityV3[];
-  let game: GameConfig | null = null;
-  if (content.game !== null) {
-    const g = content.game;
-    const { level, killY, ...rest } = g;
-    game = { ...rest, configVersion: 2 };
-    if (killY !== undefined) {
-      const minX = level?.minX ?? -100;
-      const maxX = level?.maxX ?? 100;
-      const height = Math.max(20, level !== undefined ? level.maxY - level.minY : 20);
-      const width = maxX - minX + 20;
-      const taken = new Set(entities.map((e) => e.id));
-      const id = nextId(taken, 'zone');
-      entities.push({
-        id,
-        name: 'Fall zone',
-        components: {
-          transform: { position: [(minX + maxX) / 2, killY - height / 2, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
-          gameZone: { role: 'hazard', size: [width, height] },
-        },
-      });
-      notes.push(`killY ${killY} became the hazard zone "${id}" (Fall zone) below the old level`);
-    }
-    if (level !== undefined) notes.push('level bounds dropped (the camera keeps its cameraFollow bounds)');
-  }
   const sceneV4: SceneV4 = {
     schemaVersion: 4,
     sceneId: scene.sceneId,
@@ -611,7 +502,7 @@ export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, conte
   };
   const contentV4: ContentCatalogV4 = {
     ...(JSON.parse(JSON.stringify(content)) as ContentCatalogV3),
-    game,
+    game: null,
     scenes: [{ sceneId: scene.sceneId, name: MIGRATED_SCENE_NAME }],
     startScenes: [scene.sceneId],
   };

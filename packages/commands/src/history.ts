@@ -23,8 +23,8 @@
  * (§9.4, defensive).
  */
 
-import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
-import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import { withAnimators, withEnvironment, withInput, withLighting, withMaterials } from './material-ops';
 import { withCollisionLayers } from './layer-ops';
 import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
@@ -40,7 +40,6 @@ import type {
   BehaviorComponent,
   BehaviorRecord,
   EntityV3,
-  GameConfig,
   PrefabDefinition,
   TransformComponent,
   TrustEntry,
@@ -77,7 +76,6 @@ import type {
   InstantiatePrefabChange,
   RemovePrefabChange,
   RestoreSubtreeChange,
-  SetGameConfigChange,
   SetTransformChange,
   EntityHeader,
   UpdateEntityChange,
@@ -91,31 +89,12 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'],
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage', 'effect'],
   playerSpawn: ['facing'],
-  cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
 };
-
-/** §23.4 canonical top-level order of `content.game` (authoring §A4.2). */
-const GAME_CONFIG_FIELDS = [
-  'configVersion',
-  'title',
-  'objective',
-  'instructions',
-  'playerId',
-  'cameraId',
-  'spawnId',
-  'level',
-  'killY',
-  'cues',
-  'respawnDelay',
-  'dropThroughTime',
-  'settleTime',
-] as const;
 
 /** Read a component value as `null` when absent (commands.md §5.3). */
 function componentOrNull(components: Record<string, unknown>, component: string): unknown | null {
@@ -142,16 +121,6 @@ function componentChangedFields(
   return (COMPONENT_FIELD_ORDER[component] ?? Object.keys(a ?? {})).filter(
     (f) => !deepEqual(b[f], a[f]),
   );
-}
-
-/** §8.14: replaced top-level `content.game` names in canonical order. */
-function gameConfigChangedFields(
-  before: GameConfig | null,
-  after: GameConfig | null,
-): string[] {
-  const b = (before ?? {}) as Record<string, unknown>;
-  const a = (after ?? {}) as Record<string, unknown>;
-  return GAME_CONFIG_FIELDS.filter((f) => !deepEqual(b[f], a[f]));
 }
 
 /** Phase 12 (c): the scene index of a v4 content block. */
@@ -417,19 +386,6 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, nextScene, nextContent, change, entry.requestId);
   }
 
-  if (inv.kind === 'setGameConfig') {
-    const before = (content.game ?? null) as GameConfig | null;
-    const after = inv.restore === null ? null : deepClone(inv.restore);
-    const nextContent: ContentDocument = { ...content, game: after };
-    const change: SetGameConfigChange = {
-      type: 'setGameConfig',
-      previous: before,
-      next: after,
-      changedFields: gameConfigChangedFields(before, after),
-    };
-    return finish(state, bumped(scene), nextContent, change, entry.requestId);
-  }
-
   if (inv.kind === 'publishBehavior') {
     const before = content.behaviors.find((b) => b.behaviorId === inv.behaviorId) ?? null;
     const after = inv.restore === null ? null : deepClone(inv.restore);
@@ -523,11 +479,6 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEnvironment(content, inv.restore), change, entry.requestId);
   }
 
-  if (inv.kind === 'setFlow') {
-    const before = (content as { flow?: GameFlow }).flow ?? null;
-    const change: ChangeData = { type: 'setFlow', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
-    return finish(state, bumped(scene), withFlow(content, inv.restore), change, entry.requestId);
-  }
 
   if (inv.kind === 'setModes') {
     // Phase 23.10: the game modes back to what they were.
@@ -922,19 +873,6 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, result, state.content, change, entry.requestId);
   }
 
-  if (f.type === 'setGameConfig') {
-    const before = (content.game ?? null) as GameConfig | null;
-    const after = f.next === null ? null : deepClone(f.next);
-    const nextContent: ContentDocument = { ...content, game: after };
-    const change: SetGameConfigChange = {
-      type: 'setGameConfig',
-      previous: before,
-      next: after,
-      changedFields: [...f.changedFields],
-    };
-    return finish(state, bumped(scene), nextContent, change, entry.requestId);
-  }
-
   if (f.type === 'publishBehavior') {
     const next = f.next === null ? null : deepClone(f.next);
     const behaviors = sortedBehaviors([
@@ -1018,11 +956,6 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEnvironment(content, f.next), change, entry.requestId);
   }
 
-  if (f.type === 'setFlow') {
-    const before = (content as { flow?: GameFlow }).flow ?? null;
-    const change: ChangeData = { type: 'setFlow', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
-    return finish(state, bumped(scene), withFlow(content, f.next), change, entry.requestId);
-  }
 
   if (f.type === 'setModes') {
     const before = modesOf(content);

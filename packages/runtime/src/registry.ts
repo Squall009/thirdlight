@@ -7,14 +7,10 @@
  * `^thirdlight\.[a-z0-9-]+:[a-z0-9-]+$`. Duplicate registration ⇒
  * `config_invalid` (rejected at registration time).
  *
- * CC-49-3: the first segment admits hyphens (package-style names). The
- * promoted M3 contracts pin the module IDs `thirdlight.platformer-game:session`
- * / `thirdlight.platformer-game:camera` (gameplay.md, runtime.md §12.1
- * inventory, delivery.md module catalog, the `platformer-game` package) while
- * the carried-over M1 name syntax `^thirdlight\.[a-z0-9]+:[a-z0-9-]+$` rejects
- * them. The module ID is the specific pin; the minimal additive resolution is
- * to widen the first segment to `[a-z0-9-]+`. Additive: every M1/M2 name
- * still matches and no test pins the rejection. See the packet-49 handoff.
+ * CC-49-3: the first segment admits hyphens (package-style names; widened
+ * from the M1 syntax `^thirdlight\.[a-z0-9]+:…` for the M3 modules, which
+ * phase 24.7 deleted with the genre layer). Additive: every M1/M2 name still
+ * matches.
  */
 import { clipMessage, type RuntimeError } from './errors';
 import { boxMotionSpec, DEMO_MODULE_ID } from './demo';

@@ -47,14 +47,14 @@ export default {
     for (const r of ctx.saves.results()) state.log.push(r.op + ':' + r.slot + ':' + r.ok + (r.reason ? ':' + r.reason : ''));
     if (${live} && s === 40) {
       ctx.grid.set('ground-0001', 1, 1, 1, { block: 'wood' });
-      ctx.save.set('coins', 7);
+      ctx.save.set('points', 7);
       ctx.saves.write({ chapter: 2, flags: ['door'] });
       ctx.saves.save(2, { title: 'Before the bridge', chapter: 'Two', location: 'Mill', thumbnail: true });
     }
     if (${live} && s === 60) {
       ctx.grid.set('ground-0001', 1, 1, 1, { block: 'stone' });
       ctx.grid.clear('ground-0001', 0, 0, 0);
-      ctx.save.set('coins', 99);
+      ctx.save.set('points', 99);
       ctx.saves.write({ chapter: 3 });
     }
     if (${live} && s === 80) ctx.saves.load(2);
@@ -72,7 +72,7 @@ function snapshot(): Any {
     { id: 'ground-0001', components: { transform: T([0, 0, 0]), blockLayer: LAYER } },
     { id: 'saver-0001', components: { transform: T([0, 0, 0]), behavior: { behaviorId: 'saver', values: {} } } },
   ];
-  return { snapshotId: 'sav@r1', projectId: 'sav', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, blocks: [data] }, game: null, blockTypes: TYPES, saveSchema: SCHEMA };
+  return { snapshotId: 'sav@r1', projectId: 'sav', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, blocks: [data] }, blockTypes: TYPES, saveSchema: SCHEMA };
 }
 
 async function run(mode: Mode, opts: { live: boolean; steps: number; store: Map<string, string>; replay?: Any[] }): Promise<{ h: Harness; digests: string[] }> {
@@ -84,6 +84,7 @@ async function run(mode: Mode, opts: { live: boolean; steps: number; store: Map<
     digestSteps: true,
     behaviors: [mod],
     host: { projectSaveBackend: memoryProjectSaveBackend(opts.store), saveNamespace: 'test' },
+    storage: opts.live,
     ...(opts.replay !== undefined ? { replay: opts.replay } : {}),
   });
   let now = 10;
@@ -116,10 +117,10 @@ describe('phase 23.19: project save documents (page and worker)', () => {
         expect(meta).toMatchObject({ slot: 2, title: 'Before the bridge', chapter: 'Two', location: 'Mill', version: 2 });
         const body = JSON.parse(store.get('test:slot:2:body')!);
         expect(body.doc).toEqual({ chapter: 2, flags: ['door'] });
-        expect(body.sections.storage).toEqual({ coins: 7 });
+        expect(body.sections.storage).toEqual({ points: 7 });
         expect(body.sections.grid.layers[0].cells).toEqual([[1, 1, 1, { block: 'wood' }]]);
         // The host's observation lists the slot with its metadata.
-        const obs = h.host.observeScene!() as Any;
+        const obs = h.host.observe() as Any;
         expect(obs.ok).toBe(true);
         expect(obs.observation.saves.slotCount).toBe(3);
         expect(obs.observation.saves.slots.map((x: Any) => [x.slot, x.title, x.chapter, x.location])).toEqual([[2, 'Before the bridge', 'Two', 'Mill']]);
@@ -128,7 +129,7 @@ describe('phase 23.19: project save documents (page and worker)', () => {
       const rt = runs['single']!.h.rt as Any;
       expect(rt.gridDiff().layers[0].cells).toEqual([[1, 1, 1, { block: 'wood' }]]);
       expect(rt.savesState()).toContain('{"chapter":2,"flags":["door"]}');
-      expect(rt.runState().values).toEqual({ coins: 7 });
+      expect(await runs['single']!.h.storage()).toEqual({ points: 7 });
       // (Live runs differ in savedAt — the player's clock — so step-exact parity is the recorded-input test below.)
     } finally {
       for (const r of Object.values(runs)) await r.h.dispose();
@@ -142,7 +143,7 @@ describe('phase 23.19: project save documents (page and worker)', () => {
       version: 1,
       playSeconds: 12.5,
       doc: { points: 21 },
-      sections: { grid: { version: 1, layers: [{ layer: 'ground-0001', cells: [[2, 1, 2, { block: 'wood' }], [0, 0, 0, null]] }] }, storage: { coins: 3 } },
+      sections: { grid: { version: 1, layers: [{ layer: 'ground-0001', cells: [[2, 1, 2, { block: 'wood' }], [0, 0, 0, null]] }] }, storage: { points: 3 } },
     };
     const replay = [{ stepIndex: LOAD_STEP, moveX: 0, jump: 'none', saves: [{ kind: 'loaded', slot: 1, ok: true, save: file }] }];
     const page = await run('single', { live: false, steps: 120, store: new Map(), replay });

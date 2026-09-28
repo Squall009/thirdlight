@@ -8,6 +8,5 @@
  */
 import type { SimulationModuleSpec } from '@thirdlight/runtime';
 import { platformerSpec } from '@thirdlight/platformer';
-import { platformerGameCameraSpec, platformerGameSessionSpec } from '@thirdlight/platformer-game';
 
-export const PREVIEW_MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec]);
+export const PREVIEW_MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([platformerSpec]);

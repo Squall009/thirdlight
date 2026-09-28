@@ -78,7 +78,6 @@ import {
   type GameHost,
   type GameStartOptions,
   type HostDomNode,
-  type FlowConfigLike,
   browserSaveStorage,
   browserProjectSaveBackend,
   readProjectSettings,
@@ -96,7 +95,7 @@ import {
 } from '@thirdlight/game-host';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
+import type { EffectDefLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 
@@ -214,8 +213,6 @@ export interface M3PreviewHandle {
   readonly threading: { readonly mode: 'worker' | 'single'; readonly reason: string; readonly transport: 'shared' | 'message' | null; readonly isolated: boolean };
   /** The render adapter (screenshots, diagnostics), when one was created. */
   readonly adapter: SceneAdapter | null;
-  /** The player entity id (for position observations), when a game is played. */
-  readonly playerId: string | null;
   /** The verified ready identity (D-63-6): the verified snapshotId + snapshot
    * revision, the manifest buildId + contentDigest (64-hex, bound by the
    * buildId check) and the runtime stepIndex after the settle pre-roll. */
@@ -430,7 +427,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   if (sceneDigest !== manifest.sceneDigest) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot scene digest does not match manifest.sceneDigest');
   }
-  // No game block = scene mode (the scene plays as authored).
+  // The retired game block (null since phase 24.7) must match the manifest's.
   if (!deepEqual(authored.game ?? null, manifest.game ?? null)) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot game does not re-hash to manifest.gameDigest');
   }
@@ -451,7 +448,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withPrefabs = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
   // Phase 23.5: the block types and cell fields of the block layers (from the verified manifest).
   const withAnimators = { ...withPrefabs, ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}), ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}) } as RuntimeSnapshot;
-  // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
+  // Phase 15.3: the model assets' recorded bounds (a collectible without a size collects over its model's).
   const modelBounds = modelBoundsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
   const withBounds0 = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;
   // Phase 23.11: the model rigs sockets are resolved on (from the verified manifest).
@@ -605,7 +602,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       sampleMenu: () => browserInput.sampleMenu(),
       markConfirmConsumed: () => browserInput.markConfirmConsumed(),
       dispose: () => browserInput.dispose(),
-      // Phase 9.10: the game flow's menus and rebinding.
+      // Phase 9.10: menu navigation and key rebinding (the shell's and UI documents' screens).
       sampleUi: () => browserInput.sampleUi(),
       captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
       // Phase 14.5: pad rebinding in the settings.
@@ -677,15 +674,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       container: cfg.container as unknown as HostDomNode,
       buildId: manifest.buildId,
       assetPaths: assetPathsById,
-      // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
-      ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
       // Phase 24.4j: the game shell (menus and HUD as UI documents, the scene list).
       ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
       inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
       setQuality: (level) => adapterRef.current?.setQuality?.(level),
-      setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
-      // Phase 14.5: the title screen's background scene and camera pan.
-      setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
       // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
       ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: playSaveNamespace } : {}),
       // Phase 23.19: project save slots in this browser's IndexedDB (Play and exported games keep separate ones).
@@ -745,14 +737,12 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       stepIndex: obs.ok ? obs.observation.stepIndex : 0,
     };
 
-    const game = snapshot.game as { playerId?: unknown } | null | undefined;
     const stepHz = settings.fixed_step_hz ?? 120;
     return {
       host,
       access: remote !== null ? remote.access : createLocalSimAccess({ runtime: host.runtime, relay, ...(physics !== undefined ? { physics: physics as never } : {}), stepHz }),
       threading: { mode: threadMode, reason: threadReason, transport: remote?.transport ?? null, isolated },
       adapter: adapterRef.current,
-      playerId: typeof game?.playerId === 'string' ? game.playerId : null,
       identity,
       stepHz,
       dispose: () => {
@@ -956,143 +946,63 @@ export function bootstrapPreviewM3(): void {
     // Phase 22.0: the parts only the simulation can answer (asked of the worker in worker mode).
     const behaviors = entityId !== undefined ? await behaviorValues(h.access, entityId) : null;
     const debug = await h.access.debugObservation();
-    const gv = h.host.runtime.getGameView();
-    const obs = h.host.observe();
-    if (!gv.ok || !obs.ok) {
-      // Phase 23.0: a scene-mode play (no game block) reports its step, sound and player.
-      // Phase 24.6: the same generic core as a game-block play, without its legacy block.
-      const sc = h.host.observeScene?.();
-      if (sc === undefined || !sc.ok) return null;
-      const o = sc.observation;
-      return {
-        ok: true,
-        playSessionId: playId,
-        snapshotId: o.snapshotId,
-        buildId: h.identity.buildId,
-        runId: `${o.snapshotId}#0`,
-        revision: h.identity.revision,
-        observedAt: new Date().toISOString(),
-        stepIndex: o.stepIndex,
-        simTime: o.simTime,
-        state: o.state,
-        inputMode: h.access.inputTestActive ? 'test' : 'physical',
-        sound: o.sound,
-        simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
-        ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
-        ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
-        ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
-        // Phase 23.18: the environment preset blend (once a script changed it).
-        ...(o.environment !== undefined ? { environment: structuredClone(o.environment) } : {}),
-        // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
-        ...(o.audio !== undefined ? { audio: structuredClone(o.audio) } : {}),
-        // Phase 23.11: the objects riding on sockets and their world positions.
-        ...(o.sockets !== undefined ? { sockets: structuredClone(o.sockets) } : {}),
-        // Phase 23.17: the timelines (screen fade/letterbox, plays, the last events).
-        ...(o.timeline !== undefined ? { timeline: structuredClone(o.timeline) } : {}),
-        // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
-        ...(o.pointer !== undefined ? { pointer: { ...o.pointer } } : {}),
-        ...(o.cursor !== undefined ? { cursor: { ...o.cursor } } : {}),
-        ...(o.hidden !== undefined ? { hidden: [...o.hidden] } : {}),
-        // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
-        ...(o.inputBindings !== undefined ? { inputBindings: structuredClone(o.inputBindings) } : {}),
-        // Phase 24.4: the named counters (collectibles and scripts add to them; at most 32); phase 24.6: every object's health.
-        ...countersAndHealth(h.host.runtime),
-        // Phase 24.6: the animator states and the spawned objects, as a game-block play reports them.
-        ...animatorStates(h.host.runtime),
-        ...spawnedObservation(h.host.runtime),
-        ...rendererObservation(h),
-        ...effectsObservation(h),
-        ...(behaviors !== null ? { behaviors } : {}),
-        ...(debug !== null && debug !== undefined ? { debug } : {}),
-        ...debugCommandsObservation(h),
-        ...savesObservationOf(h.host),
-        ...uiObservation(h, o.ui),
-        // Phase 23.16: the conversation (line, reveal, choices, backlog, modes).
-        ...(o.dialogue !== undefined ? { dialogue: structuredClone(o.dialogue) } : {}),
-        // Phase 23.10: the game modes, the engine pause and its panel.
-        ...(o.mode !== undefined ? { mode: structuredClone(o.mode), paused: o.paused === true } : {}),
-        ...(o.pausePanel !== undefined ? { pausePanel: { ...o.pausePanel } } : {}),
-        // Phase 24.4j: the game shell (its screen, the listed scene, the HUD shown) and the engine pause it holds.
-        ...(o.shell !== undefined ? { shell: structuredClone(o.shell), paused: o.paused === true } : {}),
-      };
-    }
-    const v = gv.view;
-    const st = h.host.runtime.getInterpolatedState();
-    const tr = st.ok && h.playerId !== null ? st.state.transforms.find((t) => t.id === h.playerId) : undefined;
+    // Phase 24.7: every game plays as a scene (the step, the play state, sound, the character…).
+    const sc = h.host.observe();
+    if (!sc.ok) return null;
+    const o = sc.observation;
     return {
       ok: true,
       playSessionId: playId,
-      snapshotId: v.snapshotId,
+      snapshotId: o.snapshotId,
       buildId: h.identity.buildId,
-      runId: v.runId,
+      runId: `${o.snapshotId}#0`,
       revision: h.identity.revision,
       observedAt: new Date().toISOString(),
-      stepIndex: v.stepIndex,
-      simTime: v.simTime,
-      // Phase 24.6: the generic play state; the game session's own view is the legacy block (deleted in 24.7).
-      state: obs.observation.state,
+      stepIndex: o.stepIndex,
+      simTime: o.simTime,
+      state: o.state,
       inputMode: h.access.inputTestActive ? 'test' : 'physical',
-      sound: obs.observation.sound,
-      // Phase 22.0: where the simulation runs (worker | single) and how its frames reach the page.
+      sound: o.sound,
       simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
-      legacy: {
-        runState: v.state,
-        checkpointId: v.checkpointId,
-        checkpointActive: v.checkpointActive,
-        goalReached: v.goalReached,
-        failed: obs.observation.legacy.failed,
-        deathCount: v.deathCount,
-        eventCount: v.eventCount,
-        eventDropped: v.eventDropped,
-        events: v.events.slice(-32).map((e) => ({ id: e.id, kind: e.kind, stepIndex: e.stepIndex, boundary: e.boundary, deathCount: e.deathCount })),
-        // Phase 9.10: the level flow (screen, level, lives, music, volumes).
-        ...(obs.observation.legacy.flow !== undefined ? { flow: structuredClone(obs.observation.legacy.flow) } : {}),
-        // Phase 14.5: the title background and the camera's offset behind the title menu.
-        ...(obs.observation.legacy.titleView !== undefined ? { titleView: { scene: obs.observation.legacy.titleView.scene, cameraOffset: [...obs.observation.legacy.titleView.cameraOffset] } } : {}),
-      },
-      // Phase 23.0: z too (a 3D game moves in depth).
-      ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
-      // Phase 12 (c): the loaded scenes and the ones on their way.
-      ...(obs.observation.scenes !== undefined ? { scenes: { loaded: [...obs.observation.scenes.loaded], loading: [...obs.observation.scenes.loading] } } : {}),
-      // Phase 9.7: each animator's current state (entity id → state name).
-      ...animatorStates(h.host.runtime),
-      // Phase 9.9: the named counters; phase 24.6: every object's health.
-      ...countersAndHealth(h.host.runtime),
-      // Phase 14.1: the live spawned entities (ctx.spawn): how many, the first 64 ids.
-      ...spawnedObservation(h.host.runtime),
-      ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
-      // Phase 23.4: the resolved camera (virtual cameras: the live one, a blend, the pose and lens).
-      ...(obs.observation.camera !== undefined ? { camera: structuredClone(obs.observation.camera) } : {}),
+      ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
+      ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
+      // Phase 9.10: the audio sources' live loops (entity id → gain).
+    ...(o.loops !== undefined ? { loops: { ...o.loops } } : {}),
+    ...(o.camera !== undefined ? { camera: structuredClone(o.camera) } : {}),
       // Phase 23.18: the environment preset blend (once a script changed it).
-      ...(obs.observation.environment !== undefined ? { environment: structuredClone(obs.observation.environment) } : {}),
+      ...(o.environment !== undefined ? { environment: structuredClone(o.environment) } : {}),
       // Phase 23.13: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener).
-      ...(obs.observation.audio !== undefined ? { audio: structuredClone(obs.observation.audio) } : {}),
+      ...(o.audio !== undefined ? { audio: structuredClone(o.audio) } : {}),
       // Phase 23.11: the objects riding on sockets and their world positions.
-      ...(obs.observation.sockets !== undefined ? { sockets: structuredClone(obs.observation.sockets) } : {}),
+      ...(o.sockets !== undefined ? { sockets: structuredClone(o.sockets) } : {}),
       // Phase 23.17: the timelines (screen fade/letterbox, plays, the last events).
-      ...(obs.observation.timeline !== undefined ? { timeline: structuredClone(obs.observation.timeline) } : {}),
+      ...(o.timeline !== undefined ? { timeline: structuredClone(o.timeline) } : {}),
       // Phase 23.3: the pointer the simulation read, the cursor, the objects scripts hid.
-      ...(obs.observation.pointer !== undefined ? { pointer: { ...obs.observation.pointer } } : {}),
-      ...(obs.observation.cursor !== undefined ? { cursor: { ...obs.observation.cursor } } : {}),
-      ...(obs.observation.hidden !== undefined ? { hidden: [...obs.observation.hidden] } : {}),
+      ...(o.pointer !== undefined ? { pointer: { ...o.pointer } } : {}),
+      ...(o.cursor !== undefined ? { cursor: { ...o.cursor } } : {}),
+      ...(o.hidden !== undefined ? { hidden: [...o.hidden] } : {}),
       // Phase 23.14: the player's bindings (device, profile, listening, changed actions, glyphs).
-      ...(obs.observation.inputBindings !== undefined ? { inputBindings: structuredClone(obs.observation.inputBindings) } : {}),
-      // Phase 17.1: the renderer backend that draws this play, and why.
+      ...(o.inputBindings !== undefined ? { inputBindings: structuredClone(o.inputBindings) } : {}),
+      // Phase 24.4: the named counters (collectibles and scripts add to them; at most 32); phase 24.6: every object's health (24.7: the host observes both).
+      ...(o.counters !== undefined ? { counters: { ...o.counters } } : {}),
+      ...(o.health !== undefined ? { health: structuredClone(o.health) } : {}),
+      // Phase 24.6: the animator states and the spawned objects.
+      ...animatorStates(h.host.runtime),
+      ...spawnedObservation(h.host.runtime),
       ...rendererObservation(h),
       ...effectsObservation(h),
-      // Phase 15.4: the requested entity's script property values (public and private), read-only.
       ...(behaviors !== null ? { behaviors } : {}),
-      // Phase 19.2: the visual-script debugger (held at a step boundary, the breakpoint node it holds on).
       ...(debug !== null && debug !== undefined ? { debug } : {}),
-      // Phase 23.8: the project's debug commands and the calls run; the start options' outcome.
       ...debugCommandsObservation(h),
       ...savesObservationOf(h.host),
-      // Phase 23.9a: the project UI (shown documents, the flow screen's document, the focus, the view model).
-      ...uiObservation(h, obs.observation.ui),
+      ...uiObservation(h, o.ui),
       // Phase 23.16: the conversation (line, reveal, choices, backlog, modes).
-      ...(obs.observation.dialogue !== undefined ? { dialogue: structuredClone(obs.observation.dialogue) } : {}),
-      // Phase 23.10: the game modes.
-      ...(obs.observation.mode !== undefined ? { mode: structuredClone(obs.observation.mode) } : {}),
+      ...(o.dialogue !== undefined ? { dialogue: structuredClone(o.dialogue) } : {}),
+      // Phase 23.10: the game modes, the engine pause and its panel.
+      ...(o.mode !== undefined ? { mode: structuredClone(o.mode), paused: o.paused === true } : {}),
+      ...(o.pausePanel !== undefined ? { pausePanel: { ...o.pausePanel } } : {}),
+      // Phase 24.4j: the game shell (its screen, the listed scene, the HUD shown) and the engine pause it holds.
+      ...(o.shell !== undefined ? { shell: structuredClone(o.shell), paused: o.paused === true } : {}),
     };
   };
 
@@ -1100,7 +1010,7 @@ export function bootstrapPreviewM3(): void {
     const body = m as { relayId: string; entityId?: string };
     const h = handle;
     void (h === null ? Promise.resolve(null) : observation(h, body.entityId)).then((o) => {
-      if (o === null) bridge.sendGameResult('observe', playId, body.relayId, { ok: false, error: { code: 'game_unavailable', message: 'this play has no game session' } });
+      if (o === null) bridge.sendGameResult('observe', playId, body.relayId, { ok: false, error: { code: 'game_unavailable', message: 'this play has nothing to observe yet' } });
       else bridge.sendGameResult('observe', playId, body.relayId, { ok: true, result: o });
     });
   });
@@ -1116,12 +1026,10 @@ export function bootstrapPreviewM3(): void {
   });
 
   const control = async (handle: M3PreviewHandle, body: ControlBody): Promise<void> => {
-    // Phase 24.6: the step and play state of the answer (a game-block play's view, else the scene's).
+    // Phase 24.6: the step and play state of the answer.
     const acceptedNow = (): { ok: true; state: 'running' | 'paused' | 'stopped'; acceptedAtStep: number } => {
       const o = handle.host.observe();
-      if (o.ok) return { ok: true, state: o.observation.state, acceptedAtStep: o.observation.stepIndex };
-      const sc = handle.host.observeScene?.();
-      return sc !== undefined && sc.ok ? { ok: true, state: sc.observation.state, acceptedAtStep: sc.observation.stepIndex } : { ok: true, state: 'running', acceptedAtStep: 0 };
+      return o.ok ? { ok: true, state: o.observation.state, acceptedAtStep: o.observation.stepIndex } : { ok: true, state: 'running', acceptedAtStep: 0 };
     };
     // Phase 12 (c): a scene request goes to the runtime like a script's ctx.scenes.
     let r: ReturnType<GameHost['control']>;
@@ -1142,9 +1050,8 @@ export function bootstrapPreviewM3(): void {
       bridge.sendGameResult('control', playId, body.relayId, { ok: false, error: { code: r.error.code, message: r.error.message } });
       return;
     }
-    // Phase 24.6: every play answers alike; a scene-mode play (no game block) has run 0.
-    const gv = handle.host.runtime.getGameView();
-    const snap = gv.ok ? gv.view.snapshotId : handle.identity.snapshotId;
+    // Phase 24.6: every play answers alike (run 0 of its snapshot).
+    const snap = handle.identity.snapshotId;
     bridge.sendGameResult('control', playId, body.relayId, {
       ok: true,
       result: {
@@ -1152,7 +1059,7 @@ export function bootstrapPreviewM3(): void {
         playSessionId: playId,
         snapshotId: snap,
         buildId: handle.identity.buildId,
-        runId: gv.ok ? gv.view.runId : `${snap}#0`,
+        runId: `${snap}#0`,
         command: body.command,
         state: r.state,
         acceptedAtStep: r.acceptedAtStep,
@@ -1181,12 +1088,9 @@ bootstrapPreviewM3();
 /** Phase 23.8: the resolved start block the backend puts on the bridged snapshot. */
 interface PlayStartBlock {
   sceneId?: string;
-  levelId?: string;
   scenes?: string[];
   spawnId?: string;
   variables?: Record<string, unknown>;
-  save?: Record<string, unknown>;
-  saveSlot?: 'auto' | '1' | '2' | '3';
   projectSave?: Record<string, unknown>;
   projectSaveSlot?: number;
   mode?: string;
@@ -1195,11 +1099,8 @@ interface PlayStartBlock {
 /** Phase 23.8: the host's start options from the resolved block (variables go to the runtime separately). */
 function hostStartOf(b: PlayStartBlock): GameStartOptions | undefined {
   const o: { -readonly [K in keyof GameStartOptions]: GameStartOptions[K] } = {};
-  if (b.levelId !== undefined) o.levelId = b.levelId;
   if (b.scenes !== undefined) o.scenes = b.scenes;
   if (b.spawnId !== undefined) o.spawnId = b.spawnId;
-  if (b.save !== undefined) o.save = b.save as unknown as NonNullable<GameStartOptions['save']>;
-  if (b.saveSlot !== undefined) o.saveSlot = b.saveSlot;
   if (b.mode !== undefined) o.mode = b.mode;
   // Phase 23.19: a project save document or slot.
   if (b.projectSave !== undefined) o.projectSave = b.projectSave as unknown as NonNullable<GameStartOptions['projectSave']>;
@@ -1216,7 +1117,7 @@ function modeDiagnostics(h: M3PreviewHandle): { mode?: { current: string; name: 
 /** A relayed §20 control request (phase 23.8: `debugCommand` with its name and arguments). */
 interface ControlBody {
   relayId: string;
-  command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep' | 'debugCommand';
+  command: 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep' | 'debugCommand';
   sceneId?: string;
   name?: string;
   args?: Record<string, number | string | boolean>;
@@ -1253,22 +1154,6 @@ function debugCommandsObservation(h: M3PreviewHandle): { debugCommands?: Record<
   return {
     ...(debugCommands !== undefined ? { debugCommands } : {}),
     ...(outcome !== null ? { start: outcome.ok ? { ok: true, applied: [...outcome.applied] } : { ok: false, reason: outcome.reason } } : {}),
-  };
-}
-
-/** Phase 24.4: a scene-mode play's named counters (at most 32; no game session, so no player health). */
-/**
- * Phase 9.9: the named counters (at most 32), for tl_game_observe. Phase 24.6:
- * `health` is every object's health (object id → {current, max}; at most 64),
- * in both kinds of play — no longer the game session's player only.
- */
-function countersAndHealth(runtime: unknown): { counters?: Record<string, number>; health?: Record<string, { current: number; max: number }> } {
-  const rt = runtime as { gameCounters?: () => { counters: Record<string, number> }; healthsView?: () => Readonly<Record<string, { current: number; max: number }>> };
-  const c = Object.entries(rt.gameCounters?.().counters ?? {}).slice(0, 32);
-  const hp = Object.entries(rt.healthsView?.() ?? {}).slice(0, 64);
-  return {
-    ...(c.length > 0 ? { counters: Object.fromEntries(c) } : {}),
-    ...(hp.length > 0 ? { health: Object.fromEntries(hp.map(([id, x]) => [id, { current: x.current, max: x.max }])) } : {}),
   };
 }
 
@@ -1323,9 +1208,7 @@ function animatorStates(runtime: unknown): { animators?: Record<string, string> 
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
 function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting'] } {
-  // Phase 14.4: a level with its own look needs the environment renderer (and wind) even when the project has no environment.
-  const levelLooks = ((manifest as unknown as { flow?: FlowConfigLike }).flow?.levels ?? []).some((l) => l.environment !== undefined);
-  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined && !levelLooks) return {};
+  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return {};
   const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) => {
     const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
     const buf = row !== undefined ? bytes.get(`${row.assetId}@${row.version}`) : undefined;
@@ -1334,7 +1217,7 @@ function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, Array
   const env = manifest.environment;
   return {
     // Phase 23.18: environment presets need the environment renderer too (scripts blend the look).
-    ...(environmentHasLook(env) || levelLooks || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture } } : {}),
+    ...(environmentHasLook(env) || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture } } : {}),
     ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture } } : {}),
     materials: {
       defs: manifest.materials ?? [],
@@ -1350,9 +1233,8 @@ function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, Array
  * chapter, location, play time, when, version, bytes, picture facts), settings}
  * for tl_game_observe (a project with a save schema).
  */
-function savesObservationOf(host: { observe(): unknown; observeScene?(): unknown }): { saves?: unknown } {
+function savesObservationOf(host: { observe(): unknown }): { saves?: unknown } {
   const o = host.observe() as { ok: boolean; observation?: { saves?: unknown } };
-  const sc = o.ok ? o : (host.observeScene?.() as { ok: boolean; observation?: { saves?: unknown } } | undefined);
-  const saves = sc?.ok === true ? sc.observation?.saves : undefined;
+  const saves = o.ok ? o.observation?.saves : undefined;
   return saves !== undefined ? { saves: structuredClone(saves) } : {};
 }

@@ -127,9 +127,8 @@ function v3Scene(opts: V3SceneOptions = {}): unknown {
   return { schemaVersion: 3, sceneId: 'scene-main', revision: 1, entities };
 }
 
-function fakeRuntime(view?: { stepIndex: number; speed: number; grounded: boolean }): Runtime {
+function fakeRuntime(view?: { stepIndex: number }): Runtime {
   const stepIndex = view?.stepIndex ?? 0;
-  const playerMotion = { speed: view?.speed ?? 0, grounded: view?.grounded ?? true };
   return {
     getInterpolatedState: () => ({
       ok: true,
@@ -140,7 +139,7 @@ function fakeRuntime(view?: { stepIndex: number; speed: number; grounded: boolea
         ],
       },
     }),
-    getGameView: () => ({ ok: true, view: { stepIndex, playerMotion } }),
+    getDiagnostics: () => ({ ok: true, diagnostics: { stepIndex } }),
     dispose: () => undefined,
   } as unknown as Runtime;
 }
@@ -151,7 +150,7 @@ function snapshotOf(scene: unknown): RuntimeSnapshot {
     projectId: 'demo-0001',
     revision: 1,
     scene: scene as RuntimeSnapshot['scene'],
-    game: { configVersion: 1, playerId: 'player-01', cameraId: 'cam-main' },
+    game: null,
   } as unknown as RuntimeSnapshot;
 }
 
@@ -285,7 +284,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     const scene = v3Scene();
     const counter = countingPort(createGltfLoaderPort());
     const adapter = createSceneAdapter(stubCanvas(), {
-      runtime: fakeRuntime({ stepIndex: 7, speed: 3, grounded: true }),
+      runtime: fakeRuntime({ stepIndex: 7 }),
       snapshot: snapshotOf(scene),
       models: modelsBlock(scene, GLB_BYTES),
       modelsLoader: counter.port,
@@ -349,7 +348,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
       projectId: 'demo-0001',
       revision: 1,
       scene,
-      game: { configVersion: 1, playerId: 'player-01', cameraId: 'cam-main' },
+      game: null,
     } as unknown as RuntimeSnapshot;
     const byId = new Map<string, Uint8Array>([
       ['asset-a', bytesA],
@@ -370,7 +369,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
       },
     };
     const adapter = createSceneAdapter(stubCanvas(), {
-      runtime: fakeRuntime({ stepIndex: 7, speed: 3, grounded: true }),
+      runtime: fakeRuntime({ stepIndex: 7 }),
       snapshot: snap,
       models,
       modelsLoader: createGltfLoaderPort(),
@@ -386,7 +385,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     adapter.dispose();
   });
 
-  it('two instances at distinct committed states: the player runs, the non-player idles (the real mixer, §2.4)', async () => {
+  it('two instances at distinct motions: one runs, one idles (the real mixer, §2.4)', async () => {
     // The adapter path (below) wires the committed view; here the SAME
     // substrate + real GLB + real mixers prove the per-instance state
     // independence numerically (the browser evidence proves it visually).
@@ -402,8 +401,8 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     const instA = resA.resource.createInstance();
     const instB = resB.resource.createInstance();
     if (instA.ok === false || instB.ok === false) throw new Error('instance creation failed');
-    const viewA = () => ({ stepIndex: 12, playerMotion: { speed: 3.2, grounded: true } }); // the player
-    const viewB = () => ({ stepIndex: 12, playerMotion: { speed: 0, grounded: true } }); // the non-player (neutral)
+    const viewA = () => ({ stepIndex: 12, playerMotion: { speed: 3.2, grounded: true } }); // a moving character
+    const viewB = () => ({ stepIndex: 12, playerMotion: { speed: 0, grounded: true } }); // the neutral motion
     const ctrlA = createAnimationRoleController(instA.instance, viewA);
     const ctrlB = createAnimationRoleController(instB.instance, viewB);
     if (ctrlA.ok === false || ctrlB.ok === false) throw new Error('controller creation failed');
@@ -476,7 +475,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     const scene = v3Scene({ decorationMismatch: true });
     const counter = countingPort(createGltfLoaderPort());
     const adapter = createSceneAdapter(stubCanvas(), {
-      runtime: fakeRuntime({ stepIndex: 3, speed: 3, grounded: true }),
+      runtime: fakeRuntime({ stepIndex: 3 }),
       snapshot: snapshotOf(scene),
       models: modelsBlock(scene, GLB_BYTES),
       modelsLoader: counter.port,

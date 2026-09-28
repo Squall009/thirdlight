@@ -90,26 +90,20 @@ describe('the Scene-view handles over the real registry and commands', () => {
     for (const k of HANDLE_KINDS) expect(used, k).toContain(k);
   });
 
-  it('box3 (a box mesh), box2 (areas; an enemy stands on its feet; a collider\'s half extents) and bounds', () => {
+  it('box3 (a box mesh), box2 (areas: a trigger, a patroller\'s body; a collider\'s half extents)', () => {
     let s = fresh();
     // box3: the box's width from its side grip (the frame is its whole transform).
     s = dragAndStore(s, 'box-0001', 'box', 'box3', 'side', p3(1.26, 0, 0), true, (v) => expect(v.size).toEqual([2.5, 1, 1]));
     s = dragAndStore(s, 'box-0001', 'box', 'box3', 'depth', p3(0, 0, 0.9), true, (v) => expect(v.size).toEqual([2.5, 1, 1.8]));
-    // box2 sizes: a trigger grows around its centre; an enemy's top moves with its feet kept.
+    // box2 sizes: a trigger and a patroller's body grow around their centres.
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Sensor', transform: { position: [4, 1, 0] }, components: { trigger: { size: [1, 1], signal: 'hello' } } }, 'sensor');
     const sensor = s.scene.entities.at(-1).id;
     s = dragAndStore(s, sensor, 'trigger', 'box2', 'top', p3(0, 0.83), true, (v) => expect(v.size).toEqual([1, 1.65]));
-    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Walker', transform: { position: [8, 0, 0] }, components: { enemy: { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1, chase: 3 } } }, 'walker');
+    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Walker', transform: { position: [8, 0, 0] }, components: { patrol: { mode: 'edges', speed: 1.5, size: [0.8, 0.8] } } }, 'walker');
     const walker = s.scene.entities.at(-1).id;
-    const enemyBox = handleShapesOf(projected(s, walker), DESCRIPTORS).find((x) => x.component === 'enemy' && x.kind === 'box2')!;
-    expect(gripsOf(enemyBox).find((g) => g.id === 'top')!.at).toEqual(p3(0, 0.8, 0));
-    s = dragAndStore(s, walker, 'enemy', 'box2', 'top', p3(0, 1.21), true, (v) => expect(v.size).toEqual([0.8, 1.2]));
-    // segment1d: the patrol range's right end; radius along X: the chase distance (a band).
-    s = dragAndStore(s, walker, 'enemy', 'segment1d', 'right', p3(3.52, 0.4), true, (v) => expect(v.range).toEqual([-2, 3.5]));
-    s = dragAndStore(s, walker, 'enemy', 'radius', 'side', p3(-4.52, 3), true, (v) => expect(v.chase).toBe(4.5));
-    // The left end never passes the right one.
-    const range = handleShapesOf(projected(s, walker), DESCRIPTORS).find((x) => x.kind === 'segment1d')!;
-    expect((commitValue(dragGrip(range, 'left', p3(9, 0), true)) as Any).value.range).toEqual([3.45, 3.5]);
+    const body = handleShapesOf(projected(s, walker), DESCRIPTORS).find((x) => x.component === 'patrol' && x.kind === 'box2')!;
+    expect(gripsOf(body).find((g) => g.id === 'top')!.at).toEqual(p3(0, 0.4, 0));
+    s = dragAndStore(s, walker, 'patrol', 'box2', 'top', p3(0, 0.61), true, (v) => expect(v.size).toEqual([0.8, 1.2]));
     // Half extents (a box collider turned with its object).
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Ledge', transform: { position: [0, -2, 0] }, components: { collider: { shape: { type: 'box', hx: 1, hy: 0.25 } } } }, 'ledge');
     const ledge = s.scene.entities.at(-1).id;
@@ -123,12 +117,6 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(deep.frame).toBe('transform');
     expect(gripsOf(deep).map((g) => g.id)).toContain('depth');
     s = dragAndStore(s, ledge, 'collider', 'box2', 'depth', p3(0, 0, 1.01), true, (v) => expect(v.shape).toEqual({ type: 'box', hx: 1.5, hy: 0.25, hz: 1 }));
-    // World bounds of camera follow.
-    s = must(s, 'setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -10, maxX: 10, minY: -5, maxY: 5 } } }, 'follow');
-    const bounds = handleShapesOf(projected(s, 'cam-main'), DESCRIPTORS).find((x) => x.component === 'cameraFollow')!;
-    expect(bounds.frame).toBe('world');
-    expect(gripsOf(bounds).map((g) => g.id)).toEqual(['left', 'right', 'bottom', 'top']);
-    dragAndStore(s, 'cam-main', 'cameraFollow', 'box2', 'right', p3(14.1, 0), true, (v) => expect(v.bounds).toEqual({ minX: -10, maxX: 14, minY: -5, maxY: 5 }));
   });
 
   it('capsule: the top grip keeps the feet; the offset is stored only when it is not zero', () => {

@@ -87,7 +87,7 @@ describe('template dependencies at creation', () => {
     expect(res.status).toBe(201);
   });
 
-  it('the starter template is listed and creates a project without game rules', async () => {
+  it('the starter template is listed and creates a project', async () => {
     const res = await fetch(`${base}/api/v1/templates`, { headers: { authorization: `Bearer ${ADMIN}` } });
     const body = (await res.json()) as { templates: Array<{ id: string; name: string; requiredModules: string[] }> };
     expect(body.templates.find((t) => t.id === 'starter')).toMatchObject({ name: 'Starter', requiredModules: [] });
@@ -97,8 +97,10 @@ describe('template dependencies at creation', () => {
       headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json', origin: AUTHORING_ORIGIN },
       body: JSON.stringify({ op: 'queryGameConfig', projectId: 't3' }),
     });
-    const game = (await q.json()) as { ok: boolean; game: unknown };
+    // Phase 24.7: there is no game block; the query reports the tag registry only.
+    const game = (await q.json()) as { ok: boolean; tags: unknown };
     expect(game.ok, JSON.stringify(game).slice(0, 300)).toBe(true);
-    expect(game.game).toBeNull();
+    expect(Array.isArray(game.tags)).toBe(true);
+    expect('game' in game).toBe(false);
   });
 });

@@ -35,14 +35,11 @@ interface SavedSpawnCopy {
 import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
-  GAME_TIMING_DEFAULTS,
+  ENGINE_TIMING_DEFAULTS,
   controllerTuningOf,
   controllerCapsuleOffsetZ,
   resolveGameplaySettings,
-  type CheckpointActivationAppearance,
   type EntityV3,
-  type GameConfig,
-  type GameZoneRole,
   type PrefabDefinition,
   type Quat,
   type RuntimeUiDocumentRow,
@@ -67,7 +64,7 @@ import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE,
 import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
-import { byEntityId, capsuleInZone, character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
+import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -98,15 +95,7 @@ import type { TimelineAsset } from '@thirdlight/project-model';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks, type SceneTransitionRequest } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
-import { MotionSegments, TransformMirror } from './step-buffers';
-import {
-  DEFAULT_ASPECT,
-  GameSession,
-  type BoundaryOutcome,
-  type GameCommandAccepted,
-  type GameCommandRejection,
-  type RunCommand,
-} from './game-session';
+import { TransformMirror } from './step-buffers';
 import {
   validateCharacterMoveResult,
   validateCharacterMoveResult3D,
@@ -137,33 +126,24 @@ import {
   type BehaviorSpawnControl,
   type CameraInfo,
   type DiagnosticErrorEntry,
-  type GameContent,
-  type GameZoneSpec,
   type RuntimeSceneRow,
   type SceneLoadOptions,
   type SceneLoadRequest,
   type SceneSetView,
   type SceneStatus,
-  type GameCameraBounds,
   type EffectRequest,
-  type GameSessionPort,
-  type GameView,
   type GameplaySettings,
   type InterpolatedState,
   type InterpolatedTransform,
   type InterpolatedVisitor,
   type ModuleConfig,
   type ModelBounds,
-  type MotionSegment,
   type ModuleResetContext,
-  type PlayerMotion,
-  type RunState,
   type Runtime,
   type RuntimeDiagnostics,
   type RuntimeScene,
   type RuntimeSnapshot,
   type RuntimeStateName,
-  type RunSnapshot,
   type SimEntityData,
   type SimState,
   type SimulationModule,
@@ -173,9 +153,6 @@ import {
   type SimulationRegistry,
   type StepContext,
   type TransformState,
-  type ViewportInfo,
-  type RunRestore,
-  type RunSaveState,
   type DebugCommandArgs,
   type DebugCommandOptions,
   type DebugCommandSpec,
@@ -243,24 +220,22 @@ const MAX_FIXED_STEP_HZ = 1000;
 /** runtime.md §5 (normative M1 constant). */
 export const MAX_CATCHUP_STEPS = 8;
 /**
- * runtime.md §3.2 (M2 settle pre-roll) at 120 Hz — phase 15.3: the default
- * of the game block's `settleTime` (0.1 s), converted at the step rate.
+ * runtime.md §3.2 (M2 settle pre-roll) at 120 Hz — the engine's settle time
+ * (0.1 s, `ENGINE_TIMING_DEFAULTS.settleTime`) converted at the step rate.
  */
 export const SETTLE_PREROLL_STEPS = 12;
-/** Phase 9.9: steps a one-way platform lets the player drop through at 120 Hz — phase 15.3: the default of `dropThroughTime` (0.125 s). */
+/** Phase 9.9: steps a one-way platform lets the character drop through at 120 Hz (`ENGINE_TIMING_DEFAULTS.dropThroughTime`, 0.125 s). */
 export const DROP_THROUGH_STEPS = 15;
 
 /**
- * Phase 15.3: the game block's session timing in whole steps at `hz` (each
- * absent field at its default; 120 Hz gives exactly the old step counts).
+ * Phase 15.3 / 24.7: the engine timing in whole steps at `hz` (120 Hz gives
+ * exactly the old step counts). Phase 24.7: these were the platformer game
+ * block's fields; they are engine defaults now.
  */
-export function sessionTimingSteps(game: GameConfig | null | undefined, hz: number): { settleSteps: number; dropThroughSteps: number; respawnDelaySteps: number } {
-  const g = (game ?? {}) as Partial<GameConfig>;
-  const steps = (v: number | undefined, d: number, min: number): number => Math.max(min, Math.round((typeof v === 'number' && Number.isFinite(v) ? v : d) * hz));
+export function engineTimingSteps(hz: number): { settleSteps: number; dropThroughSteps: number } {
   return {
-    settleSteps: steps(g.settleTime, GAME_TIMING_DEFAULTS.settleTime, 0),
-    dropThroughSteps: steps(g.dropThroughTime, GAME_TIMING_DEFAULTS.dropThroughTime, 1),
-    respawnDelaySteps: steps(g.respawnDelay, GAME_TIMING_DEFAULTS.respawnDelay, 0),
+    settleSteps: Math.max(0, Math.round(ENGINE_TIMING_DEFAULTS.settleTime * hz)),
+    dropThroughSteps: Math.max(1, Math.round(ENGINE_TIMING_DEFAULTS.dropThroughTime * hz)),
   };
 }
 /** runtime.md §8: the error ring keeps the last 32 entries. */
@@ -283,33 +258,6 @@ const STEP_COUNT_EPS = 1e-9;
 const DEFAULT_MODULES = ['thirdlight.demo:box-motion'];
 /** runtime.md §12.4 `config_invalid` reason for a physics-bearing set. */
 const PHYSICS_PORT_REASON = 'physics_port';
-
-// ---------------------------------------------------------------------------
-// M3 reset transaction (gameplay.md §5) — the zone overlap tolerance (the
-// capsule is the player's own since phase 14.0: `GameContent.player.capsule`)
-// and the reset-fault signatures (the test-only seam's fail-stop codes, pinned
-// by `fixtures/m3/gameplay/run/failure-phases.json`).
-// ---------------------------------------------------------------------------
-
-/** gameplay.md §8.2: the zone overlap tolerance (m). */
-const GAME_ZONE_OVERLAP_EPS = 1e-9;
-
-/**
- * The reset-fault signatures (gameplay.md §5.1 R1–R8, pinned by
- * `failure-phases.json`): the exact `code`/`reason` a reset-phase failure
- * fail-stops with. The test-only seam (`injectResetFault`) uses this to
- * reproduce each phase's failure deterministically.
- */
-const RESET_FAULT_SIGNATURES: Readonly<Record<string, { code: ErrorCode; reason: string }>> = {
-  R1: { code: 'game_spawn_invalid', reason: 'reference' },
-  R2: { code: 'game_spawn_blocked', reason: 'hazard' },
-  R3: { code: 'game_spawn_blocked', reason: 'blocked' },
-  R4: { code: 'physics_port_error', reason: 'reset' },
-  R5: { code: 'physics_port_error', reason: 'reset' },
-  R6: { code: 'module_error', reason: 'module_threw' },
-  R7: { code: 'module_error', reason: 'phase_violation' },
-  R8: { code: 'module_error', reason: 'phase_violation' },
-};
 
 interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string) => void) | null;
@@ -417,32 +365,6 @@ interface PhaseViews {
 /** An `ActionSource.sample()` throw (module_error, reason `input_source_threw`). */
 class InputSourceError extends Error {
   readonly reason = 'input_source_threw';
-}
-
-/**
- * A gameplay port commit call that violates a run-state rule (gameplay.md
- * §8.1: `module_error`, reason `gameplay_invalid` — e.g. `beginRespawn` while
- * `respawning`). Fail-stop, like every module contract violation.
- */
-class GameplayInvalidError extends Error {
-  readonly reason = 'gameplay_invalid';
-  constructor(message: string) {
-    super(clipMessage(message));
-    this.name = 'GameplayInvalidError';
-  }
-}
-
-/**
- * A gameplay port commit call made outside the `gameplay` phase (gameplay.md
- * §3.3: from any other phase the commit calls throw `module_error`,
- * reason `phase_violation`).
- */
-class GameplayPhaseError extends Error {
-  readonly reason = 'phase_violation';
-  constructor() {
-    super('the gameplay port commit calls are callable in the gameplay phase only');
-    this.name = 'GameplayPhaseError';
-  }
 }
 
 /** A `PhysicsPort` throw/validation failure (fail-stop `physics_port_error`). */
@@ -779,7 +701,7 @@ export function instantiateRuntime(
   if (startMode !== undefined && snap.modes !== undefined && !snap.modes.modes.some((m) => m.modeId === startMode)) {
     return { ok: false, error: fail('config_invalid', `config field "startMode": the project has no game mode "${startMode}"`, { reason: 'reference', path: '/startMode' }) };
   }
-  const { scene, sceneVersion, snapshotId, revision, game } = snap;
+  const { scene, sceneVersion, snapshotId, revision } = snap;
   // Phase 12 (c): the scene catalog (v4 only; null: one fixed scene).
   const sceneRows = snap.scenes;
 
@@ -828,13 +750,6 @@ export function instantiateRuntime(
   }
 
   const isM2 = selected.some((s) => s.phases !== undefined);
-  // M3 (gameplay.md §3.1): a runtime is M3-enabled iff at least one selected
-  // module declares `gameplay` or `camera`. M1/M2 sets keep the accepted
-  // validation byte-for-byte (gameplay.md §3.5); M3 sets take the §3.4
-  // composition table (the §12.4 M3 supersession, runtime.md §12.4).
-  const isM3 = selected.some(
-    (s) => s.phases !== undefined && (s.phases.includes('gameplay') || s.phases.includes('camera')),
-  );
   // §14.8: at most 64 behavior modules per runtime instance.
   if (selected.filter((s) => s.id.startsWith(BEHAVIOR_MODULE_PREFIX)).length > INTENT_LIMITS.behaviorModules) {
     return {
@@ -858,69 +773,13 @@ export function instantiateRuntime(
   if ('error' in settingsResult) return { ok: false, error: settingsResult.error };
   const resolvedSettings = deepFreeze(settingsResult.settings);
 
-  // M2/M3 module-set validation (runtime.md §12.4) — before any instance is
+  // M2 module-set validation (runtime.md §12.4) — before any instance is
   // created and before any port method is called.
   const controllerSpecs = selected.filter((s) => s.phases?.includes('controller') === true);
   const controllerIds = scene.entities
     .filter((e) => (e.components as { controller?: unknown }).controller !== undefined)
     .map((e) => e.id);
-  const sceneCameraEntity = scene.entities.find((e) => (e.components as { camera?: unknown }).camera !== undefined);
   if (isM2) {
-    if (isM3) {
-      // ---- M3 composition (gameplay.md §3.4; runtime.md §12.4 supersession)
-      if (game === null) {
-        return {
-          ok: false,
-          error: fail('config_invalid', 'an M3 module set requires a non-null content.game block on the v3 snapshot', {
-            reason: 'game_config',
-            path: '/modules',
-          }),
-        };
-      }
-      const gameplayCount = selected.filter((s) => s.phases?.includes('gameplay') === true).length;
-      if (gameplayCount > 1) {
-        return {
-          ok: false,
-          error: fail('config_invalid', 'at most one module may declare the gameplay phase', {
-            reason: 'gameplay_module',
-            path: '/modules',
-          }),
-        };
-      }
-      const cameraModuleCount = selected.filter((s) => s.phases?.includes('camera') === true).length;
-      if (cameraModuleCount === 0) {
-        return {
-          ok: false,
-          error: fail('config_invalid', 'an M3 module set requires exactly one camera-phase module', {
-            reason: 'camera_owner',
-            detail: 'missing',
-            path: '/modules',
-          }),
-        };
-      }
-      if (cameraModuleCount > 1) {
-        return {
-          ok: false,
-          error: fail('config_invalid', 'an M3 module set requires exactly one camera-phase module (multiple found)', {
-            reason: 'camera_owner',
-            detail: 'multiple',
-            path: '/modules',
-          }),
-        };
-      }
-      const cameraFollow = sceneCameraEntity
-        ? (sceneCameraEntity.components as { cameraFollow?: unknown }).cameraFollow
-        : undefined;
-      if (!sceneCameraEntity || cameraFollow === undefined) {
-        return {
-          ok: false,
-          error: fail('config_invalid', 'the scene camera entity carries no cameraFollow component', {
-            reason: 'camera_follow',
-            path: '/modules',
-          }),
-        };
-      }
-    }
     const selectedIds = new Set(selected.map((s) => s.id));
     for (const spec of selected) {
       for (const excluded of spec.excludes ?? []) {
@@ -967,12 +826,6 @@ export function instantiateRuntime(
   const cameraEntityIds: string[] = [];
   const colliderEntityIds = new Set<string>();
   const controllerEntityIds: string[] = [];
-  // M3 (gameplay.md §4.1): the scene-side sources of the frozen gameplay
-  // content projection (collected in document order; the projection sorts by
-  // entityId codepoint order — document order is explicitly not used).
-  const zoneSpecs: { entityId: string; role: GameZoneRole; center: Vec2; half: Vec2; safeSpawnId?: string; activation?: Readonly<CheckpointActivationAppearance> }[] = [];
-  const spawnSpecs: { entityId: string; center: Vec2; facing?: 'left' | 'right'; yaw?: number }[] = [];
-  let cameraFollowData: { deadZone: Vec2; smoothing: number; bounds: GameCameraBounds } | undefined;
   for (const e of scene.entities) {
     const t = e.components.transform;
     const components = e.components;
@@ -994,40 +847,6 @@ export function instantiateRuntime(
     if (v2.controller !== undefined) {
       data.hasController = true;
       controllerEntityIds.push(e.id);
-    }
-    const v3 = components as {
-      gameZone?: { role: GameZoneRole; size: [number, number]; safeSpawnId?: string; activation?: CheckpointActivationAppearance };
-      playerSpawn?: unknown;
-      cameraFollow?: { deadZone: { x: number; y: number }; smoothing: number; bounds?: GameCameraBounds };
-    };
-    if (v3.gameZone !== undefined) {
-      const z = v3.gameZone;
-      zoneSpecs.push({
-        entityId: e.id,
-        role: z.role,
-        center: { x: t.position[0], y: t.position[1] },
-        half: { x: z.size[0] / 2, y: z.size[1] / 2 },
-        ...(z.safeSpawnId !== undefined ? { safeSpawnId: z.safeSpawnId } : {}),
-        ...(z.activation !== undefined ? { activation: z.activation } : {}),
-      });
-    }
-    if (v3.playerSpawn !== undefined) {
-      // Phase 15.2: a spawn's facing (only when set, so older snapshots project exactly as before).
-      const facing = (v3.playerSpawn as { facing?: string }).facing;
-      // Phase 24.4f: a yaw in degrees (any direction; only when set).
-      const yaw = (v3.playerSpawn as { yaw?: unknown }).yaw;
-      spawnSpecs.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] }, ...(facing === 'left' || facing === 'right' ? { facing } : {}), ...(typeof yaw === 'number' && Number.isFinite(yaw) ? { yaw } : {}) });
-    }
-    if (cam && v3.cameraFollow !== undefined) {
-      const f = v3.cameraFollow;
-      cameraFollowData = {
-        deadZone: { x: f.deadZone.x, y: f.deadZone.y },
-        smoothing: f.smoothing,
-        // v4: bounds are optional (unbounded when absent).
-        bounds: f.bounds !== undefined
-          ? { minX: f.bounds.minX, maxX: f.bounds.maxX, minY: f.bounds.minY, maxY: f.bounds.maxY }
-          : { minX: Number.NEGATIVE_INFINITY, maxX: Number.POSITIVE_INFINITY, minY: Number.NEGATIVE_INFINITY, maxY: Number.POSITIVE_INFINITY },
-      };
     }
     entities.set(e.id, data);
     prev.set(e.id, cloneTransform(t));
@@ -1051,30 +870,6 @@ export function instantiateRuntime(
     };
   }
 
-  // M3 (gameplay.md §4.1): the frozen gameplay-content projection — the zones
-  // in ascending entityId codepoint order, the spawn markers, the player and
-  // camera references of the frozen `content.game` block. Deep-frozen at
-  // instantiate and never written (the port exposes it read-only).
-  let gameContent: GameContent | null = null;
-  if (isM3) {
-    const g = game as GameConfig; // non-null: the §3.4 composition check above
-    const byId = (a: { entityId: string }, b: { entityId: string }): number =>
-      a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0;
-    gameContent = deepFreeze({
-      game: g,
-      zones: [...zoneSpecs].sort(byId),
-      spawns: [...spawnSpecs].sort(byId),
-      // Phase 14.0: the player's capsule (its controller's, else the default).
-      player: { entityId: g.playerId, capsule: playerCapsuleOf(scene.entities.find((e) => e.id === g.playerId)?.components.controller) },
-      camera: {
-        entityId: cameraId as string,
-        deadZone: cameraFollowData?.deadZone ?? { x: 0, y: 0 },
-        smoothing: cameraFollowData?.smoothing ?? 0,
-        bounds: cameraFollowData?.bounds ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
-      },
-    });
-  }
-
   // One module instance per selection entry (created at instantiate). The
   // behavior-log sink routes a behavior's accepted `ctx.log` entries into the
   // runtime's own bounded diagnostics ring (runtime.md §14.8.1); the holder
@@ -1087,8 +882,6 @@ export function instantiateRuntime(
     fixedStepHz: hz,
     settings: resolvedSettings,
     sceneVersion,
-    // M3 (runtime.md §12.1/§15): the frozen `content.game` block, v3 only.
-    game,
     behaviorLog: (level: BehaviorLogLevel, message: string) => logSink.handler?.(specId, level, message),
     ...(liveTags !== null ? { tags: liveTags } : {}),
     // Phase 23.1: a 3D project (scripts may drive colliders through intents there).
@@ -1214,7 +1007,7 @@ export function instantiateRuntime(
     for (const entry of entries) {
       const isController = entry.phases.includes('controller');
       for (const entityId of entry.owners) {
-        if (cameraEntityIds.includes(entityId) && !isM3) {
+        if (cameraEntityIds.includes(entityId)) {
           disposeCreated();
           return {
             ok: false,
@@ -1239,23 +1032,6 @@ export function instantiateRuntime(
             }),
           };
         }
-      }
-    }
-    // M3 (gameplay.md §3.4): the single camera-phase module must own exactly
-    // the scene's camera entity (`transformOwners` declared at create).
-    if (isM3) {
-      const cameraEntry = entries.find((en) => en.phases.includes('camera'));
-      const owners = cameraEntry ? cameraEntry.owners : [];
-      if (owners.length !== 1 || owners[0] !== cameraId) {
-        disposeCreated();
-        return {
-          ok: false,
-          error: fail('config_invalid', `the camera-phase module "${cameraEntry?.id ?? '(none)'}" must own exactly the scene camera entity "${cameraId}"`, {
-            reason: 'camera_owner',
-            detail: 'owner_mismatch',
-            moduleId: cameraEntry?.id,
-          }),
-        };
       }
     }
   }
@@ -1285,9 +1061,7 @@ export function instantiateRuntime(
     modules: selected.map((s) => s.id),
     entries,
     isM2,
-    isM3,
-    gameContent,
-    timing: sessionTimingSteps(game, hz),
+    timing: engineTimingSteps(hz),
     actions,
     physics,
     ...(physics3d !== undefined ? { physics3d } : {}),
@@ -1368,12 +1142,8 @@ interface RuntimeArgs {
   modules: string[];
   entries: ModuleEntry[];
   isM2: boolean;
-  /** M3-enabled (gameplay.md §3.1): at least one module declares `gameplay`/`camera`. */
-  isM3: boolean;
-  /** The frozen gameplay-content projection (M3 sets), else `null`. */
-  gameContent: GameContent | null;
-  /** Phase 15.3: the game block's session timing in steps (the defaults without one). */
-  timing: { settleSteps: number; dropThroughSteps: number; respawnDelaySteps: number };
+  /** Phase 15.3: the engine timing in steps. */
+  timing: { settleSteps: number; dropThroughSteps: number };
   actions: ActionSource;
   physics?: PhysicsPort;
   /** Phase 23.0: the 3D port (a project with physics_dimension 3), instead of `physics`. */
@@ -1395,7 +1165,7 @@ interface RuntimeArgs {
   initialEntities: readonly EntityV3[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs: readonly PrefabDefinition[];
-  /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
+  /** Phase 15.3: model assetId -> its recorded bounds. */
   modelBounds: Readonly<Record<string, ModelBounds>>;
   /** Phase 23.13: audio/music assetId -> its recorded duration (ms). */
   audioDurations: Readonly<Record<string, number>>;
@@ -1460,38 +1230,6 @@ class RuntimeInstance implements Runtime {
   private readonly modules: string[];
   private entries: ModuleEntry[];
   private readonly isM2: boolean;
-  // ---- M3 game-session state (gameplay.md §2/§6; M3-enabled sets only) ----
-  private readonly isM3: boolean;
-  /** Replaced (never mutated) when a scene load/unload changes the zones or spawns. */
-  private gameContent: GameContent | null;
-  /** The runtime-owned run state machine (absent for M1/M2 sets). */
-  private session: GameSession | null;
-  /** The frozen `StepContext.gameplay` port (built once at instantiate). */
-  private sessionPort: GameSessionPort | null;
-  /** The last committed `GameView` (replaced at commit and boundaries, §6/R8). */
-  private lastGameView: GameView | null;
-  /**
-   * Test-only reset fault-injection seam (gameplay.md §5.1/§5.4): when set to
-   * a reset phase label (`R1`–`R8`), the reset transaction fail-stops at that
-   * phase with the phase's exact failure signature before running the phase's
-   * natural logic. Absent (`null`) in production; set only by the
-   * `tests/m3-respawn/**` evidence through `injectResetFault`.
-   */
-  private resetFaultPhase: string | null = null;
-  /** The presentation-only viewport record (gameplay.md §7.1). */
-  private viewport: ViewportInfo;
-  /** The committed player motion (gameplay.md §6, C41-1). */
-  private playerMotion: PlayerMotion;
-  /** The last completed motion segment per entity (the `lastMotionSegment` port). */
-  private readonly lastSegments = new MotionSegments();
-  /** The player entity id (`content.game.playerId`). */
-  private readonly playerEntityId: string;
-  /**
-   * Executed steps since instantiate (the M3 settle gate: no run boundary
-   * during the accepted 12-step settle pre-roll — the fixtures pin the first
-   * boundary at step 12, the 12th executed step).
-   */
-  private executedSteps = 0;
   private readonly actions: ActionSource;
   private readonly physics?: PhysicsPort;
   /**
@@ -1548,8 +1286,8 @@ class RuntimeInstance implements Runtime {
   private inputSamples = 0;
   private physicsSteps = 0;
   private settleSteps = 0;
-  /** Phase 15.3: the game block's session timing in steps. */
-  private readonly timing: { settleSteps: number; dropThroughSteps: number; respawnDelaySteps: number };
+  /** Phase 15.3: the engine timing in steps. */
+  private readonly timing: { settleSteps: number; dropThroughSteps: number };
   private failedModuleId?: string;
   private failedPhase?: SimulationPhase;
   private failedStepIndex?: number;
@@ -1602,14 +1340,8 @@ class RuntimeInstance implements Runtime {
   /** Every scene of the project (null: one fixed scene, no scene API). */
   private readonly sceneRows: readonly RuntimeSceneRow[] | null;
   private startBatchSource: ReadonlyMap<string, readonly EntityV3[]>;
-  /** Phase 9.10: the level being switched to (scenes loading), and the current level's spawn. */
-  private pendingLevel: { scenes: readonly string[]; spawnId: string; begun: boolean; restore?: RunRestore } | null = null;
-  /** Phase 9.11: a loaded save applied with the level's fresh run (and the checkpoint spawn it starts at). */
-  private pendingRestore: RunRestore | null = null;
-  private restoreSpawnId: string | null = null;
-  /** Phase 9.11: the scripts' saved values (ctx.save; kept across levels, saved with the game). */
+  /** Phase 9.11: the scripts' saved values (ctx.save; kept across restarts). */
   private readonly saveStore = new Map<string, unknown>();
-  private levelSpawnId: string | null = null;
   /** Phase 9.10: paused — frames render and call onFrame, no steps run. */
   private paused = false;
   /**
@@ -1662,7 +1394,7 @@ class RuntimeInstance implements Runtime {
   private readonly dialogue: DialogueRunner;
   private dialogueQueue: DialogueInputRecord[] = [];
   private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
-  // ---- Phase 23.10: game modes and the run lifecycle of a game without the platformer session ----
+  // ---- Phase 23.10: game modes and the run lifecycle ----
   private readonly modes: ModeState;
   private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
   /** The behavior group of each loaded entity that carries one (`behaviorGroup` component). */
@@ -1703,7 +1435,6 @@ class RuntimeInstance implements Runtime {
   private readonly saves: RuntimeSaves;
   /** Phase 23.18: the environment preset blend (`ctx.environment`; inert until a script uses it). */
   private readonly environment: EnvironmentDirector;
-  private stepBounce: number | null = null;
   private raycastsThisStep = 0;
   /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
   private queryLimitWarned = false;
@@ -1884,12 +1615,6 @@ class RuntimeInstance implements Runtime {
     },
   });
 
-  /** Exit zones the player is inside (entry is edge-triggered). */
-  private exitsInside = new Set<string>();
-  /** An exit's spawn: the player moves there once `waitFor` are loaded. */
-  private pendingTransfer: { spawnId: string; waitFor: readonly string[] } | null = null;
-  /** A `respawn` intent committed in this step. */
-  private respawnRequested = false;
   /** Entities that are never unloaded with their scene (camera, player, start spawn, lights). */
   private readonly pinnedIds: ReadonlySet<string>;
   private readonly sceneControl: BehaviorSceneControl;
@@ -1922,27 +1647,7 @@ class RuntimeInstance implements Runtime {
     this.modules = [...args.modules];
     this.entries = args.entries;
     this.isM2 = args.isM2;
-    this.isM3 = args.isM3;
-    this.gameContent = args.gameContent;
     this.timing = args.timing;
-    if (args.isM3 && args.gameContent !== null) {
-      this.session = new GameSession(args.snapshotId, args.timing.respawnDelaySteps);
-      this.playerEntityId = args.gameContent.player.entityId;
-      this.viewport = Object.freeze({ width: 0, height: 0, aspect: DEFAULT_ASPECT });
-      // gameplay.md §6 (game-view fixture note): awaitingStart/won have no
-      // completed step, so the committed motion is { speed: 0, grounded: true }.
-      this.playerMotion = Object.freeze({ speed: 0, grounded: true });
-      this.sessionPort = this.buildGameSessionPort();
-      // The instantiate-time committed view (stepIndex 0, simTime 0).
-      this.lastGameView = this.buildGameView(0, 0);
-    } else {
-      this.session = null;
-      this.sessionPort = null;
-      this.lastGameView = null;
-      this.viewport = Object.freeze({ width: 0, height: 0, aspect: DEFAULT_ASPECT });
-      this.playerMotion = Object.freeze({ speed: 0, grounded: true });
-      this.playerEntityId = '';
-    }
     this.actions = args.actions;
     // Phase 23.8: injected variables are the scripts' saved values from step 0.
     if (args.variables !== undefined) for (const [k, v] of Object.entries(args.variables)) this.saveControl.set(k, v);
@@ -1982,7 +1687,6 @@ class RuntimeInstance implements Runtime {
     this.startBatchSource = new Map(args.startBatches.map((b) => [b.sceneId, b.entities]));
     const pinned = new Set<string>([args.cameraInfo.id]);
     if (args.controllerEntityId !== undefined) pinned.add(args.controllerEntityId);
-    if (args.gameContent !== null) pinned.add(args.gameContent.game.spawnId);
     for (const e of args.entities.values()) if (e.camera !== undefined) pinned.add(e.id);
     for (const b of args.startBatches) {
       for (const e of b.entities) if ((e.components as { light?: unknown }).light !== undefined) pinned.add(e.id);
@@ -1994,8 +1698,6 @@ class RuntimeInstance implements Runtime {
         this.batches.set(b.sceneId, { sceneId: b.sceneId, start: true, entities: Object.freeze(b.entities), ids: new Set(b.entities.map((e) => e.id)), contribution: sceneContribution(b.entities) });
         this.sceneStatus.set(b.sceneId, 'loaded');
       }
-      // The projection from the batches (it carries the exit-zone fields).
-      this.rebuildGameContent();
     }
     this.sceneControl = this.buildSceneControl();
     this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
@@ -2050,57 +1752,40 @@ class RuntimeInstance implements Runtime {
     this.lifecycleControl = this.buildLifecycleControl();
     this.eventCues = args.eventCues ?? [];
     this.sceneList = args.sceneList ?? [];
-    // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
+    // Phase 9.9: movers, triggers, switches, one-way colliders and the generic primitives
+    // (phase 24.7: the character is the controller's object in both dimensions).
     const rt = this;
+    const characterComponents = args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller;
     this.blocks = new GameplayBlocks(
       {
         hz: this.hz,
         physics: this.physics,
         curr: this.curr,
-        playerId: this.playerEntityId !== '' || args.physics3d === undefined ? this.playerEntityId : (args.controllerEntityId ?? ''),
-        // Phase 24.4: the character the generic primitives test — the game's player, else the controller's object (both dimensions).
-        characterId: this.playerEntityId !== '' ? this.playerEntityId : (args.controllerEntityId ?? ''),
-        // Phase 14.0: the player's own capsule (the default without game content);
-        // phase 23.1: a 3D scene's player is the controller entity, with its capsule;
-        // phase 24.4: so is a 2D scene's character (only the primitives test it there).
-        playerCapsule: args.gameContent?.player.capsule ?? playerCapsuleOf(args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller),
-        // Phase 15.3: the player's skin (a pushing mover keeps it) and the models' recorded bounds.
-        playerSkin: controllerTuningOf(args.initialEntities.find((e) => e.id === (args.gameContent?.player.entityId ?? args.controllerEntityId))?.components.controller).skin,
-        modelBounds: (assetId: string) => args.modelBounds[assetId] ?? null,
-        player: () => {
-          const t = rt.curr.get(rt.playerEntityId);
+        characterId: args.controllerEntityId ?? '',
+        // Phase 14.0: the character's own capsule (its controller's, else the default).
+        characterCapsule: playerCapsuleOf(characterComponents),
+        // Phase 15.3: the character's skin (a pushing mover keeps it).
+        characterSkin: controllerTuningOf(characterComponents).skin,
+        character: () => {
+          const t = rt.controllerEntityId !== undefined ? rt.curr.get(rt.controllerEntityId) : undefined;
           return t === undefined ? null : { x: t.position[0], y: t.position[1] };
-        },
-        playerDelta: () => {
-          const seg = rt.lastSegments.raw(rt.playerEntityId);
-          return seg === undefined ? { x: 0, y: 0 } : { x: seg[2]! - seg[0]!, y: seg[3]! - seg[1]! };
         },
         groundEntityId: () => (rt.physics3d !== undefined ? (rt.lastCharacterResult3D?.groundEntityId ?? null) : (rt.lastCharacterResult?.groundEntityId ?? null)),
         // Phase 23.1: the 3D world (movers posed on it, triggers in 3D).
         ...(args.physics3d !== undefined
           ? {
               physics3d: args.physics3d,
-              playerOffsetZ: controllerCapsuleOffsetZ(args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller),
-              player3: () => {
+              characterOffsetZ: controllerCapsuleOffsetZ(args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller),
+              character3: () => {
                 const t = rt.controllerEntityId !== undefined ? rt.curr.get(rt.controllerEntityId) : undefined;
                 return t === undefined ? null : [t.position[0], t.position[1], t.position[2]];
               },
               scriptColliders3D: () => rt.scriptColliderPoses3D(),
             }
           : {}),
-        kill: () => {
-          if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
-        },
-        playCue: (assetId: string) => void rt.audio.play(assetId),
         // Phase 24.4e: a trigger's scene transition.
         sceneTransition: (triggerId, t) => rt.beginSceneTransition(triggerId, t),
         effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
-        animator: (id: string) => {
-          const own = rt.animatorMachines.get(id)?.machine;
-          if (own !== undefined) return own;
-          for (const [childId, rec] of rt.animatorMachines) if (rt.parentOf.get(childId) === id) return rec.machine;
-          return null;
-        },
       },
       args.initialEntities,
     );
@@ -2222,9 +1907,9 @@ class RuntimeInstance implements Runtime {
     this.animatorLastPos = null;
   }
 
-  /** The character the locomotion parameters describe: the game session's player, else the controller's object (phase 24.6). */
+  /** The character the locomotion parameters describe: the controller's object (phase 24.6). */
   private animatedCharacter(): string {
-    return this.playerEntityId !== '' ? this.playerEntityId : (this.controllerEntityId ?? '');
+    return this.controllerEntityId ?? '';
   }
 
   private isPlayerOrChild(id: string): boolean {
@@ -2239,9 +1924,9 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 24.6: the character's motion over the last step without the game
-   * session (its position a step ago; null after a reset): horizontal speed
-   * (x and z), vertical velocity and the controller's grounding.
+   * Phase 24.6: the character's motion over the last step (its position a
+   * step ago; null after a reset): horizontal speed (x and z), vertical
+   * velocity and the controller's grounding.
    */
   private animatorLastPos: [number, number, number] | null = null;
   private characterMotion(): { speed: number; vy: number; grounded: boolean } {
@@ -2260,22 +1945,11 @@ class RuntimeInstance implements Runtime {
    * Advance every animator by one fixed step. The character's animators get
    * `speed` (horizontal, m/s), `grounded`, `velocityY` and the `landed`
    * trigger from the committed motion, when their controller has them — the
-   * game session's player, or (phase 24.6) the controller's object in a game
-   * without the session.
+   * controller's object (phase 24.6).
    */
   private stepAnimators(): void {
     if (this.animatorMachines.size === 0) return;
-    let speed: number;
-    let vy: number;
-    let grounded: boolean;
-    if (this.playerEntityId !== '') {
-      const seg = this.lastSegments.raw(this.playerEntityId);
-      speed = seg !== undefined ? Math.abs((seg[2]! - seg[0]!) * this.hz) : 0;
-      vy = seg !== undefined ? (seg[3]! - seg[1]!) * this.hz : 0;
-      grounded = this.playerMotion.grounded;
-    } else {
-      ({ speed, vy, grounded } = this.characterMotion());
-    }
+    const { speed, vy, grounded } = this.characterMotion();
     const landed = grounded && !this.animatorWasGrounded;
     this.animatorWasGrounded = grounded;
     const fired: AnimatorEventRecord[] = [];
@@ -2290,88 +1964,6 @@ class RuntimeInstance implements Runtime {
       for (const e of machine.step(dt)) fired.push(Object.freeze({ entityId: id, name: e.name, clip: e.clip, stepIndex: this.stepIndex }));
     }
     this.animatorEvents = Object.freeze(fired);
-  }
-
-  /**
-   * Phase 9.10: switch to a level — its scenes become the loaded set and the
-   * start set (a replay restarts this level), and the run starts again at its
-   * spawn (a fresh run: counters, checkpoint and deaths reset). Scenes not in
-   * the level are unloaded, missing ones are loaded; the switch completes at
-   * the first boundary after they have all loaded.
-   */
-  startLevel(level: { scenes: readonly string[]; spawnId: string }, restore?: RunRestore): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    if (this.sceneRows === null || this.session === null) return { ok: false, error: fail('scene_invalid', 'levels need a v4 game with a game block', { reason: 'level' }) };
-    if (!Array.isArray(level.scenes) || level.scenes.length === 0) return { ok: false, error: fail('scene_invalid', 'a level loads at least one scene', { reason: 'level' }) };
-    for (const id of level.scenes) if (!this.sceneStatus.has(id)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(id))}`, { reason: 'level' }) };
-    const keep = new Set(level.scenes);
-    for (const b of this.batches.values()) {
-      if (keep.has(b.sceneId)) continue;
-      if (b.ids.has(this.playerEntityId) || b.ids.has(this.cameraInfo.id)) {
-        return { ok: false, error: fail('scene_invalid', `the level does not load scene "${b.sceneId}", which holds the player or the camera`, { reason: 'level' }) };
-      }
-    }
-    this.pendingLevel = { scenes: [...level.scenes], spawnId: String(level.spawnId), begun: false, ...(restore !== undefined ? { restore } : {}) };
-    return { ok: true };
-  }
-
-  /** Phase 9.10: the level switch at the boundary (unload/load, then the fresh run). */
-  private runLevelSwitch(): boolean {
-    const level = this.pendingLevel;
-    const session = this.session;
-    if (level === null || session === null) return true;
-    const keep = new Set(level.scenes);
-    if (!level.begun) {
-      level.begun = true;
-      // Phase 24.0: spawned copies belong to the level that made them. A coin a boar
-      // dropped (or anything else `ctx.spawn` made) is not left standing in the next
-      // level's world at the same coordinates.
-      this.clearSpawned();
-      for (const b of [...this.batches.values()]) if (!keep.has(b.sceneId)) this.removeBatch(b.sceneId);
-      for (const id of level.scenes) {
-        this.pendingUnloads.delete(id);
-        if (!this.batches.has(id)) this.enqueueSceneOp({ op: 'load', sceneId: id });
-      }
-      this.pendingTransfer = null;
-      this.exitsInside.clear();
-    }
-    if (level.scenes.some((id) => !this.batches.has(id))) {
-      // Still loading; a load that failed abandons the switch.
-      if (level.scenes.some((id) => this.sceneStatus.get(id) === 'unloaded')) {
-        this.pendingLevel = null;
-        this.recordError({ code: 'scene_load_failed', message: clipMessage('a level scene could not be loaded; the level did not start'), stepIndex: this.stepIndex, reason: 'level' });
-      }
-      return true;
-    }
-    this.pendingLevel = null;
-    const source = new Map<string, readonly EntityV3[]>();
-    for (const id of level.scenes) {
-      const b = this.batches.get(id)!;
-      b.start = true;
-      source.set(id, b.entities);
-    }
-    for (const b of this.batches.values()) if (!keep.has(b.sceneId)) b.start = false;
-    this.startBatchSource = source;
-    this.levelSpawnId = level.spawnId;
-    this.sceneSetCache = null;
-    // Phase 9.11: a save continues at its checkpoint (when that zone is in the level).
-    this.pendingRestore = level.restore ?? null;
-    this.restoreSpawnId = null;
-    const cpId = level.restore?.checkpointId;
-    if (typeof cpId === 'string') {
-      const zone = this.gameContent?.zones.find((z) => z.entityId === cpId && z.role === 'checkpoint');
-      if (zone?.safeSpawnId !== undefined && this.gameContent!.spawns.some((sp) => sp.entityId === zone.safeSpawnId)) this.restoreSpawnId = zone.safeSpawnId;
-    }
-    session.submit(session.runState === 'awaitingStart' ? 'start' : 'replay');
-    return true;
-  }
-
-  /** Phase 9.11: what a save keeps of the current run. */
-  runState(): RunSaveState {
-    const b = this.blocks?.snapshotRun() ?? { counters: {}, collected: [], defeated: [], health: null };
-    // Phase 14.1: saves never keep spawned entities (a new run has none).
-    const authored = (ids: string[]): string[] => ids.filter((id) => !this.spawnedEntities.has(id));
-    return { checkpointId: this.session?.checkpointTotal ?? null, ...b, collected: authored(b.collected), defeated: authored(b.defeated), values: Object.fromEntries(this.saveStore) };
   }
 
   /**
@@ -2698,17 +2290,12 @@ class RuntimeInstance implements Runtime {
     this.stepWatcher = watcher;
   }
 
-  /** Phase 15.3: entities fading out (a defeated enemy with `defeat: "fade"`): id -> opacity. */
-  entityOpacity(): ReadonlyMap<string, number> {
-    return this.blocks?.entityOpacity() ?? new Map();
-  }
-
-  /** Phase 9.9: entities collected or defeated (the renderer hides them). */
+  /** Phase 9.9: entities hidden (collected collectibles, ctx.game.setVisible; the renderer hides them). */
   hiddenEntities(): ReadonlySet<string> {
     return this.blocks?.hiddenEntities() ?? new Set();
   }
 
-  /** Phase 9.9: the run's counters (coins, gems, keys, lives, custom) and the player's health. */
+  /** Phase 9.9: the run's named counters and the character's health. */
   gameCounters(): { counters: Record<string, number>; health: { current: number; max: number } | null } {
     return { counters: this.blocks?.countersView() ?? {}, health: this.blocks?.healthView() ?? null };
   }
@@ -3054,101 +2641,6 @@ class RuntimeInstance implements Runtime {
     };
   }
 
-  // ---- M3 run surface (gameplay.md §6.1; M3-enabled runtimes only) --------
-
-  getGameView(): { ok: true; view: GameView } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
-      return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    }
-    if (this.session === null || this.lastGameView === null) {
-      return {
-        ok: false,
-        error: fail('game_session_unavailable', 'this runtime has no M3 game session (no selected module declares the gameplay or camera phase)', {
-          reason: 'schedule',
-        }),
-      };
-    }
-    // A new deep-frozen copy per call (gameplay.md §6): the caller may hold
-    // any number of views without aliasing the committed one.
-    return { ok: true, view: deepFreeze(structuredClone(this.lastGameView)) };
-  }
-
-  /** Phase 21.2: the deep-frozen committed view without a copy (null where `getGameView` fails). */
-  peekGameView(): GameView | null {
-    if (this.stateName === 'disposed' || this.session === null) return null;
-    return this.lastGameView;
-  }
-
-  gameCommand(cmd: 'start' | 'replay'): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
-      return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    }
-    if (this.session === null) {
-      return {
-        ok: false,
-        error: fail('game_session_unavailable', 'this runtime has no M3 game session (no selected module declares the gameplay or camera phase)', {
-          reason: 'schedule',
-        }),
-      };
-    }
-    if (this.stateName === 'failed') {
-      return {
-        ok: false,
-        error: fail('runtime_failed', 'the runtime is failed (a failed instance never steps again; the run is frozen at its last committed value)'),
-      };
-    }
-    const res = this.session.submit(cmd);
-    if (!res.ok) {
-      const rej = res.error;
-      const error: RuntimeError = {
-        code: 'game_command_invalid',
-        reason: rej.reason,
-        command: rej.command,
-        message: rej.message,
-      };
-      if (rej.state !== undefined) error.state = rej.state;
-      return { ok: false, error };
-    }
-    return { ok: true };
-  }
-
-  setViewport(width: number, height: number): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
-      return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    }
-    if (this.session === null) {
-      return {
-        ok: false,
-        error: fail('game_session_unavailable', 'this runtime has no M3 game session (no selected module declares the gameplay or camera phase)', {
-          reason: 'schedule',
-        }),
-      };
-    }
-    const valid =
-      typeof width === 'number' &&
-      typeof height === 'number' &&
-      Number.isFinite(width) &&
-      Number.isFinite(height) &&
-      width > 0 &&
-      height > 0 &&
-      width <= 16384 &&
-      height <= 16384;
-    if (!valid) {
-      return {
-        ok: false,
-        error: fail('camera_viewport_invalid', `viewport dimensions must be finite, positive and ≤ 16384 (got ${width}×${height}); the previous record is retained`, {
-          width,
-          height,
-        }),
-      };
-    }
-    // Presentation-only (gameplay.md §7.1): never steps the simulation, never
-    // advances the step counter; the camera module reads it in the camera
-    // phase.
-    this.viewport = Object.freeze({ width, height, aspect: width / height });
-    return { ok: true };
-  }
-
   // ---- Phase 12 (c) scene set ---------------------------------------------
 
   sceneSet(): SceneSetView {
@@ -3202,12 +2694,10 @@ class RuntimeInstance implements Runtime {
    * Phase 24.6: a test or debug start's spawn in a game without the game
    * session (Play from a scene, `tl_play_start sceneId`): the character
    * arrives at `spawnId` once `sceneId` is loaded, as a scene transition's
-   * arrival (the spawn becomes the active one). A game with the session
-   * starts a level instead (`startLevel`).
+   * arrival (the spawn becomes the active one).
    */
   requestArrival(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    if (this.session !== null) return { ok: false, error: fail('scene_invalid', 'a game with the game session starts a level', { reason: 'transfer' }) };
     if (!this.sceneStatus.has(sceneId)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId).slice(0, 64))}`, { reason: 'transfer' }) };
     this.pendingArrival = { spawnId, waitFor: sceneId };
     return { ok: true };
@@ -3473,7 +2963,7 @@ class RuntimeInstance implements Runtime {
         this.raycastsThisStep = 0;
         this.blocks?.beforeStep(stepOrdinal);
         this.runPhysicsPhase3D(this.physics3d);
-        this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1), true);
+        this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1));
       } catch (e) {
         this.curr = cloneCurr(backup);
         this.failStopFromError(e, stepOrdinal);
@@ -3506,41 +2996,27 @@ class RuntimeInstance implements Runtime {
   /**
    * One fixed M2 step (§12.1.1). Returns `false` after a fail-stop, so the
    * caller stops the frame loop immediately.
-   *
-   * M3 (gameplay.md §3.2): the per-executed-step order gains item 0 (the
-   * boundary — consumed run commands, the reset transaction when due, the
-   * `prev := curr` promotion and the R8 boundary view) before the action
-   * sample, the §2.5 effective-frame override on the sampled frame, and the
-   * item-8 committed `GameView` publication. For M1/M2 sets every line of the
-   * accepted step function runs unchanged.
    */
   private stepOnceM2(actionOverride?: ActionFrame): boolean {
     const stepIndex = this.stepIndex;
     const ordinal = stepIndex + 1; // the 1-based executed-step index (fixtures)
-    // M3 boundary (gameplay.md §3.2 item 0): before the action sample. No
-    // boundary during the accepted 12-step settle pre-roll (the fixtures pin
-    // the first boundary at the step after the settle steps).
-    // Phase 12 (c): scene unloads/loads take effect at the boundary, before
-    // the run bookkeeping (a respawn may land in a scene that just loaded).
+    // Phase 12 (c): scene unloads/loads take effect at the step boundary,
+    // before the arrivals (a spawn may be in a scene that just loaded).
     if (!this.applySceneOps()) return false;
-    // Phase 24.4e: a scene transition's arrival once its scene is loaded (a game without the game session).
+    // Phase 24.4e: a scene transition's arrival once its scene is loaded.
     if (this.pendingArrival !== null && !this.runArrival(ordinal)) return false;
     // Phase 14.1: the spawns and destroys the last step requested, in order.
     if (!this.applySpawnOps()) return false;
     this.spawnsThisStep = 0;
     this.spawnRefusalLogged = false;
-    // Phase 23.10: a restart asked for last step (a game without the platformer session), then
-    // the game mode's step start (last step's events end; a script's switch applies now).
+    // Phase 23.10: a restart asked for last step, then the game mode's step start
+    // (last step's events end; a script's switch applies now).
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
+    // Phase 24.7: a 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
+    if (this.physics3d === undefined && this.pendingRespawn !== null && !this.runRespawn2D(ordinal)) return false;
     this.modes.beginStep(ordinal);
-    if (this.isM3 && this.executedSteps >= this.timing.settleSteps) {
-      if (!this.runLevelSwitch()) return false;
-      if (!this.runResetBarrier(ordinal)) return false;
-      if (!this.runTransfer(ordinal)) return false;
-    }
     if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
-    this.respawnRequested = false;
     this.grid.beginStep(ordinal);
     this.materials.beginStep(ordinal);
     this.saves.beginStep();
@@ -3565,9 +3041,6 @@ class RuntimeInstance implements Runtime {
     // Phase 23.10: the actions of input maps the game mode does not activate read as released
     // (the sampled frame stays the recorded input).
     if (this.modes.active) action = this.modes.mask(action);
-    // M3 effective-frame override (gameplay.md §2.5): the sampled frame stays
-    // the recorded input; the controller receives the effective frame.
-    if (this.isM3) action = this.effectiveFrame(action, ordinal);
     // Phase 9.9: movers advance (and are posed for physics), a pending bounce
     // reaches the controller; down + jump on a one-way platform drops through.
     this.raycastsThisStep = 0;
@@ -3576,7 +3049,6 @@ class RuntimeInstance implements Runtime {
     // Phase 23.10: a game mode may hold physics (the controller, physics, movers and triggers stand still).
     const held = this.modes.physicsHeld;
     if (!held) this.blocks?.beforeStep(ordinal);
-    this.stepBounce = this.blocks?.takeBounce() ?? null;
     this.stepFacing = null;
     if (
       action.jump === 'pressed' &&
@@ -3626,23 +3098,9 @@ class RuntimeInstance implements Runtime {
         this.runPhysicsPhase();
       }
       this.runPhase('transform', action);
-      // Phase 23.1: a 3D scene (no game block) tests its triggers after the transform phase.
-      if (!this.isM3 && this.physics3d !== undefined && !held) this.blocks?.afterPhysics(action, true);
-      // Phase 24.4: a 2D-plane scene without the game session runs the generic primitives (the platformer blocks need the session).
-      if (!this.isM3 && this.physics3d === undefined && !held) this.blocks?.afterPhysicsGeneric();
-      if (this.isM3) {
-        // M3 phases 6/7: the gameplay phase (the session module's zone
-        // decisions through `ctx.gameplay`) and the camera phase, in the
-        // accepted phase order (SIMULATION_PHASE_ORDER).
-        this.runPhase('gameplay', action);
-        // Phase 12 (c): a script's `respawn` intent, unless the zones already decided.
-        if (this.respawnRequested && this.session !== null && this.session.runState === 'playing') {
-          this.session.beginRespawn(ordinal, 'fall');
-        }
-        // Phase 9.9: pickups, switches, triggers, enemies and damage (not while a game mode holds physics).
-        if (!held) this.blocks?.afterPhysics(action, this.session?.runState === 'playing');
-        this.runPhase('camera', action);
-      }
+      // Phase 23.1 / 24.7: after the transform phase the blocks test the character (triggers,
+      // switches, the primitives; not while a game mode holds physics).
+      if (!held) this.blocks?.afterPhysics(action);
     } catch (e) {
       this.failStopFromError(e, stepIndex);
       return false;
@@ -3681,24 +3139,14 @@ class RuntimeInstance implements Runtime {
     this.grid.flushCollision(this.physics3d);
     this.committedMirror.copyFrom(this.curr, this.currShape);
     this.committed = this.committedMirror.map;
-    // M3 commit (gameplay.md §3.2 item 8): the last completed motion
-    // segments, then the frozen committed `GameView` (stepIndex := n+1,
-    // simTime = stepIndex / fixedStepHz, single division).
-    if (this.isM3) {
-      this.recordMotionSegments(backupMirror);
-      this.lastGameView = this.buildGameView(this.stepIndex, this.simTime);
-    }
     this.stepAnimators();
     // Phase 23.11: attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
     this.stepSockets(this.committed);
-    // Phase 12 (c): the step's scene requests commit with it; exit zones are
-    // checked on the committed motion.
+    // Phase 12 (c): the step's scene requests commit with it.
     if (this.stepSceneOps.length > 0) {
       for (const op of this.stepSceneOps) this.enqueueSceneOp(op);
       this.stepSceneOps = [];
     }
-    this.checkExitZones();
-    this.executedSteps += 1;
     return true;
   }
 
@@ -3837,12 +3285,12 @@ class RuntimeInstance implements Runtime {
     return player === undefined ? null : [player.transform.position[0], player.transform.position[1], player.transform.position[2]];
   }
 
-  /** `ctx.lifecycle` (a game without the platformer session; the session owns them otherwise). */
+  /** `ctx.lifecycle`: respawn (both dimensions), the spawn point and the restart. */
   private buildLifecycleControl(): import('./types').BehaviorLifecycle {
     const spawnOk = (id: unknown): id is string => typeof id === 'string' && this.entities.get(id)?.componentKinds?.includes('playerSpawn') === true;
     return Object.freeze({
       respawn: (spawnId?: string): boolean => {
-        if (this.isM3 || this.physics3d === undefined || this.controllerEntityId === undefined) return false;
+        if (this.controllerEntityId === undefined) return false;
         if (spawnId !== undefined && spawnId !== '' && !spawnOk(spawnId)) return false;
         if (spawnId !== undefined && spawnId !== '') this.activeSpawn = spawnId;
         const target = this.respawnTarget(null);
@@ -3851,13 +3299,12 @@ class RuntimeInstance implements Runtime {
         return true;
       },
       setSpawn: (spawnId: string): boolean => {
-        if (this.isM3 || !spawnOk(spawnId)) return false;
+        if (!spawnOk(spawnId)) return false;
         this.activeSpawn = spawnId;
         return true;
       },
-      spawnPoint: (): string => (this.isM3 ? '' : (this.activeSpawn ?? this.playerSpawnIds()[0] ?? '')),
+      spawnPoint: (): string => this.activeSpawn ?? this.playerSpawnIds()[0] ?? '',
       restart: (): boolean => {
-        if (this.isM3) return false;
         this.pendingRestart = true;
         return true;
       },
@@ -3865,7 +3312,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.10: restart the run of a game without the platformer session, at
+   * Phase 23.10: restart the run, at
    * a step boundary: the start scenes (later loads unloaded, spawned copies
    * gone), every object at its authored transform, the scripts started over
    * (their reset hook, as a replay), cameras, animators, sockets, blocks,
@@ -3946,9 +3393,8 @@ class RuntimeInstance implements Runtime {
   /**
    * A trigger's scene transition (the character entered it): its unloads and
    * its load are queued like `ctx.scenes` calls, and the character moves to
-   * the spawn once the scene is loaded — through the game session's transfer
-   * when there is one (as an exit zone does), else at the next step boundary
-   * after the load (`runArrival`).
+   * the spawn once the scene is loaded, at the next step boundary after the
+   * load (`runArrival`).
    */
   private beginSceneTransition(triggerId: string, t: SceneTransitionRequest): void {
     const ops: SceneOp[] = [...t.unload.map((sceneId): SceneOp => ({ op: 'unload', sceneId })), { op: 'load', sceneId: t.scene }];
@@ -3963,8 +3409,7 @@ class RuntimeInstance implements Runtime {
       this.enqueueSceneOp(op);
     }
     if (t.spawn === null || !loads) return;
-    if (this.session !== null) this.pendingTransfer = { spawnId: t.spawn, waitFor: [t.scene] };
-    else this.pendingArrival = { spawnId: t.spawn, waitFor: t.scene };
+    this.pendingArrival = { spawnId: t.spawn, waitFor: t.scene };
   }
 
   /**
@@ -4010,14 +3455,15 @@ class RuntimeInstance implements Runtime {
     this.pendingArrival = null;
     const t = this.curr.get(a.spawnId);
     const spawn = this.entityDocument(a.spawnId);
-    const marker = (spawn?.components as { playerSpawn?: { yaw?: unknown } } | undefined)?.playerSpawn;
+    const marker = (spawn?.components as { playerSpawn?: { yaw?: unknown; facing?: unknown } } | undefined)?.playerSpawn;
     if (t === undefined || marker === undefined) {
       this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition spawn "${a.spawnId}" is not loaded; the character stays`), stepIndex: this.stepIndex, reason: 'transfer' });
       return true;
     }
     // The spawn becomes the one respawns use (ctx.lifecycle).
     this.activeSpawn = a.spawnId;
-    const yaw = typeof marker.yaw === 'number' && Number.isFinite(marker.yaw) ? (marker.yaw * Math.PI) / 180 : null;
+    // Phase 24.7: an old left/right facing reads as a yaw of ∓90° (24.8 upgrades the stored data).
+    const yaw = typeof marker.yaw === 'number' && Number.isFinite(marker.yaw) ? (marker.yaw * Math.PI) / 180 : marker.facing === 'right' ? Math.PI / 2 : marker.facing === 'left' ? -Math.PI / 2 : null;
     const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
     if (this.physics3d !== undefined) {
       this.pendingRespawn = [x, y, z];
@@ -4034,6 +3480,25 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
+  /**
+   * Phase 24.7: a 2D-plane respawn (`ctx.lifecycle.respawn`, the respawn
+   * intent) at the step boundary: the character is placed at the target from
+   * rest (as an arrival). Returns false after a fail-stop.
+   */
+  private runRespawn2D(ordinal: number): boolean {
+    const target = this.pendingRespawn;
+    this.pendingRespawn = null;
+    this.pendingFacing = null;
+    if (target === null) return true;
+    try {
+      this.placeCharacter2D(target[0], target[1], ordinal);
+    } catch (e) {
+      this.failStopFromError(e, this.stepIndex);
+      return false;
+    }
+    return true;
+  }
+
   /** A loaded entity's document (its components), or undefined. */
   private entityDocument(id: string): EntityV3 | undefined {
     for (const b of this.batches.values()) {
@@ -4044,8 +3509,8 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 24.4e: put the 2D-plane character at an origin, from rest (a game
-   * without the game session): the port's character is cleared and
+   * Phase 24.4e: put the 2D-plane character at an origin, from rest: the
+   * port's character is cleared and
    * placed, its transform set, and the controller module's windows and
    * velocity reset (its reset hook, as a transfer).
    */
@@ -4059,6 +3524,7 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
     }
+    this.blocks?.placed(id);
     const t = this.curr.get(id);
     if (t !== undefined) {
       t.position[0] = x;
@@ -4072,7 +3538,6 @@ class RuntimeInstance implements Runtime {
       this.currentModuleId = entry.id;
       instance.reset(this.buildResetContext('transfer', ordinal, target, new Set(entry.owners)));
     }
-    this.lastSegments.set(id, x, y, x, y);
   }
 
   /** Phase 24.4f: turn the 3D character to a yaw (radians about +Y) — its transform now, its controller with the placement. */
@@ -4138,7 +3603,7 @@ class RuntimeInstance implements Runtime {
           rt.physics3d.placeCharacter({ x: pose.position[0], y: pose.position[1], z: pose.position[2] });
           rt.lastCharacterResult3D = undefined;
           rt.fallSpeed3d = 0;
-        } else if (rt.physics3d === undefined && id === rt.playerEntityId && pose.position !== undefined) {
+        } else if (rt.physics3d === undefined && id === rt.controllerEntityId && pose.position !== undefined) {
           warn(`timeline: the 2D player "${id}" is moved by its physics body; a transform track does not move it`);
           return true;
         }
@@ -4250,7 +3715,7 @@ class RuntimeInstance implements Runtime {
     // Phase 23.10: a mode action switches now (before the scripts); a restart applies at the next boundary.
     if (check.frame.ui !== undefined) {
       this.modes.deliver(check.frame.ui, stepIndex + 1);
-      if (!this.isM3 && check.frame.ui.some((e) => e.kind === 'restart')) this.pendingRestart = true;
+      if (check.frame.ui.some((e) => e.kind === 'restart')) this.pendingRestart = true;
       // Phase 24.4j: a move along the shell's scene list applies at the next boundary (after a restart of the same frame).
       for (const e of check.frame.ui) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;
     }
@@ -4381,286 +3846,7 @@ class RuntimeInstance implements Runtime {
     return { ok: true };
   }
 
-  // -------------------------------------------------------------------------
-  // M3 game-session wiring (gameplay.md §2/§3.2/§3.3/§6/§7.1; runtime.md §15).
-  // Absent from M1/M2 sets (session null; the run surface rejects with
-  // `game_session_unavailable`, reason `schedule`).
-  // -------------------------------------------------------------------------
-
-  /**
-   * The M3 step boundary (gameplay.md §3.2 item 0): consume the queued run
-   * commands in consumption order, apply the T1/T5/T6 run-state and counter
-   * bookkeeping (session.boundary) and the boundary events, run the reset
-   * transaction the outcome makes due, and publish the boundary view (R8).
-   * Returns `false` after a fail-stop.
-   *
-   * The run-state bookkeeping (the T1/T5/T6 updates and the boundary event)
-   * is owned by `session.boundary` and runs BEFORE the reset transaction —
-   * the `failure-phases.json` fixture pins that a reset-phase failure is
-   * recorded on top of the already-applied bookkeeping (the runStarted event
-   * is present, `state` is `playing`, and `failed` is `true`). The R1–R7
-   * transaction (gameplay.md §5.1) — destination resolve/verify, the
-   * clearance probe, the physics reset, the module reset hooks and the
-   * rebase — is `runResetTransaction` over the `PhysicsResetPort`.
-   */
-  private runResetBarrier(ordinal: number): boolean {
-    const session = this.session;
-    if (session === null) return true;
-    const outcome = session.boundary(ordinal);
-    // Phase 14.1: a new run starts without spawned entities.
-    if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
-    // Phase 23.4: and with its cameras as authored.
-    if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
-    // Phase 23.17: and with no timeline playing (play-on-start timelines start again).
-    if (outcome.reset === 'replay' || outcome.reset === 'start') this.timelines.reset();
-    // Phase 23.18: and with the base environment look.
-    if (outcome.reset === 'replay' || outcome.reset === 'start') this.environment.reset();
-    // Phase 23.13: and without the last run's script sounds (the music back to the flow).
-    if (outcome.reset === 'replay' || outcome.reset === 'start') this.audio.reset();
-    // Phase 23.3: and with the cursor its input map gives (a script's request ends with the run).
-    if (outcome.reset === 'replay' || outcome.reset === 'start') this.cursorMode = null;
-    // Phase 12 (c): a replay starts from the start scenes again.
-    if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
-    if (outcome.reset !== null) {
-      // The due reset: the R1–R7 transaction. A reset-phase failure fail-stops
-      // (no rollback, gameplay.md §5.4) and publishes the retained view via
-      // `failReset`; the R8 boundary publication below runs only on success.
-      if (!this.runResetTransaction(outcome.reset, ordinal)) return false;
-      // R8: the run bookkeeping is `session.boundary` (above); the publish is
-      // the boundary view. A fault armed at `R8` fail-stops before the publish.
-      if (this.checkResetFault('R8', ordinal)) return false;
-    }
-    // R8: the committed view at the boundary (stepIndex = the upcoming step
-    // ordinal; simTime = ordinal / fixedStepHz — the boundary time). Phase
-    // 21.2: a quiet boundary (no reset) changes nothing a view shows but the
-    // step number, and the step's commit (or a fail-stop) replaces the view
-    // before anyone can read it, so it is only built when a reset ran.
-    if (outcome.reset !== null) this.lastGameView = this.buildGameView(ordinal, ordinal * this.dt);
-    return true;
-  }
-
-  /**
-   * The packet-49 reset seam (gameplay.md §5.1): the consumed due-reset
-   * request. Packet 50 replaces the body with the R1–R7 transaction (the
-   * destination resolve/verify, the `characterClearance` probe, the physics
-   * reset through `PhysicsResetPort`, the `module.reset()` hooks and the
-   * rebase) — the run-state bookkeeping and the view publication stay here.
-   */
-  /**
-   * Test-only reset fault-injection seam (gameplay.md §5.1/§5.4): set a reset
-   * phase label (`R1`–`R8`) to make the next due reset fail-stop at that phase
-   * with its exact failure signature, or `null` to clear. Not part of the
-   * public `Runtime` surface; reached by the `tests/m3-respawn/**` evidence
-   * through a typed cast.
-   */
-  injectResetFault(phase: string | null): void {
-    this.resetFaultPhase = phase;
-  }
-
-  /**
-   * The M3 reset transaction (gameplay.md §5.1 R1–R7): the one runtime-owned
-   * discontinuity. Executed at the step boundary for a due reset (T1 `start`,
-   * T5 `spawn`, T6 `replay`). Steps R1–R3 are pure reads; the first mutation
-   * is R4. A reset-phase failure fail-stops with the phase's signature (no
-   * rollback, §5.4); a failure is never a death. `ordinal` is the 1-based
-   * upcoming-step index (the failure's `stepIndex`).
-   */
-  private runResetTransaction(reset: 'spawn' | 'replay' | 'start' | 'transfer', ordinal: number, transferSpawnId?: string): boolean {
-    const session = this.session!;
-    const content = this.gameContent!;
-    const player = this.playerEntityId;
-
-    // R1: resolve the destination (pure read).
-    if (this.checkResetFault('R1', ordinal)) return false;
-    let spawnEntityId: string;
-    if (reset === 'transfer') {
-      spawnEntityId = transferSpawnId as string;
-    } else if (reset === 'spawn') {
-      const cpId = session.checkpointTotal;
-      if (cpId !== null) {
-        const cpZone = content.zones.find((z) => z.entityId === cpId);
-        if (cpZone === undefined || cpZone.safeSpawnId === undefined) {
-          this.failReset('game_spawn_invalid', 'reference', ordinal, 'R1');
-          return false;
-        }
-        spawnEntityId = cpZone.safeSpawnId;
-      } else {
-        spawnEntityId = this.levelSpawnId ?? content.game.spawnId;
-      }
-    } else {
-      spawnEntityId = this.restoreSpawnId ?? this.levelSpawnId ?? content.game.spawnId;
-    }
-    const spawn = content.spawns.find((s) => s.entityId === spawnEntityId);
-    if (spawn === undefined) {
-      this.failReset('game_spawn_invalid', 'reference', ordinal, 'R1');
-      return false;
-    }
-    const target: Vec2 = { x: spawn.center.x, y: spawn.center.y };
-
-    // R2: verify the destination (pure reads, no mutation).
-    if (this.checkResetFault('R2', ordinal)) return false;
-    // v3 snapshots carry level bounds and a kill height; v4 has neither (a
-    // game's own rules live in scripts), so only the checks below apply.
-    const level = content.game.level;
-    const killY = content.game.killY;
-    const insideLevel =
-      level === undefined ||
-      (target.x >= level.minX && target.x <= level.maxX && target.y >= level.minY && target.y <= level.maxY);
-    if (!insideLevel || (killY !== undefined && target.y < killY)) {
-      this.failReset('game_spawn_invalid', 'outside_level', ordinal, 'R2');
-      return false;
-    }
-    // The capsule at `target` must not overlap a hazard zone (§4.2 zero-motion
-    // segment: from === to === target).
-    for (const zone of content.zones) {
-      if (zone.role !== 'hazard') continue;
-      if (this.capsuleOverlapsZone(target, zone)) {
-        this.failReset('game_spawn_blocked', 'hazard', ordinal, 'R2');
-        return false;
-      }
-    }
-
-    // R3: clearance probe (port, query-only, no mutation).
-    if (this.checkResetFault('R3', ordinal)) return false;
-    const resetPort = this.resetPort();
-    if (resetPort === null) {
-      this.failReset('physics_port_error', 'reset', ordinal, 'R3');
-      return false;
-    }
-    let probe: CharacterClearanceResult;
-    try {
-      probe = resetPort.characterClearance(target);
-    } catch {
-      this.failReset('physics_port_error', 'reset', ordinal, 'R3');
-      return false;
-    }
-    if (!probe.ok) {
-      this.failReset('game_spawn_blocked', probe.reason ?? 'query_failed', ordinal, 'R3');
-      return false;
-    }
-
-    // R4: physics reset (port mutation). clearCharacterMotion then
-    // placeCharacter (both the §5.2 restricted operations). A throw ⇒
-    // physics_port_error (fail-stop; the world may be half-mutated — no
-    // rollback, §5.4).
-    if (this.checkResetFault('R4', ordinal)) return false;
-    try {
-      resetPort.clearCharacterMotion();
-      resetPort.placeCharacter(target);
-    } catch {
-      this.failReset('physics_port_error', 'reset', ordinal, 'R4');
-      return false;
-    }
-
-    // R5: stage the character pose (curr[player] = target, XY only; Z/rot/scale
-    // untouched).
-    if (this.checkResetFault('R5', ordinal)) return false;
-    const playerTransform = this.curr.get(player);
-    if (playerTransform === undefined) {
-      this.failReset('module_error', 'phase_violation', ordinal, 'R5');
-      return false;
-    }
-    playerTransform.position[0] = target.x;
-    playerTransform.position[1] = target.y;
-
-    // R6: module state reset (each selected module that declares `reset`, in
-    // registration order; the controller clears its windows, the camera writes
-    // the snapped pose). A throw ⇒ module_error (fail-stop).
-    if (this.checkResetFault('R6', ordinal)) return false;
-    for (const entry of this.entries) {
-      if (!entry.phased) continue;
-      const instance = entry.instance as SimulationPhaseModule;
-      if (typeof instance.reset !== 'function') continue;
-      const ctx = this.buildResetContext(reset, ordinal, target, new Set(entry.owners));
-      try {
-        instance.reset(ctx);
-      } catch {
-        this.failReset('module_error', 'module_threw', ordinal, 'R6');
-        return false;
-      }
-    }
-
-    // Phase 15.2: the player's facing models turn to the spawn's facing (before
-    // the prev := curr promotion, so the first frame shows it).
-    // Phase 24.4f: a yaw wins over the left/right facing.
-    if (spawn.yaw !== undefined) this.blocks?.faceSpawn(player, (spawn.yaw * Math.PI) / 180);
-    else if (spawn.facing !== undefined) this.blocks?.faceSpawn(player, spawn.facing);
-
-    // R7: apply + rebase. The staged pose is already in `curr` (R5) and the
-    // camera hook wrote the camera pose (R6); the standard `prev := curr`
-    // promotion makes `prev == curr` for the reset entities (the no-render-
-    // streak guarantee — the step-end promotion captures the same post-reset
-    // `curr` as the next step's backup). The last completed motion segment is
-    // rebased to a zero-motion segment at the reset pose: the stale pre-reset
-    // segment (e.g. the capsule falling in the pit) must not sweep below
-    // killY in the respawn step's §4.2 death check.
-    if (this.checkResetFault('R7', ordinal)) return false;
-    // Phase 21.2: into the reused buffer that holds `prev` (the step's backup is the other one).
-    const prevMirror = this.stepMirrors[this.stepMirrors[1].map === this.prev ? 1 : 0];
-    prevMirror.copyFrom(this.curr, this.currShape);
-    this.prev = prevMirror.map;
-    this.lastSegments.set(player, target.x, target.y, target.x, target.y);
-    this.playerMotion = Object.freeze({
-      speed: 0,
-      grounded: true,
-    });
-    // Phase 9.7: a replay or a new run starts the animators over.
-    if (reset === 'replay' || reset === 'start') this.resetAnimators();
-    // Phase 23.11: and the authored sockets attach again (on their nodes from the first frame).
-    if (reset === 'replay' || reset === 'start') {
-      this.sockets.reset();
-      this.settleSockets();
-    }
-    // Phase 9.9: a new run resets the level's blocks; a respawn restores health.
-    if (reset === 'replay' || reset === 'start') this.blocks?.resetRun();
-    // Phase 23.5: a new run starts from the authored cells (colliders rebuilt now).
-    if (reset === 'replay' || reset === 'start') {
-      this.grid.reset();
-      this.grid.flushCollision(this.physics3d);
-      // Phase 23.12: and from the authored material values.
-      this.materials.reset();
-      // Phase 23.19: no project save document, no play time yet.
-      this.saves.reset();
-    }
-    // Phase 23.9a: and starts with an empty view model and no document shown.
-    if (reset === 'replay' || reset === 'start') this.ui.resetRun();
-    // Phase 23.16: and without a conversation, dialogue variables or seen lines.
-    if (reset === 'replay' || reset === 'start') this.dialogue.resetRun();
-    // Phase 23.10: and in the start mode (its documents shown, its camera live).
-    if (reset === 'replay' || reset === 'start') this.modes.beginRun(ordinal);
-    // Phase 9.11: a loaded save's run on top of the fresh one.
-    if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
-      const r = this.pendingRestore;
-      this.pendingRestore = null;
-      this.restoreSpawnId = null;
-      this.blocks?.restoreRun(r);
-      if (typeof r.checkpointId === 'string' && this.gameContent?.zones.some((z) => z.entityId === r.checkpointId && z.role === 'checkpoint')) session.restoreCheckpoint(r.checkpointId);
-      if (r.values !== undefined) {
-        this.saveStore.clear();
-        for (const [k, v] of Object.entries(r.values).slice(0, 64)) this.saveControl.set(k, v);
-      }
-    }
-    else if (reset === 'spawn') this.blocks?.onRespawn();
-
-    return true;
-  }
-
-  /**
-   * The test-only reset fault check (gameplay.md §5.4): if a reset phase is
-   * armed via `injectResetFault`, fail-stop at that phase with its exact
-   * signature before running the phase's natural logic. Returns `true` after
-   * a fail-stop (the caller must return `false`).
-   */
-  private checkResetFault(phase: string, ordinal: number): boolean {
-    if (this.resetFaultPhase !== phase) return false;
-    const sig = RESET_FAULT_SIGNATURES[phase];
-    if (sig === undefined) return false;
-    this.resetFaultPhase = null; // one-shot
-    this.failReset(sig.code, sig.reason, ordinal, phase);
-    return true;
-  }
-
-  /** Narrow the injected physics port to the M3 reset/clearance surface. */
+  /** Narrow the injected physics port to the reset/clearance surface (placing the 2D character). */
   private resetPort(): PhysicsResetPort | null {
     const port = this.physics as (PhysicsPort & Partial<PhysicsResetPort>) | undefined;
     if (port === undefined) return null;
@@ -4670,32 +3856,9 @@ class RuntimeInstance implements Runtime {
     return port as PhysicsResetPort;
   }
 
-  /**
-   * The R2 hazard predicate (gameplay.md §4.2 closed form over a zero-motion
-   * segment, from === to === `target`): the swept centre-line rectangle
-   * [x] × [y ± halfHeight] of the player's capsule (centred at `target` plus
-   * its offset) against the zone's half-extent rectangle. `d < R − EPS` is an
-   * overlap.
-   */
-  private capsuleOverlapsZone(target: Vec2, zone: { center: Vec2; half: Vec2 }): boolean {
-    const capsule = this.gameContent!.player.capsule;
-    const rx = target.x + capsule.offset.x;
-    const cy = target.y + capsule.offset.y;
-    const ry0 = cy - capsule.halfHeight;
-    const ry1 = cy + capsule.halfHeight;
-    const zx0 = zone.center.x - zone.half.x;
-    const zx1 = zone.center.x + zone.half.x;
-    const zy0 = zone.center.y - zone.half.y;
-    const zy1 = zone.center.y + zone.half.y;
-    const dx = Math.max(0, rx - zx1, zx0 - rx);
-    const dy = Math.max(0, ry0 - zy1, zy0 - ry1);
-    const limit = capsule.radius - GAME_ZONE_OVERLAP_EPS;
-    return dx * dx + dy * dy < limit * limit;
-  }
-
-  /** Build one R6 `ModuleResetContext` (gameplay.md §5.1 / §3.3). */
+  /** Build one `ModuleResetContext` (the character was placed). */
   private buildResetContext(
-    reset: 'spawn' | 'replay' | 'start' | 'transfer',
+    reset: 'replay' | 'transfer',
     ordinal: number,
     target: Vec2,
     writableOwners: ReadonlySet<string>,
@@ -4704,7 +3867,6 @@ class RuntimeInstance implements Runtime {
       reason: reset,
       stepIndex: ordinal,
       playerCenter: Object.freeze({ ...target }),
-      viewport: { ...this.viewport },
       state: phaseScopedState({
         order: this.order,
         entities: this.entities,
@@ -4717,100 +3879,6 @@ class RuntimeInstance implements Runtime {
     });
   }
 
-  /**
-   * The M3 reset fail-stop (gameplay.md §5.4): a reset-phase failure abandons
-   * the step, cancels the driver, retains the last committed state for
-   * rendering, marks the run failed with the reset phase label and publishes
-   * the retained view. A failure is never a death (no `died` event,
-   * `deathCount` unchanged). `ordinal` is the 1-based upcoming-step index
-   * (the failure's `stepIndex`); `phaseLabel` is `R1`–`R8` (the view's
-   * `failure.phase` is `reset:<label>`, as the fixture pins).
-   */
-  private failReset(code: ErrorCode, reason: string, ordinal: number, phaseLabel: string, detail?: string): void {
-    const stepIndex = ordinal - 1; // 0-based
-    this.cancelDriver();
-    this.needsPreroll = false;
-    this.stateName = 'failed';
-    this.lastAlpha = 0;
-    this.failedStepIndex = stepIndex;
-    const entry: DiagnosticErrorEntry = {
-      code,
-      message: clipMessage(`reset ${phaseLabel} failed (${reason})`),
-      stepIndex,
-      reason,
-      ...(detail !== undefined ? { detail } : {}),
-    };
-    this.recordError(entry);
-    if (this.session !== null) {
-      this.session.markFailure(code, reason, ordinal, `reset:${phaseLabel}`);
-      this.lastGameView = this.buildGameView(ordinal, ordinal * this.dt);
-    }
-  }
-
-  /**
-   * The M3 effective-frame override (gameplay.md §2.5): movement is gated
-   * (moveX 0) and the jump forced to `none` while the run state is not
-   * `playing`; on the first `playing` step after a run-start/respawn/replay
-   * boundary (`firstLive`) the jump is additionally forced to `none` (the
-   * anti-phantom-jump gate). The sampled frame stays the recorded input.
-   */
-  private effectiveFrame(frame: ActionFrame, ordinal: number): ActionFrame {
-    const session = this.session;
-    if (session === null) return frame;
-    if (session.runState !== 'playing') {
-      return { ...frame, moveX: 0, ...(frame.moveY !== undefined ? { moveY: 0 } : {}), jump: 'none' };
-    }
-    if (session.isFirstLiveStep(ordinal)) {
-      return { ...frame, jump: 'none' };
-    }
-    return frame;
-  }
-
-  /** Build one committed `GameView` (gameplay.md §6) from the current run state. */
-  private buildGameView(stepIndex: number, simTime: number): GameView {
-    const session = this.session;
-    const content = this.gameContent;
-    if (session === null || content === null) {
-      // Unreachable on an M3 set; the null branch keeps the types honest.
-      throw new Error('buildGameView requires an M3 runtime');
-    }
-    const checkpoint = session.checkpointTotal === null ? undefined : content.zones.find((z) => z.entityId === session.checkpointTotal);
-    return session.buildView({
-      snapshotId: this.snapshotId,
-      stepIndex,
-      simTime,
-      playerId: content.player.entityId,
-      cameraId: content.camera.entityId,
-      spawnId: content.game.spawnId,
-      checkpointSafeSpawnId: checkpoint?.safeSpawnId ?? null,
-      playerMotion: this.playerMotion,
-    });
-  }
-
-  /**
-   * Record the last completed motion segments (gameplay.md §3.3):
-   * `from` = the entity's committed centre before the step, `to` = after.
-   * Also refreshes the committed `playerMotion` (speed = |player segment|
-   * × fixedStepHz; grounded = the controller's committed grounding, C41-1).
-   */
-  private recordMotionSegments(backupMirror: TransformMirror): void {
-    // Phase 21.2: numbers per entity; the frozen segments are made when read.
-    this.lastSegments.record(this.order, backupMirror);
-    const seg = this.lastSegments.raw(this.playerEntityId);
-    if (seg !== undefined) {
-      this.playerMotion = Object.freeze({
-        speed: Math.hypot(seg[2]! - seg[0]!, seg[3]! - seg[1]!) * this.hz,
-        grounded: this.lastCharacterResult?.grounded ?? this.playerMotion.grounded,
-      });
-    }
-  }
-
-  /**
-   * The frozen `StepContext.gameplay` port (gameplay.md §3.3 / runtime.md
-   * §15.3): the committed run data and the frozen content are read-only in
-   * every phase; the three commit calls are callable in the `gameplay` phase
-   * only and enforce the run-state rules (a violation is `gameplay_invalid`).
-   */
   // ---- Phase 12 (c) scene set internals ------------------------------------
 
   private setSceneStatus(sceneId: string, status: SceneStatus): void {
@@ -4964,7 +4032,6 @@ class RuntimeInstance implements Runtime {
     this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
-    this.rebuildGameContent();
     return this.notifyLoaded(frozen);
   }
 
@@ -5104,8 +4171,6 @@ class RuntimeInstance implements Runtime {
       this.curr.delete(id);
       this.currShape += 1;
       this.committed?.delete(id);
-      this.lastSegments.delete(id);
-      this.exitsInside.delete(id);
       this.intents.axes.delete(id);
     }
     this.order = this.order.filter((id) => !ids.has(id));
@@ -5122,16 +4187,11 @@ class RuntimeInstance implements Runtime {
     if (batch === undefined) return;
     const ids = batch.ids;
     this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId), `scene "${sceneId}"`);
-    // A checkpoint in the unloaded scene no longer counts (death respawns at
-    // the start spawn); a pending exit transfer into it is dropped.
-    if (this.session !== null && this.session.checkpointTotal !== null && ids.has(this.session.checkpointTotal)) {
-      this.session.clearCheckpoint();
-    }
-    if (this.pendingTransfer !== null && ids.has(this.pendingTransfer.spawnId)) this.pendingTransfer = null;
+    // A pending arrival at a spawn of the unloaded scene is dropped.
+    if (this.pendingArrival !== null && ids.has(this.pendingArrival.spawnId)) this.pendingArrival = null;
     this.batches.delete(sceneId);
     this.setSceneStatus(sceneId, 'unloaded');
     this.sceneRevision += 1;
-    this.rebuildGameContent();
   }
 
   // ---- Phase 14.1: spawned prefab copies ------------------------------------
@@ -5289,145 +4349,15 @@ class RuntimeInstance implements Runtime {
     this.fetchingLoads.clear();
     this.readyLoads.clear();
     this.pendingUnloads.clear();
-    this.pendingTransfer = null;
     // Phase 24.4e/f: a scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
     this.pendingArrival = null;
     this.pendingFacing = null;
     this.impulseAcc = null;
-    this.exitsInside.clear();
     for (const [sceneId, entities] of this.startBatchSource) {
       if (this.batches.has(sceneId)) continue;
       if (!this.addBatch(sceneId, entities, true)) return false;
     }
     return true;
-  }
-
-  /** The gameplay projection over every loaded scene (zones/spawns in entity-id order). */
-  private rebuildGameContent(): void {
-    const current = this.gameContent;
-    if (current === null) return;
-    const zones: GameZoneSpec[] = [];
-    const spawns: { entityId: string; center: Vec2 }[] = [];
-    for (const b of this.batches.values()) {
-      zones.push(...b.contribution.zones);
-      spawns.push(...b.contribution.spawns);
-    }
-    this.gameContent = deepFreeze({ ...current, zones: zones.sort(byEntityId), spawns: spawns.sort(byEntityId) });
-  }
-
-  /**
-   * Exit zones (after the step commits, while playing): entering one requests
-   * its unloads and loads; its spawn becomes the pending transfer.
-   */
-  private checkExitZones(): void {
-    const content = this.gameContent;
-    const session = this.session;
-    if (content === null || session === null || this.sceneRows === null || session.runState !== 'playing') return;
-    const segment = this.lastSegments.raw(this.playerEntityId);
-    if (segment === undefined) return;
-    for (const zone of content.zones) {
-      if (zone.role !== 'exit') continue;
-      const capsule = content.player.capsule;
-      const inside = capsuleInZone({ x: segment[2]! + capsule.offset.x, y: segment[3]! + capsule.offset.y }, zone, capsule.radius, capsule.halfHeight, GAME_ZONE_OVERLAP_EPS);
-      if (!inside) {
-        this.exitsInside.delete(zone.entityId);
-        continue;
-      }
-      if (this.exitsInside.has(zone.entityId)) continue;
-      this.exitsInside.add(zone.entityId);
-      const ops: SceneOp[] = [
-        ...(zone.unload ?? []).map((sceneId): SceneOp => ({ op: 'unload', sceneId })),
-        ...(zone.load ?? []).map((sceneId): SceneOp => ({ op: 'load', sceneId })),
-      ];
-      for (const op of ops) {
-        const problem = this.sceneOpProblem(op.op, op.sceneId);
-        if (problem !== null) {
-          this.recordError({ code: 'scene_invalid', message: clipMessage(`exit "${zone.entityId}": ${problem}`), stepIndex: this.stepIndex, reason: op.op });
-          continue;
-        }
-        this.enqueueSceneOp(op);
-      }
-      if (zone.spawnId !== undefined) this.pendingTransfer = { spawnId: zone.spawnId, waitFor: zone.load ?? [] };
-    }
-  }
-
-  /**
-   * The pending exit transfer, at the boundary once its scenes are loaded:
-   * the player moves to the spawn through the reset transaction. Returns
-   * `false` after a fail-stop.
-   */
-  private runTransfer(ordinal: number): boolean {
-    const transfer = this.pendingTransfer;
-    const session = this.session;
-    if (transfer === null || session === null || session.runState !== 'playing') return true;
-    if (transfer.waitFor.some((id) => this.sceneStatus.get(id) === 'loading')) return true;
-    this.pendingTransfer = null;
-    if (!this.gameContent!.spawns.some((sp) => sp.entityId === transfer.spawnId)) {
-      this.recordError({ code: 'scene_invalid', message: clipMessage(`exit spawn "${transfer.spawnId}" is not loaded; the player stays`), stepIndex: this.stepIndex, reason: 'transfer' });
-      return true;
-    }
-    return this.runResetTransaction('transfer', ordinal, transfer.spawnId);
-  }
-
-  private buildGameSessionPort(): GameSessionPort {
-    const session = this.session!;
-    const rt = this;
-    const requireGameplayPhase = (): void => {
-      if (rt.currentPhase !== 'gameplay') throw new GameplayPhaseError();
-    };
-    return Object.freeze({
-      // Phase 12 (c): the projection follows scene loads (a getter over the current one).
-      get content(): GameContent {
-        return rt.gameContent!;
-      },
-      run: (): Readonly<RunSnapshot> => session.runSnapshot(rt.stepIndex + 1),
-      lastMotionSegment: (entityId: string): Readonly<MotionSegment> | undefined => rt.lastSegments.get(entityId),
-      viewport: (): Readonly<ViewportInfo> => rt.viewport,
-      beginRespawn: (cause: 'hazard' | 'fall', zoneId?: string): void => {
-        requireGameplayPhase();
-        const st = session.runState;
-        if (st !== 'playing') {
-          throw new GameplayInvalidError(`beginRespawn is valid only while "playing" (state: "${st}")`);
-        }
-        // Phase 9.9: a damaging hazard hurts a player with health instead of killing.
-        if (cause === 'hazard' && rt.blocks !== null && rt.blocks.hazard(zoneId) === 'handled') return;
-        session.beginRespawn(rt.stepIndex + 1, cause, zoneId);
-      },
-      activateCheckpoint: (zoneEntityId: string): void => {
-        requireGameplayPhase();
-        const st = session.runState;
-        if (st !== 'playing') {
-          throw new GameplayInvalidError(`activateCheckpoint is valid only while "playing" (state: "${st}")`);
-        }
-        if (session.checkpointTotal !== null) {
-          throw new GameplayInvalidError('the checkpoint has already been activated in this run (single activation, §4.5)');
-        }
-        const zone = rt.gameContent!.zones.find((z) => z.entityId === zoneEntityId);
-        if (zone === undefined || zone.role !== 'checkpoint') {
-          throw new GameplayInvalidError(`entity "${zoneEntityId}" is not a checkpoint zone`);
-        }
-        session.activateCheckpoint(rt.stepIndex + 1, zoneEntityId);
-        rt.zoneEffect(zoneEntityId, 'checkpoint');
-      },
-      reachGoal: (zoneEntityId: string): void => {
-        requireGameplayPhase();
-        const st = session.runState;
-        if (st !== 'playing') {
-          throw new GameplayInvalidError(`reachGoal is valid only while "playing" (state: "${st}")`);
-        }
-        const zone = rt.gameContent!.zones.find((z) => z.entityId === zoneEntityId);
-        if (zone === undefined || zone.role !== 'goal') {
-          throw new GameplayInvalidError(`entity "${zoneEntityId}" is not a goal zone`);
-        }
-        session.reachGoal(rt.stepIndex + 1, zoneEntityId);
-        rt.zoneEffect(zoneEntityId, 'goal');
-      },
-    });
-  }
-
-  /** Phase 20.2: a checkpoint or goal reached plays its zone's effect where the zone is. */
-  private zoneEffect(zoneEntityId: string, source: 'checkpoint' | 'goal'): void {
-    this.blocks?.zoneReached(zoneEntityId, source);
   }
 
   private runPhase(phase: SimulationPhase, action: ActionFrame): void {
@@ -5482,12 +4412,8 @@ class RuntimeInstance implements Runtime {
   private makePhaseViews(entry: ModuleEntry, phase: SimulationPhase): PhaseViews {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const rt = this;
-    // Accepted rule (transform) + the M3 extension (gameplay.md §12.2
-    // table): the camera phase is writable for the camera-phase module's
-    // declared owners (exactly the scene camera entity — verified at
-    // instantiate). M2 sets never reach a `camera` phase, so the
-    // accepted rule is unchanged for them.
-    const writablePhase = phase === 'transform' || phase === 'camera';
+    // The accepted rule: the transform phase writes the declared owners.
+    const writablePhase = phase === 'transform';
     const state = liveScopedState({
       order: () => rt.frozenOrder(),
       entities: () => rt.entities,
@@ -5509,9 +4435,6 @@ class RuntimeInstance implements Runtime {
         intents: { get: () => views.intents, enumerable: true },
         emit: { value: (intent: BehaviorIntent): void => rt.commitIntent(entry, phase, intent), enumerable: true },
       };
-      // M3 (gameplay.md §3.3 / runtime.md §15.3): the frozen gameplay
-      // port, present iff this runtime is M3-enabled.
-      if (this.sessionPort !== null) fields['gameplay'] = { value: this.sessionPort, enumerable: true };
       if (this.sceneRows !== null) fields['scenes'] = { value: this.sceneControl, enumerable: true };
       fields['animators'] = { value: this.animatorControl, enumerable: true };
       fields['animatorEvents'] = { get: () => rt.animatorEvents, enumerable: true };
@@ -5586,8 +4509,6 @@ class RuntimeInstance implements Runtime {
       jumpWriter: s.jumpWriter,
       // The writes are frozen when committed.
       transformWrites: Object.freeze(s.transformWrites.slice()),
-      // Phase 9.9: a stomp/hit bounce for the controller this step.
-      ...(this.stepBounce !== null ? { bounce: this.stepBounce } : {}),
       // Phase 23.2: present only when committed (a 2D step's view keeps its old shape).
       ...(s.moveY !== null ? { moveY: s.moveY } : {}),
       ...(s.characterMove !== null ? { characterMove: Object.freeze({ ...s.characterMove }) } : {}),
@@ -5645,8 +4566,9 @@ class RuntimeInstance implements Runtime {
       return;
     }
     if (intent.kind === 'respawn') {
+      // Phase 24.7: the respawn intent is ctx.lifecycle's respawn (at the active spawn, else where the character started).
       this.bumpIntentCount();
-      this.respawnRequested = true;
+      this.lifecycleControl.respawn();
       return;
     }
     if (intent.kind === 'control_jump') {
@@ -6140,6 +5062,7 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
     }
+    this.blocks?.placed(id);
     const t = this.curr.get(id);
     if (t !== undefined) {
       t.position[0] = place.x;
@@ -6269,17 +5192,6 @@ class RuntimeInstance implements Runtime {
       this.failStop('module_error', 'input_frame_invalid', messageOf(e), stepIndex, moduleId, phase);
       return;
     }
-    // M3 gameplay port (gameplay.md §3.3/§8.1): a commit call outside the
-    // gameplay phase is a `phase_violation`; a run-state rule violation is a
-    // `gameplay_invalid`.
-    if (e instanceof GameplayPhaseError) {
-      this.failStop('module_error', 'phase_violation', messageOf(e), stepIndex, moduleId, phase);
-      return;
-    }
-    if (e instanceof GameplayInvalidError) {
-      this.failStop('module_error', 'gameplay_invalid', messageOf(e), stepIndex, moduleId, phase);
-      return;
-    }
     // Behavior contract (runtime.md §14.4/§14.8): the validated-intent API's
     // own rejection reasons, the per-instance cap and the host's step/shape
     // failures. Each is a fail-stop with the contract's exact reason.
@@ -6326,21 +5238,6 @@ class RuntimeInstance implements Runtime {
     if (this.failNodeId !== undefined) entry.nodeId = this.failNodeId;
     this.failNodeId = undefined;
     this.recordError(entry);
-    // M3 (gameplay.md §2.2 T7): a runtime fail-stop freezes the run at its
-    // last committed value — no run event is appended and a failure is never
-    // a death. The last committed view is retained with `failed: true` and
-    // the `failure` record (gameplay.md §5.4/§10 last-committed-state claim;
-    // stepIndex = the failed step's 1-based ordinal, as in the failure
-    // fixtures).
-    if (this.session !== null) {
-      // The fixture's failure phase label: the physics phase is a runtime
-      // (non-module) phase, so a physics failure is labelled `physics`
-      // (failure-phases.json); every other failure carries the failed
-      // module phase (CC-49-1).
-      const phaseLabel = code === 'physics_port_error' ? 'physics' : phase;
-      this.session.markFailure(code, reason, stepIndex + 1, phaseLabel);
-      this.lastGameView = this.buildGameView(stepIndex + 1, (stepIndex + 1) * this.dt);
-    }
   }
 
   private recordError(entry: DiagnosticErrorEntry): void {
@@ -6478,16 +5375,6 @@ class RuntimeInstance implements Runtime {
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;
-    if (this.session !== null) {
-      // M3 diagnostics (gameplay.md §8 / runtime.md §15.7): the committed
-      // run surface — the last published view stays observable here.
-      m2.runState = this.session.runState;
-      m2.runId = this.session.runId;
-      m2.deathCount = this.session.deathCountTotal;
-      m2.checkpointId = this.session.checkpointTotal;
-      m2.gameEventCount = this.session.eventCountTotal;
-      m2.pendingCommands = [...this.session.pendingCommandsTotal];
-    }
     return m2;
   }
 }

@@ -24,10 +24,12 @@ import {
   createGameHost,
   createLocalSimAccess,
   linkBehaviorModules,
+  memoryProjectSaveBackend,
   startRemoteSimulation,
   stepDigest,
   type GameHost,
   type ManifestBehaviorRow,
+  type ProjectSaveBackend,
   type SimAccess,
   type SimWorkerHandle,
 } from '@thirdlight/game-host';
@@ -116,6 +118,12 @@ export interface HarnessConfig {
   readonly startMode?: string;
   /** Phase 23.5, single mode only: wrap the physics port (a test observes its calls). */
   readonly wrapPhysics?: (port: Any) => Any;
+  /**
+   * Phase 24.7: read the scripts' `ctx.save` values with `storage()` — a
+   * project save (the game's save schema, or a one-slot `storage` schema
+   * added here) made through the runtime and written by the host.
+   */
+  readonly storage?: boolean;
 }
 
 export interface Harness {
@@ -130,7 +138,22 @@ export interface Harness {
   readonly audioCommands: Any[];
   /** One frame at `now` seconds. */
   tick(now: number): Promise<void>;
+  /**
+   * Phase 24.7 (config `storage`): the scripts' `ctx.save` values now — the
+   * `storage` section of a save the runtime makes between steps (in the
+   * worker, in worker mode), carried out by the host into its storage.
+   */
+  storage(): Promise<Record<string, unknown>>;
   dispose(): Promise<void>;
+}
+
+const STORAGE_SCHEMA = { version: 1, slots: 1, sections: ['storage'] };
+
+/** The snapshot with a save schema that keeps the `storage` section (config `storage`). */
+function withStorageSchema(snapshot: Any): Any {
+  if (snapshot.saveSchema === undefined || snapshot.saveSchema === null) return { ...snapshot, saveSchema: STORAGE_SCHEMA };
+  if (!(snapshot.saveSchema.sections ?? []).includes('storage')) throw new Error('harness storage: the snapshot\'s save schema must keep the storage section');
+  return snapshot;
 }
 
 const NEUTRAL_INPUT = {
@@ -157,8 +180,21 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   };
   // Phase 24.3: the manifest modules the snapshot references (the host has no default set).
   const modules = cfg.modules ?? modulesOf(cfg.snapshot, cfg.settings);
+  const snapshot = cfg.storage === true ? withStorageSchema(cfg.snapshot) : cfg.snapshot;
+  // Phase 24.7: the host's save storage, watched (the save bodies it writes, by key).
+  const bodies = new Map<string, string>();
+  const innerBackend: ProjectSaveBackend = ((cfg.host ?? {}) as Any).projectSaveBackend ?? memoryProjectSaveBackend();
+  const saveBackend: ProjectSaveBackend = {
+    kind: innerBackend.kind,
+    get: (k) => innerBackend.get(k),
+    set: async (k, v) => {
+      if (k.endsWith(':body')) bodies.set(k, v);
+      await innerBackend.set(k, v);
+    },
+    remove: (k) => innerBackend.remove(k),
+  };
   const baseConfig: Any = {
-    snapshot: cfg.snapshot,
+    snapshot,
     settings: cfg.settings,
     adapter: () => null,
     input: hostInput,
@@ -174,6 +210,35 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
     ...(cfg.startMode !== undefined ? { start: { mode: cfg.startMode } } : {}),
     ...(cfg.host ?? {}),
+    projectSaveBackend: saveBackend,
+  };
+  let lastNow = 0;
+  /**
+   * With `storage`, the host's slot list (read from its storage when it
+   * mounts) is answered before the first step in both modes — otherwise it
+   * lands on whichever step the storage promise happens to beat.
+   */
+  const settleSaves = async (host: GameHost): Promise<void> => {
+    if (cfg.storage !== true) return;
+    await host.projectSaves?.idle();
+    await new Promise((res) => setTimeout(res, 0));
+  };
+  /** The storage section of a save made now, written by the host on a frame at the same time (no step). */
+  const storageOf = async (host: GameHost, rt: Any, tick: (now: number) => Promise<void>): Promise<Record<string, unknown>> => {
+    if (cfg.storage !== true) throw new Error('harness storage: start the harness with `storage: true`');
+    const slot = snapshot.saveSchema.slots as number;
+    const key = `:slot:${slot}:body`;
+    for (const k of [...bodies.keys()]) if (k.endsWith(key)) bodies.delete(k);
+    const r = rt.requestSave(slot);
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    for (let i = 0; i < 20; i += 1) {
+      await tick(lastNow);
+      await host.projectSaves?.idle();
+      await new Promise((res) => setTimeout(res, 0));
+      const hit = [...bodies].find(([k]) => k.endsWith(key));
+      if (hit !== undefined) return (JSON.parse(hit[1]) as Any).sections.storage ?? {};
+    }
+    throw new Error('harness storage: the host wrote no save');
   };
   if (mode === 'single') {
     let physics: Any;
@@ -187,7 +252,13 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     const host = createGameHost({ ...baseConfig, behaviorModules, ...(physics !== undefined ? { physics } : {}) });
     const mounted = host.mount();
     if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
+    await settleSaves(host);
     const rt = host.runtime;
+    const tick = async (now: number): Promise<void> => {
+      lastNow = now;
+      const r = rt.tick(now);
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+    };
     const digests: string[] = [];
     if (cfg.digestSteps === true) rt.setStepWatcher?.(() => {
       digests.push(stepDigest(rt));
@@ -201,10 +272,8 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       digests,
       sounds,
       audioCommands,
-      tick: async (now) => {
-        const r = rt.tick(now);
-        if (!r.ok) throw new Error(JSON.stringify(r.error));
-      },
+      tick,
+      storage: () => storageOf(host, rt, tick),
       dispose: async () => host.dispose(),
     };
   }
@@ -212,7 +281,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   const remote = await startRemoteSimulation({
     worker,
     init: {
-      snapshot: cfg.snapshot,
+      snapshot,
       settings: cfg.settings,
       physics: cfg.physics,
       behaviors: { rows, urls, enginePins: pins },
@@ -235,6 +304,12 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     await remote.dispose();
     throw new Error(JSON.stringify(mounted.error));
   }
+  await settleSaves(host);
+  const tick = async (now: number): Promise<void> => {
+    lastNow = now;
+    await remote.tick(now);
+    if (remote.failure !== null) throw new Error(JSON.stringify(remote.failure));
+  };
   return {
     mode,
     host,
@@ -243,10 +318,8 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     digests: remote.digests,
     sounds,
     audioCommands,
-    tick: async (now) => {
-      await remote.tick(now);
-      if (remote.failure !== null) throw new Error(JSON.stringify(remote.failure));
-    },
+    tick,
+    storage: () => storageOf(host, host.runtime, tick),
     dispose: async () => {
       host.dispose();
       await remote.dispose();

@@ -1267,7 +1267,7 @@ export function createBackend(
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
-        // GET /api/v1/templates — the project templates/samples on this engine
+        // GET /api/v1/templates — the project templates on this engine
         if (parts.length === 3 && parts[2] === 'templates') {
           if (method !== 'GET') {
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);

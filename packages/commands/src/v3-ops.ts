@@ -1,31 +1,21 @@
 /**
- * The two v3 game/presentation mutation ops — commands.md §8.13
- * (`applySurfacePreset`) and §8.14 (`setGameConfig`), packet 45.
+ * The v3 presentation mutation op — commands.md §8.13 (`applySurfacePreset`),
+ * packet 45. Phase 24.7: `setGameConfig` was deleted with the game block.
  *
- * Both run the SAME pure pipeline and history engine as every other op
+ * It runs the SAME pure pipeline and history engine as every other op
  * (`applyMutation`): one revision, one history entry, one `change`, one
  * inverse, the uniform no-change check and resulting-state re-validation.
  * Nothing here reads files, stages blobs, holds a clock or touches a renderer.
  */
 
-import {
-  SURFACE_PRESETS,
-  validateGameConfig,
-  type GameConfig,
-  type ModelErrorV3,
-} from '@thirdlight/project-model';
+import { SURFACE_PRESETS } from '@thirdlight/project-model';
 
-import { entityNotFound, fieldUnexpected, fieldValue, noChangeContent, type CommandError } from './errors';
+import { entityNotFound } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { componentsRecord, deepClone, gateResultState, type OpOutcome } from './ops';
 import type { EntityV3 } from '@thirdlight/project-model';
-import type {
-  ApplySurfacePresetArgs,
-  ApplySurfacePresetChange,
-  SetGameConfigArgs,
-  SetGameConfigChange,
-} from './types';
-import { GAME_CONFIG_FIELDS, SURFACE_CHANGED_FIELDS, commandErrorFromModel } from './v3';
+import type { ApplySurfacePresetArgs, ApplySurfacePresetChange } from './types';
+import { SURFACE_CHANGED_FIELDS } from './v3';
 
 /** §8.13: copy one frozen preset row onto an entity's `surface`. */
 export function applyApplySurfacePreset(
@@ -92,146 +82,4 @@ export function applyApplySurfacePreset(
       },
     },
   };
-}
-
-/**
- * The changed fields of a whole-block create/remove: every base field (the
- * §23.4 list, as before) plus the phase 15.3 timing fields the block carries.
- */
-function wholeBlockFields(block: GameConfig): string[] {
-  const timing = new Set<string>(['respawnDelay', 'dropThroughTime', 'settleTime']);
-  return GAME_CONFIG_FIELDS.filter((f) => !timing.has(f) || (block as unknown as Record<string, unknown>)[f] !== undefined);
-}
-
-/**
- * §8.14/authoring §A3.4: create (block absent + complete value), partial edit
- * (block present + non-empty object) or remove (`null`). The block's
- * references are resolved by the resulting-state gate (§23.5), never silently
- * repaired.
- */
-export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpOutcome {
-  const catalog = contentOf(input.content);
-  // Phase 12 (c): a v4 project's game block is configVersion 2 (no level/killY).
-  const gameVersion: 1 | 2 = input.scene.schemaVersion === 4 ? 2 : 1;
-  const previous = (catalog?.game ?? null) as GameConfig | null;
-  const raw = args.game;
-
-  let next: GameConfig;
-  let changedFields: string[];
-  if (raw === null) {
-    if (previous === null) return { ok: false, error: noChangeContent() };
-    // Removal is an ordinary edit: every reference is freed.
-    const nextContent = { ...catalog, game: null };
-    const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
-    const gate = gateResultState(
-      { scene: input.scene, content: catalog, manifest: input.manifest },
-      resultScene,
-      nextContent,
-    );
-    if (!gate.ok) return gate;
-    const change: SetGameConfigChange = {
-      type: 'setGameConfig',
-      previous,
-      next: null,
-      changedFields: wholeBlockFields(previous),
-    };
-    return {
-      ok: true,
-      op: {
-        scene: gate.scene,
-        content: gate.content,
-        change,
-        inverse: { kind: 'setGameConfig', restore: previous },
-      },
-    };
-  }
-
-  if (previous === null) {
-    // Create: the value must be a COMPLETE canonical block; the model's
-    // block validator reports the `game_config_invalid` reason, which the
-    // command layer maps to the §5.4 `field_*` code (project-model §23.9
-    // document rule).
-    const errors: ModelErrorV3[] = [];
-    validateGameConfig(raw, '/args/game', errors, gameVersion);
-    if (errors.length > 0) return { ok: false, error: gameConfigError(errors[0] as ModelErrorV3) };
-    next = deepClone(raw) as unknown as GameConfig;
-    changedFields = wholeBlockFields(next);
-  } else {
-    const partial = raw as Record<string, unknown>;
-    const keys = Object.keys(partial);
-    for (const key of keys) {
-      if (!(GAME_CONFIG_FIELDS as readonly string[]).includes(key)) {
-        return {
-          ok: false,
-          error: fieldUnexpected(
-            `/args/game/${key}`,
-            key,
-            GAME_CONFIG_FIELDS.join(', '),
-          ),
-        };
-      }
-    }
-    if (keys.length === 0) {
-      return {
-        ok: false,
-        error: fieldValue(
-          '/args/game',
-          {},
-          'non-empty object: at least one top-level game field',
-          'a partial edit must replace at least one top-level field',
-        ),
-      };
-    }
-    next = { ...deepClone(previous), ...deepClone(partial) } as unknown as GameConfig;
-    // Phase 15.3: `null` removes an optional timing field (back to the engine default).
-    for (const k of ['respawnDelay', 'dropThroughTime', 'settleTime'] as const) if ((next as unknown as Record<string, unknown>)[k] === null) delete (next as unknown as Record<string, unknown>)[k];
-    const errors: ModelErrorV3[] = [];
-    validateGameConfig(next, '/args/game', errors, gameVersion);
-    if (errors.length > 0) return { ok: false, error: gameConfigError(errors[0] as ModelErrorV3) };
-    changedFields = GAME_CONFIG_FIELDS.filter((f) =>
-      Object.prototype.hasOwnProperty.call(partial, f),
-    );
-  }
-
-  const nextContent = { ...catalog, game: next };
-  const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
-  const gate = gateResultState(
-    { scene: input.scene, content: catalog, manifest: input.manifest },
-    resultScene,
-    nextContent,
-  );
-  if (!gate.ok) return gate;
-  const canonicalNext = (gate.content?.game ?? next) as GameConfig;
-  const change: SetGameConfigChange = {
-    type: 'setGameConfig',
-    previous,
-    next: deepClone(canonicalNext),
-    changedFields,
-  };
-  return {
-    ok: true,
-    op: {
-      scene: gate.scene,
-      content: gate.content,
-      change,
-      inverse: { kind: 'setGameConfig', restore: previous },
-    },
-  };
-}
-
-/**
- * §23.9 document rule: the model reports one block-level `game_config_invalid`
- * with a `reason`; a command reports the corresponding `field_*` code.
- */
-function gameConfigError(e: ModelErrorV3): CommandError {
-  if (e.code !== 'game_config_invalid') return commandErrorFromModel(e);
-  const out: Record<string, unknown> = {
-    code: e.reason ?? 'field_value',
-    cls: 'validation',
-  };
-  if (e.path !== undefined) out['path'] = e.path;
-  if (e.found !== undefined) out['found'] = e.found;
-  if (e.expected !== undefined) out['expected'] = e.expected;
-  out['message'] = e.message;
-  return out as unknown as CommandError;
 }

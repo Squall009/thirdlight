@@ -14,7 +14,7 @@
  * gathered — the graph's colour (which reads those variables through the
  * Lighting input nodes) becomes the outgoing light. Nothing the graph
  * computes runs before the lights, so the inputs are always filled; the
- * material's own emissive (selection tint, checkpoint glow) is still added by
+ * material's own emissive (selection tint, a look override) is still added by
  * three after the lighting.
  *
  * Terms (all on the diffuse scale, irradiance ÷ π, so colour × term is what
@@ -208,7 +208,7 @@ export class MeshCustomLitNodeMaterial extends NodeMaterial {
   litEmissiveNode: N = null;
   litOpacityNode: N = null;
   litAlphaTestNode: N = null;
-  /** The per-object looks (selection tint, checkpoint glow) write these; three adds them after the lights. */
+  /** The per-object looks (selection tint, a look override) write these; three adds them after the lights. */
   emissive = new THREE.Color(0x000000);
   emissiveIntensity = 1;
   /** Phase 9.6: a baked lightmap (UV1) goes into the lightmap term. */

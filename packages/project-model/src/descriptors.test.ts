@@ -2,7 +2,7 @@
  * Phase 15.0: the descriptor registry matches the validators.
  *
  * Every component and content block is probed through its real validator
- * from valid base documents (one per variant: each light type, zone role,
+ * from valid base documents (one per variant: each light type,
  * trigger shape, sky mode, binding kind, shader, motion kind…):
  * - the validator refuses an unknown key, and every key it names as allowed
  *   has a descriptor (no field without a descriptor);
@@ -23,7 +23,7 @@ import { describe, expect, it } from 'vitest';
 import { validateAnimators } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
 import { CAPSULE_LIMITS } from './components';
-import { PREFAB_V4_COMPONENTS, validateContentV4, validateGameConfig, validatePrefabDefinitions, validateTagRegistry } from './content';
+import { PREFAB_V4_COMPONENTS, validateContentV4, validatePrefabDefinitions, validateTagRegistry } from './content';
 import {
   COMPONENT_ICONS,
   DESCRIPTORS,
@@ -36,7 +36,6 @@ import {
   type ObjectFieldDescriptor,
 } from './descriptors';
 import type { ModelErrorV2 } from './errors';
-import { validateFlow } from './flow';
 import { validateInput } from './input';
 import { validateModes } from './modes';
 import { validateEventCues } from './event-cues';
@@ -125,9 +124,6 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
   },
   'health:start': (o, v) => {
     o['max'] = Math.max(o['max'] as number, Math.min(1000, Math.ceil(v)));
-  },
-  'flow:lives.max': (o, v) => {
-    o['start'] = Math.max(1, Math.min(o['start'] as number, Math.floor(v)));
   },
   'camera:far': (o, v) => {
     o['near'] = Math.min(o['near'] as number, v / 2);
@@ -434,7 +430,6 @@ const contentErrors: Validate = (doc) => {
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const SPAWN = { id: 'spawn-0001', components: { transform: T, playerSpawn: {} } };
 const PARTNERS: Record<string, Obj> = {
-  cameraFollow: { camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } },
   surface: { box: { size: [1, 1, 1] } },
   materials: { box: { size: [1, 1, 1] } },
   materialParams: { box: { size: [1, 1, 1] } },
@@ -495,14 +490,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { rig: 'track', target: 'spawn-0001', trackOffset: [0, 2, 12], deadZone: [2, 1, 2], boundsMin: [-50, -10, -50], boundsMax: [50, 20, 50], damping: 0.2 },
   ],
   cameraPath: [{ points: [[0, 0, 0], [4, 1, 0], [8, 0, 2]], closed: true, smooth: false }],
-  cameraFollow: [{ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 }, distance: 10, maxSpeed: 100 }],
   light: LIGHTS,
-  gameZone: [
-    { role: 'hazard', size: [2, 1], damage: 1 },
-    { role: 'checkpoint', size: [1.5, 1.5], safeSpawnId: 'spawn-0001', activation: { emissive: '#1bc8ff', emissiveIntensity: 1.2, cueAssetId: 'cue-a' }, effect: 'fx-a' },
-    { role: 'goal', size: [2, 2], effect: 'fx-a' },
-    { role: 'exit', size: [1.5, 2.5], load: ['scene-b'], unload: ['scene-c'], spawnId: 'spawn-0001' },
-  ],
   playerSpawn: [{ facing: 'left' }, { yaw: 90 }],
   mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
   trigger: [
@@ -515,15 +503,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { size: [2, 2, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-0001', unload: ['scene-c'] } },
   ],
   switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }, { mode: 'interact', signal: 'open', size: [1, 1], action: 'use' }],
-  health: [{ max: 5, start: 3, invulnerableSeconds: 1, knockback: 2, knockbackTime: 0.4, hitBounce: 3, hitEffect: 'fx-a' }],
-  pickup: [
-    { kind: 'coin', value: 1, size: [1, 1], respawn: 'death', cue: 'cue-a', effect: 'fx-a' },
-    { kind: 'custom', value: 2, counter: 'stars' },
-  ],
-  enemy: [
-    { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 2, chase: 3, chaseHeight: 3, chaseSpeed: 4, chaseSight: true, chaseFacing: true, chaseMemory: 0.5, chaseBeyondPatrol: true, stompBounce: 7, stompTolerance: 0.3, defeat: 'fade', defeatTime: 0.5, wallProbe: 0.1, ledgeProbe: 0.6, hitEffect: 'fx-a', defeatEffect: 'fx-a' },
-    { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 0, stompable: false, health: 1 },
-  ],
+  health: [{ max: 5, start: 3 }],
   // Phase 24.4: the generic primitives.
   collectible: [{ counter: 'shards', amount: -2.5, size: [1, 2, 3], onCollect: 'got', respawn: 4 }, { counter: 'items' }],
   patrol: [
@@ -582,18 +562,6 @@ const ENV_BASES: J[] = [
   { presets: [{ presetId: 'lamps', name: 'Lamps', lights: [{ tag: 'Lamps', intensity: 30 }] }] },
   { presets: [{ presetId: 'dim', name: 'Dim', lights: [{ type: 'ambient', color: '#101020' }] }] },
 ];
-
-const FLOW_BASE = {
-  levels: [{ id: 'level-1', name: 'One', scenes: ['main', 'extra'], spawnId: 'spawn-0001', music: 'mus-a', environment: { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, post: POST_FULL, wind: WIND_FULL }, ambience: ['amb-a', 'amb-b'] }],
-  lives: { start: 3, max: 5 },
-  title: { subtitle: 'A game', music: 'mus-a', scene: 'main', pan: { distance: 6, seconds: 20 } },
-  hud: { preset: 'minimal', timer: true },
-  ui: { font: 'serif', accent: '#ffc857', panel: '#1b2330', text: '#f4f1e8', logo: 'tex-a' },
-  texts: { levelComplete: 'Done', gameOver: 'Over', credits: 'Made by someone' },
-  volumes: { music: 0.5, sfx: 0.5, ui: 0.5 },
-  sounds: { move: 'snd-a', confirm: 'snd-b', back: 'snd-c' },
-  score: { points: { coins: 10 }, timeBonus: { targetSeconds: 60, perSecond: 5 } },
-};
 
 const BINDINGS: { type: string; binding: Obj }[] = [
   // Phase 23.14: a hold binding.
@@ -806,9 +774,6 @@ function runAllProbes(): void {
   // the entity's own fields
   probe('entity', sceneErrors, { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'parent-0001', components: { transform: T } }, { id: 'subject-0001', name: 'Thing', parentId: 'parent-0001', active: false, locked: true, static: true, tags: 5, components: { transform: T } }] }, '/entities/1', DESCRIPTORS.entity, 'entity:');
   // content blocks
-  const game = { configVersion: 2, title: 'Title', objective: 'Objective', instructions: 'Instructions', playerId: 'player-1', cameraId: 'camera-1', spawnId: 'spawn-1', cues: { start: 'cue-a', jump: null, checkpoint: null, death: null, goal: null }, respawnDelay: 0.5, dropThroughTime: 0.2, settleTime: 0.05 };
-  probe('game', (g) => errorsOf((e) => validateGameConfig(g, '', e, 2)), game, '', block('game'), 'game:');
-  probe('flow', (f) => errorsOf((e) => validateFlow(f, '', e)), FLOW_BASE, '', block('flow'), 'flow:');
   ENV_BASES.forEach((b, i) => probe(`environment[${i}]`, (v) => errorsOf((e) => validateEnvironment(v, '', e)), b, '', block('environment'), 'environment:'));
   INPUT_BASES.forEach((b, i) => probe(`input[${i}]`, (v) => errorsOf((e) => validateInput(v, '', e)), b, '', block('input'), 'input:'));
   MATERIAL_BASES.forEach((b, i) => probe(`materials[${i}]`, (v) => errorsOf((e) => validateMaterials(v, '', e)), b, '', block('materials'), 'materials:'));
@@ -868,6 +833,8 @@ function runAllProbes(): void {
   const tokens = new Set(probeErrs.flatMap((e) => `${e.expected ?? ''} ${e.message}`.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []));
   for (const t of tokens) {
     if (allKeys(contentRoot).has(t) || t === 'zz_probe') continue;
+    // Phase 24.7: `game` stays a stored key that is always null (a block is refused), so it has nothing to describe.
+    if (t === 'game') continue;
     if (!contentErrors({ ...root, [t]: { zz: 1 } }).some((e) => e.path === `/${t}` && isUnknownKey(e))) fail(`content: the validator knows block "${t}" but it has no descriptor`);
   }
   for (const b of DESCRIPTORS.content) if (b.required) expectErr(ctx, setAt(root, `/${b.key}`, undefined), `/${b.key}`, 'removing a required block');
@@ -942,8 +909,8 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
     // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
-    // repeat the sky/fog/post descriptors, about 9 KB; phase 24.4: + collectible, patrol and hitbox, about 6 KB,
-    // until 24.7 removes the pickup and enemy blocks)
+    // repeat the sky/fog/post descriptors, about 9 KB; phase 24.4: + collectible, patrol and hitbox, about 6 KB;
+    // phase 24.7: - the game block, flow, gameZone, cameraFollow, pickup and enemy)
     // (phase 24.4e–i: + scene transitions, the track rig, face velocity, event sounds, about 4 KB)
     // (phase 24.5: + the create menu entries and icons, about 3 KB)
     expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(250_000);
@@ -1029,8 +996,9 @@ describe('descriptor registry (phase 15.0)', () => {
       }
     }
     expect(entries).toBeGreaterThanOrEqual(12);
-    // No genre entries: the removed game components offer none.
-    for (const n of ['gameZone', 'pickup', 'enemy']) expect(DESCRIPTORS.components.find((c) => c.name === n)!.create, n).toBeUndefined();
+    // Phase 24.7: the removed game components and blocks are not described at all.
+    for (const n of ['gameZone', 'cameraFollow', 'pickup', 'enemy']) expect(DESCRIPTORS.components.find((c) => c.name === n), n).toBeUndefined();
+    for (const n of ['game', 'flow']) expect(DESCRIPTORS.content.find((b) => b.key === n), n).toBeUndefined();
   });
 
   it('exclusions and requirements match the scene validator', () => {

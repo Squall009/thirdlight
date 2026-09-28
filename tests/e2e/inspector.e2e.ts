@@ -5,10 +5,10 @@
  * controller or script), one of its fields is edited through the widget its
  * descriptor type gets, the stored value is read back from the backend, one
  * undo restores it, and "remove" takes the component off — each step one
- * command. Components that cannot be added say why; an existing game block
- * (with its sound cues as asset pickers) is built from its descriptor too
- * (phase 24.5: the editor no longer creates one; the zone, pickup and enemy
- * components are no longer offered).
+ * command. Components that cannot be added say why. Phase 24.7: the game
+ * block, the zone, pickup, enemy and camera-follow components were deleted;
+ * a content table built from its descriptor (the event sounds) sends a second
+ * edit on top of a first whose result is still on its way.
  */
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -143,7 +143,7 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await field(page, 'surface roughness', '0.2');
   await expect.poll(async () => ((await comp(id, 'surface')()) as { roughness?: number }).roughness).toBe(0.2);
   await synced(page);
-  await inspector(page).getByLabel('surface preset', { exact: true }).selectOption('hazard');
+  await inspector(page).getByLabel('surface preset', { exact: true }).selectOption('signal-red');
   await expect.poll(async () => ((await comp(id, 'surface')()) as { roughness?: number }).roughness).not.toBe(0.2);
   await inspector(page).getByRole('button', { name: 'remove surface', exact: true }).click();
   await expect.poll(comp(id, 'surface')).toBeUndefined();
@@ -178,18 +178,6 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await add(page, 'Camera');
   await expect(inspector(page).getByRole('alert').filter({ hasText: 'camera_count_invalid' })).toBeVisible();
   expect(await comp(id, 'camera')()).toBeUndefined();
-
-  // Camera follow on the main camera: dead zone and the optional bounds.
-  await select(page, 'cam-main');
-  await add(page, 'Camera follow');
-  await expect.poll(comp('cam-main', 'cameraFollow')).toEqual({ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 });
-  await field(page, 'cameraFollow deadZone x', '1');
-  await inspector(page).getByRole('button', { name: 'add cameraFollow bounds', exact: true }).click();
-  await expect.poll(comp('cam-main', 'cameraFollow')).toEqual({ deadZone: { x: 1, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 } });
-  await inspector(page).getByRole('button', { name: 'remove cameraFollow bounds', exact: true }).click();
-  await expect.poll(comp('cam-main', 'cameraFollow')).toEqual({ deadZone: { x: 1, y: 0.5 }, smoothing: 0.2 });
-  await inspector(page).getByRole('button', { name: 'remove cameraFollow', exact: true }).click();
-  await expect.poll(comp('cam-main', 'cameraFollow')).toBeUndefined();
 
   // Picked components: a script, a model (then an animator on it), a sound.
   await select(page, id);
@@ -244,52 +232,47 @@ test('every component kind: added, edited (one undo) and removed through the Ins
 
   // The Component menu is the same list.
   await menu(page, 'Component', 'Health');
-  await expect.poll(comp(id, 'health')).toEqual({ max: 3, invulnerableSeconds: 1 });
+  await expect.poll(comp(id, 'health')).toEqual({ max: 3 });
   await menu(page, 'Component', 'Remove', 'Health');
   await expect.poll(comp(id, 'health')).toBeUndefined();
 });
 
-test('an existing game block is built from its descriptor: texts, references and sound cues', async ({ page }) => {
+test('a content table built from its descriptor sends a second edit on top of a first still on its way (event sounds)', async ({ page }) => {
   test.setTimeout(180_000);
-  const player = String((await cmd('createEntity', { kind: 'group', name: 'Player', components: { controller: {} } }))['createdId']);
-  const start = String((await cmd('createEntity', { kind: 'group', name: 'Start', components: { playerSpawn: {} } }))['createdId']);
-  await cmd('createEntity', { kind: 'group', name: 'Goal', transform: { position: [6, 0, 0] }, components: { gameZone: { role: 'goal', size: [2, 2] } } });
-  // The game camera follows the player (the game block names a camera with camera follow).
-  await cmd('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } });
-  // Phase 24.5: the editor edits a game block a project already has; it no longer creates one.
-  await cmd('setGameConfig', { game: { configVersion: 2, title: 'Untitled game', objective: 'Play', instructions: 'Move and jump.', playerId: player, cameraId: 'cam-main', spawnId: start, cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } } });
-  // The title's result is held back (its HTTP ack below, its WS event here, in order) so the cue
-  // is edited before the editor has seen it — what a busy page does.
-  let holdTitle = false;
+  // The first edit's result is held back (its HTTP ack below, its WS event here, in order) so the second
+  // edit is made before the editor has seen the first — what a busy page does. Phase 24.7: this was the
+  // deleted game block's test; the event sounds table is a descriptor-built content block too.
+  let holdName = false;
   await page.routeWebSocket(/\/api\/v1\/ws/, (ws) => {
     const server = ws.connectToServer();
     let chain = Promise.resolve();
     server.onMessage((m) => {
-      const held = holdTitle && typeof m === 'string' && m.includes('Neutral test');
+      const held = holdName && typeof m === 'string' && m.includes('neutral-test');
       chain = chain.then(() => (held ? new Promise((r) => setTimeout(r, 1500)) : undefined)).then(() => ws.send(m));
     });
     ws.onMessage((m) => server.send(m));
   });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  const sound = await importFile(page, join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-goal.wav'), 1, 'cue-goal');
-  const game = async () => (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['game'] as Record<string, unknown> | null;
+  const first = await importFile(page, join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-goal.wav'), 1, 'cue-goal');
+  const second = await importFile(page, join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-start.wav'), 2, 'cue-start');
+  const cues = (): { on: string; name: string; assetId: string }[] => (JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { eventCues?: { on: string; name: string; assetId: string }[] } }).content.eventCues ?? [];
 
-  await page.getByRole('tab', { name: 'Gameplay' }).click();
-  await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'game session', exact: true }).click();
-  const block = page.getByLabel('game block');
-  await expect(block.getByRole('button', { name: 'Create game block' })).toHaveCount(0);
-  await expect.poll(game).toMatchObject({ configVersion: 2, title: 'Untitled game', cameraId: 'cam-main', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } });
-  const title = block.getByLabel('game title', { exact: true });
+  await page.getByRole('tab', { name: 'Media' }).click();
+  const table = page.getByLabel('event sounds');
+  await table.getByLabel('new event sound name', { exact: true }).fill('opened');
+  await table.getByLabel('new event sound asset', { exact: true }).selectOption(first);
+  await table.getByRole('button', { name: 'add event sound' }).click();
+  await expect.poll(cues).toEqual([{ on: 'signal', name: 'opened', assetId: first }]);
+  const row = table.getByLabel('event sound 1', { exact: true });
   // The second edit must be sent after the first and on top of it, not refused as a conflict.
-  holdTitle = true;
-  // The backend applies the held command at route.fetch, before its ack reaches the page, so the
-  // title poll below can pass while the handler still waits: unroute only after the held ack is
-  // delivered, or the late fulfill fails with "Route is already handled".
+  holdName = true;
+  // The backend applies the held command at route.fetch, before its ack reaches the page: unroute only
+  // after the held ack is delivered, or the late fulfill fails with "Route is already handled".
   let heldDelivered: Promise<void> = Promise.resolve();
   await page.route('**/commands', async (route) => {
     const body = route.request().postData() ?? '';
-    if (body.includes('"setGameConfig"') && body.includes('Neutral test')) {
+    if (body.includes('"setEventCues"') && body.includes('neutral-test')) {
       let done!: () => void;
       heldDelivered = new Promise<void>((r) => { done = r; });
       const res = await route.fetch();
@@ -298,22 +281,17 @@ test('an existing game block is built from its descriptor: texts, references and
       done();
     } else await route.continue();
   });
-  await title.fill('Neutral test');
-  await title.press('Enter');
-  await block.getByLabel('game cues goal', { exact: true }).selectOption(sound);
-  await expect.poll(async () => (await game())?.['title']).toBe('Neutral test');
+  const name = row.getByLabel('eventCue name', { exact: true });
+  await name.fill('neutral-test');
+  await name.press('Enter');
+  await row.getByLabel('eventCue assetId', { exact: true }).selectOption(second);
+  await expect.poll(() => cues()[0]?.name).toBe('neutral-test');
   await heldDelivered;
   await page.unroute('**/commands');
-  holdTitle = false;
-  await expect.poll(async () => (await game())?.['cues']).toEqual({ start: null, jump: null, checkpoint: null, death: null, goal: sound });
+  holdName = false;
+  await expect.poll(cues).toEqual([{ on: 'signal', name: 'neutral-test', assetId: second }]);
   await undo(page);
-  await expect.poll(async () => ((await game())?.['cues'] as { goal: unknown }).goal).toBeNull();
-  // Phase 15.3: the session timing is a descriptor field of the block too.
-  await expect(block.getByLabel('game respawnDelay', { exact: true })).toHaveValue('0.25');
-  const delay = block.getByLabel('game respawnDelay', { exact: true });
-  await delay.fill('0.5');
-  await delay.press('Enter');
-  await expect.poll(async () => (await game())?.['respawnDelay']).toBe(0.5);
+  await expect.poll(() => cues()[0]?.assetId).toBe(first);
 });
 
 test('the gameplay settings are built from their descriptor: a number and the step-rate choice', async ({ page }) => {

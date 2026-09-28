@@ -15,9 +15,9 @@
  * exactly one command (revision +1); an anchor preset pins it bottom right
  * without moving it on screen; duplicate / move into / delete in the
  * hierarchy; changing the theme's colour recolours the preview (pixels);
- * undo and redo bring the colour back and forth; the flow screen picker
- * (Game flow) replaces the pause screen with the document and Play shows it
- * with the same text, button and theme colour.
+ * undo and redo bring the colour back and forth; the game shell's pause
+ * screen (phase 24.6) shows the document in Play with the same text, button
+ * and theme colour.
  */
 import { createHash } from 'node:crypto';
 

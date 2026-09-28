@@ -3,7 +3,9 @@
  * document's version and migrations, the slot count, the engine sections a
  * save includes, the slot picture, and the fields of the project settings
  * document the game's own settings screen writes. The panel edits a draft;
- * Apply sends one `setSaveSchema` command (Remove sends null).
+ * Apply sends one `setSaveSchema` command (Remove sends null). "Clear Play
+ * save" forgets the saves Play keeps in this browser (a game control, not a
+ * command; enabled while Play runs).
  */
 import { useEffect, useState, type JSX } from 'react';
 
@@ -13,6 +15,21 @@ interface Props {
   schema: SaveSchema | null;
   error: string | null;
   onSave: (next: SaveSchema | null) => void;
+  /** Forget Play's saves in this browser (null: Play is not running). */
+  onClearPlaySave?: (() => void) | null;
+  /** The outcome of the last "Clear Play save". */
+  note?: string | null;
+}
+
+function PlaySave({ onClear, note }: { onClear: (() => void) | null | undefined; note: string | null | undefined }): JSX.Element {
+  return (
+    <div className="tl-saves__row">
+      <button type="button" className="tl-btn" disabled={onClear === null || onClear === undefined} title={onClear === null || onClear === undefined ? 'start Play first' : undefined} onClick={() => onClear?.()}>
+        Clear Play save
+      </button>
+      {note !== null && note !== undefined && <p className="tl-hint" role="status">{note}</p>}
+    </div>
+  );
 }
 
 const SECTIONS: readonly { id: SaveSection; label: string; hint: string }[] = [
@@ -31,7 +48,7 @@ function defaultFor(type: SettingsField['type'], values?: string[]): SettingsFie
   return type === 'bool' ? false : type === 'number' ? 0 : type === 'enum' ? (values?.[0] ?? 'a') : '';
 }
 
-export function SavesPanel({ schema, error, onSave }: Props): JSX.Element {
+export function SavesPanel({ schema, error, onSave, onClearPlaySave, note }: Props): JSX.Element {
   const [draft, setDraft] = useState<SaveSchema | null>(schema);
   useEffect(() => setDraft(schema), [schema]);
   if (draft === null) {
@@ -43,6 +60,7 @@ export function SavesPanel({ schema, error, onSave }: Props): JSX.Element {
           Add save schema
         </button>
         {error !== null && <div className="tl-prop__error">{error}</div>}
+        <PlaySave onClear={onClearPlaySave} note={note} />
       </div>
     );
   }
@@ -199,6 +217,7 @@ export function SavesPanel({ schema, error, onSave }: Props): JSX.Element {
         </button>
       </div>
       {error !== null && <div className="tl-prop__error">{error}</div>}
+      <PlaySave onClear={onClearPlaySave} note={note} />
     </div>
   );
 }

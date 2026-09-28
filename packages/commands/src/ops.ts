@@ -73,8 +73,6 @@ import {
   COMPONENT_FIELD_ORDER_V3,
   V3_COMPONENTS,
   commandErrorFromModel,
-  danglingGameReferences,
-  gameOf,
   validateAnimationRoleRange,
   validateV3ComponentValue,
   animationVersionOf,
@@ -238,13 +236,12 @@ export function nextEntityId(scene: SceneDocument, kind: EntityIdPrefix, reserve
 
 /**
  * §8.1 step 2 / authoring §A4.1: the derived ID prefix of a created entity is
- * the FIRST match in the order `model` → `box` → `zone` (gameZone) → `spawn`
- * (playerSpawn) → `light` → `group`. `camera` is never allocatable.
+ * the FIRST match in the order `model` → `box` → `spawn` (playerSpawn) →
+ * `light` → `group`. `camera` is never allocatable.
  */
 export function derivedPrefix(components: Record<string, unknown>): EntityIdPrefix {
   if (components['model'] !== undefined) return 'model';
   if (components['box'] !== undefined) return 'box';
-  if (components['gameZone'] !== undefined) return 'zone';
   if (components['playerSpawn'] !== undefined) return 'spawn';
   if (components['light'] !== undefined) return 'light';
   if (components['instances'] !== undefined) return 'instances';
@@ -734,13 +731,6 @@ export function applyDeleteEntity(
       ok: false,
       error: referenceInUse(closureInArrayOrder(scene, closure), referencing),
     };
-  }
-
-  // §23.6 rule 1 (authoring §A4.2): a `content.game`/checkpoint reference
-  // inside the closure is refused before application; nothing is cleared.
-  const refs = danglingGameReferences(scene as SceneV3, gameOf(content), closureSet0);
-  if (refs.length > 0) {
-    return { ok: false, error: gameReferenceInUse(closureInArrayOrder(scene, closure), refs) };
   }
 
   const deletedIds = closureInArrayOrder(scene, closure);

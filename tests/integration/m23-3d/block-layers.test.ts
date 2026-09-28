@@ -56,7 +56,7 @@ function scene(withDigger: boolean): { snapshot: Any; physics: Any } {
     ...(withDigger ? [{ id: 'digger-0001', components: { transform: T([0, 0, 0]), behavior: { behaviorId: 'digger', values: {} } } }] : []),
   ];
   return {
-    snapshot: { snapshotId: 'blk@r1', projectId: 'blk', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, blocks: [data] }, game: null, blockTypes: TYPES },
+    snapshot: { snapshotId: 'blk@r1', projectId: 'blk', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, blocks: [data] }, blockTypes: TYPES },
     physics: physics3DConfigOf(entities, SETTINGS),
   };
 }

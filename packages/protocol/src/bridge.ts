@@ -65,7 +65,7 @@ export const BRIDGE_DEBUG_RESULT_MAX_BYTES = 32_768;
 /** Phase 19.2: what a debug request may ask of the running play besides reading. */
 export const BRIDGE_DEBUG_COMMANDS = ['pause', 'resume', 'step'] as const;
 /** Phase 19.2: game-control commands (§20.1 plus the debugger's pause / resume / step). */
-const GAME_CONTROL = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'];
+const GAME_CONTROL = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'];
 const ENTITY_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** A debugger node id: a graph item id, optionally scoped (`fn:<functionId>/` or `lib:<graphId>/`). */
 const DEBUG_NODE_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;

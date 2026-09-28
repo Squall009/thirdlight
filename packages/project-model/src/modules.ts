@@ -48,8 +48,6 @@ export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   // Listed in dependency order (a module after the modules it needs): a
   // composition registers the selected specs in this order.
   { id: 'thirdlight.platformer:controller', package: '@thirdlight/platformer', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'], spec: 'platformerSpec' },
-  { id: 'thirdlight.platformer-game:session', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer:controller'], spec: 'platformerGameSessionSpec' },
-  { id: 'thirdlight.platformer-game:camera', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer-game:session'], spec: 'platformerGameCameraSpec' },
   { id: 'thirdlight.three-adapter:gltf-loader', package: '@thirdlight/three-adapter', kind: 'port', requires: [] },
 ] as EngineModule[]).map((m) => Object.freeze(m)));
 
@@ -88,20 +86,16 @@ export const COMPONENT_MODULES: Readonly<Record<string, { readonly plane2d: stri
 });
 
 /**
- * Phase 24.3: the modules a content block references. The `game` block
- * (the session with its run states and camera) references the session and
- * camera modules — a block like any component, not "a game". It exists until
- * phases 24.6/24.7 remove it; on the 3D path it has no module.
+ * Phase 24.3: the modules a content block references (phase 24.7: none — the
+ * platformer game block and its session and camera modules were deleted).
  */
-export const CONTENT_BLOCK_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  game: Object.freeze(['thirdlight.platformer-game:session', 'thirdlight.platformer-game:camera']),
-});
+export const CONTENT_BLOCK_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 
 export interface ResolveModulesInput {
   /** The scene (entities' component presence is read structurally). */
   scene: { entities?: ReadonlyArray<Record<string, unknown>> } | null | undefined;
-  /** The game block (`content.game`), or null for a plain scene. */
-  game: unknown;
+  /** Phase 24.7: the deleted game block (`content.game`); ignored (always null in a valid project). */
+  game?: unknown;
   /** The reachable behaviors and what they declared. */
   behaviors?: ReadonlyArray<{ behaviorId: string; requiredModules: readonly string[] }>;
   /** Explicitly declared module ids (e.g. a template's `requiredModules`). */
@@ -111,7 +105,7 @@ export interface ResolveModulesInput {
   /**
    * Phase 23.0: the project's physics dimension (absent: 2, the 2D plane). In
    * 3D a `controller` needs the 3D backend (`thirdlight.physics-rapier:3d`),
-   * not the 2D plane controller; the game block's modules are 2D-plane only.
+   * not the 2D plane controller.
    */
   physicsDimension?: 2 | 3;
 }
@@ -119,7 +113,7 @@ export interface ResolveModulesInput {
 export interface UnresolvedModule {
   /** The module or package id nobody provides. */
   id: string;
-  /** What declared it: `game`, `scene`, `behavior:<id>`, or `declared`. */
+  /** What declared it: `scene`, `behavior:<id>`, or `declared`. */
   requiredBy: string;
 }
 
@@ -137,16 +131,6 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
 
   if (input.demo === true) want('thirdlight.demo:box-motion', 'declared');
   const threeD = input.physicsDimension === 3;
-  if (input.game !== null && input.game !== undefined) {
-    if (threeD) {
-      return {
-        ok: false,
-        unresolved: [{ id: CONTENT_BLOCK_MODULES['game']![0]!, requiredBy: 'game' }],
-        message: 'the game block runs on the 2D plane (physics_dimension 2); a 3D project plays its scenes without one',
-      };
-    }
-    for (const id of CONTENT_BLOCK_MODULES['game'] ?? []) want(id, 'game');
-  }
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
     for (const [component, refs] of Object.entries(COMPONENT_MODULES)) {

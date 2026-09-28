@@ -1,16 +1,11 @@
 /**
  * Packet 55 — the game host (delivery.md §3.1/§3.2/§4, B04/B08/B09/B13/
- * B15), exercised in Node against injected fakes: a structural DOM (the
- * malicious-title case), a deterministic fixed-floor physics port (the
- * runtime's M3 module set runs for real), a fake input owner (the menu
- * seam), a fake render adapter (the frame hook), and the REAL packet-54
- * audio owner over a fake Web Audio context (the sound-status mapping).
- *
- * The real-Rapier / real-browser-input / real-cue-bytes composition is the
- * root `tests/m3-shell` suite (Node may use Node built-ins + the concrete
- * ports); the browser halves (physical keys, the real local unlock, the
- * DOM screenshot) are the `tests/browser/m3-shell` host (UNVERIFIED — no
- * browser/GPU/audio in this container, packet-38 baseline §1).
+ * B15), exercised in Node against injected fakes: a structural DOM, a
+ * deterministic fixed-floor physics port (the character controller module
+ * runs for real), a fake input owner (the menu seam), a fake render adapter
+ * (the frame hook), and the REAL packet-54 audio owner over a fake Web Audio
+ * context (the sound-status mapping). Phase 24.7: every game plays as a
+ * scene — there is no game session, run state or classic HUD.
  */
 import { describe, expect, it } from 'vitest';
 import type { GameplaySettings, PhysicsPort, RuntimeSnapshot } from '@thirdlight/runtime';
@@ -20,25 +15,22 @@ import {
   type GameAudioOwner,
 } from './audio';
 import {
-  cueEventsForView,
   GAME_CONTROL_ACTIONS,
   GAME_HOST_API_VERSION,
   GAME_HOST_MESSAGES,
   createGameHost,
-  type GameControlAction,
   type GameHostConfig,
   type HostInputOwner,
   type HostRenderAdapter,
 } from './host';
-import { createHud, type HudState, type HostDom, type HostDomNode } from "./hud";
+import type { HostDom, HostDomNode } from './dom';
+import { createSettingsStore } from './storage';
 // Phase 24.3: the host imports no module package; like a composition entry,
 // the test injects the spec table and names the modules its snapshot references.
 import { platformerSpec } from '@thirdlight/platformer';
-import { platformerGameCameraSpec, platformerGameSessionSpec } from '@thirdlight/platformer-game';
-import { createSaveStore } from './save';
 
 // ---------------------------------------------------------------------------
-// The structural fake DOM (records every surface the HUD writes).
+// The structural fake DOM (records every surface the overlays write).
 // ---------------------------------------------------------------------------
 
 class FakeNode implements HostDomNode {
@@ -55,11 +47,11 @@ class FakeNode implements HostDomNode {
   }
   set textContent(value: string) {
     // A real DOM node's `textContent` setter replaces children; the fake
-    // just records the write (the HUD asserts literal text, never markup).
+    // just records the write (overlays write literal text, never markup).
     this._textContent = value;
   }
   set innerHTML(value: string) {
-    // The HUD must never use this; the test asserts zero writes.
+    // The host must never use this; the test asserts zero writes.
     void value;
     this.innerHTMLWrites += 1;
   }
@@ -167,19 +159,11 @@ const T = {
   scale: [1, 1, 1] as [number, number, number],
 };
 
-const MODULE_SPECS = [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
-/** The manifest modules of the game snapshot (a controller entity + the game block). */
-const GAME_MODULES = ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.platformer-game:camera', 'thirdlight.platformer-game:session', 'thirdlight.platformer:controller'];
+const MODULE_SPECS = [platformerSpec];
+/** The manifest modules of the snapshot (a controller entity on the 2D plane). */
+const GAME_MODULES = ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.platformer:controller'];
 
-function hostSnapshot(overrides: { cues?: Partial<Record<'start' | 'jump' | 'checkpoint' | 'death' | 'goal', string | null>> } = {}): unknown {
-  const cues = {
-    start: null,
-    jump: null,
-    checkpoint: null,
-    death: null,
-    goal: null,
-    ...overrides.cues,
-  };
+function hostSnapshot(): unknown {
   return {
     snapshotId: 'host-demo@r1',
     projectId: 'host-demo',
@@ -195,11 +179,6 @@ function hostSnapshot(overrides: { cues?: Partial<Record<'start' | 'jump' | 'che
           components: {
             transform: { position: [0, 4, 12], ...T },
             camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 },
-            cameraFollow: {
-              deadZone: { x: 0.5, y: 0.5 },
-              smoothing: 0.2,
-              bounds: { minX: 0, maxX: 48, minY: -4, maxY: 8 },
-            },
           },
         },
         {
@@ -221,20 +200,7 @@ function hostSnapshot(overrides: { cues?: Partial<Record<'start' | 'jump' | 'che
         },
       ],
     },
-    game: {
-      configVersion: 1,
-      // The malicious-title case (delivery.md §3.1 HUD rule): the authored
-      // string carries markup — the HUD must render it as inert literal text.
-      title: '<img src=x onerror=alert(1)> M3 Host',
-      objective: 'Reach the goal',
-      instructions: 'A/D move. Space jumps. M mutes.',
-      playerId: 'group-0001',
-      cameraId: 'cam-main',
-      spawnId: 'spawn-0001',
-      level: { minX: 0, maxX: 48, minY: -4, maxY: 8 },
-      killY: -4,
-      cues,
-    },
+    game: null,
   };
 }
 
@@ -309,8 +275,8 @@ function fakeAdapter(): HostRenderAdapter & { frames: { value: number }; dispose
 
 interface HarnessOptions {
   menu?: Array<{ confirm?: boolean; mute?: boolean }>;
-  cues?: Partial<Record<'start' | 'jump' | 'checkpoint' | 'death' | 'goal', string | null>>;
   assetPaths?: Record<string, string>;
+  assetKinds?: Record<string, string>;
   /** Bytes the fake readArtifact returns per path. */
   artifacts?: Record<string, number>;
   realAudio?: boolean;
@@ -388,7 +354,7 @@ function harness(options: HarnessOptions = {}): Harness {
   }
 
   const config: GameHostConfig = {
-    snapshot: hostSnapshot({ cues: options.cues }) as RuntimeSnapshot,
+    snapshot: hostSnapshot() as RuntimeSnapshot,
     settings: SETTINGS,
     modules: GAME_MODULES,
     moduleSpecs: MODULE_SPECS,
@@ -404,6 +370,7 @@ function harness(options: HarnessOptions = {}): Harness {
     container,
     buildId: 'test-build-id',
     assetPaths: options.assetPaths,
+    ...(options.assetKinds !== undefined ? { assetKinds: options.assetKinds } : {}),
     document: dom,
   };
   const host = createGameHost(config);
@@ -418,10 +385,10 @@ function harness(options: HarnessOptions = {}): Harness {
   return { host, container, input, adapter, physics, audio, audioCalls, artifactReads, tick, config };
 }
 
-function view(host: Harness['host']): { state: string; stepIndex: number } {
+function observed(host: Harness['host']): { state: string; stepIndex: number } {
   const res = host.observe();
   if (!res.ok) throw new Error(`observe failed: ${JSON.stringify(res.error)}`);
-  return { state: res.observation.legacy.runState, stepIndex: res.observation.stepIndex };
+  return { state: res.observation.state, stepIndex: res.observation.stepIndex };
 }
 // ---------------------------------------------------------------------------
 // Tests.
@@ -430,7 +397,8 @@ function view(host: Harness['host']): { state: string; stepIndex: number } {
 describe('the §3.1 surface constants', () => {
   it('the version, actions and message names are the delivery.md rows', () => {
     expect(GAME_HOST_API_VERSION).toBe(1);
-    expect(GAME_CONTROL_ACTIONS).toEqual(['start', 'replay', 'mute', 'unmute', 'clearSave']); // phase 9.11 adds clearSave
+    // Phase 9.11 adds clearSave; phase 24.7 drops start (there is no run to start).
+    expect(GAME_CONTROL_ACTIONS).toEqual(['replay', 'mute', 'unmute', 'clearSave']);
     expect(GAME_HOST_MESSAGES).toEqual([
       'tl.game.control',
       'tl.game.observe',
@@ -440,19 +408,12 @@ describe('the §3.1 surface constants', () => {
   });
 });
 
-describe('mount and the host-owned HUD (B04/B15)', () => {
-  it('mounts the runtime + HUD; the authored strings render as literal text (never HTML)', () => {
+describe('mount (B04/B15)', () => {
+  it('mounts the runtime; a game without project UI adds no overlay and writes no markup', () => {
     const { host, container } = harness();
     expect(host.mount()).toEqual({ ok: true });
-    expect(container.children.length).toBe(1); // the single HUD root
-    const root = container.children[0] as FakeNode;
-    const all = root.every();
-    expect(all.every((n) => n.innerHTMLWrites === 0)).toBe(true); // textContent only
-    const texts = all.map((n) => n.textContent);
-    expect(texts).toContain('<img src=x onerror=alert(1)> M3 Host'); // the malicious title, literal
-    expect(texts).toContain('Reach the goal');
-    expect(texts).toContain('A/D move. Space jumps. M mutes.');
-    expect(texts).toContain('Press Enter or Space to start');
+    expect(container.children.length).toBe(0);
+    expect(container.every().every((n) => n.innerHTMLWrites === 0)).toBe(true);
     host.dispose();
   });
 
@@ -465,13 +426,9 @@ describe('mount and the host-owned HUD (B04/B15)', () => {
     host.dispose();
   });
 
-  it('a snapshot without a game block mounts in scene mode (no game session, no HUD)', () => {
-    const { host } = harness();
-    host.dispose();
-    const noGame = hostSnapshot();
-    (noGame as { game: unknown }).game = null;
+  it('a snapshot with no modules and no adapter mounts and is observed', () => {
     const cfg: GameHostConfig = {
-      snapshot: noGame as RuntimeSnapshot,
+      snapshot: hostSnapshot() as RuntimeSnapshot,
       settings: SETTINGS,
       physics: fakePhysics({ x: 3, y: 0.9 }).port,
       adapter: () => null,
@@ -495,7 +452,9 @@ describe('mount and the host-owned HUD (B04/B15)', () => {
     const res = h2.mount();
     expect(res.ok).toBe(true);
     expect((cfg.container as unknown as FakeNode).children.length).toBe(0);
-    expect(h2.observe().ok).toBe(false);
+    const o = h2.observe();
+    expect(o.ok).toBe(true);
+    if (o.ok) expect(o.observation.sound.status).toBe('unavailable');
     h2.dispose();
   });
 
@@ -517,102 +476,78 @@ describe('mount and the host-owned HUD (B04/B15)', () => {
   });
 });
 
-describe('the menu/control channel between frames (B04/B08, C4/C5)', () => {
-  it('a direct start at the title succeeds with no motion; the run starts at the next boundary', () => {
+describe('the menu/control channel between frames (B04/B08)', () => {
+  it('replay restarts the game: accepted at the current step, applied at the next step', () => {
     const { host, tick } = harness();
     host.mount();
-    tick(); // the pre-roll settle at awaitingStart
-    expect(view(host).state).toBe('awaitingStart');
-    const res = host.control('start');
-    expect(res).toMatchObject({ ok: true, state: 'running' }); // phase 24.6: the play state at acceptance
-    tick(); // the boundary consumes the queued command
-    expect(view(host).state).toBe('playing');
-    // A start in play is rejected by the runtime's own rule.
-    const again = host.control('start');
-    expect(again.ok).toBe(false);
-    if (!again.ok) {
-      expect(again.error.code).toBe('game_command_invalid');
-      expect(again.error.reason).toBe('state');
-    }
+    tick();
+    tick();
+    const before = observed(host);
+    const res = host.control('replay');
+    expect(res).toEqual({ ok: true, state: 'running', acceptedAtStep: before.stepIndex });
+    tick();
+    expect(observed(host).state).toBe('running');
     host.dispose();
   });
 
-  it('a replay at awaitingStart is rejected (replay needs playing/respawning/won)', () => {
-    const { host } = harness();
+  it('a menu confirm is gameplay input: the host never marks it consumed (there is no title or win screen)', () => {
+    const { host, tick, input } = harness({ menu: [{ confirm: true }, { confirm: true }] });
     host.mount();
-    const res = host.control('replay' as GameControlAction);
-    expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.error.code).toBe('game_command_invalid');
-      expect(res.error.reason).toBe('state');
-    }
+    tick();
+    tick();
+    expect(input.consumed.value).toBe(0);
     host.dispose();
   });
 
-  it('a menu confirm at the title drives start and is marked consumed (the §4.2 seam)', () => {
-    const { host, tick, input } = harness({ menu: [{ confirm: true }] });
+  it('a menu mute press toggles mute through the audio owner', () => {
+    const { host, tick, audioCalls } = harness({ menu: [{ mute: true }] });
     host.mount();
-    tick(); // pre-roll
-    expect(view(host).state).toBe('awaitingStart');
-    tick(); // the frame services the menu channel: confirm → start
-    expect(input.consumed.value).toBe(1); // the host marked the press consumed
-    tick(); // the boundary applies the start
-    expect(view(host).state).toBe('playing');
+    tick();
+    expect(audioCalls.setMuted).toEqual([true]);
     host.dispose();
   });
 
-  it('a menu confirm in play is a no-op (not consumed — the press keeps its jump)', () => {
-    const { host, tick, input } = harness({ menu: [{ confirm: false }, { confirm: true }] });
-    host.mount();
-    tick(); // pre-roll (the first menu sample is a no-op)
-    host.control('start');
-    tick(); // the boundary applies the start; the frame then services the confirm — now in play
-    expect(input.consumed.value).toBe(0); // no menu action happened in play
-    expect(view(host).state).toBe('playing');
-    host.dispose();
-  });
-
-  it('phase 15.5: the classic HUD prompt names the project bindings with the player\'s saved rebinding, and the pad in use', () => {
+  it('phase 23.14: the player\'s saved bindings reach the input owner and the glyphs, and follow the pad in use', () => {
     const { host: h0, config } = harness();
     h0.dispose();
     const data = new Map<string, string>();
     const storage = { get: (k: string) => data.get(k) ?? null, set: (k: string, v: string) => void data.set(k, v), remove: (k: string) => void data.delete(k) };
-    createSaveStore(storage, 'g').writeSettings({ music: 1, sfx: 1, quality: 'high', keys: { jump: 'KeyK' }, pad: { jump: 2 } });
-    const configured: unknown[] = [];
+    createSettingsStore(storage, 'g').writeBindings('default', { jump: [{ kind: 'key', code: 'KeyK' }, { kind: 'gamepadButton', button: 2 }] });
+    const configured: { actions: readonly { name: string; bindings: readonly unknown[] }[] }[] = [];
     let device: 'keyboard' | 'gamepad' = 'keyboard';
     const inputConfig = {
       actions: [
         { name: 'move', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'keys1d', negative: 'KeyJ', positive: 'KeyL' }] },
-        { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Space' }] },
+        { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Space' }, { kind: 'gamepadButton', button: 0 }] },
       ],
     };
-    const container = new FakeNode();
     const host = createGameHost({
       ...config,
-      container,
       inputConfig,
       saveStorage: storage,
       saveNamespace: 'g',
       input: { ...config.input, configure: (c) => void configured.push(c), activeDevice: () => device },
     });
-    host.mount();
-    host.control('start');
-    let t = 0;
-    const tick = (): void => {
-      const r = host.runtime.tick(t);
-      t += 1 / 60;
-      if (!r.ok) throw new Error('tick failed');
-    };
-    tick();
-    tick();
-    expect(view(host).state).toBe('playing');
-    const texts = (): string[] => (container.children[0] as FakeNode).every().map((n) => n.textContent);
-    // The saved rebinding reaches the input owner and the prompt (K, not the project's Space).
+    expect(host.mount()).toEqual({ ok: true });
+    // The saved rebinding reaches the input owner (K, not the project's Space).
     expect(configured).toHaveLength(1);
-    expect(texts()).toContain('J/L to move, K to jump, M to mute');
+    expect(configured[0]!.actions.find((a) => a.name === 'jump')!.bindings[0]).toEqual({ kind: 'key', code: 'KeyK' });
+    expect(host.bindings!.glyph('jump')?.label).toBe('K');
     device = 'gamepad';
-    tick();
-    expect(texts()).toContain('D-pad left/D-pad right or the left stick to move, X to jump');
+    host.bindings!.tick();
+    expect(host.bindings!.glyph('jump')?.label).toBe('X');
+    host.dispose();
+  });
+
+  it('clearSave forgets the stored settings of this game only', () => {
+    const { host: h0, config } = harness();
+    h0.dispose();
+    const data = new Map<string, string>([['g:bindings:default', '{}'], ['g:shell-settings', '{}'], ['g:project-settings', '{}'], ['other:shell-settings', '{}']]);
+    const storage = { get: (k: string) => data.get(k) ?? null, set: (k: string, v: string) => void data.set(k, v), remove: (k: string) => void data.delete(k) };
+    const host = createGameHost({ ...config, saveStorage: storage, saveNamespace: 'g' });
+    host.mount();
+    expect(host.control('clearSave').ok).toBe(true);
+    expect([...data.keys()]).toEqual(['other:shell-settings']);
     host.dispose();
   });
 
@@ -624,37 +559,24 @@ describe('the menu/control channel between frames (B04/B08, C4/C5)', () => {
     expect(audioCalls.setMuted).toEqual([true, false]);
     host.dispose();
   });
-
-  it('the Start/Mute HUD buttons drive the same control channel', () => {
-    const { host, container, audioCalls } = harness();
-    host.mount();
-    const root = container.children[0] as FakeNode;
-    const buttons = root.every().filter((n) => (n as FakeNode).tag === 'button');
-    expect(buttons.length).toBe(2);
-    const startButton = buttons[0] as FakeNode | undefined;
-    expect(startButton).toBeDefined();
-    startButton?.click('click');
-    // The button drives control('start') (queued; the boundary applies it).
-    host.dispose();
-    expect(audioCalls.setMuted.length).toBe(0);
-  });
 });
 
-describe('observe and the committed identity (B08/B09)', () => {
-  it('reports the run/snapshot/build identity, state and the mapped sound', () => {
-    const { host } = harness();
+describe('observe and the identity (B08/B09)', () => {
+  it('reports the snapshot/build identity, the play state, the character and the mapped sound', () => {
+    const { host, tick } = harness();
     host.mount();
+    tick();
     const res = host.observe();
     expect(res.ok).toBe(true);
     if (res.ok) {
-      expect(res.observation.runId).toBe('host-demo@r1#0'); // `${snapshotId}#${replayEpoch}`
       expect(res.observation.snapshotId).toBe('host-demo@r1');
       expect(res.observation.buildId).toBe('test-build-id'); // the wrapper's verified manifest buildId
       expect(res.observation.state).toBe('running'); // phase 24.6: the generic play state
-      expect(res.observation.legacy.runState).toBe('awaitingStart');
       expect(res.observation.inputMode).toBe('physical');
       expect(res.observation.sound.status).toBe('ready'); // the spy owner is ready
       expect(res.observation.sound.gesture).toBe('local');
+      expect(res.observation.player?.x).toBeCloseTo(3, 6); // the controller entity
+      expect(res.observation).not.toHaveProperty('legacy');
     }
     host.dispose();
   });
@@ -681,80 +603,34 @@ describe('observe and the committed identity (B08/B09)', () => {
   });
 });
 
-describe('committed-view cue submission (B13, §4.1)', () => {
-  it('resolves the authored cue bytes through the injected reader and submits the runStarted cue', async () => {
+describe('sound bytes (B13)', () => {
+  it('every audio asset is registered through the injected reader; music and other kinds are not cues', async () => {
     const { host, tick, audioCalls, artifactReads } = harness({
-      cues: { start: 'cue-a', jump: 'cue-b' },
-      assetPaths: { 'cue-a': 'cues/start.wav', 'cue-b': 'cues/jump.wav' },
-      artifacts: { 'cues/start.wav': 8, 'cues/jump.wav': 8 },
+      assetPaths: { 'snd-a': 'audio/a.wav', 'snd-b': 'audio/b.wav', 'mus-a': 'audio/m.ogg', 'tex-a': 'textures/t.png' },
+      assetKinds: { 'snd-a': 'audio', 'snd-b': 'audio', 'mus-a': 'music', 'tex-a': 'texture' },
+      artifacts: { 'audio/a.wav': 8, 'audio/b.wav': 8 },
     });
     host.mount();
     // The async registration settles on the microtask queue.
     await new Promise((r) => setTimeout(r, 0));
-    expect(audioCalls.register.sort()).toEqual(['cue-a', 'cue-b']);
-    expect(artifactReads.value.sort()).toEqual(['cues/jump.wav', 'cues/start.wav']);
-    host.control('start');
-    tick(); // the boundary publishes the runStarted event
-    tick(); // the frame submits the committed cue events
-    const flat = audioCalls.submit.flat();
-    const startCue = flat.find((e) => (e as { kind: string }).kind === 'start') as {
-      assetId: string;
-      runId: string;
-    };
-    expect(startCue.assetId).toBe('cue-a');
-    expect(startCue.runId).toBe('host-demo@r1#0');
+    expect(audioCalls.register.sort()).toEqual(['snd-a', 'snd-b']);
+    expect(artifactReads.value.sort()).toEqual(['audio/a.wav', 'audio/b.wav']);
+    tick();
+    tick();
+    // No game session: the host submits no run cues of its own (event sounds come from the runtime's audio intent log).
+    expect(audioCalls.submit).toEqual([]);
     host.dispose();
-  });
-
-  it('null cue refs are never registered (the authored silence stays silent)', async () => {
-    const { host, audioCalls } = harness({
-      cues: { start: 'cue-a' },
-      assetPaths: { 'cue-a': 'cues/start.wav' },
-    });
-    host.mount();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(audioCalls.register).toEqual(['cue-a']); // only the non-null ref
-    host.dispose();
-  });
-
-  it('cueEventsForView maps the committed events and derives the jump transition', () => {
-    const cues = { start: 'a', jump: 'j', checkpoint: 'c', death: 'd', goal: 'g' };
-    const viewFake = {
-      runId: 'r#0',
-      stepIndex: 10,
-      state: 'playing',
-      playerMotion: { speed: 1, grounded: false },
-      events: [
-        { id: 'r#0/runStarted/0', kind: 'runStarted', stepIndex: 0, boundary: true, deathCount: 0 },
-        { id: 'r#0/died/7', kind: 'died', stepIndex: 7, boundary: false, cause: 'fall', deathCount: 1 },
-        { id: 'r#0/respawned/8', kind: 'respawned', stepIndex: 8, boundary: true, deathCount: 1 },
-      ] as const,
-    } as never;
-    const out = cueEventsForView(viewFake, cues, true); // previous grounded → airborne now
-    expect(out.map((e) => e.kind)).toEqual(['start', 'death', 'jump']);
-    expect(out[2]?.id).toBe('r#0/jump/10'); // the derived jump id (runId/kind/stepIndex)
-    // A respawn boundary resets grounded (no derived jump across it).
-    const none = cueEventsForView(viewFake, cues, false);
-    expect(none.map((e) => e.kind)).toEqual(['start', 'death']);
   });
 });
 
-describe('viewport and disposal (B15 lifecycle)', () => {
-  it('setViewport passes through to the runtime', () => {
-    const { host } = harness();
-    host.mount();
-    expect(host.setViewport(640, 360)).toEqual({ ok: true });
-    host.dispose();
-  });
-
-  it('dispose is idempotent, removes the HUD, and freezes the surface', () => {
-    const { host, container, adapter } = harness();
+describe('disposal (B15 lifecycle)', () => {
+  it('dispose is idempotent and freezes the surface', () => {
+    const { host, adapter } = harness();
     host.mount();
     host.dispose();
     host.dispose(); // idempotent (void, no throw)
-    expect((container.children[0] as FakeNode).removed).toBe(true);
     expect(adapter.disposed.value).toBe(true); // the host-created adapter is disposed
-    const c = host.control('start');
+    const c = host.control('replay');
     expect(c.ok).toBe(false);
     if (!c.ok) expect(c.error.code).toBe('host_disposed');
     const o = host.observe();
@@ -765,21 +641,21 @@ describe('viewport and disposal (B15 lifecycle)', () => {
   it('phase 21.5: dispose stops the loops it started on the wrapper-owned audio owner', () => {
     const base = harness();
     const loops: [string, string | null, number][] = [];
-    const snapshot = hostSnapshot() as { scene: { schemaVersion: number; entities: unknown[] }; game: Record<string, unknown> };
+    const snapshot = hostSnapshot() as { scene: { schemaVersion: number; entities: unknown[] } };
     snapshot.scene.schemaVersion = 4;
-    delete snapshot.game['level'];
-    delete snapshot.game['killY'];
-    snapshot.game['configVersion'] = 2;
     snapshot.scene.entities.push({ id: 'brook-0001', components: { transform: { position: [4, 0, 0], ...T }, audioSource: { assetId: 'brook', volume: 1, range: 10 } } });
     const host = createGameHost({
       ...base.config,
       snapshot: snapshot as unknown as RuntimeSnapshot,
-      audio: { ...base.audio, setLoop: (key: string, assetId: string | null, gain: number) => void loops.push([key, assetId, gain]) } as GameAudioOwner,
+      audio: { ...base.audio, setLoop: (key: string, assetId: string | null, gain: number) => void loops.push([key, assetId, gain]), loops: () => ({ 'brook-0001': 1 }) } as GameAudioOwner,
     });
     const mounted = host.mount();
     expect(mounted, JSON.stringify(mounted)).toEqual({ ok: true });
     for (let i = 0; i < 5; i += 1) host.runtime.tick(i / 60);
-    expect(loops.some(([key, asset]) => key === 'brook-0001' && asset === 'brook')).toBe(true);
+    // The character is 1 m from the source, inside a quarter of its range: full volume.
+    expect(loops.some(([key, asset, gain]) => key === 'brook-0001' && asset === 'brook' && gain === 1)).toBe(true);
+    const o = host.observe();
+    expect(o.ok && o.observation.loops).toEqual({ 'brook-0001': 1 });
     host.dispose();
     expect(loops[loops.length - 1]).toEqual(['brook-0001', null, 0]);
   });
@@ -811,34 +687,6 @@ describe('viewport and disposal (B15 lifecycle)', () => {
   });
 });
 
-describe('the HUD module (delivery.md §3.1 HUD rules)', () => {
-  it('renders the authored strings as text and switches the prompt by state', () => {
-    const dom = fakeDom();
-    const hud = createHud(dom, { onStart: () => undefined, onMuteToggle: () => undefined });
-    const base: HudState = {
-      title: '<b>title</b>',
-      objective: 'obj',
-      instructions: 'ins',
-      state: 'awaitingStart',
-      deathCount: 0,
-      checkpointActive: false,
-      checkpointStep: null,
-      sound: 'blocked',
-    };
-    hud.update(base);
-    const all = (hud.root as FakeNode).every();
-    expect(all.every((n) => n.innerHTMLWrites === 0)).toBe(true);
-    expect(all.map((n) => n.textContent)).toContain('<b>title</b>'); // literal
-    hud.update({ ...base, state: 'won', deathCount: 2, checkpointActive: true, checkpointStep: 41 });
-    const texts = (hud.root as FakeNode).every().map((n) => n.textContent);
-    expect(texts).toContain('You win — press Enter or Space to replay');
-    expect(texts.some((t) => t.includes('Deaths: 2'))).toBe(true);
-    expect(texts.some((t) => t.includes('checkpoint @ step 41 active'))).toBe(true);
-    hud.dispose();
-    expect((hud.root as FakeNode).removed).toBe(true);
-  });
-});
-
 describe('the manifest module list drives the composition (D17)', () => {
   it('an id this engine does not provide is refused at mount', () => {
     const h = harness();
@@ -867,14 +715,15 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
-  it('phase 24.3: no module list, no modules — there is no default set, even with a game block', () => {
+  it('phase 24.3: no module list, no modules — there is no default set (the character stays where it is)', () => {
     const h = harness();
     const { modules: _m, ...rest } = h.config;
     void _m;
-    const host = createGameHost(rest);
+    const host = createGameHost({ ...rest, input: { ...rest.input, sample: (stepIndex: number) => ({ stepIndex, moveX: 1, jump: 'none' as const }) } });
     expect(host.mount().ok).toBe(true);
-    // No session module was registered: the runtime has no run states to observe.
-    expect(host.observe().ok).toBe(false);
+    for (let i = 0; i < 30; i += 1) host.runtime.tick(i / 60);
+    const o = host.observe();
+    expect(o.ok && o.observation.player?.x).toBe(3);
     host.dispose();
     h.host.dispose();
   });
@@ -888,23 +737,24 @@ describe('the manifest module list drives the composition (D17)', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.error.code).toBe('host_module_unresolved');
-      expect(res.error.message).toContain('thirdlight.platformer-game:camera');
+      expect(res.error.message).toContain('thirdlight.platformer:controller');
     }
     host.dispose();
     h.host.dispose();
   });
 
-  it('phase 24.3: the entity a module needs is its own declaration (the session needs a controller)', () => {
+  it('phase 24.3: the entity a module needs is its own declaration', () => {
     const h = harness();
+    const needy = { ...platformerSpec, id: 'test.needs:controller', requiresEntityWith: ['controller'] };
     const snapshot = hostSnapshot() as { scene: { entities: { components: Record<string, unknown> }[] } };
     for (const e of snapshot.scene.entities) delete e.components['controller'];
-    const host = createGameHost({ ...h.config, snapshot: snapshot as unknown as RuntimeSnapshot });
+    const host = createGameHost({ ...h.config, snapshot: snapshot as unknown as RuntimeSnapshot, modules: ['test.needs:controller'], moduleSpecs: [needy] });
     const res = host.mount();
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.error.code).toBe('host_config_invalid');
       expect(res.error.reason).toBe('controller');
-      expect(res.error.message).toContain('thirdlight.platformer-game:session');
+      expect(res.error.message).toContain('test.needs:controller');
     }
     host.dispose();
     h.host.dispose();

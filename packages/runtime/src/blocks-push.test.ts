@@ -28,14 +28,11 @@ function pushOf(move: [number, number], player: { x: number; y: number }): { x: 
     hz: HZ,
     physics: undefined,
     curr,
-    playerId: 'player-0001',
-    playerCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    player: () => player,
-    playerDelta: () => ({ x: 0, y: 0 }),
+    characterId: 'player-0001',
+    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
+    character: () => player,
     groundEntityId: () => null,
-    kill: () => undefined,
-    animator: () => null,
-  } as unknown as BlocksHost;
+  };
   const blocks = new GameplayBlocks(host, [entity]);
   blocks.beforeStep(1);
   return blocks.carryDelta();

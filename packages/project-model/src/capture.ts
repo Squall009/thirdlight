@@ -5,9 +5,8 @@
  * derivation of the view (sessions.md §17.1; workspace.md §16.6 item 4) over
  * a v3 scene/content pair (the v2 pair was removed in phase 9.3): the v3
  * closure adds `components.modelAnimation` references (pinning the binding's recorded
- * version explicitly) and the non-null `content.game` cue / checkpoint
- * `activation.cueAssetId` references; the view shape and `contentVersion` stay
- * unchanged (§19.1/§16.6).
+ * version explicitly); the view shape and `contentVersion` stay unchanged
+ * (§19.1/§16.6).
  *
  * A reference that does not resolve is `asset_reference_missing`, reported
  * before any capture. Pure: no I/O, no filesystem, no three.js.
@@ -22,7 +21,6 @@ import { ID_RE_V2 } from './components';
 import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
 import { environmentPresetTextureRefs, type EnvironmentPreset } from './environment-presets';
-import { flowAssetRefs, type GameFlow } from './flow';
 import { animatorAssetIds, type AnimatorController } from './animator';
 import { graphAssetRefs, type GraphDocument } from './graph';
 import { MATERIAL_FUNCTION_GRAPH_KIND } from './material-graph-kinds';
@@ -112,17 +110,12 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     if (e.components.behavior) addBehavior(e.components.behavior.behaviorId, e.components.behavior.values);
     const animation = e.components.modelAnimation;
     if (animation) setRef(animation.assetId, animation.version);
-    const activation = e.components.gameZone?.activation;
-    if (activation && activation.cueAssetId !== null) setRef(activation.cueAssetId);
     // Phase 12 (c): an instance set places one model.
     const instances = (e.components as { instances?: { asset: { assetId: string } } }).instances;
     if (instances) setRef(instances.asset.assetId);
     // Phase 9.10: an audio source's sound.
     const source = (e.components as { audioSource?: { assetId: string } }).audioSource;
     if (source) setRef(source.assetId);
-    // Phase 9.9: a pickup's collect sound.
-    const cue = (e.components as { pickup?: { cue?: string } }).pickup?.cue;
-    if (cue !== undefined) setRef(cue);
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);
@@ -136,12 +129,6 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const t of (content as { blockTypes?: { variants: { model?: { assetId: string } }[] }[] }).blockTypes ?? []) for (const v of t.variants) if (v.model !== undefined) setRef(v.model.assetId);
   // Phase 20.2: the textures and models the project's effects draw and sample travel with the game.
   for (const fx of (content as { effects?: EffectDef[] }).effects ?? []) for (const r of effectAssetRefs(fx)) setRef(r.id);
-  // Phase 9.10: the flow's music and menu logo.
-  const flow = (content as { flow?: GameFlow }).flow;
-  if (flow !== undefined) {
-    const refs = flowAssetRefs(flow);
-    for (const id of [...refs.music, ...refs.textures, ...refs.menuSounds, ...refs.ambience]) setRef(id);
-  }
   // Phase 23.14: the project's glyph images (input.glyphs).
   for (const id of Object.values((content as { input?: { glyphs?: Record<string, string> } }).input?.glyphs ?? {})) setRef(id);
   // Phase 23.9a: the textures (images, 9-slices, icons) and fonts the UI documents and themes use.
@@ -165,13 +152,6 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const c of (content as { animators?: AnimatorController[] }).animators ?? []) for (const id of animatorAssetIds(c)) setRef(id);
   // Phase 9.6: the lightmap atlases of every scene's bake.
   for (const bake of Object.values((content as { lighting?: Record<string, { atlases: string[] }> }).lighting ?? {})) for (const id of bake.atlases) setRef(id);
-  const game = content.game;
-  if (game !== null) {
-    for (const k of ['start', 'jump', 'checkpoint', 'death', 'goal'] as const) {
-      const ref = game.cues[k];
-      if (ref !== null) setRef(ref);
-    }
-  }
   return [...refs.entries()].map(([assetId, version]) => ({ assetId, version })).sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
 }
 

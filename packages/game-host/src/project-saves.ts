@@ -10,13 +10,13 @@
  * metadata (the slot list reads only these), one for the body and one for the
  * thumbnail. The project settings document is small and must be known before
  * the first step (the runtime starts with it), so it lives in the synchronous
- * key/value storage (`localStorage`) next to the flow's settings. Play and an
- * export use different namespaces, as for the flow's saves. No backend is
+ * key/value storage (`localStorage`, see `storage.ts`) next to the player's
+ * other settings. Play and an export use different namespaces. No backend is
  * involved: an exported game keeps its saves in the player's browser.
  */
 import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, settingsDocumentOf, type SaveSchema, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo } from '@thirdlight/runtime';
 
-import { saveChecksum, type SaveStorage } from './save';
+import { saveChecksum, type SaveStorage } from './storage';
 
 /** An asynchronous key/value store (IndexedDB in the browser; a Map in tests). */
 export interface ProjectSaveBackend {
@@ -90,6 +90,12 @@ export interface ProjectSaveService {
   settings(): Readonly<Record<string, SettingsFieldValue>>;
   /** Settled when every request so far is done (tests, a reload). */
   idle(): Promise<void>;
+  /**
+   * Phase 24.7: forget every slot of this game in this browser (the editor's
+   * "Clear Play save"; the deleted level flow's own saves were what it cleared
+   * before); the simulation gets the empty slot list.
+   */
+  clear(): Promise<void>;
   readonly storage: 'indexeddb' | 'memory';
 }
 
@@ -318,6 +324,10 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
       return backend.get(thumbKey(ns, slot));
     },
     settings: () => settingsDoc,
+    clear: async () => {
+      for (let slot = 1; slot <= schema.slots; slot += 1) remove(slot);
+      await chain;
+    },
     idle: async () => {
       let before: Promise<void>;
       do {

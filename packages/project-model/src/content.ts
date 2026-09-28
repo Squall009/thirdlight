@@ -19,7 +19,6 @@ import { canonicalTimelines, validateTimelineReferences, validateTimelines, type
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, projectInputMaps, validateInput } from './input';
-import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flow';
 import { canonicalGraphData, canonicalGraphDocuments, graphAssetRefs, graphDocumentsContext, validateGraphData, validateGraphDocuments, type GraphData, type GraphKindDef } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
 import { BEHAVIOR_FUNCTION_ID_RE, BEHAVIOR_GRAPH_LIMITS, behaviorGraphContext } from './behavior-graph';
@@ -81,7 +80,6 @@ import type {
   AssetRecordV3,
   AssetVersionV3,
   ContentCatalogV3,
-  GameConfig,
   PcmWavMetrics,
   PcmWavRecipe,
 } from './types-v3';
@@ -123,7 +121,6 @@ export const MAX_FONT_VERSIONS = 8;
 /** The longest family name a font version records (characters). */
 export const MAX_FONT_FAMILY_NAME = 64;
 type AssetKindV3 = 'model' | 'audio' | 'texture' | 'music' | 'font';
-export const MAX_GAME_BYTES = 16_384;
 export const MAX_BEHAVIOR_SOURCE_BYTES = 262_144;
 export const MAX_BEHAVIOR_FILES = 16;
 export const MAX_BEHAVIOR_OUTPUT_BYTES = 131_072;
@@ -225,33 +222,17 @@ export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
 
 /** §23.4: a v3 content block carries the five accepted keys plus `game`. */
 const KNOWN_CONTENT_FIELDS_V3 = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game']);
-const GAME_FIELDS = ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'level', 'killY', 'cues'] as const;
-const KNOWN_GAME_FIELDS = new Set<string>(GAME_FIELDS);
-/** Phase 12 (c): the v4 game block — no level bounds, no kill height (game rules live in scripts). */
-const GAME_FIELDS_V2 = ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'cues'] as const;
-/** Phase 15.3: the v4 game block's optional session timing (seconds; absent: `GAME_TIMING_DEFAULTS`). */
-export const GAME_TIMING_FIELDS = ['respawnDelay', 'dropThroughTime', 'settleTime'] as const;
 /**
- * Phase 15.3: the session timing every project played with before it became
- * data (recorded replays stay valid). Generic reasons: a 0.25 s pause after
- * a death reads as a beat before the respawn; falling through a one-way
+ * Phase 15.3: engine timing every project played with before it became data
+ * (recorded replays stay valid). Generic reasons: falling through a one-way
  * platform ignores it for 0.125 s (enough to clear a thin platform at any
  * normal fall speed); the world settles for 0.1 s before the first frame so
- * resting bodies start at rest.
+ * resting bodies start at rest. Phase 24.7: these were the platformer game
+ * block's fields; with the block deleted they are engine defaults.
  */
-export const GAME_TIMING_DEFAULTS = Object.freeze({ respawnDelay: 0.25, dropThroughTime: 0.125, settleTime: 0.1 });
-export const GAME_TIMING_LIMITS = Object.freeze({ respawnDelay: { min: 0, max: 10 }, dropThroughTime: { min: 0.01, max: 2 }, settleTime: { min: 0, max: 1 } });
-const KNOWN_GAME_FIELDS_V2 = new Set<string>([...GAME_FIELDS_V2, ...GAME_TIMING_FIELDS]);
+export const ENGINE_TIMING_DEFAULTS = Object.freeze({ dropThroughTime: 0.125, settleTime: 0.1 });
 /** Phase 12 (c): at most this many scenes per project. */
 export const MAX_SCENES = 64;
-const KNOWN_LEVEL_FIELDS = new Set(['minX', 'maxX', 'minY', 'maxY']);
-const CUE_KEYS = ['start', 'jump', 'checkpoint', 'death', 'goal'] as const;
-const KNOWN_CUE_FIELDS = new Set<string>(CUE_KEYS);
-const GAME_STRING_BOUNDS: Readonly<Record<'title' | 'objective' | 'instructions', number>> = {
-  title: 64,
-  objective: 160,
-  instructions: 320,
-};
 const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
@@ -956,8 +937,8 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
 // Phase 23.6: `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
 // Phase 23.10: `behaviorGroup` (a copy's behavior ticks with its group).
 // Phase 24.4: generic `health` (any object, not only the player) and the primitives `collectible`, `patrol`, `hitbox`.
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox'] as const;
-const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox'] as const;
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox'] as const;
+const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
   const col = comps['collider'];
@@ -970,9 +951,6 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
     // A collider sits on the definition root at unit scale (as on a scene entity);
     // phase 23.0: its rotation rule follows the project's physics dimension (composeV4).
     validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors, false);
-    if (comps['enemy'] !== undefined) {
-      errors.push(withFound({ code: 'component_conflict', path, message: 'an enemy has no collider (its size is its body)', expected: 'enemy or collider' }, ['enemy', 'collider']));
-    }
   }
   if (comps['surface'] !== undefined) {
     validateSurfaceComponent(comps['surface'], `${path}/surface`, errors as never);
@@ -998,8 +976,8 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   }
   // Phase 24.4: a patroller moves itself (as on a scene entity).
   if (comps['patrol'] !== undefined) {
-    const clash = (['mover', 'collider', 'enemy'] as const).filter((c) => comps[c] !== undefined);
-    if (clash.length > 0) errors.push(withFound({ code: 'component_conflict', path, message: `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, expected: 'patrol without mover, collider or enemy' }, ['patrol', ...clash]));
+    const clash = (['mover', 'collider'] as const).filter((c) => comps[c] !== undefined);
+    if (clash.length > 0) errors.push(withFound({ code: 'component_conflict', path, message: `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, expected: 'patrol without mover or collider' }, ['patrol', ...clash]));
   }
 }
 
@@ -2018,173 +1996,14 @@ function canonicalTrust(t: BehaviorTrust): BehaviorTrust {
 
 // ---- content schemaVersion 3: `audio` kind and `content.game` (§23.4) ---------
 
-function gameError(
-  path: string,
-  reason: 'field_missing' | 'field_unexpected' | 'field_type' | 'field_value',
-  message: string,
-  expected: string,
-  found?: unknown,
-): ModelErrorV2 {
-  const e: ModelErrorV2 = { code: 'game_config_invalid', path, message, reason, expected };
-  return found === undefined ? e : withFound(e, found);
-}
-
 /**
- * §23.4/§23.8 step 7: the bounded `content.game` block fails as one
- * block-level `game_config_invalid` carrying `path` and `reason`, except for
- * the §23.10 numeric bounds (`number_not_finite`/`number_out_of_range`).
- * References inside the block are resolved by the cross-block check, never
- * here. `path` is relative to the content block (`/game`, `/game/cues/goal`, …).
+ * Phase 24.7: the platformer game block (`content.game`: the session's
+ * player, camera, spawn, cues and timing) was deleted. The key stays in the
+ * content block as `null` until the 24.8 format bump; a block is refused.
  */
-export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[], version: 1 | 2 = 1): void {
-  if (!isPlainObject(g)) {
-    errors.push(gameError(path, 'field_type', 'content.game must be null or a game-configuration object', 'null or object', g));
-    return;
-  }
-  const fields: readonly string[] = version === 2 ? GAME_FIELDS_V2 : GAME_FIELDS;
-  const known = version === 2 ? KNOWN_GAME_FIELDS_V2 : KNOWN_GAME_FIELDS;
-  for (const k of fields) {
-    if (!Object.prototype.hasOwnProperty.call(g, k)) {
-      errors.push(gameError(`${path}/${k}`, 'field_missing', `required game field '${k}' is missing`, 'present'));
-      return;
-    }
-  }
-  for (const k of Object.keys(g)) {
-    if (!known.has(k)) {
-      errors.push(gameError(`${path}/${pointerSegment(k)}`, 'field_unexpected', 'unknown game field is not permitted (the block has exactly its bounded keys)', `known fields: ${[...known].join(', ')}`, k));
-      return;
-    }
-  }
-  if (g['configVersion'] !== version) {
-    errors.push(gameError(`${path}/configVersion`, 'field_value', `configVersion must be exactly ${version} (a shape change is a version change)`, String(version), g['configVersion']));
-    return;
-  }
-  for (const k of ['title', 'objective', 'instructions'] as const) {
-    const v = g[k];
-    if (typeof v !== 'string') {
-      errors.push(gameError(`${path}/${k}`, 'field_type', `${k} must be a plain-text string`, 'string', v));
-      return;
-    }
-    const max = GAME_STRING_BOUNDS[k];
-    if (v.length < 1 || v.length > max || /[\u0000-\u001f\u007f]/.test(v)) {
-      errors.push(
-        gameError(`${path}/${k}`, 'field_value', `${k} must be 1-${max} characters of plain text without control characters`, `string, 1-${max} chars, no control characters`, v),
-      );
-      return;
-    }
-  }
-  for (const k of ['playerId', 'cameraId', 'spawnId'] as const) {
-    const v = g[k];
-    if (typeof v !== 'string') {
-      errors.push(gameError(`${path}/${k}`, 'field_type', `${k} must be an entity ID string`, 'string', v));
-      return;
-    }
-    if (!ID_RE_V2.test(v)) {
-      errors.push(gameError(`${path}/${k}`, 'field_value', `${k} must match the §5.1 ID syntax`, '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', v));
-      return;
-    }
-  }
-  if (version === 1) {
-  const level = g['level'];
-  if (!isPlainObject(level)) {
-    errors.push(gameError(`${path}/level`, 'field_type', 'level must be an object with minX, maxX, minY, maxY', 'object', level));
-    return;
-  }
-  for (const k of ['minX', 'maxX', 'minY', 'maxY'] as const) {
-    if (level[k] === undefined) {
-      errors.push(gameError(`${path}/level/${k}`, 'field_missing', `required level field '${k}' is missing`, 'present'));
-      return;
-    }
-  }
-  for (const k of Object.keys(level)) {
-    if (!KNOWN_LEVEL_FIELDS.has(k)) {
-      errors.push(gameError(`${path}/level/${pointerSegment(k)}`, 'field_unexpected', 'unknown level field is not permitted', 'minX, maxX, minY, maxY', k));
-      return;
-    }
-  }
-  for (const k of ['minX', 'maxX', 'minY', 'maxY'] as const) {
-    const v = level[k];
-    if (typeof v !== 'number') {
-      errors.push(gameError(`${path}/level/${k}`, 'field_type', 'level must hold finite numbers', 'finite number', v));
-      return;
-    }
-    if (!Number.isFinite(v)) {
-      errors.push(withFound({ code: 'number_not_finite', path: `${path}/level/${k}`, message: 'number must be finite (non-finite values are not JSON-encodable)', expected: 'finite number' }, v));
-      return;
-    }
-    if (Math.abs(v) > MAX_LEN) {
-      errors.push(withFound({ code: 'number_out_of_range', path: `${path}/level/${k}`, message: 'number is outside the allowed range', expected: `|v| <= ${MAX_LEN}` }, v));
-      return;
-    }
-  }
-  const minX = level['minX'] as number;
-  const maxX = level['maxX'] as number;
-  const minY = level['minY'] as number;
-  const maxY = level['maxY'] as number;
-  if (!(minX < maxX) || !(minY < maxY)) {
-    errors.push(gameError(`${path}/level`, 'field_value', 'level must satisfy minX < maxX and minY < maxY', 'minX < maxX and minY < maxY', level));
-    return;
-  }
-  const killY = g['killY'];
-  if (killY === undefined) {
-    errors.push(gameError(`${path}/killY`, 'field_missing', `required game field 'killY' is missing`, 'present'));
-    return;
-  }
-  if (typeof killY !== 'number') {
-    errors.push(gameError(`${path}/killY`, 'field_type', 'killY must be a finite number', 'finite number', killY));
-    return;
-  }
-  if (!Number.isFinite(killY)) {
-    errors.push(withFound({ code: 'number_not_finite', path: `${path}/killY`, message: 'number must be finite (non-finite values are not JSON-encodable)', expected: 'finite number' }, killY));
-    return;
-  }
-  if (Math.abs(killY) > MAX_LEN) {
-    errors.push(withFound({ code: 'number_out_of_range', path: `${path}/killY`, message: 'number is outside the allowed range', expected: `|v| <= ${MAX_LEN}` }, killY));
-    return;
-  }
-  if (!(killY < maxY)) {
-    errors.push(gameError(`${path}/killY`, 'field_value', 'killY must be strictly below level.maxY', `killY < ${maxY}`, killY));
-    return;
-  }
-  }
-  const cues = g['cues'];
-  if (!isPlainObject(cues)) {
-    errors.push(gameError(`${path}/cues`, 'field_type', 'cues must be an object with exactly the five cue keys', 'object', cues));
-    return;
-  }
-  for (const k of CUE_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(cues, k)) {
-      errors.push(gameError(`${path}/cues/${k}`, 'field_missing', `required cue '${k}' is missing`, 'present (null or an audio assetId)'));
-      return;
-    }
-  }
-  for (const k of Object.keys(cues)) {
-    if (!KNOWN_CUE_FIELDS.has(k)) {
-      errors.push(gameError(`${path}/cues/${pointerSegment(k)}`, 'field_unexpected', 'unknown cue key is not permitted', `known cues: ${CUE_KEYS.join(', ')}`, k));
-      return;
-    }
-  }
-  for (const k of CUE_KEYS) {
-    const v = cues[k];
-    if (v === null) continue;
-    if (typeof v !== 'string') {
-      errors.push(gameError(`${path}/cues/${k}`, 'field_type', 'a cue must be null or an audio assetId string', 'string or null', v));
-      return;
-    }
-    if (!ID_RE_V2.test(v)) {
-      errors.push(gameError(`${path}/cues/${k}`, 'field_value', 'a cue assetId must match the §5.1 ID syntax', '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', v));
-      return;
-    }
-  }
-  // Phase 15.3 (v4): the optional session timing.
-  for (const k of GAME_TIMING_FIELDS) {
-    const v = g[k];
-    const lim = GAME_TIMING_LIMITS[k];
-    if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < lim.min || v > lim.max)) {
-      errors.push(gameError(`${path}/${k}`, 'field_value', `${k} must be ${lim.min}-${lim.max} seconds`, `a number ${lim.min}-${lim.max}`, v));
-      return;
-    }
-  }
+export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (g === null) return;
+  errors.push(withFound({ code: 'game_config_invalid', path, message: 'content.game (the platformer game block) was removed in phase 24: build the game rules as project scripts', reason: 'field_value', expected: 'null' } as ModelErrorV2, g));
 }
 
 /**
@@ -2200,7 +2019,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
   for (const k of Object.keys(doc)) {
     if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)'] : [])].join(', ')));
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2337,7 +2156,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['behaviorTrust'] !== undefined) validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
 
   const game = doc['game'];
-  if (game !== undefined && game !== null) validateGameConfig(game, '/game', errors, version === 4 ? 2 : 1);
+  if (game !== undefined && game !== null) validateGameConfig(game, '/game', errors);
 
   if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
 
@@ -2348,7 +2167,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
-  if (doc['flow'] !== undefined) validateFlow(doc['flow'], '/flow', errors);
+  // Phase 24.7: the platformer's level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
+  if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: 'content.flow (levels, lives, score) was removed in phase 24: use the game shell (content.shell) and project scripts', expected: 'no flow' } as ModelErrorV2, 'flow'));
   // Phase 16.1: standalone graph documents.
   if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
   // Phase 20.0: visual effects.
@@ -2427,9 +2247,6 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     (canonical as ContentCatalogV4).scenes = (doc['scenes'] as { sceneId: string; name: string }[]).map((e) => ({ sceneId: e.sceneId, name: e.name }));
     (canonical as ContentCatalogV4).startScenes = [...(doc['startScenes'] as string[])];
   }
-  if (canonical.game !== null && canonicalDocBytes(canonical.game) > MAX_GAME_BYTES) {
-    return { errors: [limitsError('/game', 'game_bytes', canonicalDocBytes(canonical.game), MAX_GAME_BYTES, 'canonical content.game exceeds the byte cap')] };
-  }
   if (canonicalDocBytes(canonical) > MAX_CONTENT_BYTES) {
     return { errors: [limitsError('/content', 'content_bytes', canonicalDocBytes(canonical), MAX_CONTENT_BYTES, 'canonical content block exceeds the byte cap')] };
   }
@@ -2478,45 +2295,6 @@ export function validateTagRegistry(tags: unknown, path: string, errors: ModelEr
   });
 }
 
-export function canonicalGame(g: GameConfig): GameConfig {
-  return {
-    configVersion: g.configVersion === 2 ? 2 : 1,
-    title: g.title,
-    objective: g.objective,
-    instructions: g.instructions,
-    playerId: g.playerId,
-    cameraId: g.cameraId,
-    spawnId: g.spawnId,
-    // v3 only (configVersion 1): v4 has no level bounds or kill height.
-    ...(g.level !== undefined
-      ? {
-          level: {
-            minX: canonNumV3(g.level.minX),
-            maxX: canonNumV3(g.level.maxX),
-            minY: canonNumV3(g.level.minY),
-            maxY: canonNumV3(g.level.maxY),
-          },
-        }
-      : {}),
-    ...(g.killY !== undefined ? { killY: canonNumV3(g.killY) } : {}),
-    cues: {
-      start: g.cues.start,
-      jump: g.cues.jump,
-      checkpoint: g.cues.checkpoint,
-      death: g.cues.death,
-      goal: g.cues.goal,
-    },
-    // Phase 15.3 (v4): the timing comes last (an existing game block keeps its exact canonical bytes).
-    ...(g.respawnDelay !== undefined ? { respawnDelay: g.respawnDelay } : {}),
-    ...(g.dropThroughTime !== undefined ? { dropThroughTime: g.dropThroughTime } : {}),
-    ...(g.settleTime !== undefined ? { settleTime: g.settleTime } : {}),
-  };
-}
-
-function canonNumV3(n: number): number {
-  return n === 0 ? 0 : n;
-}
-
 /** §23.7: canonical v3 content block (fixed six-key order, `game` last). */
 export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
   return {
@@ -2525,7 +2303,7 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     behaviors: sortedRecord(c.behaviors, (b) => b.behaviorId).map(canonicalBehavior),
     settings: canonicalSettings(c.settings),
     behaviorTrust: canonicalTrust(c.behaviorTrust),
-    game: c.game === null ? null : canonicalGame(c.game),
+    game: null,
     // Phase 12 (c): v4 only — the scene index and the start set.
     ...((c as ContentCatalogV4).scenes !== undefined ? { scenes: (c as ContentCatalogV4).scenes.map((e) => ({ sceneId: e.sceneId, name: e.name })) } : {}),
     ...((c as ContentCatalogV4).startScenes !== undefined ? { startScenes: [...(c as ContentCatalogV4).startScenes] } : {}),
@@ -2540,8 +2318,6 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).animators !== undefined && (c as ContentCatalogV4).animators!.length > 0 ? { animators: canonicalAnimators((c as ContentCatalogV4).animators!) } : {}),
     // Phase 9.8: present only when the project has its own input actions.
     ...((c as ContentCatalogV4).input !== undefined ? { input: canonicalInput((c as ContentCatalogV4).input!) } : {}),
-    // Phase 9.10: present only when the project has a game flow.
-    ...((c as ContentCatalogV4).flow !== undefined ? { flow: canonicalFlow((c as ContentCatalogV4).flow!) } : {}),
     // Phase 16.1: present only when there are standalone graphs.
     ...((c as ContentCatalogV4).graphs !== undefined && (c as ContentCatalogV4).graphs!.length > 0 ? { graphs: canonicalGraphDocuments((c as ContentCatalogV4).graphs!) } : {}),
     // Phase 20.0: present only when there are effects.
@@ -2704,34 +2480,6 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
   if (isPlainObject(input) && isPlainObject(input['glyphs'])) {
     for (const [k, id] of Object.entries(input['glyphs'])) {
       if (kindOf.get(id as string) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/input/glyphs/${k}`, message: 'a glyph image must name a texture asset of this project', expected: 'a texture assetId' }, id));
-    }
-  }
-  // Phase 9.10: the flow's music and logo.
-  const flow = doc['flow'];
-  if (isPlainObject(flow) && Array.isArray(flow['levels'])) {
-    const refs = flowAssetRefs(flow as unknown as GameFlow);
-    for (const id of refs.music) {
-      if (kindOf.get(id) !== 'music') errors.push(withFound({ code: 'asset_reference_missing', path: '/flow', message: 'flow music must name a music asset of this project', expected: 'a music assetId' }, id));
-    }
-    // Phase 14.5: the menu sounds are audio assets; a level's ambience audio or music.
-    for (const id of refs.menuSounds) {
-      if (kindOf.get(id) !== 'audio') errors.push(withFound({ code: 'asset_reference_missing', path: '/flow/sounds', message: 'a menu sound must name an audio asset of this project', expected: 'an audio assetId' }, id));
-    }
-    for (const id of refs.ambience) {
-      if (kindOf.get(id) !== 'audio' && kindOf.get(id) !== 'music') {
-        const at = (flow['levels'] as unknown[]).findIndex((l) => isPlainObject(l) && Array.isArray(l['ambience']) && (l['ambience'] as unknown[]).includes(id));
-        errors.push(withFound({ code: 'asset_reference_missing', path: at >= 0 ? `/flow/levels/${at}/ambience` : '/flow', message: 'a level ambience must name an audio or music asset of this project', expected: 'an audio or music assetId' }, id));
-      }
-    }
-    const logo = isPlainObject(flow['ui']) ? flow['ui']['logo'] : undefined;
-    for (const id of refs.textures) {
-      if (kindOf.get(id) === 'texture') continue;
-      if (id === logo) errors.push(withFound({ code: 'asset_reference_missing', path: '/flow/ui/logo', message: 'the menu logo must name a texture asset of this project', expected: 'a texture assetId' }, id));
-      else {
-        // Phase 14.4: a level look's sky image or grading LUT.
-        const at = (flow['levels'] as unknown[]).findIndex((l) => isPlainObject(l) && JSON.stringify(l['environment'] ?? null).includes(JSON.stringify(id)));
-        errors.push(withFound({ code: 'asset_reference_missing', path: at >= 0 ? `/flow/levels/${at}/environment` : '/flow', message: 'this level look image must name a texture asset of this project', expected: 'a texture assetId' }, id));
-      }
     }
   }
   // Phase 9.7: a controller's clips come from model assets of this project.

@@ -1,6 +1,6 @@
 /**
  * Phase 24.4j: the game shell in the game host — the menus around a game
- * that plays as a scene (no game session, no flow), drawn with the project's
+ * (every game plays as a scene), drawn with the project's
  * UI documents (`content.shell`): a title before play, the pause screen (or
  * the engine's pause panel), settings, controls, save and load screens, and
  * the HUD documents shown while the game plays.
@@ -17,9 +17,9 @@
  */
 import type { UiAction } from '@thirdlight/runtime';
 
-import type { FlowUiEdges } from './flow';
-import type { HostDom, HostDomNode } from './hud';
-import type { SaveStorage } from './save';
+import type { UiEdges } from './dom';
+import type { HostDom, HostDomNode } from './dom';
+import type { SaveStorage } from './storage';
 
 export type ShellScreenKey = 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load';
 export type ShellState = ShellScreenKey | 'playing';
@@ -95,7 +95,7 @@ export interface ShellController {
   start(inPlay?: boolean): void;
   engine(action: Extract<UiAction, { do: 'engine' }>): void;
   /** The frame's ui edges the UI documents left (pause, cancel; the pause panel's navigation). */
-  handleEdges(edges: FlowUiEdges): void;
+  handleEdges(edges: UiEdges): void;
   readonly screen: ShellState;
   /** `$flow.shell`. */
   values(): Readonly<Record<string, unknown>>;
@@ -320,7 +320,7 @@ export function createShellController(deps: ShellDeps): ShellController {
           return;
         }
         default:
-          return; // the flow's own actions; mute and rebinding are the host's
+          return; // actions the shell does not own (mute and rebinding are the host's)
       }
     },
     handleEdges(e): void {

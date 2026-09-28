@@ -5,17 +5,15 @@
  * diagnostics, module interfaces), `ERROR_CODES`; M2 additions:
  * `ActionFrame`, `JumpPhase`, `ActionSource`, `createRecordedActionSource`,
  * `SimulationPhase`, `StepContext`, `GameplaySettings`, `PhysicsPort`,
- * `PhysicsStepClient`; M3 additions (gameplay.md / runtime.md §15):
- * `GameSession`, `GameSessionPort`, `GameView`, `PhysicsResetPort`, the
- * `GameContent`/`RunSnapshot`/`ModuleResetContext` types, `SIMULATION_PHASE_ORDER`
- * with the appended `gameplay`/`camera` phases, and the `getGameView`/
- * `gameCommand`/`setViewport` run surface.
+ * `PhysicsStepClient`; `PhysicsResetPort`, `ModuleResetContext` and
+ * `SIMULATION_PHASE_ORDER`. Phase 24.7: the platformer game session (its run
+ * states, game view and the `gameplay`/`camera` phases) was deleted.
  *
  * Thirdlight M1 play/runtime core (docs/contracts/runtime.md, packet 08)
  * plus the M2 module-set lifecycle (packet 29, runtime.md §12/§13):
  *
  * - the runtime snapshot input (strict, re-validated, deep-frozen; v3 and
- *   v4 scenes with the `game` wrapper field — v1/v2 were removed in 9.3);
+ *   v4 scenes — v1/v2 were removed in 9.3);
  * - the instantiate/start/stop/dispose lifecycle with a single frame-driver
  *   owner, the `failed` state and fail-stop (no rollback, fresh restart only);
  * - the separate mutable simulation state and the phase-scoped write guard;
@@ -124,12 +122,7 @@ export { DuplicateMoveError, PhaseViolationError } from './guard';
 export {
   type CameraInfo,
   type DiagnosticErrorEntry,
-  type GameCameraBounds,
-  type GameContent,
   type PlayerCapsule,
-  type GameEvent,
-  type GameEventKind,
-  type GameSessionPort,
   type BehaviorTagQuery,
   type BehaviorSceneControl,
   type BehaviorWorldView,
@@ -139,8 +132,6 @@ export {
   type SceneLoadRequest,
   type SceneSetView,
   type SceneStatus,
-  type GameView,
-  type GameZoneRole,
   type GameplaySettings,
   type InstantiateConfig,
   type InterpolatedState,
@@ -149,16 +140,12 @@ export {
   type ModuleConfig,
   type Character3DQueries,
   type ModuleResetContext,
-  type MotionSegment,
-  type PlayerMotion,
   type Runtime,
   type RuntimeDiagnostics,
   type RuntimeScene,
   type RuntimeSnapshot,
   type RuntimeSnapshotEntity,
   type RuntimeStateName,
-  type RunSnapshot,
-  type RunState,
   type SimEntityData,
   type SimState,
   type SimulationModule,
@@ -168,21 +155,8 @@ export {
   type SimulationRegistry,
   type StepContext,
   type TransformState,
-  type ViewportInfo,
   SIMULATION_PHASE_ORDER,
 } from './types';
-export {
-  CAMERA_MAX_STEP,
-  CAMERA_Z,
-  DEFAULT_ASPECT,
-  GameSession,
-  MAX_GAME_EVENTS,
-  RESPAWN_DELAY_STEPS,
-  type BoundaryOutcome,
-  type GameCommandAccepted,
-  type GameCommandRejection,
-  type RunCommand,
-} from './game-session';
 export {
   BUILTIN_MODULES,
   PLATFORMER_MODULE_ID,
@@ -190,7 +164,7 @@ export {
   registerSimulationModule,
   validatePhaseList,
 } from './registry';
-export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, instantiateRuntime, sessionTimingSteps } from './runtime';
+export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
 // Phase 23.3: the per-step budget of 3D script queries; the pointer state the runtime keeps.
 export { QUERY_LIMIT_3D, type HeldPointer } from './runtime';
 export {
@@ -248,7 +222,7 @@ export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from 
 export { createTagQuery } from './behavior';
 export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf } from './scene-set';
 // Phase 15.3: the tuning defaults hosts and editors read (the values are project-model's).
-export { BLOCK_DEFAULTS, CAMERA_FOLLOW_DEFAULTS, DEFAULT_CONTROLLER_TUNING, GAME_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
+export { BLOCK_DEFAULTS, DEFAULT_CONTROLLER_TUNING, ENGINE_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
 // Phase 9.7/9.8: animators and ctx.input.
 export { AnimatorMachine, ANIMATOR_SPEED_LIMITS, MAX_SCRIPT_MORPHS, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
@@ -275,7 +249,7 @@ export type { BehaviorCollectible, BehaviorHealth, BehaviorHitbox, BehaviorPatro
 export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random';
 export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
-export type { AnimatorEventRecord, AudioFinishedEvent, AudioMusicState, AudioPlayOptions, AudioStingerOptions, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';
+export type { AnimatorEventRecord, AudioFinishedEvent, AudioMusicState, AudioPlayOptions, AudioStingerOptions, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest } from './types';
 // Phase 23.2: the 3D kinematic character controller module.
 export { CHARACTER_3D_MODULE_ID, RUN_ACTION, character3DSpec, createCharacter3DModule, type Character3DStatus } from './character3d';
 export { character3DPhysicsOf } from './scene-set';

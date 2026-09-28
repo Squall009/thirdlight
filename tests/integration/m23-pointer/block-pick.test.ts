@@ -53,7 +53,7 @@ describe('phase 23.3: a 3D hit on a block layer maps to its cell', () => {
     ];
     const physics = physics3DConfigOf(entities, SETTINGS);
     expect(physics?.noCharacter).toBe(true);
-    const snapshot = { snapshotId: 'bp@r1', projectId: 'bp', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, blocks: [data] }, game: null, blockTypes: TYPES };
+    const snapshot = { snapshotId: 'bp@r1', projectId: 'bp', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, blocks: [data] }, blockTypes: TYPES };
     const h = await startHarness('single', { snapshot, settings: SETTINGS, physics, behaviors: [behaviorModule('probe', PROBE)], host: { buildId: 'b' } });
     try {
       let now = 10;

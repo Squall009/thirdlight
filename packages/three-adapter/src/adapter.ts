@@ -29,7 +29,7 @@ import type { MaterialFunctionLike } from './material-graph';
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
-import { releaseEmissiveLooks, setEmissiveLook, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
+import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
@@ -63,11 +63,10 @@ import {
   SHADOW_PROFILE,
   type AuthoredLight,
   type AuthoredSurface,
-  type ShadowLevel,
+  type ShadowRegion,
   type ShadowPlan,
   type ShadowReason,
 } from './lighting';
-import { createFadeTracker } from './fade';
 import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
 import {
   createRenderer,
@@ -243,10 +242,9 @@ export interface SceneAdapter {
   /** Phase 9.10: a player's quality setting (low/medium/high) over the environment's. */
   setQuality?(level: QualityLevel): void;
   /**
-   * Phase 14.4: the playing level's look (sky, fog, post, wind) laid over the
-   * project environment; null = the project environment. Needs the
-   * `environment` option for sky/fog/post (the wrapper passes it whenever a
-   * level has a look) and the `materials` option for wind.
+   * Phase 14.4: a look (sky, fog, post, wind) laid over the project
+   * environment; null = the project environment. Needs the `environment`
+   * option for sky/fog/post and the `materials` option for wind.
    */
   setEnvironmentLayer?(layer: EnvironmentLayerLike | null): void;
   /**
@@ -254,12 +252,6 @@ export interface SceneAdapter {
    * game's (an editor preview; null: the game's again).
    */
   previewEnvironmentBlend?(view: EnvironmentBlendView | null): void;
-  /**
-   * Phase 14.5: draw the camera moved by an offset (m) from where the game
-   * puts it — the title screen's background scene and pan; null = none.
-   * Presentation only (the simulation's camera does not move).
-   */
-  setCameraOffset?(offset: readonly [number, number, number] | null): void;
   /**
    * Phase 23.9a: project an entity's world position (or a world point), plus
    * a world offset, through the camera of the last rendered frame: `out` =
@@ -395,10 +387,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         )
       : null;
   lightmapsLive = lightmaps;
-  /** Phase 9.9: entities the runtime hides (collected, defeated). */
+  /** Phase 9.9: entities the runtime hides (`ctx.game.setVisible`, a collected collectible). */
   const hiddenIds = new Set<string>();
-  /** Phase 15.3: entities fading out (a defeated enemy with `defeat: "fade"`), drawn at the runtime's opacity. */
-  const fades = createFadeTracker();
   /** Phase 9.7: the animator poses the runtime committed, played on the models. */
   const animatorPlayers = new Map<string, { instance: unknown; player: AnimatorPlayer }>();
   const applyAnimatorPoses = (): void => {
@@ -433,11 +423,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The size last handed to the environment renderer (it rebuilds its post stack on a change). */
   let environmentSize: [number, number] | null = null;
   let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
-  // Phase 14.5: the camera offset (title background/pan), and what was last
-  // added so a camera the sync did not move this frame is not moved twice.
-  let cameraOffset: [number, number, number] | null = null;
-  let appliedOffset: { offset: [number, number, number]; at: [number, number, number] } | null = null;
-  /** Phase 14.4: the playing level's look (null: the project environment). */
+  /** Phase 14.4: a look laid over the project environment (null: none). */
   let environmentLayer: EnvironmentLayerLike | null = null;
   /**
    * Phase 23.18: the lights environment presets may change (scene-level
@@ -457,7 +443,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   for (const p of (opts.environment?.value.presets ?? []) as unknown as readonly PresetOf[]) envPresets.set(p.presetId, p);
   const envTagBits = new Map<string, number>();
   for (const t of (opts.snapshot as { tags?: readonly { bit: number; name: string }[] }).tags ?? []) envTagBits.set(t.name.toLowerCase(), t.bit);
-  /** What the renderer draws: the project environment with the level's look over it (null when nothing is drawn, as without an environment). */
+  /** What the renderer draws: the project environment with the layered look over it (null when nothing is drawn, as without an environment). */
   const effectiveEnvironment = (): EnvironmentLike | null => {
     const v = layerEnvironment(opts.environment?.value ?? null, environmentLayer);
     return environmentHasLook(v) ? v : null;
@@ -567,11 +553,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // structurally and never re-validates (the runtime already did).
   const sceneDoc = opts.snapshot.scene;
   const isV3 = sceneDoc.schemaVersion === 3 || sceneDoc.schemaVersion === 4;
-  const gameBlock = opts.snapshot.game;
-  /** The §41.1.3 input bounds; required on every runtime-validated v3
-   *  snapshot (`game.level`). The null fallback below is defensive only. */
-  const authoredLevel: ShadowLevel | null =
-    isV3 && gameBlock !== null && gameBlock !== undefined ? (gameBlock.level ?? null) : null;
   const authoredLights: AuthoredLight[] = [];
   if (isV3) {
     for (const e of sceneDoc.entities) {
@@ -592,15 +573,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   /** Phase 17.4: the key light's shadow map settings (its data over the defaults). */
   const keyShadow = directionalShadowSettings(keyLight);
-  // Phase 12 (c): a v4 game has no level bounds; the shadow region is a
-  // square that follows the camera (planned here around its start), half its
-  // side the light's `shadowExtent` (phase 17.4; 24 m by default).
-  const followShadow = isV3 && authoredLevel === null;
+  // Phase 12 (c): the shadow region is a square that follows the camera
+  // (planned here around its start), half its side the light's
+  // `shadowExtent` (phase 17.4; 24 m by default).
+  const followShadow = isV3;
   const startCamera = sceneDoc.entities.find((e) => e.components.camera !== undefined)?.components.transform.position ?? [0, 0, 0];
   const followHalf = keyShadow.extent;
-  const level: ShadowLevel | null = followShadow
+  const shadowRegion: ShadowRegion | null = followShadow
     ? { minX: startCamera[0] - followHalf, maxX: startCamera[0] + followHalf, minY: startCamera[1] - followHalf, maxY: startCamera[1] + followHalf }
-    : authoredLevel;
+    : null;
   /** The planned shadow outcome (probeOk: true — the capability probe runs
    *  at the first render; the webgl2 requirement is enforced at renderer
    *  creation, where a WebGL-1 context for a v3 scene is a hard
@@ -609,13 +590,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     webgl2: true,
     castShadow: keyLight?.castShadow === true,
     probeOk: true,
-    level: level ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+    region: shadowRegion ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
     direction: keyLight?.direction ?? [0, -1, 0],
   });
   // `planned` always resolves `ok: true` here (webgl2: true) — the hard
   // outcome is unreachable on this planning path.
   const keyPlan: ShadowPlan = planned.ok ? planned.plan : deriveShadowCamera(
-    level ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+    shadowRegion ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
     keyLight?.direction ?? [0, -1, 0],
   );
   /** The current shadow realization state; recorded once per realized
@@ -718,7 +699,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // taken literally from the `surface` component. No `surface` ⇒ the
       // M1 Lambert path, unchanged.
       // Phase 21.3: boxes with equal values share one material (a per-object
-      // look — the checkpoint glow, a fade, a lightmap — copies it first), so
+      // look — `ctx.look`, a lightmap — copies it first), so
       // they can be drawn together.
       const material = sharedBoxMaterial(surface, box.material.color);
       own.geometries.push(geometry);
@@ -783,8 +764,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       effectEntities.delete(id);
     }
     const obj = objects.get(id);
-    // Phase 21.5: per-object looks first (a fade's and a glow's own copies), then the shared paths undo.
-    fades.release(id);
+    // Phase 21.5: per-object looks first (a look override's own copies), then the shared paths undo.
     if (obj !== undefined) releaseEmissiveLooks(obj);
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
@@ -833,7 +813,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     scene.add(dirLight);
     scene.add(ambient);
   } else {
-    for (const plannedLight of planSceneLights(authoredLights, level, planned)) {
+    for (const plannedLight of planSceneLights(authoredLights, shadowRegion, planned)) {
       if (plannedLight.kind === 'ambient') {
         // §41.1.2 rule 1: no shadow, no position dependence; the
         // intensity is used exactly as authored.
@@ -889,40 +869,21 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Structural reads over the (deep-frozen, runtime-validated) snapshot —
     // the adapter never re-validates (the runtime already did).
     const { models: modelEntities, pieces: modelPieces, animations: modelAnimationEntities, instances: instanceEntities } = modelRefsOf(opts.snapshot.scene.entities);
-    const playerId = isV3 && opts.snapshot.game !== null && opts.snapshot.game !== undefined
-      ? (opts.snapshot.game as { playerId?: unknown }).playerId
-      : undefined;
-    const hasPlayer = typeof playerId === 'string';
-    const neutralMotion = { speed: 0, grounded: true } as const;
-    // The committed view accessor (delivery.md (M4) §2.4 / presentation.md
-    // §41.3.6 rule 7 clarification): the player's own animated model gets
-    // the committed `playerMotion` (full idle/run/airborne selection);
-    // every NON-player animated entity gets the constant neutral motion
-    // (the accepted pure selector then yields `idle` — no blending, no
-    // run/airborne). `null` pre-commit (no committed view yet): the
-    // controller idles. The selector reads the committed view only (rule 1).
+    // Phase 24.7: no game session drives the roles (the idle/run/airborne
+    // profile of an older project): every animated entity gets the constant
+    // neutral motion at the runtime's step, so the accepted pure selector
+    // yields `idle` — no blending, no run/airborne. The selector reads no
+    // runtime internals (rule 1).
     const viewFor = (entityId: string): AnimationRoleView | null => {
-      const getGameView = (opts.runtime as { getGameView?: () => { ok: true; view: { stepIndex?: unknown; playerMotion?: { speed?: unknown; grounded?: unknown } } } }).getGameView;
-      if (typeof getGameView !== 'function') return null;
-      let view: { ok: true; view: { stepIndex?: unknown; playerMotion?: { speed?: unknown; grounded?: unknown } } };
+      void entityId;
+      let stepIndex = 0;
       try {
-        view = getGameView.call(opts.runtime);
+        const d = opts.runtime.getDiagnostics();
+        if (d.ok && Number.isFinite(d.diagnostics.stepIndex)) stepIndex = Math.trunc(d.diagnostics.stepIndex);
       } catch {
         return null;
       }
-      if (view === null || typeof view !== 'object' || view.ok !== true || typeof view.view !== 'object') return null;
-      const stepIndex = typeof view.view.stepIndex === 'number' && Number.isFinite(view.view.stepIndex) ? Math.trunc(view.view.stepIndex) : 0;
-      if (hasPlayer && playerId === entityId) {
-        const pm = view.view.playerMotion;
-        return {
-          stepIndex,
-          playerMotion: {
-            speed: typeof pm?.speed === 'number' && Number.isFinite(pm.speed) ? pm.speed : 0,
-            grounded: pm?.grounded !== false,
-          },
-        };
-      }
-      return { stepIndex, playerMotion: { speed: neutralMotion.speed, grounded: neutralMotion.grounded } };
+      return { stepIndex, playerMotion: { speed: 0, grounded: true } };
     };
     const result = createModelsRealization({
       schemaVersion: sceneDoc.schemaVersion,
@@ -1073,40 +1034,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (typeof canvasLike?.setAttribute === 'function') canvasLike.setAttribute('data-tl-depth', depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard');
   }
 
-  // The active checkpoint shows its authored activation look
-  // (`gameZone.activation`: emissive color + intensity); the look reverts
-  // when the checkpoint is no longer active (e.g. a replay).
-  let shownCheckpoint: string | null = null;
-  const activationOf = (id: string): { emissive: string; emissiveIntensity: number } | null => {
-    const e = entityDocs.get(id);
-    const act = (e?.components as { gameZone?: { activation?: { emissive?: unknown; emissiveIntensity?: unknown } } } | undefined)?.gameZone?.activation;
-    if (act === undefined || typeof act.emissive !== 'string') return null;
-    return { emissive: act.emissive, emissiveIntensity: typeof act.emissiveIntensity === 'number' ? act.emissiveIntensity : 1 };
-  };
-  const setActivation = (id: string, look: { emissive: string; emissiveIntensity: number } | null): void => {
-    // A project material is shared: the glow gets each mesh its own copy first (phase 9.4 rule).
-    const obj = objects.get(id);
-    if (obj !== undefined) setEmissiveLook(obj, look);
-  };
-  const syncCheckpointLook = (): void => {
-    const getGameView = (opts.runtime as { getGameView?: () => { ok: boolean; view?: { checkpointId?: string | null } } }).getGameView;
-    if (typeof getGameView !== 'function') return;
-    let active: string | null = null;
-    try {
-      const gv = getGameView.call(opts.runtime);
-      active = gv.ok ? (gv.view?.checkpointId ?? null) : null;
-    } catch {
-      return;
-    }
-    if (active === shownCheckpoint) return;
-    if (shownCheckpoint !== null) setActivation(shownCheckpoint, null);
-    if (active !== null) {
-      const look = activationOf(active);
-      if (look !== null) setActivation(active, look);
-    }
-    shownCheckpoint = active;
-  };
-
   // Phase 24.4h: the simulation's per-object look overrides (ctx.look): applied
   // when one changes, and again when the object's meshes change (a model that
   // finished loading after the override was set); cleared ones give the
@@ -1128,8 +1055,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (looks.has(id)) continue;
       const obj = objects.get(id);
       if (obj !== undefined) setEntityLook(obj, null);
-      // A zone activation look on the same object is applied again by its own sync.
-      if (shownCheckpoint === id) shownCheckpoint = null;
       shownLooks.delete(id);
     }
     for (const [id, look] of looks) {
@@ -1163,7 +1088,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (live.has(sceneId)) continue;
       for (const id of ids) lightmaps?.release(id);
       realization?.removeEntities(ids);
-      if (shownCheckpoint !== null && ids.has(shownCheckpoint)) shownCheckpoint = null;
       for (const id of ids) shownLooks.delete(id);
       // Children before parents (reverse document order).
       for (const id of [...ids].reverse()) releaseEntity(id);
@@ -1194,7 +1118,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         releaseEntity(id);
         realizedSpawned.delete(id);
         hiddenIds.delete(id);
-        if (shownCheckpoint === id) shownCheckpoint = null;
         shownLooks.delete(id);
       }
     }
@@ -1324,20 +1247,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera.far = lens.far;
   }
 
-  /** Phase 14.5: after the transform sync, move the drawn camera by the offset. */
-  function applyCameraOffset(): void {
-    if (camera === null) return;
-    const p = camera.position;
-    if (appliedOffset !== null && p.x === appliedOffset.at[0] && p.y === appliedOffset.at[1] && p.z === appliedOffset.at[2]) {
-      // Not synced this frame: take the last offset back off first.
-      p.set(p.x - appliedOffset.offset[0], p.y - appliedOffset.offset[1], p.z - appliedOffset.offset[2]);
-    }
-    appliedOffset = null;
-    if (cameraOffset === null) return;
-    p.set(p.x + cameraOffset[0], p.y + cameraOffset[1], p.z + cameraOffset[2]);
-    appliedOffset = { offset: [...cameraOffset], at: [p.x, p.y, p.z] };
-  }
-
   function renderFrame(): { ok: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
     if (contextLost) {
@@ -1394,10 +1303,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     applyResolvedCamera();
-    applyCameraOffset();
-    syncCheckpointLook();
     syncEntityLooks();
-    // Phase 9.9: collected pickups and defeated enemies disappear (and come back on a replay).
+    // Phase 9.9: the objects the simulation hides disappear (and come back on a restart).
     const hiddenNow = (opts.runtime as { hiddenEntities?: () => ReadonlySet<string> }).hiddenEntities?.();
     if (hiddenNow !== undefined) {
       for (const id of hiddenIds) {
@@ -1413,7 +1320,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         hiddenIds.add(id);
       }
     }
-    fades.apply(objects, (opts.runtime as { entityOpacity?: () => ReadonlyMap<string, number> }).entityOpacity?.());
     // Phase 20.2: the effect requests of the steps since the last frame (presentation only), then the effects step.
     if (effects !== null) {
       for (const req of (opts.runtime as { takeEffectRequests?: () => EffectRequestLike[] }).takeEffectRequests?.() ?? []) effects.request(req, (id) => objects.get(id));
@@ -1702,7 +1608,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     effects?.dispose();
     for (const h of effectMaterials.values()) h.geometry.dispose();
     effectMaterials.clear();
-    fades.dispose();
     animatorPlayers.clear();
     lightmaps?.dispose();
     runtimeMaterials?.dispose();
@@ -1776,9 +1681,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     setQuality(level: QualityLevel): void {
       playerQuality = level;
       environmentRenderer?.setQuality(level);
-    },
-    setCameraOffset(offset: readonly [number, number, number] | null): void {
-      cameraOffset = offset !== null && offset.every((v) => Number.isFinite(v)) ? [offset[0], offset[1], offset[2]] : null;
     },
     projectToScreen(target, out): boolean {
       if (disposed || camera === null) return false;

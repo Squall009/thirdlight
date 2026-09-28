@@ -13,9 +13,8 @@ import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type MutationResult, type WorkspaceService } from '@thirdlight/workspace';
 
-import { REPO_ROOT, makeRoot, seedProject } from './helpers';
+import { makeRoot, seedV3DemoProject } from './helpers';
 
-const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const PROJECT_ID = 'demo-0003';
 const SELF = { backendId: 'tb-' + 'b'.repeat(32), pid: 6200 };
 
@@ -41,7 +40,7 @@ function run(svc: WorkspaceService, revision: number, op: string, args: Record<s
 describe('phase 12 — hierarchy edits on disk', () => {
   it('stores folders and flags in the scene, and every record reloads after a restart', () => {
     const root = makeRoot('hierarchy-store');
-    seedProject(root, join(STORAGE, 'project-v3-demo-0003'), PROJECT_ID);
+    seedV3DemoProject(root, PROJECT_ID);
     const svc = open(root);
     let rev = (svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { revision: number }).revision;
 

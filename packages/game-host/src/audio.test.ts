@@ -168,7 +168,7 @@ function cue(
   runId: string,
   kind: GameCueEvent['kind'],
   step: number,
-  assetId = 'cue-jump',
+  assetId = 'cue-hit',
 ): GameCueEvent {
   return { id: `${runId}/${kind}/${step}`, kind, assetId, runId, stepIndex: step };
 }
@@ -186,14 +186,14 @@ async function settle(times = 6): Promise<void> {
 describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
   it('registerCue is bytes-in only: empty / non-Uint8Array bytes are audio_invalid_bytes', () => {
     const { owner } = makeEnv();
-    expect(owner.registerCue('cue-jump', new Uint8Array(0))).toEqual({
+    expect(owner.registerCue('cue-hit', new Uint8Array(0))).toEqual({
       ok: false,
       error: expect.objectContaining({ code: 'audio_invalid_bytes' }),
     });
-    expect((owner.registerCue('cue-jump', 42 as unknown as Uint8Array) as { error: { code: string } }).error.code).toBe(
+    expect((owner.registerCue('cue-hit', 42 as unknown as Uint8Array) as { error: { code: string } }).error.code).toBe(
       'audio_invalid_bytes',
     );
-    expect(owner.registerCue('cue-jump', new Uint8Array([1, 2, 3, 4]))).toEqual({ ok: true });
+    expect(owner.registerCue('cue-hit', new Uint8Array([1, 2, 3, 4]))).toEqual({ ok: true });
     expect(owner.status().state).toBe('blocked'); // pre-gesture, factory present
     owner.dispose();
   });
@@ -205,7 +205,7 @@ describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
     expect(silent.status()).toEqual({ state: 'unsupported', reason: 'no_audio_context' });
     // Registration still works while unsupported (the game plays silently;
     // bytes are stored, decode is deferred).
-    expect(silent.registerCue('cue-jump', new Uint8Array([1, 2, 3]))).toEqual({ ok: true });
+    expect(silent.registerCue('cue-hit', new Uint8Array([1, 2, 3]))).toEqual({ ok: true });
     await expect(silent.unlock()).resolves.toEqual({ state: 'unsupported', reason: 'no_audio_context' });
     owner.dispose();
   });
@@ -215,7 +215,7 @@ describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
     const { owner } = makeEnv([ctx]);
     const input = new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
     const before = input.slice();
-    expect(owner.registerCue('cue-jump', input)).toEqual({ ok: true });
+    expect(owner.registerCue('cue-hit', input)).toEqual({ ok: true });
     await owner.unlock();
     await settle();
     expect(ctx.decodedBytes).toHaveLength(1);
@@ -235,12 +235,12 @@ describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
     const [badGate, goodGate] = ctx.gates;
     badGate!.reject(new Error('EncodingError: malformed'));
     await settle();
-    const badStatus = owner.submit([cue('run-1', 'jump', 1, 'bad')]);
+    const badStatus = owner.submit([cue('run-1', 'hit', 1, 'bad')]);
     expect(badStatus).toEqual({ ok: true }); // soft: never a throw across the boundary
     expect(owner.diagnostics().some((d) => d.code === 'audio_decode_failed' && d.assetId === 'bad')).toBe(true);
     goodGate!.release(new FakeBuffer(0.25));
     await settle();
-    expect(owner.submit([cue('run-1', 'jump', 2, 'good')])).toEqual({ ok: true });
+    expect(owner.submit([cue('run-1', 'hit', 2, 'good')])).toEqual({ ok: true });
     expect(ctx.liveVoices()).toBe(1); // the good cue still sounds
     owner.dispose();
   });
@@ -272,8 +272,8 @@ describe('packet 54 — unlock (local gesture) and the sound-off ladder', () => 
     expect(env.factoryCount).toBe(1); // one context per owner, created at the gesture
     expect(ctx.resumeCount).toBe(1);
     // No sound while blocked — but the game continues (submit is ok).
-    owner.registerCue('cue-jump', new Uint8Array([1]));
-    expect(owner.submit([cue('run-1', 'jump', 1)])).toEqual({ ok: true });
+    owner.registerCue('cue-hit', new Uint8Array([1]));
+    expect(owner.submit([cue('run-1', 'hit', 1)])).toEqual({ ok: true });
     expect(ctx.sources).toHaveLength(0);
     // The in-game local "Enable sound" gesture retries:
     await expect(owner.unlock()).resolves.toEqual({ state: 'ready', muted: false, unlocked: true });
@@ -301,7 +301,7 @@ describe('packet 54 — unlock (local gesture) and the sound-off ladder', () => 
   it('a context that is closed on creation is no_device (soft blocked, not an error)', async () => {
     const { owner } = makeEnv([new FakeContext(true)]);
     await expect(owner.unlock()).resolves.toEqual({ state: 'blocked', reason: 'no_device' });
-    expect(owner.submit([cue('run-1', 'jump', 1)])).toEqual({ ok: true }); // the game continues
+    expect(owner.submit([cue('run-1', 'hit', 1)])).toEqual({ ok: true }); // the game continues
     owner.dispose();
   });
 
@@ -331,7 +331,7 @@ describe('packet 54 — unlock (local gesture) and the sound-off ladder', () => 
 });
 
 describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () => {
-  async function armed(assetId = 'cue-jump'): Promise<{ owner: GameAudioOwner; ctx: FakeContext }> {
+  async function armed(assetId = 'cue-hit'): Promise<{ owner: GameAudioOwner; ctx: FakeContext }> {
     const ctx = new FakeContext();
     const { owner } = makeEnv([ctx]);
     owner.registerCue(assetId, new Uint8Array([1, 2, 3, 4]));
@@ -342,7 +342,7 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
 
   it('the full cue path: one source per distinct committed id, dedupe is a no-op', async () => {
     const { owner, ctx } = await armed();
-    const ev = cue('run-1', 'jump', 1);
+    const ev = cue('run-1', 'hit', 1);
     expect(owner.submit([ev])).toEqual({ ok: true });
     expect(owner.submit([ev, ev, ev])).toEqual({ ok: true }); // rule 4: at most once
     expect(ctx.sources).toHaveLength(1);
@@ -351,7 +351,7 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
     expect(source.connections).toHaveLength(1); // source → gain
     expect((source.connections[0] as FakeGain).connections).toHaveLength(1); // gain → destination
     expect((source.connections[0] as FakeGain).gain.value).toBe(1);
-    owner.submit([cue('run-1', 'checkpoint', 5, 'cue-checkpoint')]); // a different id needs the asset…
+    owner.submit([cue('run-1', 'chime', 5, 'cue-chime')]); // a different id needs the asset…
     expect(owner.diagnostics().some((d) => d.code === 'cue_skipped')).toBe(true); // …which was never registered
     expect(ctx.liveVoices()).toBe(1);
     owner.dispose();
@@ -360,10 +360,10 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
   it('the voice cap is 8: the 9th cue is dropped with a bounded voice_cap diagnostic, never queued', async () => {
     const { owner, ctx } = await armed();
     for (let step = 0; step < AUDIO_MAX_VOICES; step += 1) {
-      owner.submit([cue('run-1', 'jump', step)]);
+      owner.submit([cue('run-1', 'hit', step)]);
     }
     expect(ctx.liveVoices()).toBe(AUDIO_MAX_VOICES);
-    owner.submit([cue('run-1', 'jump', 100)]); // the 9th
+    owner.submit([cue('run-1', 'hit', 100)]); // the 9th
     expect(ctx.liveVoices()).toBe(AUDIO_MAX_VOICES);
     expect(ctx.sources).toHaveLength(AUDIO_MAX_VOICES); // no 9th source was created
     const caps = owner.diagnostics().filter((d) => d.code === 'voice_cap');
@@ -371,7 +371,7 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
     expect(caps[0]!.message).toContain('voice_cap');
     // A voice ends → the next cue plays (the slot is released on ended).
     ctx.sources[0]!.fireEnded();
-    owner.submit([cue('run-1', 'jump', 101)]);
+    owner.submit([cue('run-1', 'hit', 101)]);
     expect(ctx.liveVoices()).toBe(AUDIO_MAX_VOICES);
     expect(ctx.sources).toHaveLength(AUDIO_MAX_VOICES + 1);
     owner.dispose();
@@ -381,10 +381,10 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
     for (const [asked, cap] of [[3, 3], [20, 20], [100, 32], [0, 1]] as const) {
       const ctx = new FakeContext();
       const owner = createGameAudioOwner({ contextFactory: () => ctx, maxVoices: asked });
-      owner.registerCue('cue-jump', new Uint8Array([1, 2, 3, 4]));
+      owner.registerCue('cue-hit', new Uint8Array([1, 2, 3, 4]));
       await owner.unlock();
       await settle();
-      for (let step = 0; step < cap + 5; step += 1) owner.submit([cue('run-1', 'jump', step)]);
+      for (let step = 0; step < cap + 5; step += 1) owner.submit([cue('run-1', 'hit', step)]);
       expect(ctx.liveVoices(), `maxVoices ${asked}`).toBe(cap);
       expect(owner.diagnostics().filter((d) => d.code === 'voice_cap')).toHaveLength(5);
       owner.dispose();
@@ -393,8 +393,8 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
 
   it('the diagnostic ring is bounded (drop-oldest at AUDIO_MAX_DIAGNOSTICS)', async () => {
     const { owner } = await armed();
-    for (let step = 0; step < AUDIO_MAX_VOICES; step += 1) owner.submit([cue('run-1', 'jump', step)]);
-    for (let step = 0; step < 100; step += 1) owner.submit([cue('run-1', 'jump', 1000 + step)]);
+    for (let step = 0; step < AUDIO_MAX_VOICES; step += 1) owner.submit([cue('run-1', 'hit', step)]);
+    for (let step = 0; step < 100; step += 1) owner.submit([cue('run-1', 'hit', 1000 + step)]);
     expect(owner.diagnostics()).toHaveLength(AUDIO_MAX_DIAGNOSTICS);
     owner.dispose();
   });
@@ -403,14 +403,14 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
     const ctx = new FakeContext();
     ctx.gateDecodes = true;
     const { owner } = makeEnv([ctx]);
-    owner.registerCue('cue-jump', new Uint8Array([1, 2, 3, 4]));
+    owner.registerCue('cue-hit', new Uint8Array([1, 2, 3, 4]));
     owner.registerCue('late', new Uint8Array([5, 6, 7, 8]));
     await owner.unlock();
     expect(ctx.gates).toHaveLength(2); // both decodes are in flight (gated)
-    owner.submit([cue('run-1', 'jump', 1)]); // cue skipped: still decoding
+    owner.submit([cue('run-1', 'hit', 1)]); // cue skipped: still decoding
     expect(ctx.liveVoices()).toBe(0);
     // stop()/replay: a new run arrives.
-    owner.submit([cue('run-2', 'start', 1, 'cue-jump')]);
+    owner.submit([cue('run-2', 'open', 1, 'cue-hit')]);
     const stale = owner.diagnostics().filter((d) => d.code === 'stale_work_discarded');
     expect(stale.length).toBeGreaterThanOrEqual(1);
     expect(stale[0]!.message).toContain('run changed');
@@ -423,12 +423,12 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
     expect(ctx.gates.length).toBe(2); // the re-armed decodes
     ctx.releaseAllGates();
     await settle();
-    expect(owner.submit([cue('run-2', 'start', 2, 'cue-jump')])).toEqual({ ok: true });
+    expect(owner.submit([cue('run-2', 'open', 2, 'cue-hit')])).toEqual({ ok: true });
     expect(ctx.liveVoices()).toBe(1); // the re-armed decode served the new run
     // A cue from the PREVIOUS run is never replayed into the new run: it
     // arrives inside a current-run submit (a committed view is single-run;
     // a late old-run event is the "cue from old run" failure mode):
-    owner.submit([cue('run-2', 'jump', 7), cue('run-1', 'jump', 9, 'cue-jump')]);
+    owner.submit([cue('run-2', 'hit', 7), cue('run-1', 'hit', 9, 'cue-hit')]);
     const stale2 = owner.diagnostics().filter((d) => d.code === 'stale_work_discarded');
     expect(stale2.some((d) => d.message.includes('different run'))).toBe(true);
     expect(ctx.liveVoices()).toBe(2); // the current-run cue played; the old one never did
@@ -437,7 +437,7 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
 
   it('a late event with a foreign runId inside one submit is skipped, never played', async () => {
     const { owner, ctx } = await armed();
-    owner.submit([cue('run-1', 'jump', 1), cue('run-0', 'jump', 9)]);
+    owner.submit([cue('run-1', 'hit', 1), cue('run-0', 'hit', 9)]);
     expect(ctx.liveVoices()).toBe(1); // only the current-run cue played
     expect(
       owner.diagnostics().some((d) => d.code === 'stale_work_discarded' && d.message.includes('run-0')),
@@ -455,7 +455,7 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
 });
 
 describe('packet 54 — mute, hidden, dispose', () => {
-  async function armed(assetId = 'cue-jump'): Promise<{ owner: GameAudioOwner; ctx: FakeContext }> {
+  async function armed(assetId = 'cue-hit'): Promise<{ owner: GameAudioOwner; ctx: FakeContext }> {
     const ctx = new FakeContext();
     const { owner } = makeEnv([ctx]);
     owner.registerCue(assetId, new Uint8Array([1, 2, 3, 4]));
@@ -467,10 +467,10 @@ describe('packet 54 — mute, hidden, dispose', () => {
   it('mute stops current voices, defers decodes, and nothing plays while muted', async () => {
     const ctx = new FakeContext();
     const { owner } = makeEnv([ctx]);
-    owner.registerCue('cue-jump', new Uint8Array([1, 2, 3, 4]));
+    owner.registerCue('cue-hit', new Uint8Array([1, 2, 3, 4]));
     await owner.unlock();
     await settle();
-    owner.submit([cue('run-1', 'jump', 1)]);
+    owner.submit([cue('run-1', 'hit', 1)]);
     expect(ctx.liveVoices()).toBe(1);
     expect(owner.setMuted(true)).toEqual({ state: 'ready', muted: true, unlocked: true });
     expect(ctx.liveVoices()).toBe(0); // current voices stopped
@@ -480,13 +480,13 @@ describe('packet 54 — mute, hidden, dispose', () => {
     await settle();
     expect(ctx.decodedBytes).toHaveLength(1); // only the pre-mute asset decoded
     // Nothing is played while muted:
-    owner.submit([cue('run-1', 'jump', 2, 'deferred')]);
+    owner.submit([cue('run-1', 'hit', 2, 'deferred')]);
     expect(ctx.liveVoices()).toBe(0);
     // Unmute: the deferred decode runs and the next cue plays.
     expect(owner.setMuted(false)).toEqual({ state: 'ready', muted: false, unlocked: true });
     await settle();
     expect(ctx.decodedBytes).toHaveLength(2);
-    owner.submit([cue('run-1', 'jump', 3, 'deferred')]);
+    owner.submit([cue('run-1', 'hit', 3, 'deferred')]);
     expect(ctx.liveVoices()).toBe(1);
     owner.dispose();
   });
@@ -523,14 +523,14 @@ describe('packet 54 — mute, hidden, dispose', () => {
     const ctx = new FakeContext();
     ctx.gateDecodes = true;
     const { owner } = makeEnv([ctx]);
-    owner.registerCue('cue-jump', new Uint8Array([1, 2, 3, 4]));
+    owner.registerCue('cue-hit', new Uint8Array([1, 2, 3, 4]));
     owner.registerCue('pending', new Uint8Array([5, 6, 7, 8]));
     await owner.unlock();
     // Force one live voice: register+decode a ready asset (ungate just that
     // decode by releasing the first gate), then submit.
     ctx.gates[0]!.release(new FakeBuffer(0.25));
     await settle();
-    owner.submit([cue('run-1', 'jump', 1)]);
+    owner.submit([cue('run-1', 'hit', 1)]);
     expect(ctx.liveVoices()).toBe(1);
     expect(owner.dispose()).toEqual({ ok: true });
     expect(ctx.closeCount).toBe(1);
@@ -542,7 +542,7 @@ describe('packet 54 — mute, hidden, dispose', () => {
       ok: false,
       error: expect.objectContaining({ code: 'audio_disposed' }),
     });
-    expect(owner.submit([cue('run-1', 'jump', 2)])).toEqual({
+    expect(owner.submit([cue('run-1', 'hit', 2)])).toEqual({
       ok: false,
       error: expect.objectContaining({ code: 'audio_disposed' }),
     });
@@ -560,15 +560,15 @@ describe('packet 54 — mute, hidden, dispose', () => {
 
   it('a re-registered asset (a new version) serves the new bytes to later cues', async () => {
     const { owner, ctx } = await armed();
-    const v1 = cue('run-1', 'jump', 1);
+    const v1 = cue('run-1', 'hit', 1);
     owner.submit([v1]);
     expect(ctx.liveVoices()).toBe(1);
     const v1Dur = ctx.sources[0]!.buffer!.duration;
     // A new version of the same asset (reimport moved the bytes):
     ctx.decodeDuration = 1.25;
-    owner.registerCue('cue-jump', new Uint8Array([7, 7, 7, 7, 7]));
+    owner.registerCue('cue-hit', new Uint8Array([7, 7, 7, 7, 7]));
     await settle();
-    owner.submit([cue('run-1', 'jump', 2)]);
+    owner.submit([cue('run-1', 'hit', 2)]);
     expect(ctx.liveVoices()).toBe(2);
     expect(ctx.sources[1]!.buffer!.duration).toBe(1.25);
     expect(ctx.sources[1]!.buffer!.duration).not.toBe(v1Dur);
@@ -583,12 +583,12 @@ describe('packet 54 — determinism (no clock, no global audio state)', () => {
       owner.registerCue('b', new Uint8Array([2]));
       await owner.unlock();
       await settle();
-      owner.submit([cue('r1', 'jump', 1, 'a'), cue('r1', 'jump', 1, 'a')]);
+      owner.submit([cue('r1', 'hit', 1, 'a'), cue('r1', 'hit', 1, 'a')]);
       owner.setMuted(true);
-      owner.submit([cue('r1', 'jump', 2, 'b')]);
+      owner.submit([cue('r1', 'hit', 2, 'b')]);
       owner.setMuted(false);
       await settle();
-      owner.submit([cue('r2', 'start', 1, 'a')]);
+      owner.submit([cue('r2', 'open', 1, 'a')]);
       return {
         diag: owner.diagnostics().map((d) => `${d.code}:${d.assetId}`),
         status: JSON.stringify(owner.status()),

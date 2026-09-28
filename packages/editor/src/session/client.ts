@@ -19,7 +19,7 @@
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -32,7 +32,6 @@ import {
 import { Projection, type FullState, type ProjectedEntity } from './projection';
 import { ContentProjection, type AssetView } from './content-projection';
 import { PrefabProjection } from './prefab-projection';
-import type { GameConfigLike } from './gameplay';
 import {
   applyAssetQueryPage,
   beginImport,
@@ -270,15 +269,8 @@ export class SessionClient {
    * at least every 20 s; the server drops a 60 s-silent connection). */
   private heartbeatTimer: number | null = null;
   private reconnectTimer: number | null = null;
-  /**
-   * M3 (packet 56): the `content.game` block projection. Hydrated from
-   * `queryGameConfig` on every full state and advanced from the SAME
-   * applied `setGameConfig` change records the scene projection uses
-   * (sessions.md §8 — the backend remains the sole authority).
-   */
-  private gameConfig: GameConfigLike | null = null;
-  /** Whether the last full state read the game block (vs a v2 project). */
-  private gameConfigLoaded = false;
+  /** Whether the last full state read the project content (`queryGameConfig`). */
+  private contentLoaded = false;
   /**
    * M3 (packet 56): the last-known `content.settings` map. No accepted query
    * returns settings VALUES (the `queryProject` summary carries only the
@@ -342,8 +334,6 @@ export class SessionClient {
    * `queryGameConfig`; it is static, fetched once).
    */
   private descriptors: DescriptorRegistry | null = null;
-  /** Phase 9.10: the game flow (null = none). */
-  private flow: GameFlow | null = null;
   /**
    * Phase 12 (c): the scenes open in this browser (the hierarchy and the
    * viewport show them) and the active one (new root entities go there).
@@ -534,16 +524,14 @@ export class SessionClient {
     } catch {
       // the log is advisory; live entries still arrive over the socket
     }
-    // M3 (packet 56): the game block re-reads on every full state —
-    // reopening the editor retains the authored game configuration
-    // (authoring §A8 row 1; `null` for a v2 project or an absent block).
+    // M3 (packet 56): the project content re-reads on every full state
+    // (reopening the editor retains what was authored).
     try {
       const g = await this.queryGameConfig({ descriptors: this.descriptors === null });
       if (g.ok) {
         const descriptors = (g as { descriptors?: DescriptorRegistry }).descriptors;
         if (descriptors !== undefined) this.descriptors = descriptors;
-        this.gameConfig = g.game === null ? null : { ...g.game, ...(g.game.level !== undefined ? { level: { ...g.game.level } } : {}), cues: { ...g.game.cues } };
-        this.gameConfigLoaded = true;
+        this.contentLoaded = true;
         const tags = (g as { tags?: { bit: number; name: string }[] }).tags;
         this.tags = Array.isArray(tags) ? tags.map((t) => ({ bit: t.bit, name: t.name })) : [];
         const mats = (g as { materials?: MaterialDef[] }).materials;
@@ -570,9 +558,7 @@ export class SessionClient {
         this.saveSchema = saveSchema !== undefined && saveSchema !== null ? structuredClone(saveSchema) : null;
         const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
         if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
-        const flow = (g as { flow?: GameFlow | null }).flow;
-        this.flow = flow !== undefined && flow !== null ? structuredClone(flow) : null;
-        // Phase 17.1: the settings map travels with the game block (null before: only changes carried it).
+        // Phase 17.1: the settings map travels with the content (null before: only changes carried it).
         const settings = (g as { settings?: Record<string, unknown> }).settings;
         if (settings !== undefined && settings !== null && typeof settings === 'object') this.settings = { ...settings };
         const graphs = (g as { graphs?: GraphDocument[] }).graphs;
@@ -786,16 +772,11 @@ export class SessionClient {
         void this.fullResync().then(() => this.cb.onSceneChanged());
         return;
       }
-      // M3 (packet 56): the game block + settings map converge from the same
-      // records (the `setGameConfig` change carries the full next block or
-      // `null`; the `setSettings` change carries the full next map —
-      // commands.md §5.3/§8.11). An MCP-origin edit is visible without a
-      // reload.
+      // M3 (packet 56): the content converges from the same records (the
+      // `setSettings` change carries the full next map — commands.md
+      // §5.3/§8.11). An MCP-origin edit is visible without a reload.
       const change = ev.change as ChangeData;
-      if (change.type === 'setGameConfig') {
-        this.gameConfig = change.next === null ? null : ({ ...change.next, ...(change.next.level !== undefined ? { level: { ...change.next.level } } : {}), cues: { ...change.next.cues } } as GameConfigLike);
-        this.gameConfigLoaded = true;
-      } else if (change.type === 'setSettings') {
+      if (change.type === 'setSettings') {
         this.settings = { ...(change.next as Record<string, unknown>) };
       } else if (change.type === 'setTags') {
         this.tags = change.next.map((t) => ({ bit: t.bit, name: t.name }));
@@ -803,8 +784,6 @@ export class SessionClient {
         this.materials = structuredClone(change.next);
       } else if (change.type === 'setEnvironment') {
         this.environment = change.next === null ? null : structuredClone(change.next);
-      } else if (change.type === 'setFlow') {
-        this.flow = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setInput') {
         this.input = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setCollisionLayers') {
@@ -1126,10 +1105,10 @@ export class SessionClient {
 
   /**
    * Start an isolated play (sessions.md §10.1). Phase 23.8: `start` — Play
-   * from a scene, with script variables or a save (the same body
+   * from a scene, with script variables or a project save (slot 1-99; the same body
    * `tl_play_start` sends; the backend resolves it).
    */
-  async playStart(demo = false, start?: { sceneId?: string; mode?: string; variables?: Record<string, unknown>; save?: Record<string, unknown>; saveSlot?: 'auto' | '1' | '2' | '3' }): Promise<PlayStartResult> {
+  async playStart(demo = false, start?: { sceneId?: string; mode?: string; variables?: Record<string, unknown>; save?: Record<string, unknown>; saveSlot?: string }): Promise<PlayStartResult> {
     const r = await this.api<PlayStartResult>('/projects/' + this.cfg.projectId + '/play', { options: { demo, ...(start ?? {}) } });
     this.activePlay = { ...r, snapshot: null };
     this.playReadySentFor = null; // a new play session: the ready send resets
@@ -1216,18 +1195,9 @@ export class SessionClient {
 
   // ---- M3 gameplay authoring (packet 56) ---------------------------------
 
-  /**
-   * The projected `content.game` block (the `queryGameConfig` result), or
-   * `null` (absent / not yet read). Advanced from full states and applied
-   * `setGameConfig` change records only.
-   */
-  getGameConfig(): GameConfigLike | null {
-    return this.gameConfig === null ? null : { ...this.gameConfig, ...(this.gameConfig.level !== undefined ? { level: { ...this.gameConfig.level } } : {}), cues: { ...this.gameConfig.cues } };
-  }
-
-  /** Whether the game block has been read from the backend (vs unknown). */
-  getGameConfigLoaded(): boolean {
-    return this.gameConfigLoaded;
+  /** Whether the project content has been read from the backend (vs unknown). */
+  getContentLoaded(): boolean {
+    return this.contentLoaded;
   }
 
   /**
@@ -1355,11 +1325,6 @@ export class SessionClient {
   /** Phase 9.8: the project's input actions (null = the defaults). */
   getInput(): InputConfig | null {
     return this.input === null ? null : structuredClone(this.input);
-  }
-
-  /** Phase 9.10: the game flow (null = none). */
-  getFlow(): GameFlow | null {
-    return this.flow === null ? null : structuredClone(this.flow);
   }
 
   /** Phase 15.0: the descriptor registry (null until the first full state). */
@@ -1529,16 +1494,16 @@ export class SessionClient {
 
   /**
    * A bounded `queryGameConfig` (commands.md §4/§5.6, authoring §A6): the
-   * full normalized `content.game` block or `null`; read-only.
+   * project content (tags, scenes, materials, environment, …); read-only.
    */
-  async queryGameConfig(opts: { descriptors?: boolean } = {}): Promise<{ ok: true; revision: number; game: GameConfigLike | null } | { ok: false; error: { code: string; message: string } }> {
+  async queryGameConfig(opts: { descriptors?: boolean } = {}): Promise<{ ok: true; revision: number } | { ok: false; error: { code: string; message: string } }> {
     try {
-      const r = await this.api<{ ok: true; projectId: string; revision: number; game: GameConfigLike | null }>(
+      const r = await this.api<{ ok: true; projectId: string; revision: number }>(
         `/projects/${this.cfg.projectId}/commands`,
         { op: 'queryGameConfig', projectId: this.cfg.projectId, args: opts.descriptors === true ? { descriptors: true } : {} },
       );
-      // The v4 extras (tags, scenes, materials, environment, lighting) ride along.
-      return { ...r, ok: true, revision: r.revision, game: r.game };
+      // The content (tags, scenes, materials, environment, lighting, …) rides along.
+      return { ...r, ok: true, revision: r.revision };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
     }
@@ -1597,19 +1562,6 @@ export class SessionClient {
     }
   }
 
-  /**
-   * `setGameConfig` through the ordinary command path (authoring §A3.4):
-   * `game` is the complete canonical block (create), a non-empty partial edit
-   * (changed top-level fields only) or `null` (remove the block).
-   */
-  async setGameConfig(
-    game: Record<string, unknown> | null,
-    expectedRevision: number,
-    requestId?: string,
-  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
-    return this.command('setGameConfig', { game }, expectedRevision, requestId);
-  }
-
   /** `setSettings` through the ordinary command path (the touched keys only). */
   async setSettings(
     settings: Record<string, number>,
@@ -1634,7 +1586,7 @@ export class SessionClient {
     return this.command('setComponent', { entityId, component, value }, expectedRevision, requestId);
   }
 
-  /** `createEntity` with M3 `components` (a zone / spawn creation). */
+  /** `createEntity` with M3 `components`. */
   async createGameEntity(
     args: Record<string, unknown>,
     expectedRevision: number,
@@ -1643,7 +1595,7 @@ export class SessionClient {
     return this.command('createEntity', args, expectedRevision, requestId);
   }
 
-  /** `deleteEntity` through the ordinary command path (zone/spawn removal). */
+  /** `deleteEntity` through the ordinary command path. */
   async deleteEntityCommand(
     entityId: string,
     expectedRevision: number,

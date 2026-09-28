@@ -23,14 +23,13 @@
  */
 
 /**
- * Ops whose args carry a whole document (the game block, the flow, one
+ * Ops whose args carry a whole document (the settings, the shell, one
  * material, …) rather than a patch. Sent against a newer revision with args
  * built from an older view they would silently undo the edits in between,
  * so they are rebased only when their args are built at send time.
  */
 export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setSettings',
-  'setGameConfig',
   'setTags',
   'setAssetOptions',
   'setMaterial',
@@ -47,7 +46,6 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   // Phase 24.4j: the game shell (the whole block).
   'setShell',
   'setSaveSchema',
-  'setFlow',
   'setStartScenes',
   'setGraph',
   'setEffect',
@@ -117,4 +115,17 @@ export function mergeDocumentEdit<T extends object>(base: T | null, next: T | nu
     else out[k] = n[k];
   }
   return out as T;
+}
+
+/**
+ * Phase 24.7 (D40): a whole-list edit made on `base`, re-applied onto
+ * `current` (the list as it is now) — row by row with `mergeDocumentEdit`
+ * when the edit kept the number of rows and the list still has that many
+ * (an edit of one row's field keeps the others' newer values); an edit that
+ * adds or removes rows is sent as made. `null` on any side leaves the edit as
+ * it is.
+ */
+export function mergeListEdit<T extends object>(base: readonly T[] | null, next: readonly T[], current: readonly T[] | null): T[] {
+  if (base === null || current === null || base.length !== next.length || current.length !== base.length) return [...next];
+  return next.map((row, i) => mergeDocumentEdit(base[i] ?? null, row, current[i] ?? null) ?? row);
 }

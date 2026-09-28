@@ -9,15 +9,20 @@
  *
  * Also proves the non-destructive refusal paths and the canonical
  * `serializeCanonical` roundtrip (parse→normalize→serialize is idempotent and
- * digest-stable). Phase 9.3 removed the v2→v3 scene conversion
+ * digest-stable).
+ *
+ * Phase 24 removed the platformer game layer the packet-39 envelopes were
+ * recorded with (`content.game` → null, `cameraFollow`, `gameZone`): phase
+ * 24.7 re-recorded the envelopes without it and deleted the invalid envelopes
+ * whose subject it was (fixtures/m3/contracts/tools/remove-game-layer.mts).
+ * Phase 9.3 removed the v2→v3 scene conversion
  * (`migrateSceneV3`); its cases are archived under
  * archive/removed-v1-v2/project-model/v3-model.migrate-scene-v3.test.ts.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
-  GAME_ZONE_LIMITS,
-  GAME_ZONE_ROLES,
+  SCENE_LIMITS_V3,
   SURFACE_PRESETS,
   captureContent,
   normalizeContentV3,
@@ -73,14 +78,15 @@ const firstError = (r: { ok: false; errors: readonly EnvelopeV3Error[] }): Envel
 describe('packet 44 — committed contract fixtures are present and indexed', () => {
   it('covers every family and every indexed file exists', () => {
     expect(envelopeValid.length).toBeGreaterThanOrEqual(3);
-    expect(envelopeInvalid.length).toBeGreaterThanOrEqual(19);
+    expect(envelopeInvalid.length).toBeGreaterThanOrEqual(10);
     expect(catalogFiles.length).toBeGreaterThanOrEqual(1);
     expect(migrationFiles.length).toBeGreaterThanOrEqual(6);
     for (const f of [...envelopeValid, ...envelopeInvalid, ...catalogFiles, ...migrationFiles]) {
       expect(index.fixtures[f], `index entry for ${f}`).toBeTruthy();
     }
     // Fixture totals executed below are reported in the handoff.
-    expect(FILES.length).toBeGreaterThan(30);
+    // Phase 24.7: 27 after the 11 removed-layer invalid envelopes were deleted.
+    expect(FILES.length).toBeGreaterThanOrEqual(27);
   });
 });
 
@@ -250,16 +256,16 @@ describe('packet 44 — migration fixtures: the expected v3 destination loads', 
 });
 
 describe('packet 44 — captureContent accepts the v3 pair (§19.2/§16.6)', () => {
-  it('captures model, modelAnimation (pinned version), cue and activation assets', () => {
+  it('captures model and modelAnimation (pinned version) assets', () => {
     const env = JSON.parse(m3ContractFixtureText('envelope/valid/demo-0003-media-v3.json')) as Record<string, unknown>;
     const captured = captureContent(env['scene'], env['content'], { projectId: 'demo-0003', revision: 3 });
     expect(captured.ok).toBe(true);
     if (!captured.ok) return;
     expect(captured.normalized.contentVersion).toBe(1);
-    expect(captured.normalized.assets.map((a) => a.assetId)).toEqual(['asset-audio-cue-start', 'asset-model-courier']);
-    // modelAnimation pins its recorded version (=1 here); cues resolve current.
+    // The audio asset was referenced only by the removed game cues: not captured.
+    expect(captured.normalized.assets.map((a) => a.assetId)).toEqual(['asset-model-courier']);
+    // modelAnimation pins its recorded version (=1 here).
     expect(captured.normalized.assets.find((a) => a.assetId === 'asset-model-courier')!.version).toBe(1);
-    expect(captured.normalized.assets.find((a) => a.assetId === 'asset-audio-cue-start')!.version).toBe(1);
     expect(captured.normalized.contentDigest).toMatch(/^[0-9a-f]{64}$/);
     // Deterministic: re-capturing the same revision is digest-identical.
     const again = captureContent(env['scene'], env['content'], { projectId: 'demo-0003', revision: 3 });
@@ -324,17 +330,17 @@ describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
   });
 
   it('the v3 constants are the contracted frozen values', () => {
-    expect(GAME_ZONE_ROLES).toEqual(['hazard', 'checkpoint', 'goal']);
-    expect(GAME_ZONE_LIMITS.zones).toBe(64);
-    expect(GAME_ZONE_LIMITS.checkpointZones).toBe(1);
-    expect(GAME_ZONE_LIMITS.playerSpawns).toBe(16);
-    expect(GAME_ZONE_LIMITS.lightsDirectional).toBe(1);
-    expect(GAME_ZONE_LIMITS.lightsAmbient).toBe(1);
-    expect(GAME_ZONE_LIMITS.audioAssets).toBe(16);
-    expect(GAME_ZONE_LIMITS.audioVersions).toBe(8);
-    expect(GAME_ZONE_LIMITS.gameBytes).toBe(16_384);
-    expect(GAME_ZONE_LIMITS.animationProfileBytes).toBe(4_096);
-    expect(SURFACE_PRESETS.beacon).toEqual({
+    expect(SCENE_LIMITS_V3).toEqual({
+      playerSpawns: 16,
+      lightsDirectional: 1,
+      lightsAmbient: 1,
+      entities: 1024,
+      audioAssets: 16,
+      audioVersions: 8,
+      animationProfileBytes: 4_096,
+    });
+    expect(Object.isFrozen(SCENE_LIMITS_V3)).toBe(true);
+    expect(SURFACE_PRESETS['emissive-accent']).toEqual({
       color: '#2f7fd4',
       roughness: 0.4,
       metalness: 0.1,
@@ -403,7 +409,6 @@ describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
           components: {
             transform: {},
             camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 },
-            cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 } },
           },
         },
         {

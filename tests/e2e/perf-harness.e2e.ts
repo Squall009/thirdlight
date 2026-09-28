@@ -40,7 +40,7 @@ test('the harness measures the small benchmark in Play, the export, the editor a
 
   const opts: SurfaceOptions = { warmupMs: 300, recordMs: 1500, viewport: { width: 960, height: 540 } };
   const play = await measurePlay(browser, be, 'bench', 'webgl2', opts);
-  expect(play.state).toBe('playing');
+  expect(play.state).toBe('running');
   expect(play.rendererChoice?.backend).toBe('webgl2');
   expect(play.apis).toContain('webgl2');
   expect(play.load['firstFrameMs']).toBeGreaterThan(0);
@@ -83,7 +83,7 @@ test('the harness measures the small benchmark in Play, the export, the editor a
   if (!sim.ok) throw new Error(sim.error);
   expect(sim.entities).toBe(100);
   expect(sim.scriptInstances).toBe(4);
-  expect(sim.state).toBe('playing');
+  expect(sim.state).toBe('running');
   expect(sim.stepMs.p50).toBeGreaterThan(0);
   expect(sim.bytesPerStep.windows + sim.bytesPerStep.discarded).toBeGreaterThan(0);
 

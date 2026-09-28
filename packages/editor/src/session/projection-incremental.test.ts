@@ -91,7 +91,7 @@ describe('Projection — incremental updates (phase 21.4)', () => {
     const [a0] = p.listEntities();
     const s0 = p.structureVersion;
     p.takeDirty();
-    p.applyMutationApplied({ requestId: 't1', revision: 2, change: change({ type: 'setTags', previous: [], next: [{ bit: 0, name: 'enemy' }] }) });
+    p.applyMutationApplied({ requestId: 't1', revision: 2, change: change({ type: 'setTags', previous: [], next: [{ bit: 0, name: 'hostile' }] }) });
     expect(p.revision).toBe(2);
     expect(p.structureVersion).toBe(s0);
     expect(p.listEntities()[0]).toBe(a0);

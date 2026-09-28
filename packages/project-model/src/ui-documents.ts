@@ -14,8 +14,8 @@
  * CSS), tweens (fade, slide, scale, stamp) are data played on show/hide or
  * from scripts. A document can follow a world point or an entity (world
  * anchor, projected by the host each frame), declare the input action map it
- * activates while it has focus, and replace a built-in flow screen
- * (`flow.screens`).
+ * activates while it has focus, and be a game shell screen
+ * (`shell.screens`).
  *
  * Stored inline in the content document so the editor and MCP create and
  * edit them with plain commands (`setUiDocument` / `deleteUiDocument`,
@@ -101,7 +101,6 @@ export type UiEngineAction =
   | 'restartLevel'
   | 'newGame'
   | 'continue'
-  | 'nextLevel'
   | 'quitToTitle'
   | 'settings'
   | 'load'
@@ -122,7 +121,7 @@ export type UiEngineAction =
 export type UiAction =
   /** Raise a UI event to scripts (on the next input frame). */
   | { do: 'event'; name: string; value?: UiScalar | UiBinding }
-  /** An engine action of the game flow (resume, quit to title, save, load, set a setting, …). */
+  /** An engine action of the game shell (resume, quit to title, save, load, set a setting, …). */
   | { do: 'engine'; action: UiEngineAction; screen?: 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load'; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
   /** Show / hide / toggle a UI document (through the input frame, so replays hold). */
   | { do: 'show' | 'hide' | 'toggle'; doc: string }
@@ -283,13 +282,10 @@ export const UI_LIMITS = Object.freeze({
 });
 
 export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid', 'text', 'image', 'bar', 'button', 'list', 'input'];
-export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'nextLevel', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene'];
+export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene'];
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];
 export const UI_GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
-/** The flow screens a project may replace with its own document. */
-export const UI_FLOW_SCREENS = ['title', 'paused', 'settings', 'levelComplete', 'gameOver', 'finished', 'load', 'save'] as const;
-export type UiFlowScreen = (typeof UI_FLOW_SCREENS)[number];
 /** Phase 24.4j: the shell screens an engine `open` action names (project-model `SHELL_SCREENS`). */
 export const UI_SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 /** The save slots an engine load/save action names (the game host's). */
@@ -872,8 +868,7 @@ export function validateUiThemes(value: unknown, path: string, errors: ModelErro
  * The project-level references of the UI documents and themes: a document's
  * theme exists; its style names are its own or its theme's; its icons are its
  * own or its theme's; show/hide actions name documents of the project; images
- * name texture assets and fonts font assets (by `kindOf`). Also checks
- * `flow.screens` (each names a document).
+ * name texture assets and fonts font assets (by `kindOf`).
  */
 export function validateUiReferences(content: Record<string, unknown>, errors: ModelErrorV2[], kindOf: (assetId: string) => unknown): void {
   const docs = Array.isArray(content['uiDocuments']) ? (content['uiDocuments'] as unknown[]) : [];
@@ -910,11 +905,6 @@ export function validateUiReferences(content: Record<string, unknown>, errors: M
     for (const ref of r.docs) if (!docIds.has(ref.id)) err(errors, 'reference_missing', `${at}${ref.path}`, `no UI document "${ref.id}" in this project`, ref.id, 'a uiDocumentId');
     assetRefs(r, at);
   });
-  const flow = content['flow'];
-  const screens = isPlainObject(flow) ? flow['screens'] : undefined;
-  if (isPlainObject(screens)) {
-    for (const [k, id] of Object.entries(screens)) if (typeof id === 'string' && !docIds.has(id)) err(errors, 'reference_missing', `/flow/screens/${k}`, `no UI document "${id}" in this project`, id, 'a uiDocumentId');
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@
  * Pure: no DOM, no I/O, no Node builtins.
  */
 
-import type { EntityV3, GameZoneComponent, CameraFollowComponent, LightComponent, SurfaceComponent, ModelAnimationComponent } from '@thirdlight/project-model';
+import type { EntityV3, LightComponent, SurfaceComponent, ModelAnimationComponent } from '@thirdlight/project-model';
 import type { ChangeData, SetBehaviorPropertiesChange } from '@thirdlight/commands';
 
 /** One projected entity (the display projection of a backend Entity). */
@@ -55,7 +55,7 @@ export interface ProjectedEntity {
   fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number };
   /** Phase 9.7: the animator controller the model plays. */
   animator?: { controller: string; parameters?: Record<string, number | boolean> };
-  /** Phase 9.9: the gameplay block components present on the entity (mover, trigger, switch, health, pickup, enemy). */
+  /** Phase 9.9: the gameplay block components present on the entity (mover, trigger, switch, health, collectible, patrol, hitbox…). */
   blocks?: Partial<Record<BlockName, Record<string, unknown>>>;
   /**
    * M2 (packet 28): the informational prefab provenance a materialized copy
@@ -76,12 +76,8 @@ export interface ProjectedEntity {
   controller?: boolean;
   /** Phase 14.0: the controller's own collision capsule (absent: the default one). */
   capsule?: { radius: number; height: number; offset?: [number, number] };
-  /** M3 (packet 56): the game-zone component, when present (project-model §23.3.1). */
-  gameZone?: GameZoneComponent;
   /** M3 (packet 56): the field-less spawn marker is present (project-model §23.3.2). */
   playerSpawn?: boolean;
-  /** M3 (packet 56): the camera-follow data, when present (project-model §23.3.3). */
-  cameraFollow?: CameraFollowComponent;
   /** M3 (packet 57): the light component, when present (project-model §23.3.4). */
   light?: LightComponent;
   /** M3 (packet 57): the copied surface values, when present (project-model §23.3.5). */
@@ -152,7 +148,7 @@ function boxOf(b: { size?: number[]; material?: { color?: string } }): { size: [
 }
 
 /** Phase 9.9: the gameplay block component names (project-model BLOCK_COMPONENT_NAMES). */
-export const BLOCK_NAMES = ['mover', 'trigger', 'switch', 'health', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'collectible', 'patrol', 'hitbox'] as const;
+export const BLOCK_NAMES = ['mover', 'trigger', 'switch', 'health', 'audioSource', 'faceMovement', 'collectible', 'patrol', 'hitbox'] as const;
 export type BlockName = (typeof BLOCK_NAMES)[number];
 
 function blocksOf(components: Record<string, unknown>): Partial<Record<BlockName, Record<string, unknown>>> | undefined {
@@ -187,9 +183,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     prefab?: { prefabId?: string; localId?: string };
     collider?: unknown;
     controller?: unknown;
-    gameZone?: GameZoneComponent;
     playerSpawn?: unknown;
-    cameraFollow?: CameraFollowComponent;
     light?: LightComponent;
     surface?: SurfaceComponent;
     modelAnimation?: ModelAnimationComponent;
@@ -227,9 +221,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     ...(c.collider !== undefined ? { collider: c.collider } : {}),
     ...(c.controller !== undefined ? { controller: true } : {}),
     ...(capsuleOf(c.controller) !== undefined ? { capsule: capsuleOf(c.controller)! } : {}),
-    ...(c.gameZone !== undefined ? { gameZone: { ...c.gameZone, size: [...c.gameZone.size] as [number, number] } } : {}),
     ...(c.playerSpawn !== undefined ? { playerSpawn: true } : {}),
-    ...(c.cameraFollow !== undefined ? { cameraFollow: { deadZone: { ...c.cameraFollow.deadZone }, smoothing: c.cameraFollow.smoothing, ...(c.cameraFollow.bounds !== undefined ? { bounds: { ...c.cameraFollow.bounds } } : {}) } } : {}),
     ...(c.light !== undefined ? { light: { ...c.light, ...(c.light.direction ? { direction: [...c.light.direction] as [number, number, number] } : {}) } } : {}),
     ...(c.surface !== undefined ? { surface: { ...c.surface } } : {}),
     ...(c.instances?.asset?.assetId !== undefined && typeof c.instances.buffer === 'string' && typeof c.instances.count === 'number'
@@ -586,23 +578,9 @@ export class Projection {
           const capsule = capsuleOf(change.next);
           if (capsule !== undefined) p.capsule = capsule;
           else delete p.capsule;
-        } else if (change.component === 'gameZone') {
-          // M3 (packet 56): the zone component converges add/edit/remove the
-          // same way (the change carries the full component value or null).
-          if (change.next === null) delete p.gameZone;
-          else {
-            const z = change.next as GameZoneComponent;
-            p.gameZone = { ...z, size: [...z.size] as [number, number] };
-          }
         } else if (change.component === 'playerSpawn') {
           if (change.next === null) delete p.playerSpawn;
           else p.playerSpawn = true;
-        } else if (change.component === 'cameraFollow') {
-          if (change.next === null) delete p.cameraFollow;
-          else {
-            const f = change.next as CameraFollowComponent;
-            p.cameraFollow = { deadZone: { ...f.deadZone }, smoothing: f.smoothing, ...(f.bounds !== undefined ? { bounds: { ...f.bounds } } : {}) };
-          }
         } else if (change.component === 'light') {
           // M3 (packet 57): the light component converges add/edit/remove the
           // same way (the change carries the full component value or null).
@@ -641,12 +619,10 @@ export class Projection {
       // browser-origin one (sessions.md §6.2).
       case 'setBehaviorProperties':
         return this.applySetBehaviorProperties(change);
-      // M3 (packet 56): a `setGameConfig` change is content-only (the client
-      // tracks the block from the change data); an `applySurfacePreset`
-      // change (packet 57) updates a component the 56 projection does not
-      // display — advance the revision (no gap) and let the next full state
-      // / `queryEntity` carry the value.
-      case 'setGameConfig':
+      // Content changes the client tracks from the change data; an
+      // `applySurfacePreset` change (packet 57) updates a component the
+      // projection does not display — advance the revision (no gap) and let
+      // the next full state / `queryEntity` carry the value.
       case 'setTags':
       case 'setAssetOptions':
       case 'setMaterials':
@@ -663,7 +639,6 @@ export class Projection {
       // Phase 24.4j: the game shell (tracked by the client from the change data).
       case 'setShell':
       case 'setSaveSchema':
-      case 'setFlow':
       // Phase 16.1: graphs are tracked by the client from the change data.
       case 'graphEdit':
       case 'setGraph':

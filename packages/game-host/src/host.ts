@@ -4,7 +4,8 @@
  * The LOCAL (in-page) composition: one runtime instance per mounted host,
  * the injected input owner (the browser gameplay + menu channels), the
  * injected audio owner (packet 54), the injected render adapter (the
- * three-adapter, types-only), and the host-owned HUD. The exported page
+ * three-adapter, types-only), and the host-owned overlays (project UI, the
+ * game shell, letterbox, fade, debug console). The exported page
  * (packets 56–59) composes the SAME entry behind the relay channel; nothing
  * here imports the relay, the backend, the MCP, or the model service.
  *
@@ -13,12 +14,12 @@
  *    its per-frame work runs as the runtime's `onFrame` — step → host →
  *    adapter render, runtime.md §6);
  *  - the menu/control channel is serviced BETWEEN frames, never on a tick
- *    (delivery.md §4.5: `gameCommand` is callable between frame updates —
- *    a title start / win replay succeeds with `movementSteps: 0`);
- *  - committed-view-only: the host reads `getGameView()` for HUD/audio/
- *    adapter work and never touches runtime internals or the adapter's
- *    scene graph (one scene-mutation path, C41-1);
- *  - the HUD writes `textContent` only — project strings are never HTML.
+ *    (delivery.md §4.5: a restart or a UI event rides on the next step's
+ *    input frame);
+ *  - the host reads the runtime's published views (interpolated state,
+ *    UI, audio, camera) and never touches runtime internals or the
+ *    adapter's scene graph (one scene-mutation path, C41-1);
+ *  - overlays write `textContent` only — project strings are never HTML.
  *
  * Additive over the binding §3.1 surface (contract-change requests CC-55-1
  * / CC-55-2, recorded in the packet-55 handoff — the binding members are
@@ -51,13 +52,10 @@ import {
   type UiDocument,
   type UiTheme,
   type SimulationModuleSpec,
-  type GameEvent,
-  type GameView,
   type GameplaySettings,
   type PhysicsPort,
   type PhysicsPort3D,
   type RuntimeError,
-  type RunState,
   type Runtime,
   type RuntimeSnapshot,
   type LoadedSceneBatch,
@@ -65,13 +63,12 @@ import {
   type ProjectSaveFile,
 } from '@thirdlight/runtime';
 import type { MenuSample } from '@thirdlight/input';
-import type { AudioObservation, AudioSpatialLike, GameAudioOwner, GameCueEvent, CueKind } from './audio';
-import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { DEFAULT_PROMPT_INPUT, actionPrompts, hudPrompts, resolveCursorMode, type InputConfigLike } from './bindings';
+import type { AudioObservation, AudioSpatialLike, GameAudioOwner } from './audio';
+import type { HostDom, HostDomNode, UiEdges } from './dom';
+import { actionPrompts, resolveCursorMode, type InputConfigLike } from './bindings';
 import { createInputBindings, type InputBindingsController } from './rebind';
 import type { Captured } from './input-bindings';
-import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
-import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
+import { createSettingsStore, type SaveStorage } from './storage';
 import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
 import { createUiLayer, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
@@ -81,10 +78,9 @@ import { createShellController, type ShellConfigLike, type ShellController, type
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
 
-/** delivery.md §3.1 — the four bounded game-control actions. */
-export type GameControlAction = 'start' | 'replay' | 'mute' | 'unmute' | 'clearSave';
+/** delivery.md §3.1 — the bounded game-control actions (`replay`: restart the game). */
+export type GameControlAction = 'replay' | 'mute' | 'unmute' | 'clearSave';
 export const GAME_CONTROL_ACTIONS: readonly GameControlAction[] = Object.freeze([
-  'start',
   'replay',
   'mute',
   'unmute',
@@ -109,12 +105,12 @@ export interface HostInputOwner {
   markConfirmConsumed(): void;
   dispose(): void;
   /** Phase 9.10: menu edges, key capture and rebinding (the browser owner has them). */
-  sampleUi?(): FlowUiEdges;
+  sampleUi?(): UiEdges;
   captureKey?(onKey: (code: string | null) => void): () => void;
   /** Phase 14.5: the next pad button pressed (the settings screen's pad rebinding). */
   capturePadButton?(onButton: (button: number | null) => void): () => void;
   configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
-  /** Phase 15.5: the device the player used last (the classic HUD names its bindings; absent: keyboard). */
+  /** Phase 15.5: the device the player used last (the input prompts name its bindings; absent: keyboard). */
   activeDevice?(): 'keyboard' | 'gamepad';
   /** Phase 23.9a: only these input action maps feed the frame (null: every map) — a focused UI document's map. */
   setActiveMaps?(maps: readonly string[] | null): void;
@@ -176,11 +172,10 @@ export interface GameHostSound {
   readonly voices: number;
   readonly muted: boolean;
   readonly gesture: 'local' | 'none';
-  /** Phase 22.0, additive: sounds the owner has started (scripts' `ctx.audio`, pickup cues) per bus. */
+  /** Phase 22.0, additive: sounds the owner has started (scripts' `ctx.audio`, event cues) per bus. */
   readonly played?: { readonly sfx: number; readonly ui: number };
 }
 
-/** delivery.md §3.1 `GameHostObservation`. */
 /** Phase 23.16: the conversation in the observation (bounded; from the dialogue view model). */
 export interface DialogueObservation {
   readonly running: boolean;
@@ -204,68 +199,6 @@ export interface DialogueObservation {
  */
 export type PlayState = 'running' | 'paused' | 'stopped';
 
-/**
- * Phase 24.6: the legacy game session's view (its run state, checkpoint,
- * deaths, goal and the level flow). Only a project with the game block has
- * it; phase 24.7 deletes it with the session.
- */
-export interface GameHostLegacyObservation {
-  readonly runState: RunState;
-  readonly checkpointId: string | null;
-  readonly deathCount: number;
-  readonly goalReached: boolean;
-  readonly failed: boolean;
-  /** Phase 9.10: the level flow (screen, level, lives, music, volumes). */
-  readonly flow?: FlowObservation;
-  /**
-   * Phase 14.5: while the title menu shows, its background scene (null: the
-   * first level's start) and the camera's offset from where it follows the
-   * player (the title scene's framing plus the pan).
-   */
-  readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
-}
-
-export interface GameHostObservation {
-  readonly runId: string;
-  readonly snapshotId: string;
-  readonly buildId: string;
-  readonly stepIndex: number;
-  /** Phase 24.6: the generic play state. */
-  readonly state: PlayState;
-  readonly sound: GameHostSound;
-  readonly inputMode: 'physical' | 'test';
-  /** Phase 24.6: the legacy game session's view (deleted in 24.7). */
-  readonly legacy: GameHostLegacyObservation;
-  /** Phase 12 (c), additive: the loaded scenes and the ones being loaded (v4 games). */
-  readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
-  /** Phase 9.10, additive: the audio sources' live loops (entity id → gain; phase 14.5: `ambience:<n>` for a level's ambience). */
-  readonly loops?: Readonly<Record<string, number>>;
-  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
-  readonly camera?: CameraViewInfo;
-  /** Phase 23.18, additive: the environment preset blend once a script changed it (target, progress, weights by key; '' = the base look). */
-  readonly environment?: GameHostEnvironmentObservation;
-  /** Phase 23.13, additive: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener) once scripts used audio or a positional loop plays. */
-  readonly audio?: AudioObservation;
-  /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
-  readonly sockets?: readonly SocketObservation[];
-  /** Phase 23.9a, additive: the project UI — the documents shown, the flow screen's document, the focus. */
-  readonly ui?: UiLayerObservation;
-  /** Phase 23.16, additive: the conversation (once the project's dialogue ran). */
-  readonly dialogue?: DialogueObservation;
-  /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
-  readonly pointer?: GameHostInputObservation['pointer'];
-  readonly cursor?: GameHostInputObservation['cursor'];
-  readonly hidden?: readonly string[];
-  /** Phase 23.10, additive: the game modes (only a project with modes). */
-  readonly mode?: ModeView;
-  /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
-  readonly saves?: ProjectSavesObservation;
-  /** Phase 23.17, additive: the timelines (screen fade/letterbox, plays, the last step's events) once one played. */
-  readonly timeline?: import('@thirdlight/runtime').TimelineView;
-  /** Phase 23.14, additive: the player's bindings (device, profile, listening, changed actions, glyphs). */
-  readonly inputBindings?: GameHostInputObservation['inputBindings'];
-}
-
 /** Phase 23.18: the environment preset blend as observed (the frame's interpolated weights). */
 export interface GameHostEnvironmentObservation {
   readonly target: string | null;
@@ -274,11 +207,12 @@ export interface GameHostEnvironmentObservation {
 }
 
 /**
- * Phase 23.0, additive: what a scene-mode game (no game block, so no run
- * state: no deaths, goal or checkpoints) reports — its step and time, the
- * sound status and where its player (the controller entity) is, in 3D.
+ * delivery.md §3.1 `GameHostObservation` (phase 24.7: the one observation —
+ * every game plays as a scene): its step and time, the play state, the sound
+ * status, where its character (the controller entity) is, in 3D, and the
+ * additive blocks of the systems the game uses.
  */
-export interface GameHostSceneObservation {
+export interface GameHostObservation {
   readonly snapshotId: string;
   readonly buildId: string;
   readonly stepIndex: number;
@@ -288,14 +222,17 @@ export interface GameHostSceneObservation {
   readonly sound: GameHostSound;
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
+  /** Phase 12 (c), additive: the loaded scenes and the ones being loaded. */
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
-  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
+  /** Phase 9.10, additive: the audio sources' live loops (entity id → gain). */
+  readonly loops?: Readonly<Record<string, number>>;
+  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
   readonly camera?: CameraViewInfo;
-  /** Phase 23.18, additive: the environment preset blend once a script changed it. */
+  /** Phase 23.18, additive: the environment preset blend once a script changed it (target, progress, weights by key; '' = the base look). */
   readonly environment?: GameHostEnvironmentObservation;
-  /** Phase 23.13, additive: the Web Audio graph (see `GameHostObservation.audio`). */
+  /** Phase 23.13, additive: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener) once scripts used audio or a positional loop plays. */
   readonly audio?: AudioObservation;
-  /** Phase 23.9a, additive: the project UI. */
+  /** Phase 23.9a, additive: the project UI — the documents shown, the screen's document, the focus. */
   readonly ui?: UiLayerObservation;
   /** Phase 23.16, additive: the conversation (once the project's dialogue ran). */
   readonly dialogue?: DialogueObservation;
@@ -318,6 +255,9 @@ export interface GameHostSceneObservation {
   readonly timeline?: import('@thirdlight/runtime').TimelineView;
   /** Phase 24.4j, additive: the game shell (its screen, the listed scene, the HUD shown). */
   readonly shell?: ShellObservation;
+  /** Phase 24.7, additive: the named counters (at most 32) and every object's health (object id → current/max; at most 64) — Play and the export alike. */
+  readonly counters?: Readonly<Record<string, number>>;
+  readonly health?: Readonly<Record<string, { readonly current: number; readonly max: number }>>;
 }
 
 /** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
@@ -342,16 +282,10 @@ export type GameControlResult =
  * — resolved by the backend against the project, applied by the host at mount.
  */
 export interface GameStartOptions {
-  /** A game with levels: start a new game at this level (the title is skipped). */
-  readonly levelId?: string;
-  /** A game without levels: the scenes it starts with (the start scenes plus the chosen one). */
+  /** The scenes the game starts with (the start scenes plus the chosen one). */
   readonly scenes?: readonly string[];
   /** ...and the player spawn it starts at (absent: the game's own). */
   readonly spawnId?: string;
-  /** A game with levels: continue from this save document (the title's Continue). */
-  readonly save?: SaveDocument;
-  /** ...or from the save in one of this game's slots. */
-  readonly saveSlot?: SaveSlot;
   /** Phase 23.10: the game mode the run starts in (validated by the backend against the project's modes). */
   readonly mode?: string;
   /** Phase 23.19: a project save document loaded at the first step (slot 0), or a project save slot of this page. */
@@ -370,7 +304,7 @@ export interface GameHostConfig {
    * `gameplaySettings` or the model default). */
   readonly settings: GameplaySettings;
   /** The injected physics port (physics-rapier in the preview; a fake in
-   * tests). Absent for a scene without a game block (scene mode). */
+   * tests). Absent: a game without physics. */
   readonly physics?: PhysicsPort | PhysicsPort3D;
   /** The project's compiled behaviors (see `linkBehaviorModules`), run with the scene. */
   readonly behaviorModules?: readonly SimulationModuleSpec[];
@@ -402,14 +336,14 @@ export interface GameHostConfig {
    * the host never fetches). Contract shape (delivery.md §3.1): the bytes
    * arrive as an `ArrayBuffer`; the host wraps them for the audio owner. */
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
-  /** The HUD root element the host owns (removed on dispose). */
+  /** The overlay root element the host draws into (UI documents, letterbox, fade, console). */
   readonly container: HostDomNode;
   /** ADDITIVE (CC-55-1): the verified manifest buildId → `observe().buildId`. */
   readonly buildId: string;
   /** ADDITIVE (CC-55-1): assetId → manifest-declared relative path; the host
    * resolves non-null cue refs through `readArtifact` at mount. */
   readonly assetPaths?: Record<string, string>;
-  /** The DOM document for HUD element creation (default: the environment's
+  /** The DOM document for overlay element creation (default: the environment's
    * `document`; Node tests inject a fake). */
   readonly document?: HostDom;
   /**
@@ -419,15 +353,13 @@ export interface GameHostConfig {
    * fail with a diagnostic and the game keeps its start scenes.
    */
   readonly loadScene?: (sceneId: string) => Promise<LoadedSceneBatch['entities']>;
-  /** Phase 9.10: the manifest's game flow (levels, lives, menus, music). v4 games only. */
-  readonly flow?: FlowConfigLike;
   /** Phase 24.4j: the manifest's game shell (menus and HUD as UI documents, the scene list) — a game that plays as a scene. */
   readonly shell?: ShellConfigLike;
   /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
   readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { gameplay?: 'free' | 'locked'; ui?: 'free' | 'locked' } };
-  /** Phase 9.10: each declared asset's kind (the host registers every audio cue for scripts and audio sources). */
+  /** Phase 9.10: each declared asset's kind (the host registers every audio asset for scripts, event cues and audio sources). */
   readonly assetKinds?: Readonly<Record<string, string>>;
-  /** Phase 9.11: where saves go (localStorage in the browser) and this game's key prefix. */
+  /** Phase 9.11: where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
   /**
@@ -438,21 +370,13 @@ export interface GameHostConfig {
   readonly projectSaveBackend?: ProjectSaveBackend;
   /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
-  /** Phase 14.4: apply the playing level's look (the wrapper forwards it to the renderer; null = the project environment). */
-  readonly setLevelEnvironment?: (environment: LevelEnvironmentLike | null) => void;
-  /**
-   * Phase 14.5: move the rendered camera by an offset from where the game
-   * places it (the title background and pan; null = none). Presentation
-   * only: the simulation's camera is unchanged.
-   */
-  readonly setCameraOffset?: (offset: readonly [number, number, number] | null) => void;
   /**
    * Phase 22.0: where the simulation runs. Absent: in this page — `mount()`
    * composes the runtime (`composeGameRuntime`) with `physics`,
    * `behaviorModules` and `modules`. Present: the wrapper already composed
    * it elsewhere (the simulation worker) and this factory returns the
    * runtime the host presents (a mirror of the worker's; `onFrame` runs
-   * after each simulated frame arrives). Everything else — HUD, flow, audio,
+   * after each simulated frame arrives). Everything else — UI, shell, audio,
    * saves, the adapter — stays in this page either way.
    */
   readonly runtimeFactory?: (onFrame: () => void) => { readonly ok: true; readonly runtime: Runtime } | { readonly ok: false; readonly error: GameControlError };
@@ -480,8 +404,8 @@ export interface GameHostConfig {
   readonly audioSpatial?: 'legacy' | 'panner';
   /**
    * Phase 23.9a: the project UI (the manifest's documents and themes). The
-   * host draws the documents the simulation shows and the flow screens they
-   * replace; absent or empty: no project UI.
+   * host draws the documents the simulation and the shell show; absent or
+   * empty: no project UI.
    */
   readonly ui?: { readonly documents: readonly UiDocument[]; readonly themes?: readonly UiTheme[] };
 }
@@ -494,7 +418,6 @@ export interface GameHost {
   observe():
     | { readonly ok: true; readonly observation: GameHostObservation }
     | { readonly ok: false; readonly error: GameControlError };
-  setViewport(width: number, height: number): { readonly ok: true } | { readonly ok: false; readonly error: GameControlError };
   /** delivery.md §3.1: `dispose(): void` (idempotent). */
   dispose(): void;
   /** ADDITIVE (CC-55-1b): the host's runtime seam (read-only; the manual
@@ -502,10 +425,6 @@ export interface GameHost {
   readonly runtime: Runtime;
   /** Phase 12 (c), additive: request a scene load/unload (the same rules as a script's `ctx.scenes`). */
   scene(op: 'load' | 'unload', sceneId: string): { readonly ok: true } | { readonly ok: false; readonly error: GameControlError };
-  /** Phase 23.0, additive: a scene-mode game's observation (`observe` needs a game session; a scene has none). */
-  observeScene?():
-    | { readonly ok: true; readonly observation: GameHostSceneObservation }
-    | { readonly ok: false; readonly error: GameControlError };
   /**
    * Phase 23.8, additive: run a project debug command — queued into the next
    * simulation step's input (so a recording of the run replays it). The
@@ -525,56 +444,6 @@ export interface GameHost {
    * before mount or without an input config.
    */
   readonly bindings?: InputBindingsController | null;
-}
-
-// --- the committed-view → cue mapping (delivery.md §4.1, B13) -------------
-
-/** The committed `GameEventKind` → cue-kind map. `respawned`/`replayed` are
- * run-boundary bookkeeping (no cue); `jump` is DERIVED from the committed
- * `playerMotion` grounded→airborne transition (the closed `GameEventKind`
- * vocabulary has no jump event — the committed motion is the only committed
- * airborne signal; a walk-off cliff also fires it: a documented limitation
- * of the committed-view vocabulary). */
-const CUE_EVENT_KIND: Readonly<Record<GameEvent['kind'], CueKind | null>> = Object.freeze({
-  runStarted: 'start',
-  died: 'death',
-  checkpointActivated: 'checkpoint',
-  goalReached: 'goal',
-  respawned: null,
-  replayed: null,
-});
-
-/** Map one committed view to the cue events the audio owner should try
- * (the owner dedupes by id per runId, so re-submitting the bounded event
- * ring every frame is safe and idempotent). */
-export function cueEventsForView(
-  view: GameView,
-  cues: { readonly start: string | null; readonly jump: string | null; readonly checkpoint: string | null; readonly death: string | null; readonly goal: string | null },
-  previousGrounded: boolean,
-): GameCueEvent[] {
-  const out: GameCueEvent[] = [];
-  for (const ev of view.events) {
-    const kind = CUE_EVENT_KIND[ev.kind];
-    if (kind === null) continue;
-    const assetId = cues[kind];
-    if (assetId === null) continue;
-    out.push({ id: ev.id, kind, assetId, runId: view.runId, stepIndex: ev.stepIndex });
-  }
-  if (
-    cues.jump !== null &&
-    view.state === 'playing' &&
-    previousGrounded &&
-    view.playerMotion.grounded === false
-  ) {
-    out.push({
-      id: `${view.runId}/jump/${view.stepIndex}`,
-      kind: 'jump',
-      assetId: cues.jump,
-      runId: view.runId,
-      stepIndex: view.stepIndex,
-    });
-  }
-  return out;
 }
 
 // --- the sound-status mapping (delivery.md §3.1 `sound.status`) -----------
@@ -620,7 +489,7 @@ function validateConfig(config: GameHostConfig): string | null {
     if (typeof config.audio[member] !== 'function') return `config.audio.${member} must be a function`;
   }
   if (typeof config.readArtifact !== 'function') return 'config.readArtifact must be the injected artifact reader';
-  if (!isPlainObject(config.container)) return 'config.container must be the HUD root element';
+  if (!isPlainObject(config.container)) return 'config.container must be the overlay root element';
   if (typeof config.container.appendChild !== 'function' || typeof config.container.remove !== 'function') {
     return 'config.container must expose appendChild/remove (the structural HostDomNode surface)';
   }
@@ -656,7 +525,7 @@ function toControlError(error: RuntimeError): GameControlError {
 
 /**
  * Create the game host (delivery.md §3.1). The host owns its runtime
- * instance and HUD; the input owner, audio owner, and canvas are
+ * instance and overlays; the input owner, audio owner, and canvas are
  * wrapper-owned and injected (a new host on the same snapshot reuses them).
  */
 /**
@@ -742,15 +611,12 @@ export interface GameRuntimeArgs {
 }
 
 /** Phase 22.0: compose and start the game's runtime (see `GameRuntimeArgs`). */
-export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: Runtime; sceneMode: boolean } | { ok: false; error: GameControlError } {
+export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: Runtime } | { ok: false; error: GameControlError } {
   const snapshot = args.snapshot;
   const scene = snapshot.scene;
   if (scene.schemaVersion !== 3 && scene.schemaVersion !== 4) {
-    return { ok: false, error: { code: 'host_config_invalid', reason: 'game-block', message: 'the game host requires a v3 snapshot' } };
+    return { ok: false, error: { code: 'host_config_invalid', reason: 'snapshot', message: 'the game host requires a v3 or v4 snapshot' } };
   }
-  // Scene mode: without a game block the host plays the scene as authored
-  // (no game session, no HUD).
-  const sceneMode = snapshot.game === null || snapshot.game === undefined;
 
   const registry = createSimulationRegistry();
   // The registry carries the runtime built-ins (inert unless selected —
@@ -800,7 +666,7 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     res.runtime.dispose();
     return { ok: false, error: toControlError(started.error) };
   }
-  return { ok: true, runtime: res.runtime, sceneMode };
+  return { ok: true, runtime: res.runtime };
 }
 
 export function createGameHost(config: GameHostConfig): GameHost {
@@ -812,22 +678,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let disposed = false;
   let mounted = false;
   let runtime: Runtime | null = null;
-  let hud: Hud | null = null;
   /**
-   * Phase 15.5: the bindings the game runs with — the project's actions, then
-   * the player's saved rebinding (applied by the flow's settings, or below for
-   * a game without a flow), then any rebinding made while playing. The classic
-   * HUD's prompts name these.
+   * Phase 15.5: the bindings the game runs with — the project's actions with
+   * the player's saved rebinding and any rebinding made while playing. The
+   * input prompts name these.
    */
-  let promptInput: InputConfigLike = config.inputConfig ?? DEFAULT_PROMPT_INPUT;
-  let promptCache: { input: InputConfigLike; device: 'keyboard' | 'gamepad'; prompts: ReturnType<typeof hudPrompts> } | null = null;
-  const currentPrompts = (): ReturnType<typeof hudPrompts> => {
-    const device = config.input.activeDevice?.() ?? 'keyboard';
-    if (promptCache === null || promptCache.input !== promptInput || promptCache.device !== device) promptCache = { input: promptInput, device, prompts: hudPrompts(promptInput, device) };
-    return promptCache.prompts;
-  };
-  let flowCtl: FlowController | null = null;
-  /** Phase 24.4j: the game shell (a scene-mode game with `content.shell`). */
+  let promptInput: InputConfigLike = config.inputConfig ?? { actions: [] };
+  /** Phase 24.4j: the game shell (a game with `content.shell`). */
   let shellCtl: ShellController | null = null;
   /** Phase 23.14: the player's bindings (created at mount when the game has an input config). */
   let bindings: InputBindingsController | null = null;
@@ -863,7 +720,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   /** Phase 23.9a: the project UI layer (null without UI documents). */
   let uiLayer: UiLayer | null = null;
   /**
-   * Phase 23.10: the engine pause of a game with game modes and no flow (the
+   * Phase 23.10: the engine pause of a game with game modes and no shell (the
    * mode allows it), the engine's pause panel (a mode without a pause screen
    * of its own), and the input maps in effect: a focused UI document's action
    * map, else the current mode's maps, else every map.
@@ -890,7 +747,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     return mv;
   };
-  /** A restart of a game without the platformer session: an input-frame entry (so recordings replay it). */
+  /** A restart of the game: an input-frame entry (so recordings replay it). */
   const sceneRestart = (): void => {
     const r = runtime?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: '' });
     if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
@@ -980,7 +837,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       log: (message) => console.warn(`[game-host] ${message}`),
     });
 
-  /** A project UI document's engine action in a game without a flow (with modes: pause, resume, restart). */
+  /** A project UI document's engine action in a game without a shell (with modes: pause, resume, restart). */
   const sceneEngineAction = (a: { readonly action: string }): void => {
     switch (a.action) {
       case 'resume':
@@ -996,53 +853,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
         sceneRestart();
         break;
       default:
-        break; // settings, saves and levels belong to the platformer flow
+        break; // settings and saves belong to the game shell
     }
   };
-  /** The last committed `playerMotion.grounded` (the jump-cue transition).
-   * Reset to `true` at every reset boundary (the committed view publishes
-   * `{ speed: 0, grounded: true }` there, so the derived cue can never fire
-   * on a respawn's first frame). */
-  let previousGrounded = true;
-  let lastCheckpointStep: number | null = null;
-
-  // The snapshot's `game` block is runtime-validated; the host reads its
-  // authored strings + cue refs structurally (types-only, from the typed
-  // RuntimeSnapshot).
-  const authored = config.snapshot.game;
-  const cues: Record<CueKind, string | null> = {
-    start: authored?.cues?.start ?? null,
-    jump: authored?.cues?.jump ?? null,
-    checkpoint: authored?.cues?.checkpoint ?? null,
-    death: authored?.cues?.death ?? null,
-    goal: authored?.cues?.goal ?? null,
-  };
-
-  /** The host's per-frame work (the runtime's `onFrame` — runs AFTER the
-   * step update, before the adapter renders; runtime.md §6 ordering). */
-  const buildHudState = (state: RunState, deathCount: number, checkpointActive: boolean, checkpointStep: number | null): HudState => ({
-    title: typeof authored?.title === 'string' ? authored.title : '',
-    objective: typeof authored?.objective === 'string' ? authored.objective : '',
-    instructions: typeof authored?.instructions === 'string' ? authored.instructions : '',
-    state,
-    deathCount,
-    checkpointActive,
-    checkpointStep: checkpointActive ? checkpointStep : null,
-    sound: mapSoundStatus(config.audio).status,
-    counters: countersLine(),
-  });
-
-  /** Phase 9.9: "Coins 3 · Gems 5 · Health 2/3" from the runtime's counters. */
-  const countersLine = (): string => {
-    const g = (runtime as unknown as { gameCounters?: () => { counters: Record<string, number>; health: { current: number; max: number } | null } } | null)?.gameCounters?.();
-    if (g === undefined) return '';
-    const parts = Object.entries(g.counters)
-      .filter(([k]) => k !== 'defeated')
-      .map(([k, v]) => `${k.charAt(0).toUpperCase()}${k.slice(1)} ${v}`);
-    if (g.health !== null) parts.push(`Health ${g.health.current}/${g.health.max}`);
-    return parts.join(' · ');
-  };
-
   /** Phase 12 (c): hand the game's scene requests to the wrapper's loader. */
   const serviceSceneRequests = (rt: Runtime): void => {
     const requests = rt.takeSceneRequests?.() ?? [];
@@ -1093,7 +906,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
    */
   const serviceCursor = (rt: Runtime): void => {
     if (config.input.applyCursor === undefined) return;
-    const menu = (flowCtl !== null && flowCtl.screen !== 'playing') || rt.isPaused === true;
+    const menu = rt.isPaused === true;
     config.input.applyCursor(resolveCursorMode(config.inputConfig as InputConfigLike | undefined, menu ? 'ui' : 'gameplay', rt.cursorRequest?.() ?? null));
   };
 
@@ -1212,9 +1025,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let sourcesRevision = -1;
   let sources: { id: string; assetId: string; volume: number; range: number; spatial: AudioSpatialLike }[] = [];
   const liveLoops = new Set<string>();
-  /** Phase 21.5: the menu logo's object URL (revoked on dispose). */
-  let logoUrl: string | null = null;
   const musicAsked = new Set<string>();
+  /** The character (the first controller entity; null: none) — the legacy audio-source model hears from it. */
+  let characterId: string | null | undefined;
   const serviceAudioSources = (rt: Runtime): void => {
     if (config.audio.setLoop === undefined) return;
     const set = rt.sceneSet?.();
@@ -1246,9 +1059,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
     }
     if (sources.length === 0 && liveLoops.size === 0) return;
-    // Phase 21.2: only the player and the sources are read (no per-frame copy of every transform).
-    const playerId = config.snapshot.game?.playerId;
-    const player = playerId !== undefined && readTransform(rt, playerId, playerAt) ? playerAt : undefined;
+    // Phase 21.2: only the character and the sources are read (no per-frame copy of every transform).
+    characterId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)?.id ?? null;
+    const player = characterId !== null && readTransform(rt, characterId, playerAt) ? playerAt : undefined;
     const seen = new Set<string>();
     for (const s of sources) {
       if (!readTransform(rt, s.id, sourceAt)) continue;
@@ -1309,74 +1122,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return null;
   };
 
-  /** Phase 14.5: the playing level's ambience, looped on the sfx bus (keys `ambience:<n>`). */
-  const liveAmbience = new Set<string>();
-  const serviceAmbience = (): void => {
-    if (config.audio.setLoop === undefined || flowCtl === null) return;
-    const want = flowCtl.ambience();
-    const seen = new Set<string>();
-    want.forEach((assetId, i) => {
-      const key = `ambience:${i}`;
-      config.audio.setLoop!(key, assetId, 1);
-      seen.add(key);
-      liveAmbience.add(key);
-    });
-    for (const key of [...liveAmbience]) {
-      if (seen.has(key)) continue;
-      config.audio.setLoop(key, null, 0);
-      liveAmbience.delete(key);
-    }
-  };
-
-  /**
-   * Phase 14.5: the camera behind the title menu. With a background scene it
-   * frames the scene's first player spawn (else the middle of its objects)
-   * as it frames the player: the offset is that point minus the player's
-   * position. The pan adds `distance · (1 − cos(π·t/seconds)) / 2` along x —
-   * out over `seconds`, back over the next. Wall-clock time, presentation
-   * only (the simulation never sees it).
-   */
-  let titleSince: number | null = null;
-  let titleOffset: [number, number, number] | null = null;
-  const nowSeconds = (): number => {
-    const perf = (globalThis as { performance?: { now(): number } }).performance;
-    return perf !== undefined ? perf.now() / 1000 : Date.now() / 1000;
-  };
-  const serviceTitleView = (rt: Runtime): void => {
-    const tv = flowCtl?.titleView() ?? null;
-    if (tv === null || (tv.scene === null && tv.pan === null)) {
-      titleSince = null;
-      if (titleOffset !== null) {
-        titleOffset = null;
-        config.setCameraOffset?.(null);
-      }
-      return;
-    }
-    if (titleSince === null) titleSince = nowSeconds();
-    let offset: [number, number, number] = [0, 0, 0];
-    if (tv.scene !== null) {
-      const batch = rt.sceneSet?.().batches.find((b) => b.sceneId === tv.scene);
-      const playerId = config.snapshot.game?.playerId;
-      const player = playerId !== undefined && readTransform(rt, playerId, playerAt) ? playerAt : undefined;
-      const anchor = batch !== undefined ? titleAnchor(batch.entities) : null;
-      if (anchor !== null && player !== undefined) offset = [anchor[0] - player.position[0]!, anchor[1] - player.position[1]!, anchor[2] - player.position[2]!];
-    }
-    if (tv.pan !== null) {
-      const t = nowSeconds() - titleSince;
-      offset = [offset[0] + (tv.pan.distance * (1 - Math.cos((Math.PI * t) / tv.pan.seconds))) / 2, offset[1], offset[2]];
-    }
-    titleOffset = offset;
-    config.setCameraOffset?.(offset);
-  };
-
-  /** The committed game view (no copy when the runtime can hand out the frozen one); null without a game session. */
-  const gameViewOf = (rt: Runtime): GameView | null => {
-    if (rt.peekGameView !== undefined) return rt.peekGameView();
-    const res = rt.getGameView();
-    return res.ok ? res.view : null;
-  };
-
-  /** Phase 23.9a: the simulation's UI diff, then the layer's frame (bindings, $flow, the view size). */
+  /** Phase 23.9a: the simulation's UI diff, then the layer's frame (bindings, $flow values, the view size). */
   const serviceUi = (rt: Runtime): void => {
     if (uiLayer === null) return;
     const out = rt.takeUiOutput?.() ?? null;
@@ -1396,83 +1142,34 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceBindings(runtime);
     serviceUi(runtime);
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
-    // tick (delivery.md §4.5). The run commands queue in the runtime and
-    // apply at the next step boundary; at awaitingStart/won that boundary
-    // performs no motion steps (C4/C5: `movementSteps: 0`).
+    // tick (delivery.md §4.5). What it asks for (a restart, a UI event)
+    // rides on the next step's input frame.
     const menu: MenuSample = config.input.sampleMenu();
     // Phase 23.9a: a focused project UI document takes the ui edges it uses (navigation, submit, its cancel) first.
-    // (A built-in flow menu keeps its own navigation over a document a script left focused.)
-    const uiFocus = uiLayer !== null && uiLayer.hasFocus() && (flowCtl === null || flowCtl.screen === 'playing' || uiLayer.observe().screen !== null);
-    // Phase 23.10: the game modes (their input maps); a game with modes and no flow has the engine pause.
+    const uiFocus = uiLayer !== null && uiLayer.hasFocus();
+    // Phase 23.10: the game modes (their input maps); a game with modes has the engine pause.
     const modeView = serviceModes(runtime);
     if (shellCtl !== null) {
       // Phase 24.4j: the game shell takes what the focused document left (pause, cancel, the pause panel's navigation).
       const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: menu.confirm, cancel: false, pause: false };
       const rest = uiFocus ? uiLayer!.handleEdges(raw) : raw;
       shellCtl.handleEdges(rest);
-    } else if (flowCtl === null && modeView !== null) {
+    } else if (modeView !== null) {
       const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: menu.confirm, cancel: false, pause: false };
       const rest = uiFocus ? uiLayer!.handleEdges(raw) : raw;
       if (rest.pause) setScenePause(!scenePaused);
       else if (pausePanel?.shown === true) pausePanel.handleEdges(rest);
-    } else if (flowCtl === null && uiFocus) {
+    } else if (uiFocus) {
       const edges = config.input.sampleUi?.();
       if (edges !== undefined) uiLayer!.handleEdges(edges);
       else if (menu.confirm) uiLayer!.handleEdges({ up: false, down: false, left: false, right: false, submit: true, cancel: false, pause: false });
     }
-    if (flowCtl !== null) {
-      // Phase 9.10: the flow's menus take the confirm and the ui edges.
-      const raw0 = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
-      // Phase 23.10: a game mode that does not allow the pause keeps the flow from pausing (its menus still close with pause).
-      const raw = modeView !== null && !modeView.pause && flowCtl.screen === 'playing' && raw0.pause ? { ...raw0, pause: false } : raw0;
-      const ui = uiFocus ? uiLayer!.handleEdges(raw) : raw;
-      const flowView = gameViewOf(runtime);
-      if (flowView !== null) {
-        // The ui queue carries submit (Enter, pad A) in order with the
-        // navigation; an owner without it falls back to the menu confirm.
-        const onMenu = flowCtl.screen !== 'playing';
-        const submit = config.input.sampleUi !== undefined ? ui.submit : ui.submit || (onMenu && menu.confirm);
-        const used = flowCtl.frame(flowView, { ...ui, submit });
-        if (used) config.input.markConfirmConsumed();
-      }
-      if (menu.mute) {
-        const st = config.audio.status();
-        void control(st.state === 'ready' && st.muted ? 'unmute' : 'mute');
-      }
-    } else if (menu.confirm || menu.mute) {
-      const res = runtime.getGameView();
-      const state: RunState | null = res.ok ? res.view.state : null;
-      if (menu.confirm) {
-        // The §4.2 fresh-release state machine: consumption happens when the
-        // confirm DRIVES a menu action (start at the title, replay at the
-        // win screen). A confirm sampled in a state with no valid action is
-        // gameplay input, not a consumed menu press — its jump is
-        // legitimate and must keep its full hold (no early 'released').
-        let acted = false;
-        if (state === 'awaitingStart') {
-          const c = control('start');
-          acted = c.ok === true;
-          if (c.ok === false) console.warn('[game-host] menu confirm: start rejected', c.error.code);
-        } else if (state === 'won') {
-          const c = control('replay');
-          acted = c.ok === true;
-          if (c.ok === false) console.warn('[game-host] menu confirm: replay rejected', c.error.code);
-        }
-        if (acted) {
-          // Consumed: the held press now needs a release before it may jump
-          // (delivery.md §4.2 — the owner's needsRelease state suppresses the
-          // same physical press from also becoming a jump).
-          config.input.markConfirmConsumed();
-        }
-      }
-      if (menu.mute) {
-        const st = config.audio.status();
-        void control(st.state === 'ready' && st.muted ? 'unmute' : 'mute');
-      }
+    if (menu.mute) {
+      const st = config.audio.status();
+      void control(st.state === 'ready' && st.muted ? 'unmute' : 'mute');
     }
-    // (2) The committed view → cues, HUD, adapter. Committed-view-only:
-    // no runtime internals, no scene-graph mutation (C41-1). Scene mode has
-    // no game view: it only renders.
+    // (2) The overlays, sounds and the adapter — read from the runtime's
+    // published views; no runtime internals, no scene-graph mutation (C41-1).
     // Phase 23.4: the live camera's letterbox (an overlay the host draws over the view).
     serviceLetterbox(runtime);
     // Phase 23.17: a timeline's fade over the view.
@@ -1484,39 +1181,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
       const reqs = runtime.takeSaveRequests?.() ?? [];
       if (reqs.length > 0) projectSaves.handle(reqs);
     }
-    // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
-    const view = gameViewOf(runtime);
-    if (view === null) {
-      // Phase 23.13: a scene (no game session) plays script sounds and audio sources too.
-      serviceScriptAudio(runtime);
-      serviceAudioSources(runtime);
-      adapter?.renderFrame();
-      serviceAnchors();
-      return;
-    }
-    // `won` too: the goal event commits on the step the run is won (cue ids
-    // are played at most once, so re-submitting a frame is harmless).
-    if (view.state === 'playing' || view.state === 'respawning' || view.state === 'won') {
-      const cueEvents = cueEventsForView(view, cues, previousGrounded);
-      if (cueEvents.length > 0) config.audio.submit(cueEvents);
-    }
-    if (view.checkpointActive && lastCheckpointStep !== view.stepIndex) {
-      lastCheckpointStep = view.stepIndex;
-    }
-    if (view.state === 'awaitingStart') {
-      // A fresh run (or a replay) re-anchors the HUD's checkpoint line.
-      lastCheckpointStep = null;
-    }
-    previousGrounded = view.playerMotion.grounded;
-    // Phase 9.10: the sounds scripts played, and the audio sources' loops.
+    // Phase 23.13: the sounds of scripts and event cues (the runtime's audio intent log), and the audio sources' loops.
     serviceScriptAudio(runtime);
     serviceAudioSources(runtime);
-    serviceAmbience();
-    serviceTitleView(runtime);
-    if (hud !== null) {
-      const state = buildHudState(view.state, view.deathCount, view.checkpointActive, lastCheckpointStep);
-      hud.update(flowCtl !== null ? { ...state, flowLine: flowCtl.hudLine() } : state);
-    }
     adapter?.renderFrame();
     serviceAnchors();
   };
@@ -1530,34 +1197,17 @@ export function createGameHost(config: GameHostConfig): GameHost {
       return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
     }
     switch (action) {
-      case 'start':
       case 'replay': {
-        if (flowCtl !== null) {
-          // Phase 9.10: start = a new game (level 1), replay = restart the level.
-          const okFlow = action === 'start' ? flowCtl.newGame() : flowCtl.restartLevel();
-          const v = runtime.getGameView();
-          if (!okFlow) return { ok: false, error: { code: 'game_command_invalid', reason: 'level', message: 'the level could not start' } };
-          return { ok: true, state: playState(), acceptedAtStep: v.ok ? v.view.stepIndex : 0 };
-        }
-        // Phase 24.6: a game without the session restarts its scene on replay (the pause panel's restart:
-        // an input-frame entry, so a recording replays it); there is no run to start.
-        if (gameViewOf(runtime) === null && action === 'replay' && runtime.queueUiEvent !== undefined) {
-          const q = runtime.queueUiEvent({ kind: 'restart', doc: '', widget: '', name: '' });
-          if (q.ok === false) return { ok: false, error: toControlError(q.error) };
-          const d = runtime.getDiagnostics();
-          return { ok: true, state: playState(), acceptedAtStep: d.ok ? d.diagnostics.stepIndex : 0 };
-        }
-        const res = runtime.gameCommand(action);
-        if (res.ok === false) return { ok: false, error: toControlError(res.error) };
-        const viewRes = runtime.getGameView();
-        return {
-          ok: true,
-          state: playState(),
-          acceptedAtStep: viewRes.ok ? viewRes.view.stepIndex : 0,
-        };
+        // Phase 24.6: replay restarts the game (the pause panel's restart: an input-frame entry, so a recording replays it).
+        if (runtime.queueUiEvent === undefined) return { ok: false, error: { code: 'game_command_invalid', reason: 'replay', message: 'this runtime cannot restart' } };
+        const q = runtime.queueUiEvent({ kind: 'restart', doc: '', widget: '', name: '' });
+        if (q.ok === false) return { ok: false, error: toControlError(q.error) };
+        break;
       }
       case 'clearSave':
-        if (config.saveStorage !== undefined && config.saveNamespace !== undefined) createSaveStore(config.saveStorage, config.saveNamespace).clear();
+        if (config.saveStorage !== undefined && config.saveNamespace !== undefined) createSettingsStore(config.saveStorage, config.saveNamespace).clear();
+        // Phase 24.7: and the project save slots (the level flow's saves this cleared were deleted).
+        void projectSaves?.clear();
         break;
       case 'mute':
         config.audio.setMuted(true);
@@ -1566,67 +1216,38 @@ export function createGameHost(config: GameHostConfig): GameHost {
         config.audio.setMuted(false);
         break;
     }
-    const viewRes = runtime.getGameView();
-    const diag = viewRes.ok ? null : runtime.getDiagnostics();
-    return {
-      ok: true,
-      state: playState(),
-      acceptedAtStep: viewRes.ok ? viewRes.view.stepIndex : diag !== null && diag.ok ? diag.diagnostics.stepIndex : 0,
-    };
+    return { ok: true, state: playState(), acceptedAtStep: stepNow(runtime) };
+  };
+
+  /** The runtime's current step (0 when its diagnostics are unavailable). */
+  const stepNow = (rt: Runtime): number => {
+    const d = rt.getDiagnostics();
+    return d.ok ? d.diagnostics.stepIndex : 0;
   };
 
   /**
-   * Phase 23.8: apply the start options — a save (the title's Continue path),
-   * a level, or (without levels) the start scenes plus the chosen one and a
-   * spawn; a scene-mode game loads the chosen scene. Injected variables go
-   * into a save document's values too (the save's values would replace them).
+   * Phase 23.8: apply the start options — the start scenes plus the chosen
+   * one (loaded) and the spawn the character arrives at, a project save, a
+   * game mode.
    */
-  const applyStart = (rt: Runtime, start: GameStartOptions, flow: FlowController | null): GameStartOutcome => {
+  const applyStart = (rt: Runtime, start: GameStartOptions): GameStartOutcome => {
     const applied: string[] = [];
-    const variables = config.variables;
-    const withVariables = (doc: SaveDocument): SaveDocument => (variables === undefined ? doc : { ...doc, run: { ...doc.run, values: { ...(doc.run.values ?? {}), ...variables } } });
-    if (start.save !== undefined || start.saveSlot !== undefined) {
-      if (flow === null) return { ok: false, reason: 'a save starts a game with levels; this game has none' };
-      let doc: SaveDocument;
-      if (start.save !== undefined) doc = start.save;
-      else {
-        const slot = start.saveSlot!;
-        if (!SAVE_SLOTS.includes(slot) || config.saveStorage === undefined || config.saveNamespace === undefined) return { ok: false, reason: `this page has no save slot "${String(slot)}"` };
-        const st = createSaveStore(config.saveStorage, config.saveNamespace).read(slot);
-        if (st.state !== 'ok') return { ok: false, reason: st.state === 'empty' ? `save slot ${slot} is empty` : `save slot ${slot} is damaged (${st.reason})` };
-        doc = st.doc;
+    if (start.scenes !== undefined && start.scenes.length > 0) {
+      const loaded = new Set(rt.sceneSet?.().batches.map((b) => b.sceneId) ?? []);
+      for (const id of start.scenes) {
+        if (loaded.has(id)) continue;
+        const r = rt.requestScene?.('load', id);
+        if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game has no scenes to load' : r.error.message };
       }
-      const r = flow.loadSave(withVariables(doc));
-      if (!r.ok) return { ok: false, reason: r.reason };
-      applied.push(start.save !== undefined ? 'save' : `saveSlot ${start.saveSlot!}`);
-    } else if (start.levelId !== undefined) {
-      if (flow === null || config.flow === undefined) return { ok: false, reason: 'a level start needs a game with levels' };
-      const index = config.flow.levels.findIndex((l) => l.id === start.levelId);
-      if (index < 0 || !flow.startLevelAt(index)) return { ok: false, reason: `level "${start.levelId}" could not start` };
-      applied.push(`level ${start.levelId}`);
-    } else if (start.scenes !== undefined && start.scenes.length > 0) {
-      const game = config.snapshot.game;
-      if (game !== null && game !== undefined) {
-        if (typeof rt.startLevel !== 'function') return { ok: false, reason: 'this game cannot switch scenes' };
-        const r = rt.startLevel({ scenes: start.scenes, spawnId: start.spawnId ?? game.spawnId });
-        if (!r.ok) return { ok: false, reason: r.error.message };
-      } else {
-        const loaded = new Set(rt.sceneSet?.().batches.map((b) => b.sceneId) ?? []);
-        for (const id of start.scenes) {
-          if (loaded.has(id)) continue;
-          const r = rt.requestScene?.('load', id);
-          if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game has no scenes to load' : r.error.message };
-        }
-        // Phase 24.6: the character starts at the chosen scene's spawn (arriving once that scene is loaded).
-        if (start.spawnId !== undefined) {
-          const r = rt.requestArrival?.(start.scenes[start.scenes.length - 1]!, start.spawnId);
-          if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game cannot place the character' : r.error.message };
-          applied.push(`spawn ${start.spawnId}`);
-        }
+      // Phase 24.6: the character starts at the chosen scene's spawn (arriving once that scene is loaded).
+      if (start.spawnId !== undefined) {
+        const r = rt.requestArrival?.(start.scenes[start.scenes.length - 1]!, start.spawnId);
+        if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game cannot place the character' : r.error.message };
+        applied.push(`spawn ${start.spawnId}`);
       }
       applied.push(`scenes ${start.scenes.join(', ')}`);
     }
-    // Phase 23.19: a project save document or slot (loaded at the first step; the flow is not involved).
+    // Phase 23.19: a project save document or slot (loaded at the first step).
     if (start.projectSave !== undefined || start.projectSaveSlot !== undefined) {
       if (projectSaves === null) return { ok: false, reason: 'a project save needs a project save schema' };
       if (start.projectSave !== undefined) {
@@ -1654,26 +1275,20 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (typeof runtime.queueDebugCommand !== 'function') return { ok: false, error: { code: 'game_command_invalid', reason: 'debug_command', message: 'this game has no debug commands' } };
     const r = runtime.queueDebugCommand({ name, args });
     if (!r.ok) return { ok: false, error: toControlError(r.error) };
-    const view = gameViewOf(runtime);
-    const d = view === null ? runtime.getDiagnostics() : null;
-    return { ok: true, state: playState(), acceptedAtStep: view !== null ? view.stepIndex : d !== null && d.ok ? d.diagnostics.stepIndex : 0 };
+    return { ok: true, state: playState(), acceptedAtStep: stepNow(runtime) };
   };
 
-  /** The audio assets' bytes for the owner (game cues, scripts' sounds, audio sources). */
+  /** The audio assets' bytes for the owner (scripts' sounds, event cues, audio sources). */
   const registerSounds = (): void => {
-    // Cue bytes: resolve the non-null authored cue refs through the
-    // injected reader (async — the game plays silently until a cue's bytes
-    // arrive and decode; the owner skips unregistered assets with a bounded
-    // diagnostic). The host stays fetch-free: `readArtifact` is injected.
+    // Resolve every audio asset through the injected reader (async — the
+    // game plays silently until a sound's bytes arrive and decode; the owner
+    // skips unregistered assets with a bounded diagnostic). The host stays
+    // fetch-free: `readArtifact` is injected.
     if (config.assetPaths !== undefined) {
       const registered = new Set<string>();
-      // Phase 9.10: every audio asset, not only the game's cues (scripts and audio sources play them too).
-      const soundIds = [
-        ...(['start', 'jump', 'checkpoint', 'death', 'goal'] as const).map((k) => cues[k]),
-        ...Object.entries(config.assetKinds ?? {}).filter(([, k]) => k === 'audio').map(([id]) => id),
-      ];
+      const soundIds = Object.entries(config.assetKinds ?? {}).filter(([, k]) => k === 'audio').map(([id]) => id);
       for (const assetId of soundIds) {
-        if (assetId === null || registered.has(assetId)) continue;
+        if (registered.has(assetId)) continue;
         const path = config.assetPaths[assetId];
         if (typeof path !== 'string' || path.length === 0) continue;
         registered.add(assetId);
@@ -1702,10 +1317,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // Phase 22.0: the simulation runs where the wrapper chose — composed here
     // in this page, or in a worker (the factory hands over its mirror runtime,
     // composed by the worker with the same `composeGameRuntime`).
-    let composed: { ok: true; runtime: Runtime; sceneMode: boolean } | { ok: false; error: GameControlError };
+    let composed: { ok: true; runtime: Runtime } | { ok: false; error: GameControlError };
     if (config.runtimeFactory !== undefined) {
-      const made = config.runtimeFactory(hostFrame);
-      composed = made.ok ? { ok: true, runtime: made.runtime, sceneMode: snapshot.game === null || snapshot.game === undefined } : made;
+      composed = config.runtimeFactory(hostFrame);
     } else {
       composed = composeGameRuntime({
         snapshot,
@@ -1722,7 +1336,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
     if (!composed.ok) return composed;
-    const sceneMode = composed.sceneMode;
     const res = { runtime: composed.runtime };
     runtime = res.runtime;
 
@@ -1731,9 +1344,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
       adapter = null; // a malformed factory result degrades to headless (the game keeps playing)
     }
 
-    // Phase 23.4: the document the letterbox bars are made in (a scene-mode game has them too).
+    // Phase 23.4: the document the overlays (letterbox bars, fade, UI documents) are made in.
     hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
-    const dom: HostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? { createElement: () => { throw new Error('no document available for the HUD'); } };
+    const dom: HostDom = hostDom ?? { createElement: () => { throw new Error('no document available for the overlays'); } };
     if (config.debugConsole === true) {
       const rt0 = res.runtime;
       debugConsole = createDebugConsole({
@@ -1771,12 +1384,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
       void projectSaves.start();
     }
-    // Phase 23.14: the player's bindings (saved per profile) — in scene-mode games too.
+    // Phase 23.14: the player's bindings (saved per profile).
     if (config.inputConfig !== undefined) {
       bindings = createInputBindings({
         defaults: config.inputConfig,
         input: config.input,
-        ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { store: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
+        ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { store: createSettingsStore(config.saveStorage, config.saveNamespace) } : {}),
         onChange: (c) => {
           promptInput = c as InputConfigLike;
         },
@@ -1784,7 +1397,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
 
-    // Phase 23.9a: the project UI layer (scene-mode games too).
+    // Phase 23.9a: the project UI layer.
     if (config.ui !== undefined && config.ui.documents.length > 0 && hostDom !== null) {
       const rt = res.runtime;
       uiLayer = createUiLayer({
@@ -1817,18 +1430,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
             void control(a.action);
             return;
           }
-          // Phase 23.10: a game without a flow has the engine pause (with modes) and the restart.
-          if (flowCtl !== null) flowCtl.engine(a);
-          else if (shellCtl !== null) shellCtl.engine(a);
+          // Phase 23.10: a game without a shell has the engine pause (with modes) and the restart.
+          if (shellCtl !== null) shellCtl.engine(a);
           else sceneEngineAction(a);
         },
         // Phase 23.14: `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
         // Phase 24.4j: + the game shell, the named counters, every object's health and the generated input prompts.
         flowValues: () => {
-          const f = flowCtl?.uiValues() ?? null;
           const rtNow = runtime;
           return {
-            ...(f ?? {}),
             ...(bindings !== null ? { input: inputUiValues() } : {}),
             ...(shellCtl !== null ? { shell: shellCtl.values() } : {}),
             counters: rtNow?.gameCounters?.().counters ?? {},
@@ -1858,165 +1468,22 @@ export function createGameHost(config: GameHostConfig): GameHost {
           : {}),
       });
     }
-    if (sceneMode) {
-      // Phase 24.4j: the game shell (a title, pause, settings, controls, save/load screens and the HUD as UI documents).
-      if (config.shell !== undefined) shellCtl = makeShell(res.runtime);
-      mounted = true;
-      // Phase 23.13: a scene plays script sounds and audio sources too.
-      registerSounds();
-      if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start, null);
-      // A start given by a test or the debugger begins in play (no title).
-      shellCtl?.start(config.start !== undefined);
-      return { ok: true };
-    }
-
-    const flow = config.flow !== undefined && typeof res.runtime.startLevel === 'function' && config.flow.levels.length > 0 ? config.flow : undefined;
-    hud = createHud(dom, {
-      ...(flow !== undefined ? { preset: flow.hud?.preset ?? 'classic' } : {}),
-      prompts: currentPrompts,
-      onStart: () => {
-        const c = control('start');
-        if (c.ok === false) console.warn('[game-host] Start button rejected', c.error.code);
-      },
-      onMuteToggle: () => {
-        const st = config.audio.status();
-        void control(st.state === 'ready' && st.muted ? 'unmute' : 'mute');
-      },
-    });
-    config.container.appendChild(hud.root);
-    if (flow !== undefined) {
-      const rt = res.runtime;
-      flowCtl = createFlowController({
-        flow,
-        gameTitle: typeof authored?.title === 'string' ? authored.title : '',
-        objective: typeof authored?.objective === 'string' ? authored.objective : '',
-        instructions: typeof authored?.instructions === 'string' ? authored.instructions : '',
-        dom,
-        container: config.container,
-        runtime: {
-          ...(typeof rt.requestScene === 'function'
-            ? {
-                requestScene: (op: 'load' | 'unload', sceneId: string) => {
-                  const r = rt.requestScene!(op, sceneId);
-                  return r.ok ? { ok: true as const } : { ok: false as const, error: { message: r.error.message } };
-                },
-              }
-            : {}),
-          startLevel: (l, restore) => rt.startLevel!(l, restore),
-          runState: () => rt.runState!(),
-          setPaused: (p) => rt.setPaused?.(p),
-          gameCounters: () => rt.gameCounters?.() ?? { counters: {}, health: null },
-        },
-        audio: config.audio,
-        ...(bindings !== null ? { bindings } : {}),
-        ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
-        ...(config.setLevelEnvironment !== undefined ? { setLevelEnvironment: config.setLevelEnvironment } : {}),
-        ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
-        // Phase 15.3: the project's music crossfade.
-        ...(config.settings.music_fade_s !== undefined ? { musicFade: config.settings.music_fade_s } : {}),
-        // Phase 23.9a: project UI documents instead of built-in screens.
-        ...(flow.screens !== undefined && uiLayer !== null ? { screens: flow.screens, onScreen: (docId: string | null) => uiLayer?.showScreen(docId) } : {}),
-      });
-      // The menu logo: the texture's own bytes as an object URL (no fetch).
-      const logo = flow.ui?.logo;
-      const logoPath = logo !== undefined ? config.assetPaths?.[logo] : undefined;
-      const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
-      if (typeof logoPath === 'string' && typeof urls?.createObjectURL === 'function' && typeof Blob === 'function') {
-        void config.readArtifact(logoPath)
-          .then((buffer) => {
-            if (disposed || flowCtl === null) return;
-            logoUrl = urls.createObjectURL!(new Blob([buffer]));
-            flowCtl.setLogo(logoUrl);
-          })
-          .catch(() => undefined);
-      }
-      // Music bytes: every track the flow names (decoded when first played).
-      if (config.assetPaths !== undefined && config.audio.registerMusic !== undefined) {
-        const tracks = new Set<string>();
-        for (const l of flow.levels) if (l.music !== undefined) tracks.add(l.music);
-        if (flow.title?.music !== undefined) tracks.add(flow.title.music);
-        // Phase 14.5: a music-kind ambience loop needs its bytes too (audio-kind ones are registered as cues below).
-        for (const l of flow.levels) for (const id of l.ambience ?? []) if (config.assetKinds?.[id] === 'music') tracks.add(id);
-        for (const id of tracks) {
-          const path = config.assetPaths[id];
-          if (typeof path !== 'string' || path.length === 0) continue;
-          void config.readArtifact(path).then(
-            (buffer) => {
-              if (!disposed) config.audio.registerMusic?.(id, new Uint8Array(buffer));
-            },
-            (error: unknown) => console.warn('[game-host] music artifact read failed', error instanceof Error ? error.message : String(error)),
-          );
-        }
-      }
-    }
+    // Phase 24.4j: the game shell (a title, pause, settings, controls, save/load screens and the HUD as UI documents).
+    if (config.shell !== undefined) shellCtl = makeShell(res.runtime);
     mounted = true;
-    // Phase 23.8: a test/debug start (a level, a scene, a save) instead of the title.
-    if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start, flowCtl);
-
-    // The authored content is static: the HUD shows it immediately at mount
-    // (the per-frame updates follow from the committed view).
-    const initial = res.runtime.getGameView();
-    hud.update(
-      buildHudState(
-        initial.ok ? initial.view.state : 'awaitingStart',
-        initial.ok ? initial.view.deathCount : 0,
-        initial.ok ? initial.view.checkpointActive : false,
-        null,
-      ),
-    );
-
+    // Phase 23.13: script sounds, event cues and audio sources.
     registerSounds();
+    if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start);
+    // A start given by a test or the debugger begins in play (no title).
+    shellCtl?.start(config.start !== undefined);
     return { ok: true };
-  };
-
-  const observe = ():
-    | { ok: true; observation: GameHostObservation }
-    | { ok: false; error: GameControlError } => {
-    if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
-    if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
-    const res = runtime.getGameView();
-    if (res.ok === false) return { ok: false, error: toControlError(res.error) };
-    const v = res.view;
-    return {
-      ok: true,
-      observation: {
-        runId: v.runId,
-        snapshotId: v.snapshotId,
-        buildId: config.buildId,
-        stepIndex: v.stepIndex,
-        state: playState(),
-        sound: mapSoundStatus(config.audio),
-        inputMode: 'physical', // the local shell; the relay's exclusive test mode is packet 59
-        legacy: {
-          runState: v.state,
-          checkpointId: v.checkpointId,
-          deathCount: v.deathCount,
-          goalReached: v.goalReached,
-          failed: v.failed,
-          ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
-          ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
-        },
-        ...scenesObservation(runtime),
-        ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
-        ...cameraObservation(runtime),
-        ...environmentObservation(runtime),
-        ...audioObservation(),
-        ...socketsObservation(runtime),
-        ...savesObservation(),
-        ...(uiLayer !== null ? { ui: uiLayer.observe() } : {}),
-        ...dialogueObservation(runtime),
-        ...inputObservation(runtime),
-        ...modeObservation(runtime),
-        ...timelineObservation(runtime),
-      },
-    };
   };
 
   /** Phase 23.10: the game modes, the engine pause and its panel (a project with modes). */
   const modeObservation = (rt: Runtime): { mode?: ModeView; paused?: boolean; pausePanel?: { focus: 'resume' | 'restart' } } => {
     const mv = rt.modeView?.() ?? null;
     if (mv === null) return {};
-    return { mode: mv, ...(flowCtl === null ? { paused: scenePaused } : {}), ...(pausePanel?.shown === true ? { pausePanel: { focus: pausePanel.focus } } : {}) };
+    return { mode: mv, paused: scenePaused, ...(pausePanel?.shown === true ? { pausePanel: { focus: pausePanel.focus } } : {}) };
   };
 
   /** Phase 23.11: the objects riding on sockets and where they are (world position, composed up their parents). */
@@ -2097,13 +1564,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return c === null ? {} : { camera: c };
   };
 
-  const observeScene = ():
-    | { ok: true; observation: GameHostSceneObservation }
+  const observe = ():
+    | { ok: true; observation: GameHostObservation }
     | { ok: false; error: GameControlError } => {
     if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
     if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
     const snap = config.snapshot;
-    if (snap.game !== null && snap.game !== undefined) return { ok: false, error: { code: 'game_session_present', message: 'this host plays a game: observe() reports it' } };
     const d = runtime.getDiagnostics();
     const player = snap.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined);
     const st = player !== undefined ? runtime.getInterpolatedState() : null;
@@ -2120,6 +1586,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         inputMode: 'physical',
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
         ...scenesObservation(runtime),
+        ...(liveLoops.size > 0 && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...cameraObservation(runtime),
         ...environmentObservation(runtime),
         ...audioObservation(),
@@ -2131,7 +1598,18 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...modeObservation(runtime),
         ...timelineObservation(runtime),
         ...(shellCtl !== null ? { shell: shellCtl.observe(), paused: scenePaused } : {}),
+        ...countersAndHealth(runtime),
       },
+    };
+  };
+
+  /** Phase 24.7: the named counters and every object's health (bounded; absent while empty). */
+  const countersAndHealth = (rt: Runtime): Pick<GameHostObservation, 'counters' | 'health'> => {
+    const c = Object.entries(rt.gameCounters?.().counters ?? {}).slice(0, 32);
+    const hp = Object.entries(rt.healthsView?.() ?? {}).slice(0, 64);
+    return {
+      ...(c.length > 0 ? { counters: Object.fromEntries(c) } : {}),
+      ...(hp.length > 0 ? { health: Object.fromEntries(hp.map(([id, x]) => [id, { current: x.current, max: x.max }])) } : {}),
     };
   };
 
@@ -2146,14 +1624,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
     if (typeof runtime.requestScene !== 'function') return { ok: false, error: { code: 'scene_invalid', message: 'this runtime has no scene set' } };
     const res = runtime.requestScene(op, sceneId);
-    if (res.ok === false) return { ok: false, error: toControlError(res.error) };
-    return { ok: true };
-  };
-
-  const setViewport = (width: number, height: number): { ok: true } | { ok: false; error: GameControlError } => {
-    if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
-    if (!mounted || runtime === null) return { ok: false as const, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
-    const res = runtime.setViewport(width, height);
     if (res.ok === false) return { ok: false, error: toControlError(res.error) };
     return { ok: true };
   };
@@ -2175,11 +1645,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
       runtime = null;
     }
     // Phase 21.5: what this host started on the wrapper-owned audio owner
-    // stops with it — the loops of audio sources and the level's ambience,
-    // and the flow's music — so a new composition on the same owner (a new
-    // Play snapshot) does not keep the old one's loops playing.
+    // stops with it — the loops of audio sources — so a new composition on
+    // the same owner (a new Play snapshot) does not keep the old one's loops
+    // playing.
     if (config.audio.setLoop !== undefined) {
-      for (const id of [...liveLoops, ...liveAmbience]) {
+      for (const id of liveLoops) {
         try {
           config.audio.setLoop(id, null, 0);
         } catch {
@@ -2188,7 +1658,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
     }
     liveLoops.clear();
-    liveAmbience.clear();
     // Phase 23.13: and the scripts' sounds, music hold, duck and mix.
     try {
       config.audio.command?.({ op: 'reset', stepIndex: 0 });
@@ -2200,23 +1669,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     bindings?.dispose();
     for (const url of glyphUrls.values()) if (url !== null) (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL?.revokeObjectURL?.(url);
     glyphUrls.clear();
-    if (flowCtl !== null) {
-      try {
-        config.audio.playMusic?.(null, 0);
-      } catch {
-        /* a closed context: nothing plays */
-      }
-    }
-    if (logoUrl !== null) {
-      (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL?.revokeObjectURL?.(logoUrl);
-      logoUrl = null;
-    }
-    if (hud !== null) {
-      flowCtl?.dispose();
-      flowCtl = null;
-      hud.dispose(); // the host-owned HUD DOM + listeners
-      hud = null;
-    }
     if (uiLayer !== null) {
       uiLayer.dispose();
       uiLayer = null;
@@ -2258,8 +1710,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     mount,
     control,
     observe,
-    observeScene,
-    setViewport,
     dispose,
     scene,
     debugCommand,
@@ -2328,24 +1778,3 @@ export async function linkBehaviorModules(
   return specs;
 }
 
-/**
- * Phase 14.5: the point a title background scene is framed on — its first
- * player spawn, else the middle of its objects' positions (null: an empty scene).
- */
-export function titleAnchor(entities: readonly { readonly components?: unknown }[]): [number, number, number] | null {
-  const pos = (e: { readonly components?: unknown }): readonly number[] | undefined => ((e.components ?? {}) as { transform?: { position?: readonly number[] } }).transform?.position;
-  const spawn = entities.find((e) => ((e.components ?? {}) as { playerSpawn?: unknown }).playerSpawn !== undefined);
-  const sp = spawn !== undefined ? pos(spawn) : undefined;
-  if (sp !== undefined) return [sp[0] ?? 0, sp[1] ?? 0, sp[2] ?? 0];
-  const all = entities.map(pos).filter((p): p is readonly number[] => p !== undefined);
-  if (all.length === 0) return null;
-  const lo = [Infinity, Infinity, Infinity];
-  const hi = [-Infinity, -Infinity, -Infinity];
-  for (const p of all) {
-    for (let i = 0; i < 3; i++) {
-      lo[i] = Math.min(lo[i]!, p[i] ?? 0);
-      hi[i] = Math.max(hi[i]!, p[i] ?? 0);
-    }
-  }
-  return [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2];
-}

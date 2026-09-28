@@ -114,26 +114,26 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     for (const expected of ['tl_game_control', 'tl_game_observe', 'tl_command', 'tl_content_upload']) {
       expect(names).toContain(expected);
     }
-    const tools = await mcp.call('tl_command', { op: 'setGameConfig', args: {}, expectedRevision: 0 });
+    const tools = await mcp.call('tl_command', { op: 'applySurfacePreset', args: {}, expectedRevision: 0 });
     // An unknown-op rejection would name the op list; the v3 op is accepted as
     // a known op (its arg validation then fails, not the router).
     expect(tools.isError).toBe(true);
     expect(String((tools.body.error as { code?: string })?.code)).not.toBe('tool_error');
   });
 
-  it('edits the bounded game config through tl_command (one revision, one binary-free change frame)', async () => {
+  it('edits the content (the tag registry) through tl_command (one revision, one binary-free change frame)', async () => {
     const before = await currentRevision();
     const seen = ws.events.length;
-    // Phase 12 (c): the backend upgrades the v3 fixture to v4 on open — the v4
-    // game block has no kill height (a game rule for scripts / hazard zones).
-    const res = await command(mcp, 'setGameConfig', { game: { title: 'Test game v2', objective: 'Reach the far marker' } }, before);
+    // Phase 24.7: the game block (setGameConfig) was removed; the content edit
+    // is the tag registry, which the same `queryGameConfig` query serves.
+    const res = await command(mcp, 'setTags', { tags: [{ name: 'marker' }, { name: 'ground' }] }, before);
     expect(res.isError, JSON.stringify(res.body)).toBe(false);
     expect(res.body.revision).toBe(before + 1);
     const frame = await ws.waitFor((e) => e.type === 'mutation.applied' && e.revision === before + 1);
     expect(validateChangeFrame(frame).ok, JSON.stringify(validateChangeFrame(frame))).toBe(true);
-    const change = frame.change as { type: string; changedFields?: string[] };
-    expect(change.type).toBe('setGameConfig');
-    expect(change.changedFields).toContain('title');
+    const change = frame.change as { type: string; next?: { name: string }[] };
+    expect(change.type).toBe('setTags');
+    expect(change.next?.map((t) => t.name)).toEqual(['marker', 'ground']);
     // No binary and no base64 media anywhere in the state frames.
     const text = JSON.stringify(ws.events.slice(seen));
     expect(text).not.toContain('base64');
@@ -143,10 +143,8 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     // over the shared command surface. Both transports read the same state.
     const viaMcp = await mcp.call('tl_content_query', { target: 'game' });
     expect(viaMcp.isError, JSON.stringify(viaMcp.body)).toBe(false);
-    const game = viaMcp.body.game as { title?: string; objective?: string; killY?: number } | null;
-    expect(game?.title).toBe('Test game v2');
-    expect(game?.objective).toBe('Reach the far marker');
-    expect(game).not.toHaveProperty('killY');
+    expect((viaMcp.body.tags as { name: string }[]).map((t) => t.name)).toEqual(['marker', 'ground']);
+    expect(viaMcp.body).not.toHaveProperty('game');
     // Phase 15.0: the descriptor registry only when asked for.
     expect(viaMcp.body).not.toHaveProperty('descriptors');
     const withDescriptors = await mcp.call('tl_content_query', { target: 'game', includeDescriptors: true });
@@ -161,9 +159,9 @@ describe('packet 48 — v3 command parity over the real transports', () => {
       origin: AUTHORING_ORIGIN,
     });
     expect(viaHttp.status).toBe(200);
-    const httpBody = viaHttp.body as { ok?: boolean; game?: { title?: string } | null; revision?: number };
+    const httpBody = viaHttp.body as { ok?: boolean; tags?: { name: string }[]; revision?: number };
     expect(httpBody.ok).toBe(true);
-    expect(httpBody.game?.title).toBe('Test game v2');
+    expect(httpBody.tags).toEqual(viaMcp.body.tags);
     expect(httpBody.revision).toBe(before + 1);
     // The v3 query result shape validates.
     // (the shared query surface returns the same envelope as the workspace)
@@ -171,12 +169,12 @@ describe('packet 48 — v3 command parity over the real transports', () => {
 
   it('applies a surface preset to a box entity (one undoable edit)', async () => {
     const before = await currentRevision();
-    const res = await command(mcp, 'applySurfacePreset', { entityId: 'box-0001', preset: 'hazard' }, before);
+    const res = await command(mcp, 'applySurfacePreset', { entityId: 'box-0001', preset: 'signal-red' }, before);
     expect(res.isError, JSON.stringify(res.body)).toBe(false);
     expect(res.body.revision).toBe(before + 1);
     const change = res.body.change as { type: string; preset: string };
     expect(change.type).toBe('applySurfacePreset');
-    expect(change.preset).toBe('hazard');
+    expect(change.preset).toBe('signal-red');
   });
 
   it('undo restores both v3 edits and one retry replays identically (duplicated: true)', async () => {
@@ -189,9 +187,9 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     // Replay the exact same requestId: the retry record serves it (dedup
     // precedes the revision check), so the result is byte-identical.
     const requestId = mkRequestId();
-    const first = await command(mcp, 'setGameConfig', { game: { objective: 'Reach the beacon twice' } }, rev + 2, requestId);
+    const first = await command(mcp, 'setTags', { tags: [{ name: 'twice' }] }, rev + 2, requestId);
     expect(first.isError).toBe(false);
-    const again = await command(mcp, 'setGameConfig', { game: { objective: 'Reach the beacon twice' } }, rev + 2, requestId);
+    const again = await command(mcp, 'setTags', { tags: [{ name: 'twice' }] }, rev + 2, requestId);
     expect(again.isError).toBe(false);
     expect(again.body.duplicated).toBe(true);
     expect(again.body.revision).toBe(first.body.revision);
@@ -199,9 +197,9 @@ describe('packet 48 — v3 command parity over the real transports', () => {
 
   it('refuses a stale edit and both clients converge on the same revision', async () => {
     const rev = await currentRevision();
-    const winner = await command(mcp, 'setGameConfig', { game: { instructions: 'winner' } }, rev);
+    const winner = await command(mcp, 'setTags', { tags: [{ name: 'winner' }] }, rev);
     expect(winner.isError).toBe(false);
-    const loser = await command(mcp2, 'setGameConfig', { game: { instructions: 'loser' } }, rev);
+    const loser = await command(mcp2, 'setTags', { tags: [{ name: 'loser' }] }, rev);
     expect(loser.isError).toBe(true);
     expect((loser.body.error as { code?: string })?.code).toBe('revision_conflict');
     expect((loser.body.error as { currentRevision?: number })?.currentRevision).toBe(winner.body.revision);
@@ -220,10 +218,9 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     // SCENE document's version — 4 once the backend upgraded the v3 fixture
     // (phase 12 c), not the manifest's.
     expect(scene.schemaVersion).toBe(4);
-    // The v3 fixture's v3-only components cross the wire (gameZone/cameraFollow).
-    const zone = scene.entities.find((e) => e.id === 'zone-0001');
-    expect(zone?.components['gameZone']).toBeDefined();
-    expect(scene.entities.some((e) => e.components['cameraFollow'] !== undefined)).toBe(true);
+    // The v3 fixture's v3-only components cross the wire (playerSpawn/light).
+    expect(scene.entities.find((e) => e.id === 'spawn-0001')?.components['playerSpawn']).toBeDefined();
+    expect(scene.entities.some((e) => e.components['light'] !== undefined)).toBe(true);
     expect(Object.keys(session.body)).not.toContain('bytes');
     expect(JSON.stringify(session.body)).not.toContain('base64');
   });
@@ -398,22 +395,22 @@ describe('packet 48 — content transport security', () => {
 
   it('routes a browser-origin and an MCP-origin v3 envelope through the same executor (identical error)', async () => {
     const rev = await currentRevision();
-    // The same malformed partial edit: an unknown game-config field must fail
-    // identically whichever origin submits it (one executor, no second path).
+    // The same malformed edit: an unknown tag field must fail identically
+    // whichever origin submits it (one executor, no second path).
     const viaMcp = await mcp.call('tl_command', {
-      op: 'setGameConfig',
-      args: { game: { notAField: true } },
+      op: 'setTags',
+      args: { tags: [{ name: 'x', notAField: true }] },
       expectedRevision: rev,
       requestId: mkRequestId(),
     });
     const viaBrowser = await http(`${bp.origin}/api/v1/projects/${V3_PROJECT}/commands`, {
       body: {
-        op: 'setGameConfig',
+        op: 'setTags',
         projectId: V3_PROJECT,
         expectedRevision: rev,
         requestId: mkRequestId(),
         origin: { kind: 'browser', clientId: session.sessionId },
-        args: { game: { notAField: true } },
+        args: { tags: [{ name: 'x', notAField: true }] },
       },
       token: AUTH_TOKEN,
       origin: AUTHORING_ORIGIN,

@@ -79,7 +79,7 @@ export {
   SURFACE_PRESETS,
   type AuthoredLight,
   type AuthoredSurface,
-  type ShadowLevel,
+  type ShadowRegion,
   type ShadowOutcome,
   type ShadowPlan,
   type ShadowReason,
@@ -194,13 +194,12 @@ export {
 export { mainLightIndex, MeshCustomLitNodeMaterial } from './custom-lit';
 // Phase 23.12: the simulation's material parameter changes on the objects.
 export { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
-// Phase 17.2: node-material (TSL) helpers and the per-mesh looks (selection tint, checkpoint glow).
+// Phase 17.2: node-material (TSL) helpers and the per-mesh looks (selection tint, ctx.look).
 export {
   cloneMaterial,
   isNodeMaterial,
   SELECTION_HIGHLIGHT_EMISSIVE,
   SHARED_MATERIAL_KEY,
-  setEmissiveLook,
   setEntityLook,
   setSelectionHighlight,
   toNodeMaterial,

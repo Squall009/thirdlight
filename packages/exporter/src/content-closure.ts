@@ -26,8 +26,8 @@ import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model
 import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type DialogueSpeaker } from '@thirdlight/project-model';
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
-import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -161,8 +161,8 @@ export interface ContentClosureM3 {
   moduleIds: readonly string[];
   /** The resolved six-key settings (registry order) the composition consumes. */
   settings: GameplaySettings;
-  /** The frozen `content.game` block (or null). */
-  game: GameConfig | null;
+  /** Phase 24.7: the manifest's `game` key — always null (the key goes with the 24.8 format bump). */
+  game: null;
   /** The resolved media identity (cues + animation rows). */
   media: MediaBlock;
   /** The reachable asset artifacts (`content/sha256/<digest>`), sorted by path. */
@@ -328,7 +328,7 @@ async function compileReachableBehaviors(
  * It derives the captured v3 content view and the media identity (project-model,
  * the single pure owner), reads every reachable asset's immutable bytes through
  * the injected service (digest-verified), and assembles the v2 manifest
- * (self-identifying `buildId`, the resolved settings / frozen game / media
+ * (self-identifying `buildId`, the resolved settings / media
  * identity hash-bound through it — delivery.md §2.4).
  *
  * Source-bearing behaviors are recompiled and declared like the M2 closure;
@@ -341,7 +341,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const { service, projectId } = input;
 
   // 1. The captured v3 content view (project-model §19 v3) — reachable
-  //    kind-tagged assets, the resolved settings, the frozen game, contentDigest.
+  //    kind-tagged assets, the resolved settings, contentDigest.
   const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes);
   if (!viewRes.ok) {
     const e = viewRes.errors[0]!;
@@ -358,7 +358,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const media = mediaRes.normalized;
 
   // 3. The required engine modules, derived from the declared dependencies
-  //    (the game block, the referenced content, what each behavior requires).
+  //    (the referenced content, what each behavior requires).
   //    An unresolved dependency refuses the build here, before any compile.
   const declaredBehaviors = service.query({ op: 'queryBehaviors', projectId, args: { includeDeclaration: false, limit: 128, offset: 0 } });
   if (!declaredBehaviors.ok) return { ok: false, error: fromCommandError(declaredBehaviors.error) };
@@ -375,7 +375,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ? { entities: [...input.scenes.flatMap((sc) => ((sc as { entities?: Record<string, unknown>[] }).entities ?? [])), ...prefabDefs.flatMap((d) => d.entities as unknown as Record<string, unknown>[])] }
     : (input.scene as { entities?: Record<string, unknown>[] });
   // Phase 23.0: the project's physics dimension picks the 2D or 3D backend.
-  const modulesRes = resolveRequiredModules({ scene: moduleScene, game: view.game, behaviors: behaviorDeps, physicsDimension: physicsDimensionOf((input.content as { settings?: unknown } | null)?.settings) });
+  const modulesRes = resolveRequiredModules({ scene: moduleScene, behaviors: behaviorDeps, physicsDimension: physicsDimensionOf((input.content as { settings?: unknown } | null)?.settings) });
   if (!modulesRes.ok) {
     return { ok: false, error: { code: 'module_unresolved', cls: 'validation', reason: 'module_unresolved', message: modulesRes.message.slice(0, 256) } };
   }
@@ -508,8 +508,6 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
     // Phase 9.6: the scenes' bakes (lightmap atlases are texture assets, captured above).
     ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
-    // Phase 9.10: the game flow (the game host runs levels, lives and menus from it).
-    ...((input.content as { flow?: GameFlow } | null)?.flow !== undefined ? { flow: (input.content as { flow: GameFlow }).flow } : {}),
     // Phase 23.9a: the project UI (the game host draws the documents; themes hold their shared styles).
     ...((input.content as { uiThemes?: UiTheme[] } | null)?.uiThemes !== undefined ? { uiThemes: (input.content as { uiThemes: UiTheme[] }).uiThemes } : {}),
     ...((input.content as { uiDocuments?: UiDocument[] } | null)?.uiDocuments !== undefined ? { uiDocuments: (input.content as { uiDocuments: UiDocument[] }).uiDocuments } : {}),

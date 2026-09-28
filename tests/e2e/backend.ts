@@ -160,8 +160,8 @@ export const STARTER = { playerId: 'model-0001', spawnId: 'spawn-0001', cameraId
  * [data-widget="start"]`). With `hud`, a HUD document shows that text (its
  * `{$flow.counters.<name>}` bindings read the named counters) as
  * `[data-tl-ui-doc="start-hud"] [data-widget="line"]`. Replaces the game
- * session's awaiting-start state and classic HUD in tests whose subject is
- * generic.
+ * deleted game session's awaiting-start state and classic HUD in tests whose
+ * subject is generic.
  */
 export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void> {
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
@@ -179,18 +179,6 @@ export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void>
     ] } } });
   }
   await run('setShell', { shell: { screens: { title: 'start-title' }, ...(hud !== undefined ? { hud: ['start-hud'] } : {}) } });
-}
-
-/**
- * Phase 24.6: an observation of a project with the legacy game block, read
- * the old way: the session's `legacy` block (run state, deaths, checkpoint,
- * goal, events, the level flow) spread over the generic core, with `state`
- * the session's run state. Only the tests whose subject is the platformer
- * game use it; they go with the block in phase 24.7.
- */
-export function legacyObservation<T = Record<string, unknown>>(o: unknown): T {
-  const r = o as Record<string, unknown> & { legacy?: Record<string, unknown> & { runState?: string } };
-  return { ...r, ...(r.legacy ?? {}), state: r.legacy?.runState ?? r['state'] } as T;
 }
 
 /**

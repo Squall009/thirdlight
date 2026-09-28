@@ -187,8 +187,6 @@ export interface IntentSet {
   readonly jumpWriter: string | null;
   /** Committed transform writes, in commit order. */
   readonly transformWrites: readonly IntentTransformWrite[];
-  /** Phase 9.9: an upward speed the runtime gives the controller this step (a stomp or a hit). */
-  readonly bounce?: number;
   /** Phase 23.2: the committed `control_move`'s second axis (0 when it had none), or null. */
   readonly moveY?: number | null;
   /** Phase 23.2: the committed `character_move` (a world direction on the ground), or null. */

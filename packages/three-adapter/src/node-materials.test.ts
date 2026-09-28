@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { applyLightmap, lightmappedMaterial, refreshLightmappedMaterial } from './lightmaps';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
-import { cloneMaterial, isNodeMaterial, setEmissiveLook, setEntityLook, setSelectionHighlight, SELECTION_HIGHLIGHT_EMISSIVE, SHARED_MATERIAL_KEY, toNodeMaterial, withoutAmbientLight } from './node-materials';
+import { cloneMaterial, isNodeMaterial, setEntityLook, setSelectionHighlight, SELECTION_HIGHLIGHT_EMISSIVE, SHARED_MATERIAL_KEY, toNodeMaterial, withoutAmbientLight } from './node-materials';
 
 type NodeProps = { positionNode: unknown; emissiveNode: unknown; normalNode: unknown; colorNode: unknown; contextNode: unknown; aoNode: unknown };
 const props = (m: THREE.Material): NodeProps => m as unknown as NodeProps;
@@ -133,7 +133,7 @@ describe('lightmaps on node materials', () => {
 });
 
 describe('per-mesh looks', () => {
-  it('the checkpoint glow gives a mesh wearing a shared project material its own copy', () => {
+  it('a look override gives a mesh wearing a shared project material its own copy', () => {
     const lib = createMaterialLibrary({ loadTexture: async () => null });
     lib.setMaterials([def('pad', 'standard')]);
     const file = new THREE.MeshStandardMaterial({ name: 'file' });
@@ -143,13 +143,13 @@ describe('per-mesh looks', () => {
     lib.apply(b, { '*': 'pad' });
     const shared = a.material as THREE.MeshStandardMaterial;
     expect(b.material).toBe(shared);
-    setEmissiveLook(a, { emissive: '#ff8800', emissiveIntensity: 2 });
+    setEntityLook(a, { emissive: '#ff8800', emissiveIntensity: 2 });
     const own = a.material as THREE.MeshStandardMaterial;
     expect(own).not.toBe(shared);
     expect(isNodeMaterial(own)).toBe(true);
     expect(own.emissive.getHexString()).toBe('ff8800');
     expect(shared.emissive.getHex()).toBe(0);
-    setEmissiveLook(a, null);
+    setEntityLook(a, null);
     expect(own.emissive.getHex()).toBe(0);
     expect(own.emissiveIntensity).toBe(1);
   });
@@ -159,7 +159,7 @@ describe('per-mesh looks', () => {
     shared.userData[SHARED_MATERIAL_KEY] = true;
     const a = mesh(shared);
     const b = mesh(shared);
-    setEmissiveLook(a, { emissive: '#00ff00', emissiveIntensity: 1 });
+    setEntityLook(a, { emissive: '#00ff00', emissiveIntensity: 1 });
     expect(a.material).not.toBe(shared);
     expect(b.material).toBe(shared);
     expect(shared.emissive.getHex()).toBe(0);

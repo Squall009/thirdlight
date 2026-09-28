@@ -10,8 +10,8 @@
  *   script owns in `ctx.events` (its own entity, descendants, entityRef
  *   properties; not other triggers).
  *
- * The gameplay/camera modules are test stubs; the physics port keeps the
- * player at the origin, so the triggers move (movers) through it.
+ * The character is the scene's controller entity; the physics port keeps it
+ * at the origin, so the triggers move (movers) through it.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -24,7 +24,6 @@ import {
   registerSimulationModule,
   type BehaviorTimers,
   type Runtime,
-  type SimulationModuleSpec,
 } from './index';
 import { InstanceTimers } from './timers';
 
@@ -141,8 +140,6 @@ function artifact(behaviorId: string, step: (ctx: Ctx) => void): never {
   } as never;
 }
 
-const stubGameplay: SimulationModuleSpec = { id: 'thirdlight.teststub:gameplay', phases: ['gameplay'], create: () => ({ transformOwners: [], step() {} }) };
-const stubCamera: SimulationModuleSpec = { id: 'thirdlight.teststub:camera', phases: ['camera'], create: () => ({ transformOwners: ['cam-main'], step() {} }) };
 
 function port(): unknown {
   const zero = { x: 0, y: 0 };
@@ -165,7 +162,7 @@ function port(): unknown {
 
 /** A runtime with scripts (`behaviors`: id → step) on `entities`; the player stands at the origin. */
 function harness(behaviors: Record<string, (ctx: Ctx) => void>, entities: unknown[]) {
-  const specs = [...Object.entries(behaviors).map(([id, step]) => createBehaviorModuleSpec({ declaration: DECL, artifact: artifact(id, step) })), stubGameplay, stubCamera];
+  const specs = [...Object.entries(behaviors).map(([id, step]) => createBehaviorModuleSpec({ declaration: DECL, artifact: artifact(id, step) }))];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
   const now = { t: 0 };
@@ -179,13 +176,12 @@ function harness(behaviors: Record<string, (ctx: Ctx) => void>, entities: unknow
         sceneId: 'scene-main',
         revision: 1,
         entities: [
-          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
-          { id: 'player-0001', components: { transform: at(0, 0) } },
+          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
+          { id: 'player-0001', components: { transform: at(0, 0), controller: {} } },
           { id: 'spawn-0001', components: { transform: at(0, 0), playerSpawn: {} } },
           ...entities,
         ],
       },
-      game: { configVersion: 2, title: 'Sensors', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
     },
     registry,
     modules: specs.map((s) => s.id),
@@ -200,7 +196,6 @@ function harness(behaviors: Record<string, (ctx: Ctx) => void>, entities: unknow
   const rt: Runtime = res.runtime;
   expect(rt.start().ok).toBe(true);
   expect(rt.tick(now.t).ok).toBe(true);
-  expect(rt.gameCommand('start').ok).toBe(true);
   const tick = (n = 1): void => {
     for (let i = 0; i < n; i += 1) {
       now.t += DT;
@@ -248,9 +243,10 @@ describe('timers: ctx.timers in the runtime', () => {
     expect(blinks.length).toBeGreaterThanOrEqual(2);
     expect(blinks[1]! - blinks[0]!).toBe(30);
     expect(Number(door!.slice(5))).toBe(20 + 60);
-    // A replay: the door timer (armed once, at step 20 of the old run) is gone.
+    // A restart (the engine's, a new run): the door timer (armed once, at step 20 of the old run) is gone.
+    expect(a.h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
+    a.h.tick(2); // the restart is sampled in the next step and applies at the boundary after it
     a.log.length = 0;
-    expect(a.h.rt.gameCommand('replay').ok).toBe(true);
     a.h.tick(200);
     expect(a.log.some((l) => l.startsWith('door@'))).toBe(false);
     expect(a.log.some((l) => l.startsWith('blink@'))).toBe(true); // re-armed by the every-step call

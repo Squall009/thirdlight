@@ -442,7 +442,7 @@ const canonicalDigest = (value) => sha256(Buffer.from(canonicalJsonText(value), 
     for (const f of [
       'catalog/audio-asset-record-v3.json',
       'envelope/valid/demo-0003-media-v3.json',
-      'envelope/invalid/cue-kind-mismatch.json',
+      // Phase 24.7: envelope/invalid/cue-kind-mismatch.json (a game-cue rule) was deleted with the game layer.
     ]) {
       const doc = JSON.parse(readFileSync(join(contractsRoot, f), 'utf8'));
       const record = (doc.content?.assets ?? []).find((a) => a.kind === 'audio');

@@ -1,13 +1,13 @@
 /**
- * Phase 15.3 integration harness: one neutral level played through the real
+ * Phase 15.3 integration harness: one neutral scene played through the real
  * production composition — the game host, the platformer controller, the
- * platformer-game session and camera, Rapier physics — with the physics port
- * built from the player's data exactly as the preview and export hosts build
- * it (`playerCapsuleOf`, `playerPhysicsOf`, the project's `fixed_step_hz`).
+ * blocks and primitives, Rapier physics — with the physics port built from
+ * the character's data exactly as the preview and export hosts build it
+ * (`playerCapsuleOf`, `playerPhysicsOf`, the project's `fixed_step_hz`).
  */
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { playerCapsuleOf, playerPhysicsOf, type ModelBounds } from '@thirdlight/runtime';
+import { playerCapsuleOf, playerPhysicsOf } from '@thirdlight/runtime';
 import { withGameModules } from '../../game-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,12 +36,8 @@ export interface LevelOptions {
   spawn?: [number, number];
   controller?: Record<string, unknown>;
   playerExtra?: Record<string, unknown>;
-  follow?: Record<string, unknown>;
-  cameraZ?: number;
-  game?: Record<string, unknown>;
   settings?: Record<string, unknown>;
   extra?: Any[];
-  modelBounds?: Record<string, ModelBounds>;
   drive: Drive;
 }
 
@@ -50,23 +46,21 @@ export interface Level {
   hz: number;
   tick(n?: number): void;
   pos(id: string): [number, number, number];
-  view(): Any;
+  stepIndex(): number;
   counters(): Any;
   hidden(): ReadonlySet<string>;
-  opacity(): ReadonlyMap<string, number>;
   dropThroughCalls: number[];
 }
 
-/** A long floor (top at y = 0) from x = -40 to 40, the player, its spawn, a camera, a far goal, plus `extra`. */
+/** A long floor (top at y = 0) from x = -40 to 40, the character, its spawn, a camera, plus `extra`. */
 export async function level(o: LevelOptions): Promise<Level> {
   const spawn = o.spawn ?? [0, 0.91];
   const controller = o.controller ?? {};
   const entities: Any[] = [
-    { id: 'cam-main', components: { transform: at(0, 4, o.cameraZ ?? 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, ...(o.follow ?? {}) } } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller, ...(o.playerExtra ?? {}) } },
     { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: {} } },
     { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
-    { id: 'goal-0001', components: { transform: at(38, 1), gameZone: { role: 'goal', size: [1, 2] } } },
     ...(o.extra ?? []),
   ];
   const scene = { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities };
@@ -82,7 +76,7 @@ export async function level(o: LevelOptions): Promise<Level> {
       ...(e.components.mover !== undefined ? { kinematic: true } : {}),
       ...(e.components.collider.oneWay === true ? { oneWay: true } : {}),
     }));
-  // As the preview and export hosts do: the capsule and the controller tuning come from the player's controller.
+  // As the preview and export hosts do: the capsule and the controller tuning come from the character's controller.
   const capsule = playerCapsuleOf(controller);
   const tuning = playerPhysicsOf(controller);
   const physics = await createPhysicsPort({
@@ -112,8 +106,6 @@ export async function level(o: LevelOptions): Promise<Level> {
       projectId: 'tuning',
       revision: 1,
       scene,
-      game: { configVersion: 2, title: 'Tuning', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null }, ...(o.game ?? {}) },
-      ...(o.modelBounds !== undefined ? { modelBounds: o.modelBounds } : {}),
     },
     settings,
     physics: port,
@@ -137,10 +129,7 @@ export async function level(o: LevelOptions): Promise<Level> {
       if (!r.ok) throw new Error(JSON.stringify(r.error));
     }
   };
-  tick();
-  const started = rt.gameCommand('start');
-  if (!started.ok) throw new Error(JSON.stringify(started.error));
-  tick(2);
+  tick(3);
   const pos = (id: string): [number, number, number] => {
     const t = rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
     return [t.position[0], t.position[1], t.position[2]];
@@ -150,33 +139,31 @@ export async function level(o: LevelOptions): Promise<Level> {
     hz,
     tick,
     pos,
-    view: () => rt.getGameView().view,
+    stepIndex: () => rt.getDiagnostics().diagnostics.stepIndex,
     counters: () => rt.gameCounters(),
     hidden: () => rt.hiddenEntities() as ReadonlySet<string>,
-    opacity: () => rt.entityOpacity() as ReadonlyMap<string, number>,
     dropThroughCalls,
   };
 }
 
-/** One sample per step: the player, the camera, the enemy, the run state and counters (exact numbers). */
-export function trace(L: Level, steps: number, ids: readonly string[] = ['player-0001', 'cam-main']): unknown[] {
+/** One sample per step: the character, the patroller, the lift, the counters and health, the hidden objects (exact numbers). */
+export function trace(L: Level, steps: number, ids: readonly string[] = ['player-0001']): unknown[] {
   const out: unknown[] = [];
   for (let i = 0; i < steps; i++) {
     L.tick();
-    const v = L.view();
-    out.push({ step: v.stepIndex, state: v.state, deaths: v.deathCount, at: ids.map((id) => L.pos(id)), counters: L.counters(), hidden: [...L.hidden()].sort() });
+    out.push({ step: L.stepIndex(), at: ids.map((id) => L.pos(id)), counters: L.counters(), hidden: [...L.hidden()].sort() });
   }
   return out;
 }
 
-export const ENEMY = { patrol: 'edges', speed: 1, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 };
-/** A neutral course: an edge-walking enemy, a coin, a damaging hazard, a deadly zone and a lift. */
-export function course(t: { enemy?: object; mover?: object } = {}): Any[] {
+/** An edge-walking patroller whose hitbox hurts on contact. */
+export const WALKER = { patrol: { mode: 'edges', speed: 1, size: [0.8, 0.8] }, hitbox: { size: [0.8, 0.8], damage: 1 } };
+/** A neutral course: an edge-walking patroller with a damaging hitbox, a collectible, a damaging hitbox on the floor and a lift. */
+export function course(t: { patrol?: object; collectible?: object; hitbox?: object; mover?: object } = {}): Any[] {
   return [
-    thing('enemy-0001', 6, 0, { enemy: { ...ENEMY, ...(t.enemy ?? {}) } }),
-    thing('coin-0001', 10, 1, { pickup: { kind: 'coin', value: 1, size: [0.8, 0.8] } }),
-    thing('spikes-0001', 13, 0.3, { gameZone: { role: 'hazard', size: [1, 0.6], damage: 1 } }),
-    thing('pit-0001', 17, 0.3, { gameZone: { role: 'hazard', size: [1, 0.6] } }),
+    thing('walker-0001', 6, 0.4, { patrol: { ...WALKER.patrol, ...(t.patrol ?? {}) }, hitbox: { ...WALKER.hitbox, ...(t.hitbox ?? {}) } }),
+    thing('token-0001', 10, 1, { collectible: { counter: 'items', size: [0.8, 0.8], ...(t.collectible ?? {}) } }),
+    thing('spikes-0001', 13, 0.3, { hitbox: { size: [1, 0.6], damage: 1, ...(t.hitbox ?? {}) } }),
     thing('lift-0001', 24, 0.25, { box: { size: [2, 0.5, 2], material: { color: '#999999' } }, collider: { shape: { type: 'box', hx: 1, hy: 0.25 } }, mover: { waypoints: [[0, 1.5, 0]], speed: 1, mode: 'pingpong', ...(t.mover ?? {}) } }),
   ];
 }
@@ -184,15 +171,13 @@ export function course(t: { enemy?: object; mover?: object } = {}): Any[] {
 /** Run right; jump at 50 (released early), 140 and 260 (held). */
 export const RUN_AND_JUMP: Drive = (s) => ({ moveX: 1, jump: s === 50 || s === 140 || s === 260 ? 'pressed' : s === 56 ? 'released' : (s > 50 && s < 56) || (s > 140 && s < 170) || (s > 260 && s < 290) ? 'held' : 'none' });
 
-/** The recorded non-default run (`replay-nondefault.json`): 60 Hz, every kind of tuning set. */
+/** The recorded non-default run (`replay-nondefault.json`): 60 Hz, controller, patrol, collectible and mover values set. */
 export const NONDEFAULT_RUN: LevelOptions = {
   controller: { acceleration: 25, deceleration: 90, coyoteTime: 0.1, jumpBuffer: 0.15, jumpRelease: 0.3, skin: 0.02, groundSnap: 0.2 },
-  playerExtra: { health: { max: 3, knockback: 4, hitBounce: 7, knockbackTime: 0.4 } },
-  extra: course({ enemy: { stompBounce: 12, stompTolerance: 0.3, defeat: 'fade', defeatTime: 0.5, ledgeProbe: 0.8 }, mover: { maxPush: 30 } }),
-  follow: { maxSpeed: 120, distance: 10 },
-  game: { respawnDelay: 0.5, settleTime: 0.05 },
+  playerExtra: { health: { max: 3 } },
+  extra: course({ patrol: { ledgeProbe: 0.8, wallProbe: 0.1, wait: 0.25 }, collectible: { amount: 2 }, mover: { maxPush: 30 } }),
   settings: { fixed_step_hz: 60 },
   drive: (s) => RUN_AND_JUMP(s * 2),
 };
 export const NONDEFAULT_STEPS = 480;
-export const TRACE_IDS: readonly string[] = ['player-0001', 'cam-main', 'enemy-0001', 'lift-0001'];
+export const TRACE_IDS: readonly string[] = ['player-0001', 'walker-0001', 'lift-0001'];

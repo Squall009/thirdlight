@@ -12,12 +12,11 @@ describe('play start options (phase 23.8)', () => {
     const r = parsePlayStartRequest({ options: { demo: false, sceneId: 'scene-arena', mode: 'battle', variables: { gold: 100, party: ['a'] } } });
     expect(parsePlayStartRequest({ options: { saveSlot: '2' } })).toEqual({ ok: true, request: { demo: true, start: { saveSlot: '2' } } });
     expect(r).toEqual({ ok: true, request: { demo: false, start: { sceneId: 'scene-arena', mode: 'battle', variables: { gold: 100, party: ['a'] } } } });
-    const s = parsePlayStartRequest({ options: { save: { version: 1, levelId: 'level-2', run: { values: {} } } } });
-    expect(s.ok && s.request.start?.save).toEqual({ version: 1, levelId: 'level-2', run: { values: {} } });
-    // Phase 23.19: project save slots 1-99 and a project save document (larger than a flow save may be).
+    // Phase 23.19: project save slots 1-99 and a project save document.
     expect(parsePlayStartRequest({ options: { saveSlot: '42' } }).ok).toBe(true);
-    const p = parsePlayStartRequest({ options: { save: { format: 'thirdlight.save', version: 2, doc: { big: 'x'.repeat(100_000) } } } });
-    expect(p.ok).toBe(true);
+    const doc = { format: 'thirdlight.save', version: 2, doc: { big: 'x'.repeat(100_000) } };
+    const p = parsePlayStartRequest({ options: { save: doc } });
+    expect(p.ok && p.request.start?.save).toEqual(doc);
   });
 
   it('refuses bad values and conflicting options', () => {
@@ -28,15 +27,15 @@ describe('play start options (phase 23.8)', () => {
       { variables: { 'no spaces': 1 } },
       { variables: { big: 'x'.repeat(5000) } },
       { variables: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`k${i}`, i])) },
-      { save: { levelId: 'x' } },
-      { save: { version: 1, levelId: 'x', run: {}, pad: 'y'.repeat(70_000) } },
+      // Phase 24: only a project save document (the flow save is gone).
+      { save: { version: 1, levelId: 'x', run: {} } },
       { saveSlot: '100' },
       { saveSlot: '0' },
       // Phase 23.19: a project save document needs a version and a doc, and stays within 1 MiB.
       { save: { format: 'thirdlight.save', doc: {} } },
       { save: { format: 'thirdlight.save', version: 1 } },
       { save: { format: 'thirdlight.save', version: 1, doc: 'z'.repeat(1_048_600) } },
-      { save: { version: 1, levelId: 'x', run: {} }, saveSlot: '1' },
+      { save: { format: 'thirdlight.save', version: 1, doc: {} }, saveSlot: '1' },
       { sceneId: 'scene-a', saveSlot: 'auto' },
       { unknown: 1 },
     ]) {

@@ -7,10 +7,12 @@
  * packet-32/37 procedure, `tests/browser/m3-render/README.md`) and serves
  * statically. It composes the real packages (`@thirdlight/runtime` +
  * `@thirdlight/physics-rapier` + `@thirdlight/platformer` +
- * `@thirdlight/platformer-game` + `@thirdlight/three-adapter`) over a v3
+ * `@thirdlight/three-adapter`) over a v3
  * scene with an authored key/fill light and surface boxes, and records the
  * B11 named checklist (Gate K: "same preset id → same colour/roughness
- * values and the same visible key-light direction/hazard contrast") — the
+ * values and the same visible key-light direction/hazard contrast"; phase 24
+ * renamed the presets `hazard` → `signal-red`, `beacon` → `emissive-accent`,
+ * the fixture still records them under the old ids) — the
  * authored values, the derived parameters via the pure §41.1.3/§41.2 math,
  * the realized diagnostics, real screenshots at two canvas sizes, a
  * synthetic context-loss/recovery cycle, and repeated create/dispose.
@@ -25,12 +27,6 @@
  */
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { PLATFORMER_MODULE_ID, platformerSpec } from '@thirdlight/platformer';
-import {
-  PLATFORMER_GAME_CAMERA_MODULE_ID,
-  PLATFORMER_GAME_MODULE_ID,
-  platformerGameCameraSpec,
-  platformerGameSessionSpec,
-} from '@thirdlight/platformer-game';
 import {
   createRecordedActionSource,
   createSimulationRegistry,
@@ -83,9 +79,9 @@ const KEY_DIRECTION: [number, number, number] = [0.5, -1, -0.6];
 const KEY = { type: 'directional', color: '#fff4e0', intensity: 2.2, direction: KEY_DIRECTION, castShadow: true } as const;
 const KEY_NO_SHADOW = { ...KEY, castShadow: false } as const;
 const FILL = { type: 'ambient', color: '#8899bb', intensity: 0.55 } as const;
-const HAZARD = SURFACE_PRESETS.hazard;
+const RED = SURFACE_PRESETS['signal-red'];
 const GROUND = SURFACE_PRESETS['matte-ground'];
-const BEACON = SURFACE_PRESETS.beacon;
+const ACCENT = SURFACE_PRESETS['emissive-accent'];
 
 const evidence: Evidence = {
   startedAt: new Date().toISOString(),
@@ -111,7 +107,8 @@ const evidence: Evidence = {
 const T = { rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] };
 
 /** The shared v3 scene (one camera, one key + one fill light, three
- * surface boxes). `castShadow` selects the shadow-on/off-by-author scene. */
+ * surface boxes; phase 24.7: no game block — the controller entity is the
+ * character). `castShadow` selects the shadow-on/off-by-author scene. */
 function v3Snapshot(castShadow: boolean): unknown {
   return {
     snapshotId: `demo-52@r${castShadow ? 1 : 2}`,
@@ -125,25 +122,13 @@ function v3Snapshot(castShadow: boolean): unknown {
         { id: 'cam-main', name: 'Gameplay camera', components: { transform: { position: [0, 4, 12], ...T }, camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
         { id: 'light-key', components: { transform: { position: [0, 4, 12], ...T }, light: castShadow ? KEY : KEY_NO_SHADOW } },
         { id: 'light-fill', components: { transform: { position: [0, 4, 12], ...T }, light: FILL } },
-        { id: 'box-hazard', components: { transform: { position: [10, 0.5, 0], ...T }, box: { size: [2, 1, 1], material: { color: '#6f6f6f' } }, surface: HAZARD } },
+        { id: 'box-red', components: { transform: { position: [10, 0.5, 0], ...T }, box: { size: [2, 1, 1], material: { color: '#6f6f6f' } }, surface: RED } },
         { id: 'box-ground', components: { transform: { position: [16, 0.5, 0], ...T }, box: { size: [2, 1, 1], material: { color: '#6f6f6f' } }, surface: GROUND } },
-        { id: 'box-beacon', components: { transform: { position: [22, 0.5, 0], ...T }, box: { size: [2, 1, 1], material: { color: '#6f6f6f' } }, surface: BEACON } },
+        { id: 'box-accent', components: { transform: { position: [22, 0.5, 0], ...T }, box: { size: [2, 1, 1], material: { color: '#6f6f6f' } }, surface: ACCENT } },
         { id: 'group-0001', name: 'Player', components: { transform: { position: [3, 0.9, 0], ...T }, controller: {} } },
         { id: 'spawn-0001', components: { transform: { position: [3, 0.91, 0], ...T }, playerSpawn: {} } },
         { id: 'static-0001', components: { transform: { position: [24, -0.25, 0], ...T }, box: { size: [48, 0.5, 1], material: { color: '#6f6f6f' } }, collider: { shape: { type: 'box', hx: 24, hy: 0.25 } } } },
       ],
-    },
-    game: {
-      configVersion: 1,
-      title: 'Render Course',
-      objective: 'Render the course',
-      instructions: 'D moves.',
-      playerId: 'group-0001',
-      cameraId: 'cam-main',
-      spawnId: 'spawn-0001',
-      level: LEVEL,
-      killY: -4,
-      cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
     },
   };
 }
@@ -157,7 +142,7 @@ async function buildRuntime(snapshot: unknown): Promise<{ runtime: Runtime; disp
   });
   if (!init.ok) throw new Error(`physics init failed: ${JSON.stringify(init.error)}`);
   const registry = createSimulationRegistry();
-  for (const spec of [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec]) {
+  for (const spec of [platformerSpec]) {
     const r = registerSimulationModule(registry, spec.id, spec);
     if (!r.ok) throw new Error(`register failed ${spec.id}: ${JSON.stringify(r.error)}`);
   }
@@ -165,7 +150,7 @@ async function buildRuntime(snapshot: unknown): Promise<{ runtime: Runtime; disp
   const res = instantiateRuntime({
     snapshot: snapshot as RuntimeSnapshot,
     registry,
-    modules: [PLATFORMER_MODULE_ID, PLATFORMER_GAME_MODULE_ID, PLATFORMER_GAME_CAMERA_MODULE_ID],
+    modules: [PLATFORMER_MODULE_ID],
     actions: createRecordedActionSource(frames),
     physics: init.port,
     settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 },
@@ -254,9 +239,10 @@ async function main(): Promise<void> {
       }
     : null;
   evidence.checklist.presetRows = {
-    adapter: { 'matte-ground': SURFACE_PRESETS['matte-ground'], hazard: SURFACE_PRESETS.hazard, beacon: SURFACE_PRESETS.beacon },
+    // The fixture rows carry the pre-phase-24 ids (hazard → signal-red, beacon → emissive-accent).
+    adapter: { 'matte-ground': SURFACE_PRESETS['matte-ground'], hazard: RED, beacon: ACCENT },
     fixture: fixture?.presets ?? null,
-    match: fixture ? eq(fixture.presets, { 'matte-ground': SURFACE_PRESETS['matte-ground'], hazard: SURFACE_PRESETS.hazard, beacon: SURFACE_PRESETS.beacon }) : false,
+    match: fixture ? eq(fixture.presets, { 'matte-ground': SURFACE_PRESETS['matte-ground'], hazard: RED, beacon: ACCENT }) : false,
   };
   evidence.checklist.shadowConstants = {
     adapter: { mapSize: SHADOW_PROFILE.mapSize, type: SHADOW_PROFILE.type, near: SHADOW_PROFILE.near, distance: SHADOW_PROFILE.distance, margin: SHADOW_PROFILE.margin, halfExtentMax: SHADOW_PROFILE.halfExtentMax, farMax: SHADOW_PROFILE.farMax },
@@ -344,27 +330,27 @@ async function main(): Promise<void> {
   }
 
   // 6. Material independence (value-level, §41.2.3): two scenes where
-  //    entity A gets the `hazard` row and entity B the `matte-ground` row;
-  //    then a second realization where A is edited to `beacon` — only A's
+  //    entity A gets the `signal-red` row and entity B the `matte-ground` row;
+  //    then a second realization where A is edited to `emissive-accent` — only A's
   //    values change; B keeps its own row. The committed `surface` values
   //    are what the adapter realizes literally (no preset lookup).
   {
     const surfOf = (snap: unknown): { a: Record<string, unknown>; b: Record<string, unknown> } => {
       const entities = (snap as { scene: { entities: Array<{ id: string; components: Record<string, unknown> }> } }).scene.entities;
-      const a = entities.find((e) => e.id === 'box-hazard')?.components.surface as Record<string, unknown>;
+      const a = entities.find((e) => e.id === 'box-red')?.components.surface as Record<string, unknown>;
       const b = entities.find((e) => e.id === 'box-ground')?.components.surface as Record<string, unknown>;
       return { a, b };
     };
     const sceneA = v3Snapshot(true);
     const sceneB = JSON.parse(JSON.stringify(sceneA)) as unknown;
     const entsB = (sceneB as { scene: { entities: Array<{ id: string; components: Record<string, unknown> }> } }).scene.entities;
-    entsB.find((e) => e.id === 'box-hazard')!.components.surface = BEACON; // edit ONLY A
+    entsB.find((e) => e.id === 'box-red')!.components.surface = ACCENT; // edit ONLY A
     evidence.materialIndependence.sceneASurface = surfOf(sceneA);
     evidence.materialIndependence.sceneBSurface = surfOf(sceneB);
     evidence.materialIndependence.onlyAChanged =
       eq(evidence.materialIndependence.sceneASurface.b, evidence.materialIndependence.sceneBSurface.b) &&
       !eq(evidence.materialIndependence.sceneASurface.a, evidence.materialIndependence.sceneBSurface.a) &&
-      eq(evidence.materialIndependence.sceneBSurface.a, BEACON);
+      eq(evidence.materialIndependence.sceneBSurface.a, ACCENT);
     log(`materialIndependence: ${JSON.stringify(evidence.materialIndependence.onlyAChanged)}`);
   }
 

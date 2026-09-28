@@ -21,7 +21,7 @@ import type { RuntimeUiDocumentRow } from '@thirdlight/project-model';
 
 /** What a UI event is. */
 // Phase 23.10: `mode` (a button's mode action: switch to the game mode named by `value`) and
-// `restart` (the engine's restart of a game without the platformer session) are applied by
+// `restart` (the engine's restart of the run) are applied by
 // the runtime when the frame is sampled; their `doc` may be '' (the engine's pause panel).
 // Phase 24.4j: `scene` (the shell's move to an entry of its scene list: `value` is the entry's index),
 // applied by the runtime at the next step boundary.

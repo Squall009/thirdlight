@@ -80,7 +80,7 @@ async function compiledNudger(): Promise<{ row: Any; url: string }> {
 
 function level(): { snapshot: Any; physics: Any } {
   const entities: Any[] = [
-    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
     { id: 'floor-0001', components: { transform: at(20, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
@@ -92,7 +92,6 @@ function level(): { snapshot: Any; physics: Any } {
       projectId: 'nudge',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: { configVersion: 2, title: 'Nudge', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
     },
     physics: {
       character: { x: 0, y: 0.91 },
@@ -109,7 +108,7 @@ const boxX = (h: Harness): number => {
 };
 
 /** Run the level: `commands` maps a frame number to the debug commands issued (through the host) before that frame. */
-async function run(mode: Mode, behavior: { row: Any; url: string }, opts: { variables?: Record<string, unknown>; replay?: Any[]; commands?: Record<number, [string, Record<string, number>][]>; frames?: number; host?: Record<string, unknown> } = {}) {
+async function run(mode: Mode, behavior: { row: Any; url: string }, opts: { variables?: Record<string, unknown>; replay?: Any[]; commands?: Record<number, [string, Record<string, number>][]>; frames?: number; host?: Record<string, unknown>; storage?: boolean } = {}) {
   const { snapshot, physics } = level();
   const h = await startHarness(mode, {
     snapshot,
@@ -121,11 +120,10 @@ async function run(mode: Mode, behavior: { row: Any; url: string }, opts: { vari
     ...(opts.variables !== undefined ? { variables: opts.variables } : {}),
     ...(opts.replay !== undefined ? { replay: opts.replay } : {}),
     ...(opts.host !== undefined ? { host: opts.host } : {}),
+    ...(opts.storage === true ? { storage: true } : {}),
   });
   let now = 10;
   await h.tick(now);
-  const started = h.host.control('start');
-  if (!started.ok) throw new Error(JSON.stringify(started.error));
   const results: Any[] = [];
   for (let f = 0; f < (opts.frames ?? 120); f += 1) {
     for (const [name, args] of opts.commands?.[f] ?? []) results.push(h.host.debugCommand!(name, args));
@@ -140,11 +138,11 @@ describe('phase 23.8: debug entry points in the page and the worker', () => {
     const behavior = await compiledNudger();
     for (const mode of ['single', 'worker'] as const) {
       const plain = await run(mode, behavior, { frames: 20 });
-      const shifted = await run(mode, behavior, { variables: { shift: 2.5 }, frames: 20 });
+      const shifted = await run(mode, behavior, { variables: { shift: 2.5 }, frames: 20, storage: true });
       try {
         expect(boxX(plain.h), mode).toBeCloseTo(4, 9);
         expect(boxX(shifted.h), mode).toBeCloseTo(6.5, 9);
-        expect(shifted.h.rt.runState?.().values, mode).toEqual({ shift: 2.5 });
+        expect(await shifted.h.storage(), mode).toEqual({ shift: 2.5 });
       } finally {
         await plain.h.dispose();
         await shifted.h.dispose();
@@ -224,60 +222,4 @@ describe('phase 23.8: debug entry points in the page and the worker', () => {
       await without.h.dispose();
     }
   }, 120_000);
-});
-
-describe('phase 23.8: a start at a level or from a save (a game with levels)', () => {
-  const FLOW = { levels: [{ id: 'level-1', name: 'One', scenes: ['scene-main'], spawnId: 'spawn-0001' }, { id: 'level-2', name: 'Two', scenes: ['scene-main'], spawnId: 'spawn-0002' }], lives: { start: 3, max: 5 } };
-  const flowLevel = (): { snapshot: Any; physics: Any } => {
-    const l = level();
-    const entities = [...l.snapshot.scene.entities, { id: 'spawn-0002', components: { transform: at(9, 0.91), playerSpawn: {} } }, { id: 'goal-0001', components: { transform: at(30, 1), gameZone: { role: 'goal', size: [1, 2] } } }];
-    return { snapshot: { ...l.snapshot, scene: { ...l.snapshot.scene, entities }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e: Any) => e.id) }] }, physics: l.physics };
-  };
-  const start = async (mode: Mode, behavior: { row: Any; url: string }, hostStart: Any, variables?: Record<string, unknown>) => {
-    const { snapshot, physics } = flowLevel();
-    const map = new Map<string, string>();
-    const container = new FakeNode();
-    const h = await startHarness(mode, {
-      snapshot,
-      settings: SETTINGS,
-      physics,
-      behaviors: [behavior],
-      enginePins: M2_PINNED_MODULES,
-      ...(variables !== undefined ? { variables } : {}),
-      host: { flow: FLOW, start: hostStart, container, saveStorage: { get: (k: string) => map.get(k) ?? null, set: (k: string, v: string) => void map.set(k, v), remove: (k: string) => void map.delete(k) }, saveNamespace: 'thirdlight:flowstart' },
-    });
-    let now = 10;
-    for (let i = 0; i < 60; i += 1) await h.tick((now += DT));
-    const px = (): number => {
-      const s = h.rt.getInterpolatedState();
-      return s.ok ? s.state.transforms.find((t: Any) => t.id === 'player-0001')!.position[0] : Number.NaN;
-    };
-    return { h, obs: (h.host.observe() as Any).observation, px };
-  };
-
-  it('a level start skips the title and plays that level at its spawn; a save continues with its values and the variables (both modes)', async () => {
-    const behavior = await compiledNudger();
-    for (const mode of ['single', 'worker'] as const) {
-      const lv = await start(mode, behavior, { levelId: 'level-2' });
-      const saved = await start(mode, behavior, { save: { version: 1, savedAt: '2026-09-26T00:00:00Z', levelId: 'level-2', levelIndex: 1, levelName: 'Two', lives: 2, run: { checkpointId: null, counters: {}, collected: [], defeated: [], health: null, values: { fromSave: 1 } }, levels: {} } }, { shift: 1 });
-      const empty = await start(mode, behavior, { saveSlot: '1' });
-      try {
-        expect(lv.h.host.startOutcome, mode).toEqual({ ok: true, applied: ['level level-2'] });
-        expect(lv.obs.legacy.flow.screen).toBe('playing');
-        expect(lv.obs.legacy.flow.levelId).toBe('level-2');
-        expect(lv.obs.legacy.runState).toBe('playing');
-        expect(lv.px()).toBeCloseTo(9, 0);
-        expect(saved.h.host.startOutcome).toEqual({ ok: true, applied: ['save'] });
-        expect(saved.obs.legacy.flow.levelId).toBe('level-2');
-        expect(saved.obs.legacy.flow.lives).toBe(2);
-        expect(saved.h.rt.runState?.().values).toEqual({ fromSave: 1, shift: 1 });
-        expect(empty.h.host.startOutcome).toEqual({ ok: false, reason: 'save slot 1 is empty' });
-        expect(empty.obs.legacy.flow.screen).toBe('title');
-      } finally {
-        await lv.h.dispose();
-        await saved.h.dispose();
-        await empty.h.dispose();
-      }
-    }
-  }, 180_000);
 });

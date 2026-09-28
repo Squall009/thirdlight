@@ -33,7 +33,6 @@ import {
   type Vec2,
 } from '@thirdlight/runtime';
 import { PLATFORMER_MODULE_ID, platformerSpec } from '@thirdlight/platformer';
-import { PLATFORMER_GAME_CAMERA_MODULE_ID, PLATFORMER_GAME_MODULE_ID, platformerGameCameraSpec, platformerGameSessionSpec } from '@thirdlight/platformer-game';
 import { createPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   captureContentViewV3,
@@ -41,7 +40,6 @@ import {
   manifestBuildIdInputV2,
   M3_ENGINE_PINS,
   resolveMediaIdentityV3,
-  type GameConfig,
 } from '@thirdlight/project-model';
 
 import { buildContentClosureM3 } from '@thirdlight/exporter';
@@ -68,7 +66,8 @@ const DEFAULT_SETTINGS: GameplaySettings = {
   min_slope_slide_deg: 30,
 };
 
-/** The flat course (floor 0..48, player at x=3, killY -4). */
+/** The flat course (floor 0..48, player at x=3). Phase 24.7: no game block
+ * (a scene game: the controller entity is the character). */
 function v3Snapshot(): unknown {
   return {
     snapshotId: 'b16-trace@r1',
@@ -85,7 +84,6 @@ function v3Snapshot(): unknown {
           components: {
             transform: { position: [0, 4, 12], ...T },
             camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 },
-            cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: 0, maxX: 48, minY: -4, maxY: 8 } },
           },
         },
         { id: 'group-0001', name: 'Player', components: { transform: { position: [3, 0.9, 0], ...T }, controller: {} } },
@@ -100,36 +98,23 @@ function v3Snapshot(): unknown {
         },
       ],
     },
-    game: {
-      configVersion: 1,
-      title: 'B16 Trace',
-      objective: 'Move right',
-      instructions: 'A/D move.',
-      playerId: 'group-0001',
-      cameraId: 'cam-main',
-      spawnId: 'spawn-0001',
-      level: { minX: 0, maxX: 48, minY: -4, maxY: 8 },
-      killY: -4,
-      cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
-    },
   };
 }
 
 /** The v3 content block (the acknowledged envelope's content half). */
-function v3Content(settings: Record<string, number>, game: GameConfig | null): unknown {
+function v3Content(settings: Record<string, number>): unknown {
   return {
     assets: [],
     prefabs: [],
     behaviors: [],
     settings,
     behaviorTrust: { entries: [] },
-    game,
+    game: null,
   };
 }
 
 interface Run {
   runtime: Runtime;
-  start(): void;
   step(): void;
   position(): Vec2;
   dispose(): void;
@@ -145,7 +130,7 @@ async function startRun(settings: GameplaySettings, frames: readonly ActionFrame
   if (!init.ok) throw new Error(`physics init failed: ${JSON.stringify(init.error)}`);
   const physics: PhysicsPort = init.port;
   const registry = createSimulationRegistry();
-  for (const spec of [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec]) {
+  for (const spec of [platformerSpec]) {
     const r = registerSimulationModule(registry, spec.id, spec);
     if (!r.ok) {
       physics.dispose();
@@ -156,7 +141,7 @@ async function startRun(settings: GameplaySettings, frames: readonly ActionFrame
   const res = instantiateRuntime({
     snapshot: v3Snapshot(),
     registry,
-    modules: [PLATFORMER_MODULE_ID, PLATFORMER_GAME_MODULE_ID, PLATFORMER_GAME_CAMERA_MODULE_ID],
+    modules: [PLATFORMER_MODULE_ID],
     actions: createRecordedActionSource(frames),
     physics,
     settings,
@@ -172,10 +157,6 @@ async function startRun(settings: GameplaySettings, frames: readonly ActionFrame
   if (!runtime.tick(now).ok) throw new Error('pre-roll tick failed');
   return {
     runtime,
-    start(): void {
-      const c = runtime.gameCommand('start');
-      if (!c.ok) throw new Error(`start command failed: ${JSON.stringify(c.error)}`);
-    },
     step(): void {
       now += DT;
       const r = runtime.tick(now);
@@ -207,8 +188,7 @@ describe('B16 run_speed reaches the physics/controller', () => {
   it('default run_speed 4 vs changed 6 — measured horizontal velocity differs by the authored ratio', async () => {
     const STEPS = 240;
     const runDefault = await startRun(DEFAULT_SETTINGS, rightFrames(SETTLE + STEPS, 0));
-    runDefault.start();
-    runDefault.step(); // the start boundary
+    runDefault.step(); // the first step
     for (let i = 0; i < SETTLE; i += 1) runDefault.step();
     const x0 = runDefault.position().x;
     for (let i = 0; i < STEPS; i += 1) runDefault.step();
@@ -217,8 +197,7 @@ describe('B16 run_speed reaches the physics/controller', () => {
     runDefault.dispose();
 
     const runChanged = await startRun({ ...DEFAULT_SETTINGS, run_speed: 6 }, rightFrames(SETTLE + STEPS, 0));
-    runChanged.start();
-    runChanged.step(); // the start boundary
+    runChanged.step(); // the first step
     for (let i = 0; i < SETTLE; i += 1) runChanged.step();
     const y0 = runChanged.position().x;
     for (let i = 0; i < STEPS; i += 1) runChanged.step();
@@ -281,7 +260,7 @@ describe('B16 gravity_y reaches the physics world', () => {
 describe('B16 the changed settings are hash-bound through the v2 manifest', () => {
   async function deriveManifest(settings: Record<string, number>): Promise<import('@thirdlight/project-model').RuntimeContentManifestV2> {
     const scene = v3Snapshot() as { scene: unknown };
-    const content = v3Content(settings, (v3Snapshot() as { game: GameConfig | null }).game);
+    const content = v3Content(settings);
     const viewRes = captureContentViewV3(scene.scene, content, { projectId: 'b16', revision: 1 });
     if (!viewRes.ok) throw new Error(`captureContentViewV3 failed: ${JSON.stringify(viewRes.errors)}`);
     const mediaRes = resolveMediaIdentityV3(scene.scene, content);
@@ -297,7 +276,7 @@ describe('B16 the changed settings are hash-bound through the v2 manifest', () =
       settings: viewRes.normalized.settings,
       game: viewRes.normalized.game,
       media: mediaRes.normalized,
-      moduleIds: ['thirdlight.platformer-game:session', 'thirdlight.platformer:controller'],
+      moduleIds: [PLATFORMER_MODULE_ID],
       enginePins: M3_ENGINE_PINS,
     });
     if (!manifestRes.ok) throw new Error(`captureManifestV2 failed: ${JSON.stringify(manifestRes.error)}`);
@@ -335,7 +314,7 @@ describe('B16 the changed settings are hash-bound through the v2 manifest', () =
 describe('B16 the captured run is pinned at one revision', () => {
   it('the closure derives at the captured revision and a revision bump is detectable', async () => {
     const sceneDoc = (v3Snapshot() as { scene: unknown }).scene;
-    const content = v3Content({ run_speed: 4 }, null);
+    const content = v3Content({ run_speed: 4 });
 
     // The closure pins revision 1.
     const fakeService = {

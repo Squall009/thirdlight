@@ -4,16 +4,15 @@
  * shadows, owned skeletons go, other entities' nodes are skipped; node-made
  * attributes of instanced meshes are deleted from every live renderer's
  * attribute map (never the geometry's own); and the fixes built on them
- * (material library refcounts, fade copies, emissive copies, batching).
+ * (material library refcounts, look-override copies, batching).
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { createAutoBatcher, markBatchable } from './batching';
 import { disposeObjectTree, installProgramRelease, installVaoSweep, liveRenderers, releaseMrtContexts, releaseNodeAttributes, trackRenderer, trackTextureListeners } from './dispose';
-import { createFadeTracker } from './fade';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
-import { releaseEmissiveLooks, setEmissiveLook, SHARED_MATERIAL_KEY } from './node-materials';
+import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 
 const disposals = (o: THREE.Object3D): { n: number } => {
   const c = { n: 0 };
@@ -295,33 +294,13 @@ describe('fixes built on the helpers', () => {
     expect(texDisposed).toBe(0);
   });
 
-  it('a fade released while faded disposes its own copies, not what the mesh wears by then', () => {
-    const shared = new THREE.MeshStandardMaterial();
-    let sharedDisposed = 0;
-    shared.addEventListener('dispose', () => void (sharedDisposed += 1));
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), shared);
-    const fades = createFadeTracker();
-    fades.apply(new Map([['e1', mesh]]), new Map([['e1', 0.5]]));
-    const copy = mesh.material as THREE.Material;
-    let copyDisposed = 0;
-    copy.addEventListener('dispose', () => void (copyDisposed += 1));
-    // Something else swapped the mesh's material meanwhile (a material undo).
-    const other: THREE.Material = new THREE.MeshBasicMaterial();
-    (mesh as THREE.Mesh).material = other;
-    fades.release('e1');
-    expect(copyDisposed).toBe(1);
-    expect(sharedDisposed).toBe(0);
-    expect(mesh.material).toBe(other);
-    expect(fades.faded()).toEqual([]);
-  });
-
-  it('releaseEmissiveLooks disposes the glow\'s own copy only', () => {
+  it('releaseEmissiveLooks disposes a look override\'s own copy only', () => {
     const shared = new THREE.MeshStandardMaterial();
     shared.userData[SHARED_MATERIAL_KEY] = true;
     let sharedDisposed = 0;
     shared.addEventListener('dispose', () => void (sharedDisposed += 1));
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(), shared);
-    setEmissiveLook(mesh, { emissive: '#ffffff', emissiveIntensity: 1 });
+    setEntityLook(mesh, { emissive: '#ffffff', emissiveIntensity: 1 });
     const copy = mesh.material as THREE.Material;
     expect(copy).not.toBe(shared);
     let copyDisposed = 0;

@@ -2189,21 +2189,16 @@ from). Drag a grip: the object's outline follows while you drag, and the
 release stores it in one command — one undo step, the Inspector updates.
 Esc cancels a drag. Snapping (the toolbar's snap toggle; hold Shift for one
 drag to turn it off): sizes, radii, ranges and polygon corners land on 5 cm,
-path points and world-space bounds on the 0.25 m grid, a spot cone's
+path points on the 0.25 m grid, a spot cone's
 half-angle on 5°, directions on 0.05 per axis. Values stay inside the
 field's range.
 
 - **Box sizes** (`box2`/`box3`): top and side grips (and a depth grip for a
-  box mesh and a fog volume); areas stay centred, an enemy's body keeps
-  standing on its feet. A box collider's half extents turn with the object;
+  box mesh and a fog volume); areas stay centred. A box collider's half extents turn with the object;
   a box mesh's size is in the object's own (scaled) space.
-- **World bounds** (camera follow): a grip on each edge.
 - **Capsule** (the player): see above.
 - **Radius**: a circle trigger, a point light's range; along X only for an
-  enemy's chase distance and an audio source's range (the engine compares
-  horizontal distance).
-- **X range** (`segment1d`): an enemy's patrol range, a grip at each end
-  (the left end stays left of the right one).
+  audio source's range (the engine compares horizontal distance).
 - **Cone** (spot light): the tip grip points it (and sets its range when it
   has one); the rim grip sets its half-angle. **Direction** (directional
   light): the tip grip points it. These grips move on a plane facing you.

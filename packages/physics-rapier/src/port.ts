@@ -810,8 +810,8 @@ function createAdapter(
     /**
      * M3 (gameplay.md §5.2 R4): zero every cached/kinematic motion of the
      * character — the pending staged delta and the grounding/support caches.
-     * This is a restricted runtime-only operation (never on `PhysicsStepClient`
-     * or `GameSessionPort`): the adapter has no dynamic velocity of its own
+     * This is a restricted runtime-only operation (never on `PhysicsStepClient`):
+     * the adapter has no dynamic velocity of its own
      * (the capsule is a parentless kinematic collider), so "motion" is exactly
      * the staged delta plus the cached ground state.
      */

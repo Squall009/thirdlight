@@ -12,12 +12,8 @@
  */
 import type {
   AnimatorController,
-  CameraFollowComponent,
-  CheckpointActivationAppearance,
   EntityV3,
-  GameConfig,
   GameplaySettings as ModelGameplaySettings,
-  GameZoneRole,
   PrefabDefinition,
   Quat,
   ResolvedSceneV3,
@@ -25,8 +21,6 @@ import type {
   Vec3,
 } from '@thirdlight/project-model';
 
-/** The gameplay-zone role set (project-model §23.3.1) — canonical home here per gameplay.md §11. */
-export type { GameZoneRole };
 import type { ActionFrame, ActionSource, DebugCommandArg, DebugCommandCall } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode, RuntimeError } from './errors';
@@ -47,12 +41,9 @@ export interface RuntimeScene {
 }
 
 /**
- * The runtime snapshot (runtime.md §2; M3 addition in §15.3/`gameplay.md`
- * §4.1) — the ONLY input of a runtime instance. `scene` is a complete
- * normalized scene document; `game` carries the frozen v3
- * `content.game` block (project-model §23.4) and is present exactly for a
- * `schemaVersion` 3 snapshot (where it may be `null`, which an M3-enabled
- * module set rejects as `config_invalid`, reason `game_config`).
+ * The runtime snapshot (runtime.md §2) — the ONLY input of a runtime
+ * instance. `scene` is a complete normalized scene document. Phase 24.7: the
+ * `game` wrapper field (the deleted platformer game block) may only be null.
  */
 export interface RuntimeSnapshot {
   /** Exactly `<projectId>@r<revision>` (project-model §6). */
@@ -61,8 +52,8 @@ export interface RuntimeSnapshot {
   /** Integer, 0 ≤ v ≤ 2^53−1; must equal `scene.revision`. */
   revision: number;
   scene: RuntimeScene;
-  /** v3 only: the frozen `content.game` block, or `null`. */
-  game?: GameConfig | null;
+  /** Phase 24.7: the deleted game block — absent or null (24.8 drops the field). */
+  game?: null;
   /**
    * Phase 12 (b), v3 only, optional: the project tag registry (`content.tags`).
    * The entities carry their effective masks once the scene is resolved.
@@ -383,22 +374,13 @@ export interface SimState {
   curr: Map<string, TransformState>;
 }
 
-/**
- * Module config passed to `SimulationModuleSpec.create` (runtime.md §7.2/§12.1;
- * the M3 `sceneVersion`/`game` additions are gameplay.md §3.4 / runtime.md §15).
- */
+/** Module config passed to `SimulationModuleSpec.create` (runtime.md §7.2/§12.1). */
 export interface ModuleConfig {
   fixedStepHz: number;
   /** The resolved, deep-frozen gameplay settings (M2 sets). */
   settings: Readonly<GameplaySettings>;
   /** The snapshot's `schemaVersion` (3, or 4 for the merged start scenes). */
   sceneVersion: 3 | 4;
-  /**
-   * v3 only: the frozen `content.game` block carried inside the snapshot
-   * (runtime.md §2 M3 note). `null` on a v3 snapshot whose content has no
-   * game block (an M3-enabled module set rejects it as `game_config`).
-   */
-  game?: Readonly<GameConfig> | null;
   /**
    * The runtime's bounded diagnostics sink for behavior `ctx.log` calls
    * (runtime.md §14.8.1). Additive M2 host seam (packet 34): the runtime owns
@@ -436,80 +418,16 @@ export interface SimulationModule {
 }
 
 /**
- * The canonical simulation phase order (runtime.md §12.1; M3 adds the two
- * appended values `gameplay`/`camera` — `gameplay.md` §3.1). Every accepted
- * M2 phase list stays a prefix of this order and remains valid unchanged.
+ * The canonical simulation phase order (runtime.md §12.1). Phase 24.7: the
+ * platformer session's `gameplay` and `camera` phases were deleted with it.
  */
-export type SimulationPhase = 'intent' | 'controller' | 'transform' | 'gameplay' | 'camera';
+export type SimulationPhase = 'intent' | 'controller' | 'transform';
 
 export const SIMULATION_PHASE_ORDER: readonly SimulationPhase[] = [
   'intent',
   'controller',
   'transform',
-  'gameplay',
-  'camera',
 ];
-
-// ---------------------------------------------------------------------------
-// M3 game-session types (gameplay.md §2/§3/§4/§5/§6; runtime.md §15).
-// Additive: absent for M1/M2 sets.
-// ---------------------------------------------------------------------------
-
-/** The run state machine's states (gameplay.md §2.1). */
-export type RunState = 'awaitingStart' | 'playing' | 'respawning' | 'won';
-
-/** One completed motion segment of an entity (gameplay.md §3.3). */
-export interface MotionSegment {
-  readonly from: Vec2;
-  readonly to: Vec2;
-}
-
-/** The committed run data the gameplay phase reads (gameplay.md §3.3). */
-export interface RunSnapshot {
-  readonly state: RunState;
-  /** The runtime step counter at read time (see `GameView.stepIndex`). */
-  readonly stepIndex: number;
-  readonly checkpointId: string | null;
-  readonly goalReached: boolean;
-  readonly deathCount: number;
-  readonly replayEpoch: number;
-  readonly respawnAtStep: number | null;
-  /** `${snapshotId}#${replayEpoch}`. */
-  readonly runId: string;
-}
-
-/** The runtime's viewport record (gameplay.md §4.1/§7.1). */
-export interface ViewportInfo {
-  readonly width: number;
-  readonly height: number;
-  readonly aspect: number;
-}
-
-/** The frozen projection of one authored game zone (gameplay.md §4.1). */
-export interface GameZoneSpec {
-  readonly entityId: string;
-  readonly role: GameZoneRole;
-  /** The frozen snapshot transform x/y. */
-  readonly center: Vec2;
-  /** `size / 2` (half-extents, §4.1). */
-  readonly half: Vec2;
-  /** Checkpoint zones only. */
-  readonly safeSpawnId?: string;
-  /** Checkpoint zones only. */
-  readonly activation?: Readonly<CheckpointActivationAppearance>;
-  /** Phase 12 (c), exit zones only: the scenes loaded/unloaded on entry and the spawn to move to. */
-  readonly load?: readonly string[];
-  readonly unload?: readonly string[];
-  readonly spawnId?: string;
-}
-
-/** The authored camera-follow bounds (project-model §23.3.3). */
-export interface GameCameraBounds {
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minY: number;
-  readonly maxY: number;
-}
 
 /**
  * Phase 14.0: the player's collision capsule as the systems use it —
@@ -525,147 +443,17 @@ export interface PlayerCapsule {
 }
 
 /**
- * The frozen gameplay content the runtime projects from a v3 snapshot
- * (gameplay.md §4.1) — deep-frozen at instantiate, carried on `StepContext.gameplay`.
- */
-export interface GameContent {
-  readonly game: Readonly<GameConfig>;
-  /** Ascending `entityId` codepoint order. */
-  readonly zones: readonly GameZoneSpec[];
-  /** Phase 15.2: `facing` only when the spawn sets left or right. */
-  readonly spawns: readonly { entityId: string; center: Vec2; facing?: 'left' | 'right'; yaw?: number }[];
-  /** Phase 14.0: the player entity and its collision capsule (from its `controller`). */
-  readonly player: { entityId: string; capsule: PlayerCapsule };
-  readonly camera: {
-    entityId: string;
-    deadZone: Vec2;
-    smoothing: number;
-    bounds: GameCameraBounds;
-  };
-}
-
-/**
- * The frozen per-step gameplay port (gameplay.md §3.3 / runtime.md §15.3):
- * `StepContext.gameplay`, present iff the runtime is M3-enabled. The three
- * commit calls are callable in the `gameplay` phase only; from any other
- * phase they throw `module_error` (`reason: 'phase_violation'`); a run-state
- * rule violation is `module_error` (`reason: 'gameplay_invalid'`).
- */
-export interface GameSessionPort {
-  /** Deep-frozen at instantiate. */
-  readonly content: Readonly<GameContent>;
-  /** The committed run data, read-only. */
-  run(): Readonly<RunSnapshot>;
-  /** The last completed motion segment of `entityId`, or `undefined`. */
-  lastMotionSegment(entityId: string): Readonly<MotionSegment> | undefined;
-  /** The current viewport record. */
-  viewport(): Readonly<ViewportInfo>;
-  /** T2: decide a death at the current step (`cause`, optional `zoneId`). */
-  beginRespawn(cause: 'hazard' | 'fall', zoneId?: string): void;
-  /** T3: activate the single checkpoint zone (once per run). */
-  activateCheckpoint(zoneEntityId: string): void;
-  /** T4: reach the goal zone (wins once). */
-  reachGoal(zoneEntityId: string): void;
-}
-
-/**
- * The runtime-called reset-barrier context (gameplay.md §5.1 R6 / §3.3).
- * `state.curr` is writable only for the module's declared owners.
+ * The runtime-called reset context: the character was placed (a restart
+ * `replay`, a scene arrival or respawn `transfer`). `state.curr` is writable
+ * only for the module's declared owners.
  */
 export interface ModuleResetContext {
-  /** `transfer` (phase 12 c): an exit zone moved the player to its spawn. */
-  readonly reason: 'start' | 'spawn' | 'replay' | 'transfer';
+  readonly reason: 'replay' | 'transfer';
   /** The upcoming step index. */
   readonly stepIndex: number;
   /** The reset character centre. */
   readonly playerCenter: Readonly<Vec2>;
-  readonly viewport: Readonly<ViewportInfo>;
   readonly state: SimState;
-}
-
-/** The six gameplay event kinds (gameplay.md §6). */
-export type GameEventKind =
-  | 'runStarted'
-  | 'died'
-  | 'respawned'
-  | 'checkpointActivated'
-  | 'goalReached'
-  | 'replayed';
-
-/** One bounded gameplay event (gameplay.md §6). */
-export interface GameEvent {
-  /** `${runId}/${kind}/${stepIndex}`. */
-  readonly id: string;
-  readonly kind: GameEventKind;
-  readonly stepIndex: number;
-  /** `true` for `runStarted`/`respawned`/`replayed`. */
-  readonly boundary: boolean;
-  readonly zoneId?: string;
-  readonly cause?: 'hazard' | 'fall';
-  /** The counter after this event. */
-  readonly deathCount: number;
-}
-
-/** The committed player motion the view publishes (gameplay.md §6, C41-1). */
-export interface PlayerMotion {
-  /** `|last completed motion segment| × fixedStepHz` (m/s, finite ≥ 0). */
-  readonly speed: number;
-  /** The controller's committed grounding after that step. */
-  readonly grounded: boolean;
-}
-
-/**
- * The committed read-only game view (gameplay.md §6 / runtime.md §15.5).
- * Exactly one frozen view exists per instance: the last committed one,
- * replaced at every commit (phase 8) and at every reset boundary (R8).
- * `getGameView()` returns a new deep-frozen copy per call.
- */
-export interface GameView {
-  readonly viewVersion: 1;
-  /** `${snapshotId}#${replayEpoch}`. */
-  readonly runId: string;
-  /** `<projectId>@r<revision>` (accepted §2). */
-  readonly snapshotId: string;
-  readonly replayEpoch: number;
-  readonly state: RunState;
-  /**
-   * The runtime step counter at publication: completed steps after a commit,
-   * the upcoming index at a boundary, the failed step index after a fail-stop.
-   */
-  readonly stepIndex: number;
-  readonly simTime: number;
-  readonly playerId: string;
-  readonly cameraId: string;
-  /** `spawnId` or the activated checkpoint's `safeSpawnId`. */
-  readonly activeSpawnId: string;
-  readonly checkpointId: string | null;
-  /** The read-only presentation bit the adapter consumes (PR-1). */
-  readonly checkpointActive: boolean;
-  /** The committed motion the role selector consumes (C41-1). */
-  readonly playerMotion: PlayerMotion;
-  readonly goalReached: boolean;
-  readonly deathCount: number;
-  readonly respawnAtStep: number | null;
-  /** Oldest first, ≤ MAX_GAME_EVENTS. */
-  readonly events: readonly GameEvent[];
-  /** Cumulative. */
-  readonly eventCount: number;
-  /** Evicted from the front. */
-  readonly eventDropped: number;
-  readonly failed: boolean;
-  /**
-   * The last-committed-state failure record (gameplay.md §5.4/§10, T7).
-   * `phase` (CC-49-1): the failure phase label the promoted
-   * `failure-phases.json` fixture pins on every record (`intent`/
-   * `controller`/`physics`/`transform`/`gameplay`/`camera`/`commit`/`R1`–
-   * `R8`) — additive to the contract's `{ code, reason?, stepIndex }` shape.
-   */
-  readonly failure?: {
-    readonly code: string;
-    readonly reason?: string;
-    readonly stepIndex: number;
-    readonly phase?: string;
-  };
 }
 
 /**
@@ -680,7 +468,7 @@ export interface GameView {
 export interface SimulationPhaseModule {
   readonly transformOwners: readonly string[];
   step(phase: SimulationPhase, ctx: StepContext): void;
-  /** M3 only: the runtime-called reset-barrier hook (`gameplay.md` §5.1 R6). */
+  /** The runtime-called reset hook (the character was placed: a restart, an arrival, a respawn). */
   reset?(ctx: ModuleResetContext): void;
   /**
    * Phase 12 (c): a scene was loaded at a step boundary — `entities` are its
@@ -721,12 +509,6 @@ export interface StepContext {
    * contract's fail-stop. Packet 34 (additive contract note C34-1).
    */
   emit(intent: BehaviorIntent): void;
-  /**
-   * M3 only (gameplay.md §3.3): the frozen gameplay port, present iff the
-   * runtime is M3-enabled (at least one selected module declares `gameplay`
-   * or `camera`). Absent for M1/M2 sets.
-   */
-  readonly gameplay?: GameSessionPort;
   /** Phase 12 (c): the scene API (v4 snapshots with a scene catalog). */
   readonly scenes?: BehaviorSceneControl;
   /** Phase 9.7: the animators of the loaded entities (`ctx.animator(id)` in scripts). */
@@ -735,7 +517,7 @@ export interface StepContext {
   readonly animatorEvents?: readonly AnimatorEventRecord[];
   /** Phase 9.9: signals (seen one step after they are emitted). */
   readonly signals?: BehaviorSignals;
-  /** Phase 9.9: the run's counters and the player's health. */
+  /** Phase 9.9: the run's counters and the character's health. */
   readonly game?: BehaviorGameState;
   /** Phase 9.10: play a sound (an audio asset) — presentation only, never part of the simulation. */
   readonly audio?: BehaviorAudio;
@@ -800,7 +582,7 @@ export interface StepContext {
   readonly dialogue?: BehaviorDialogue;
   /** Phase 23.10: the game modes (`ctx.modes`; present while the project has modes). */
   readonly modes?: BehaviorModes;
-  /** Phase 23.10: the run lifecycle of a game without the platformer session (`ctx.lifecycle`). */
+  /** Phase 23.10: the run lifecycle (`ctx.lifecycle`). */
   readonly lifecycle?: BehaviorLifecycle;
   /**
    * Phase 23.10: whether the behavior on this entity runs this step (its
@@ -925,7 +707,7 @@ export type PrimitiveEventRecord = HealthEventRecord | ContactEventRecord | Patr
  * Phase 14.2: `ctx.timers` — named timers of one script instance, counted in
  * fixed steps (deterministic: `seconds × fixedStepHz` rounded, at least one
  * step). At most `MAX_TIMERS_PER_INSTANCE` (64) run per instance; a new run
- * (start, replay, a level switch) clears them.
+ * (a restart) clears them.
  */
 export interface BehaviorTimers {
   /**
@@ -984,17 +766,6 @@ export interface BehaviorSpawnControl {
    */
   destroy(entityId: string): boolean;
 }
-
-/** Phase 9.11: what a save keeps of a run, and what a load restores. */
-export interface RunSaveState {
-  readonly checkpointId: string | null;
-  readonly counters: Readonly<Record<string, number>>;
-  readonly collected: readonly string[];
-  readonly defeated: readonly string[];
-  readonly health: number | null;
-  readonly values: Readonly<Record<string, unknown>>;
-}
-export type RunRestore = Partial<RunSaveState>;
 
 /** Phase 9.11: `ctx.save` — values a script keeps in the player's save (≤ 64 keys, ≤ 4 KB each as JSON). */
 export interface BehaviorSave {
@@ -1130,9 +901,9 @@ export interface AudioStingerOptions {
 
 /** A script's view of the music (`ctx.audio.musicState()`). */
 export interface AudioMusicState {
-  /** Who picks the track: the scripts (after `music`) or the game flow. */
+  /** Who picks the track: the scripts (after `music`), or the host (`flow`: since phase 24.7 deleted the level flow, nothing plays then). */
   readonly owner: 'script' | 'flow';
-  /** The scripts' track (null: silence, or the flow owns it). */
+  /** The scripts' track (null: silence, or the host owns it). */
   readonly track: string | null;
   /** The music duck now (1 = not ducked). */
   readonly duck: number;
@@ -1207,7 +978,7 @@ export interface BehaviorAudio {
    */
   events(): readonly AudioFinishedEvent[];
   /**
-   * Play a music track (looped), crossfading over `fadeSeconds` (1); null fades to silence. The scripts then own the music — the game flow's level and title music waits — until `releaseMusic`.
+   * Play a music track (looped), crossfading over `fadeSeconds` (1); null fades to silence. The scripts then own the music until `releaseMusic`.
    * @graphNode Set music
    * @graphLabel assetId track
    * @graphAsset assetId music
@@ -1215,7 +986,7 @@ export interface BehaviorAudio {
    */
   music(assetId: string | null, fadeSeconds?: number): void;
   /**
-   * Give the music back to the game flow (its level or title track), crossfading over `fadeSeconds` (1).
+   * Give the music back to the host (silence since phase 24.7 deleted the level flow's music), crossfading over `fadeSeconds` (1).
    * @graphNode Release music
    * @graphDefault fadeSeconds 1
    */
@@ -1241,7 +1012,7 @@ export interface BehaviorAudio {
    */
   unduck(seconds?: number): void;
   /**
-   * Who picks the music (the scripts or the game flow), the scripts' track and the duck now.
+   * Who picks the music (the scripts or the host), the scripts' track and the duck now.
    * @graphNode Music state
    * @graphPure
    */
@@ -1279,8 +1050,8 @@ export interface EffectRequest {
   readonly position: readonly [number, number, number];
   /** Overrides of the effect's public parameters (null = none). */
   readonly params: Readonly<Record<string, number | readonly number[] | string>> | null;
-  /** What asked: a script, the entity's `effect` component (its signal), or a gameplay hook. */
-  readonly source: 'script' | 'component' | 'pickup' | 'enemyHit' | 'enemyDefeat' | 'playerHit' | 'checkpoint' | 'goal';
+  /** What asked: a script, or the entity's `effect` component (its signal). Phase 24.7: the platformer's gameplay hooks were deleted. */
+  readonly source: 'script' | 'component';
   /** The step it was asked in (1-based like the step being simulated). */
   readonly stepIndex: number;
 }
@@ -1710,16 +1481,14 @@ export interface BehaviorModes {
 }
 
 /**
- * Phase 23.10: `ctx.lifecycle` — the engine's run lifecycle for a game
- * without the platformer session (a 3D game plays as a scene): respawn the
- * player at a player spawn and restart the run. Lives, scores and goals are
- * the game's own rules (scripts); this is only the mechanism. In a game with
- * the platformer session every call answers false (the session owns
- * respawns and restarts).
+ * Phase 23.10: `ctx.lifecycle` — the engine's run lifecycle: respawn the
+ * character at a player spawn and restart the run. Lives, scores and goals are
+ * the game's own rules (scripts); this is only the mechanism. Phase 24.7: it
+ * works on the 2D plane too (the platformer session that owned it is gone).
  */
 export interface BehaviorLifecycle {
   /**
-   * Move the player (the 3D character) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). Applied after this step's intent phase (a later phase: the next step). `false` without a 3D character or for an unknown spawn.
+   * Move the character (the controller's object) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). In 3D applied after this step's intent phase (a later phase: the next step); on the 2D plane at the next step boundary. `false` without a character or for an unknown spawn.
    * @graphNode Respawn player
    * @graphLabel spawnId spawn
    */
@@ -2009,14 +1778,14 @@ export interface BehaviorGameState {
    */
   counter(name: string): number;
   /**
-   * Add to one of the run's counters (coins, keys, anything you name); the HUD and score rules read them.
+   * Add to one of the run's named counters (any name); HUD documents read them (`$flow.counters.<name>`).
    * @graphNode Add to counter
    * @graphLabel name counter
    * @graphDefault amount 1
    */
   add(name: string, amount: number): void;
   /**
-   * The player's health, or null when the game has none.
+   * The character's health (the controller's object), or null when it has none.
    * @graphPure
    * @graphNode Player health
    */
@@ -2323,10 +2092,6 @@ export type RuntimeStateName = 'instantiated' | 'running' | 'stopped' | 'failed'
 export interface Runtime {
   start(): { ok: true } | { ok: false; error: RuntimeError };
   stop(): { ok: true } | { ok: false; error: RuntimeError };
-  /** Phase 9.10: switch to a level (its scenes become the loaded and start set; a fresh run at its spawn). */
-  startLevel?(level: { scenes: readonly string[]; spawnId: string }, restore?: RunRestore): { ok: true } | { ok: false; error: RuntimeError };
-  /** Phase 9.11: what a save keeps of the current run. */
-  runState?(): RunSaveState;
   /** Phase 9.10: pause or resume the simulation (frames still render). */
   setPaused?(paused: boolean): void;
   readonly isPaused?: boolean;
@@ -2345,10 +2110,8 @@ export interface Runtime {
   debugStep?(): void;
   setStepWatcher?(watcher: ((stepIndex: number) => boolean) | null): void;
   behaviorDebug?(filter?: { behaviorId?: string; entityId?: string }): { behaviorId: string; entityId: string; debug: unknown }[];
-  /** Phase 9.9: entities collected or defeated (the renderer hides them). */
+  /** Phase 9.9: entities hidden (collected collectibles, `ctx.game.setVisible`; the renderer hides them). */
   hiddenEntities?(): ReadonlySet<string>;
-  /** Phase 15.3: entities fading out (id -> opacity 0-1; a defeated enemy with `defeat: "fade"`). */
-  entityOpacity?(): ReadonlyMap<string, number>;
   /** Phase 24.4h: the per-object look overrides scripts set (ctx.look; the renderer applies them). */
   entityLooks?(): ReadonlyMap<string, import('./primitives').EntityLook>;
   /** Phase 9.10: the sounds scripts played since the last call. Phase 23.13: the audio intent log's commands. */
@@ -2372,7 +2135,7 @@ export interface Runtime {
   readEnvironmentBlend?(): import('./environment-blend').EnvironmentBlendView | null;
   /** Phase 23.18: the committed environment blend as digest text (null until a script changed it). */
   environmentState?(): string | null;
-  /** Phase 9.9: the run's counters and the player's health. */
+  /** Phase 9.9: the run's counters and the character's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */
   tick(nowSeconds: number): { ok: true } | { ok: false; error: RuntimeError };
@@ -2430,34 +2193,6 @@ export interface Runtime {
   getCamera():{ ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
-
-  // ---- M3 run surface (gameplay.md §6.1; M3-enabled runtimes only) --------
-  /**
-   * The last committed `GameView` (a new deep-frozen copy per call).
-   * `game_session_unavailable` (`reason: 'schedule'`) on a non-M3 runtime;
-   * `runtime_disposed` after `dispose()`.
-   */
-  getGameView(): { ok: true; view: GameView } | { ok: false; error: RuntimeError };
-  /**
-   * Phase 21.2: the committed view itself (deep-frozen, so it cannot alias
-   * anything mutable) without the copy `getGameView` makes — for a host that
-   * reads it every frame. Null where `getGameView` fails.
-   */
-  peekGameView?(): GameView | null;
-  /**
-   * Queue one run command between frame updates (never during a step).
-   * A command invalid for the current run state is rejected immediately
-   * (`game_command_invalid`, `reason: 'state'`); a conflicting submission
-   * with a pending command is rejected (`reason: 'pending'`); a second
-   * identical submission coalesces (idempotent `ok: true`).
-   */
-  gameCommand(cmd: 'start' | 'replay'): { ok: true } | { ok: false; error: RuntimeError };
-  /**
-   * Update the presentation-only viewport record. Non-finite, non-positive
-   * or oversized (`> 16384`) dimensions are rejected with
-   * `camera_viewport_invalid`; the previous record is retained.
-   */
-  setViewport(width: number, height: number): { ok: true } | { ok: false; error: RuntimeError };
 
   // ---- Phase 12 (c) scene set (v4 snapshots with a scene catalog) ---------
   /** The loaded scenes and every scene's status. */
@@ -2611,17 +2346,4 @@ export interface RuntimeDiagnostics {
   /** Behavior `ctx.log` calls rejected by the per-step bound. */
   logDropped?: number;
 
-  // ---- M3 module sets only (gameplay.md §8 / runtime.md §15.7) ------------
-  /** The committed run state. */
-  runState?: RunState;
-  /** The committed run identity `${snapshotId}#${replayEpoch}`. */
-  runId?: string;
-  /** The committed death counter. */
-  deathCount?: number;
-  /** The committed activated-checkpoint zone id (or `null`). */
-  checkpointId?: string | null;
-  /** Cumulative gameplay events (unbounded count; the ring stays bounded). */
-  gameEventCount?: number;
-  /** The pending run command queue (≤ 1 entry; consumed at the next boundary). */
-  pendingCommands?: readonly ('start' | 'replay')[];
 }

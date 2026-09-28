@@ -99,17 +99,13 @@ async function open(page: Page): Promise<void> {
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 }
 
-test('sizes, ranges and radii: box3, box2, capsule, radius, segment1d, a chase band, world bounds — drag, stored snapped, one undo', async ({ page }) => {
+test('sizes and radii: box3, box2, capsule, radius — drag, stored snapped, one undo', async ({ page }) => {
   test.setTimeout(240_000);
   const crate = await create('Crate', [0, 30, 0], {}, 'box', { box: { size: [1, 1, 1], material: { color: '#777777' } } });
   const sensor = await create('Sensor', [10, 30, 0], { trigger: { size: [1, 1], signal: 'hello' } });
   const ring = await create('Ring', [20, 30, 0], { trigger: { shape: 'circle', radius: 1, signal: 'ring' } });
-  const walker = await create('Walker', [30, 30, 0], { enemy: { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1, chase: 3, chaseHeight: 1 } });
-  await mutate('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: 37, maxX: 43, minY: 27, maxY: 33 } } });
-  const marker = await create('Bounds marker', [40, 30, 0], {});
+  const walker = await create('Walker', [30, 30, 0], { patrol: { mode: 'edges', speed: 1.5, size: [0.8, 0.8] } });
   await open(page);
-  // The enemy's chase distance is drawn.
-  await expect(view(page)).toHaveAttribute('data-chase-bands', '1');
 
   // box3: the crate's side grip → a wider box (5 cm steps); depth has its own grip.
   await select(page, crate);
@@ -138,22 +134,12 @@ test('sizes, ranges and radii: box3, box2, capsule, radius, segment1d, a chase b
   await undo(page);
   await expect.poll(async () => (await comp(ring, 'trigger'))!['radius']).toBe(1);
 
-  // segment1d: the patrol range's right end; radius along X: the chase distance; box2 standing on its feet.
+  // box2: an edge walker's body (phase 24.7: the patrol's own body box).
   await select(page, walker);
-  await drag(page, await grip(page, 'enemy', 'segment1d', 'right'), 60, 0);
-  await expect.poll(async () => ((await comp(walker, 'enemy'))!['range'] as number[])[1]).toBeGreaterThan(2.05);
-  expect(((await comp(walker, 'enemy'))!['range'] as number[])[0]).toBe(-2);
+  await drag(page, await grip(page, 'patrol', 'box2', 'top'), 0, -40);
+  await expect.poll(async () => ((await comp(walker, 'patrol'))!['size'] as number[])[1]).toBeGreaterThan(0.85);
   await undo(page);
-  await expect.poll(async () => (await comp(walker, 'enemy'))!['range']).toEqual([-2, 2]);
-  await drag(page, await grip(page, 'enemy', 'radius', 'side'), -60, 0);
-  await expect.poll(async () => (await comp(walker, 'enemy'))!['chase'] as number).toBeLessThan(2.95);
-  expect(snapped((await comp(walker, 'enemy'))!['chase'] as number)).toBe(true);
-  await undo(page);
-  await expect.poll(async () => (await comp(walker, 'enemy'))!['chase']).toBe(3);
-  await drag(page, await grip(page, 'enemy', 'box2', 'top'), 0, -40);
-  await expect.poll(async () => ((await comp(walker, 'enemy'))!['size'] as number[])[1]).toBeGreaterThan(0.85);
-  await undo(page);
-  await expect.poll(async () => (await comp(walker, 'enemy'))!['size']).toEqual([0.8, 0.8]);
+  await expect.poll(async () => (await comp(walker, 'patrol'))!['size']).toEqual([0.8, 0.8]);
 
   // capsule: the player's side grip → a thinner capsule.
   await select(page, 'model-0001');
@@ -165,18 +151,6 @@ test('sizes, ranges and radii: box3, box2, capsule, radius, segment1d, a chase b
   await expect.poll(async () => ((await comp('model-0001', 'controller'))!['capsule'] as { radius?: number } | undefined)?.radius ?? 0.3).toBeLessThan(0.3);
   await undo(page);
   await expect.poll(async () => JSON.stringify(await comp('model-0001', 'controller'))).toBe('{}');
-
-  // box2 world bounds: the camera follow's right edge (viewed from the marker in the middle of them).
-  await select(page, marker);
-  await select(page, 'cam-main', false);
-  for (const h of ['left', 'right', 'bottom', 'top']) await grip(page, 'cameraFollow', 'box2', h);
-  await drag(page, await grip(page, 'cameraFollow', 'box2', 'right'), 80, 0);
-  await expect.poll(async () => ((await comp('cam-main', 'cameraFollow'))!['bounds'] as { maxX: number }).maxX).toBeGreaterThan(43.1);
-  const b = (await comp('cam-main', 'cameraFollow'))!['bounds'] as { minX: number; maxX: number };
-  expect(b.minX).toBe(37);
-  expect(snapped(b.maxX, 0.25)).toBe(true);
-  await undo(page);
-  await expect.poll(async () => (await comp('cam-main', 'cameraFollow'))!['bounds']).toEqual({ minX: 37, maxX: 43, minY: 27, maxY: 33 });
 });
 
 test('lights: a direction, a spot cone (tip and angle) and a point light range — drag, stored, one undo', async ({ page }) => {

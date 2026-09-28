@@ -1,6 +1,7 @@
 /**
- * Phase 24.4e–i on their own: triggers without the game session (enter/exit
- * events and a scene transition per entry), a switch's configurable action,
+ * Phase 24.4e–i on their own: triggers (enter/exit events and a scene
+ * transition per entry), a switch's configurable action (phase 24.7: on the
+ * 2D plane too, in the one step path every game runs),
  * velocity face-movement (the yaw of the motion, in 3D too) and a spawn's
  * yaw, the event → cue log, look overrides (set, clear, a new run, the save
  * section) and the track camera rig (offset, dead zone, damping, bounds).
@@ -18,7 +19,7 @@ const T = (x: number, y: number, z = 0) => ({ position: [x, y, z], rotation: [0,
 const ent = (id: string, components: Record<string, unknown>, parentId?: string, at = T(0, 0)): EntityV3 => ({ id, ...(parentId !== undefined ? { parentId } : {}), components: { transform: at, ...components } }) as unknown as EntityV3;
 const frame = (actions: Record<string, { p: string; v: number }> = {}) => ({ stepIndex: 0, moveX: 0, jump: 'none' as const, actions }) as never;
 
-function harness(entities: EntityV3[], o: { dim3?: boolean; playerId?: string } = {}) {
+function harness(entities: EntityV3[], o: { dim3?: boolean } = {}) {
   const curr = new Map<string, TransformState>();
   for (const e of entities) {
     const t = e.components.transform;
@@ -29,19 +30,15 @@ function harness(entities: EntityV3[], o: { dim3?: boolean; playerId?: string } 
     hz: HZ,
     physics: undefined,
     curr,
-    playerId: o.playerId ?? '',
     characterId: 'actor',
-    playerCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    player: () => {
+    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
+    character: () => {
       const t = curr.get('actor');
       return t === undefined ? null : { x: t.position[0], y: t.position[1] };
     },
-    playerDelta: () => ({ x: 0, y: 0 }),
     groundEntityId: () => null,
-    kill: () => undefined,
-    animator: () => null,
     sceneTransition: (trigger, t) => void transitions.push({ trigger, t }),
-    ...(o.dim3 === true ? { physics3d: {} as never, player3: () => [...curr.get('actor')!.position] as [number, number, number] } : {}),
+    ...(o.dim3 === true ? { physics3d: {} as never, character3: () => [...curr.get('actor')!.position] as [number, number, number] } : {}),
   };
   const blocks = new GameplayBlocks(host, entities);
   let i = 0;
@@ -55,8 +52,7 @@ function harness(entities: EntityV3[], o: { dim3?: boolean; playerId?: string } 
     for (let k = 0; k < n; k++) {
       i += 1;
       blocks.beforeStep(i);
-      if (o.dim3 === true) blocks.afterPhysics(frame(), true);
-      else blocks.afterPhysicsGeneric();
+      blocks.afterPhysics(frame());
     }
   };
   const yawOf = (id: string): number => {
@@ -66,7 +62,7 @@ function harness(entities: EntityV3[], o: { dim3?: boolean; playerId?: string } 
   return { blocks, curr, transitions, move, generic, yawOf, frameAt: () => i };
 }
 
-describe('triggers without the game session (phase 24.4e)', () => {
+describe('triggers (phase 24.4e)', () => {
   it('the character entering and leaving a 2D trigger: enter/exit events, its signal, one transition per entry (once: the first only)', () => {
     const door = ent('door-0001', { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-b', unload: ['scene-a'] } } }, undefined, T(3, 1));
     const once = ent('gate-0001', { trigger: { size: [1, 2], signal: 'gate', once: true, sceneTransition: { scene: 'scene-c' } } }, undefined, T(10, 1));
@@ -93,7 +89,7 @@ describe('triggers without the game session (phase 24.4e)', () => {
     expect(h.transitions.map((t) => t.trigger)).toEqual(['door-0001', 'door-0001', 'gate-0001', 'door-0001']);
   });
 
-  it('reports enter and exit events without the session', () => {
+  it('reports enter and exit events', () => {
     const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('zone-0001', { trigger: { shape: 'circle', radius: 0.5, signal: 'in', exitSignal: 'out' } }, undefined, T(1, 1))]);
     h.generic();
     h.move('actor', 1);
@@ -111,16 +107,41 @@ describe('triggers without the game session (phase 24.4e)', () => {
 
 describe('a switch reads its action (phase 24.4f)', () => {
   it('an interact switch fires on its own action (default: interact)', () => {
-    const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('lever-a', { switch: { mode: 'interact', signal: 'a', size: [2, 2], action: 'use' } }, undefined, T(0, 1)), ent('lever-b', { switch: { mode: 'interact', signal: 'b', size: [2, 2] } }, undefined, T(0, 1))], { playerId: 'actor' });
+    const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('lever-a', { switch: { mode: 'interact', signal: 'a', size: [2, 2], action: 'use' } }, undefined, T(0, 1)), ent('lever-b', { switch: { mode: 'interact', signal: 'b', size: [2, 2] } }, undefined, T(0, 1))]);
     const step = (actions: Record<string, { p: string; v: number }>): void => {
       h.blocks.beforeStep(h.frameAt() + 1);
-      h.blocks.afterPhysics(frame(actions), true);
+      h.blocks.afterPhysics(frame(actions));
       h.blocks.beforeStep(h.frameAt() + 2);
     };
     step({ interact: { p: 'pressed', v: 1 } });
     expect([h.blocks.signaled('a'), h.blocks.signaled('b')]).toEqual([false, true]);
     step({ use: { p: 'pressed', v: 1 } });
     expect([h.blocks.signaled('a'), h.blocks.signaled('b')]).toEqual([true, false]);
+  });
+
+  it('phase 24.7: switches run on the 2D plane without a game session — stand (on entry, once) and interact (only inside)', () => {
+    const h = harness([
+      ent('actor', { controller: {} }, undefined, T(0, 1)),
+      ent('plate', { switch: { mode: 'stand', signal: 'plate', size: [1, 2] } }, undefined, T(3, 1)),
+      ent('lever', { switch: { mode: 'interact', signal: 'lever', size: [1, 2], once: true } }, undefined, T(6, 1)),
+    ]);
+    const signals = (actions: Record<string, { p: string; v: number }> = {}): string[] => {
+      h.blocks.beforeStep(h.frameAt() + 1);
+      h.blocks.afterPhysics(frame(actions));
+      h.blocks.beforeStep(h.frameAt() + 2);
+      return ['plate', 'lever'].filter((n) => h.blocks.signaled(n));
+    };
+    const press = { interact: { p: 'pressed', v: 1 } };
+    expect(signals(press)).toEqual([]); // outside both: pressing does nothing
+    h.move('actor', 3);
+    expect(signals()).toEqual(['plate']); // stepping on the plate
+    expect(signals()).toEqual([]); // standing on it: once per entry
+    h.move('actor', 3);
+    expect(signals()).toEqual([]); // at the lever, not pressing
+    expect(signals(press)).toEqual(['lever']);
+    expect(signals(press)).toEqual([]); // once: spent
+    h.move('actor', -3);
+    expect(signals()).toEqual(['plate']); // a second entry
   });
 });
 
@@ -163,16 +184,33 @@ describe('face velocity and a spawn yaw (phase 24.4f)', () => {
     expect(h.yawOf('drone')).toBeCloseTo(-45, 6);
   });
 
-  it('a two-sided model keeps its old behaviour and picks a side from a yaw', () => {
-    const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('look', { faceMovement: { yawRight: 90, yawLeft: -90 } }, 'actor')], { playerId: 'actor' });
+  it('phase 24.7: a two-sided model reads as a velocity facer (offset yawRight − 90°); a spawn yaw (radians) turns it at once', () => {
+    const h = harness([
+      ent('actor', { controller: {} }, undefined, T(0, 1)),
+      ent('look', { faceMovement: { yawRight: 90, yawLeft: -90 } }, 'actor'),
+      ent('tilted', { faceMovement: { yawRight: 120, yawLeft: -120 } }, 'actor'),
+    ]);
+    // A spawn yaw is the yaw itself plus the offset (no longer snapped to a side).
     h.blocks.faceSpawn('actor', -Math.PI / 2);
     expect(h.yawOf('look')).toBeCloseTo(-90, 6);
+    expect(h.yawOf('tilted')).toBeCloseTo(-60, 6);
     h.blocks.faceSpawn('actor', Math.PI / 3);
+    expect(h.yawOf('look')).toBeCloseTo(60, 6);
+    expect(h.yawOf('tilted')).toBeCloseTo(90, 6);
+    // It turns with the motion now (default turnSeconds 0.12 s: a half turn in 15 steps at 120 Hz).
+    h.generic();
+    for (let k = 0; k < 30; k++) {
+      h.move('actor', -0.05);
+      h.generic();
+    }
+    expect(h.yawOf('look')).toBeCloseTo(-90, 6);
+    expect(h.yawOf('tilted')).toBeCloseTo(-60, 6); // −X plus the 30° offset (yawLeft is not read)
+    for (let k = 0; k < 30; k++) {
+      h.move('actor', 0.05);
+      h.generic();
+    }
     expect(h.yawOf('look')).toBeCloseTo(90, 6);
-    // Without the session a two-sided model does not turn (its old scope).
-    h.move('actor', -1);
-    h.generic(2);
-    expect(h.yawOf('look')).toBeCloseTo(90, 6);
+    expect(h.yawOf('tilted')).toBeCloseTo(120, 6); // +X faces yawRight
   });
 });
 

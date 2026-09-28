@@ -79,7 +79,6 @@ function scene(): { snapshot: Any; physics: Any } {
       projectId: 'modes3d',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: null,
       uiDocuments: [{ uiDocumentId: 'hud', layer: 0, modal: false }, { uiDocumentId: 'board', layer: 0, modal: false }],
       modes: { modes: MODES, actionMaps: ACTION_MAPS },
     },
@@ -138,7 +137,7 @@ async function run(mode: Mode): Promise<{ digests: string[]; seen: Map<number, S
   while (h.digests.length < 820) {
     now += PATTERN[i++ % PATTERN.length]! * DT;
     await h.tick(now);
-    const obs = h.host.observeScene!();
+    const obs = h.host.observe();
     if (obs.ok && obs.observation.mode !== undefined && obs.observation.player !== undefined) {
       const o = obs.observation;
       seen.set(o.stepIndex, { mode: o.mode!.current, shown: o.ui?.shown.join(',') ?? '', live: o.camera?.live ?? '', x: o.player!.x, z: o.player!.z, values: structuredClone(h.rt.uiView().model) });
@@ -220,7 +219,7 @@ describe('phase 23.10: game modes in page and worker, and in replays', () => {
         let now = 10;
         await h.tick(now);
         for (let k = 0; k < 20; k += 1) await h.tick((now += DT));
-        const obs = h.host.observeScene!();
+        const obs = h.host.observe();
         expect(obs.ok && obs.observation.mode?.current, mode).toBe('tactical');
         expect(h.host.startOutcome).toEqual({ ok: true, applied: ['mode tactical'] });
       } finally {

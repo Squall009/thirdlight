@@ -16,7 +16,7 @@
  * (the MCP observation, bots and the determinism tests compare them).
  */
 import { materialChangeKey } from '@thirdlight/runtime';
-import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type GameView, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
+import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
 import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
@@ -37,9 +37,7 @@ export class FrameEncoder {
   private last = new Float64Array(0);
   private idsDirty = true;
   private readonly pool: ArrayBuffer[] = [];
-  private view: GameView | null | undefined = undefined;
   private hidden: string[] | null = null;
-  private opacityKey = '';
   /** Phase 24.4h: the look overrides last sent ('' : none). */
   private looksKey = '';
   private posesKey = '';
@@ -59,8 +57,6 @@ export class FrameEncoder {
   /** Phase 23.10: the mode view last sent (the runtime hands out the same object until it changes). */
   private modeSent: ModeView | null | undefined = undefined;
   private pointerSent: unknown = null;
-  private runSaveKey = '';
-  private runSaveStep = -1;
   private sceneSetRef: SceneSetView | null = null;
   private readonly sentBatches = new Map<string, SceneEntities>();
   private readonly spawnTokens = new WeakMap<object, number>();
@@ -202,29 +198,11 @@ export class FrameEncoder {
       if (this.last.length < floats) this.last = new Float64Array(Math.max(floats, this.cur.length));
       this.last.set(this.cur.subarray(0, floats));
     }
-    // The committed game view (a new frozen object per committed step).
-    const view = rt.peekGameView !== undefined ? rt.peekGameView() : (() => {
-      const v = rt.getGameView();
-      return v.ok ? v.view : null;
-    })();
-    if (view !== this.view) {
-      this.view = view;
-      out.view = view;
-    }
-    // Hidden and fading entities.
+    // Hidden entities.
     const hidden = rt.hiddenEntities?.();
     if (hidden !== undefined && !sameSet(hidden, this.hidden)) {
       this.hidden = [...hidden];
       out.hidden = this.hidden;
-    }
-    const opacity = rt.entityOpacity?.();
-    if (opacity !== undefined && (opacity.size > 0 || this.opacityKey !== '')) {
-      const entries = [...opacity].map(([id, o]) => [id, o] as const);
-      const key = entries.length === 0 ? '' : JSON.stringify(entries);
-      if (key !== this.opacityKey) {
-        this.opacityKey = key;
-        out.opacity = entries;
-      }
     }
     // Phase 24.4h: the look overrides (only when they changed; never for a game that set none).
     const looks = rt.entityLooks?.();
@@ -265,15 +243,6 @@ export class FrameEncoder {
     if (listed !== undefined && listed !== this.listedSent) {
       this.listedSent = listed;
       out.listed = listed;
-    }
-    if (rt.runState !== undefined && out.stepIndex !== this.runSaveStep) {
-      this.runSaveStep = out.stepIndex;
-      const save = rt.runState();
-      const key = JSON.stringify(save);
-      if (key !== this.runSaveKey) {
-        this.runSaveKey = key;
-        out.runSave = save;
-      }
     }
     // The scene set (loaded batches, statuses, spawned entities).
     const set = rt.sceneSet?.();
@@ -433,9 +402,7 @@ export class FrameMirror {
   ids: readonly string[] = [];
   index = new Map<string, number>();
   xf: Float64Array<ArrayBufferLike> = new Float64Array(0);
-  view: GameView | null = null;
   hidden: ReadonlySet<string> = new Set();
-  opacity: ReadonlyMap<string, number> = new Map();
   /** Phase 24.4h: the look overrides. */
   looks: ReadonlyMap<string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }> = new Map();
   poses: ReadonlyMap<string, AnimatorPose> = new Map();
@@ -443,7 +410,6 @@ export class FrameMirror {
   /** Phase 24.4j: every object's health; the listed scene entry. */
   healths: Readonly<Record<string, { readonly current: number; readonly max: number }>> = {};
   listed = -1;
-  runSave: unknown = null;
   sceneSet: SceneSetView | null = null;
   readonly batchEntities = new Map<string, SceneEntities>();
   /** Loaded scenes the runtime refuses to unload, and why. */
@@ -508,15 +474,12 @@ export class FrameMirror {
       if (s.xfShared.buffer !== undefined) this.sharedSab = s.xfShared.buffer;
       if (this.sharedSab !== null) this.xf = new Float64Array(this.sharedSab, s.xfShared.slot * s.xfShared.slotFloats * 8, s.xfShared.count * TRANSFORM_STRIDE);
     }
-    if (s.view !== undefined) this.view = s.view === null ? null : deepFreeze(s.view);
     if (s.hidden !== undefined) this.hidden = new Set(s.hidden);
-    if (s.opacity !== undefined) this.opacity = new Map(s.opacity);
     if (s.looks !== undefined) this.looks = new Map(s.looks);
     if (s.poses !== undefined) this.poses = new Map(s.poses);
     if (s.counters !== undefined) this.counters = s.counters;
     if (s.healths !== undefined) this.healths = s.healths;
     if (s.listed !== undefined) this.listed = s.listed;
-    if (s.runSave !== undefined) this.runSave = s.runSave;
     if (s.sceneSet !== undefined) {
       const w = s.sceneSet;
       const present = new Set<string>();

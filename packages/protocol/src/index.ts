@@ -87,8 +87,6 @@ export {
   type ScreenshotRequest,
   // Phase 23.8: test/debug start options.
   type PlayStartOptions,
-  PLAY_START_SAVE_MAX_BYTES,
-  PLAY_START_SAVE_SLOTS,
   PLAY_START_PROJECT_SAVE_MAX_BYTES,
   PROJECT_SAVE_FORMAT,
   PLAY_START_VARIABLES_MAX,
@@ -231,12 +229,9 @@ export {
   GAME_CONTROL_COMMANDS,
   debugCommandCallProblem,
   GAME_CONTROL_RESULT_MAX_BYTES,
-  LEGACY_EVENT_KINDS,
-  LEGACY_RUN_STATES,
   PLAY_STATES,
   GAME_GESTURES,
   GAME_INPUT_MODES,
-  GAME_OBSERVATION_EVENT_MAX,
   GAME_OBSERVATION_MAX_BYTES,
   GAME_OBSERVE_BODY_MAX_BYTES,
   GAME_OBSERVE_TIMEOUT_DEFAULT_MS,
@@ -279,7 +274,6 @@ export {
   type GameControlCommand,
   type GameControlRequest,
   type GameObserveRequest,
-  type LegacyRunState,
   type PlayState,
 } from './m3';// Phase 9.6: light baking shared by the editor and the backend.
 export {

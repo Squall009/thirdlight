@@ -1,4 +1,4 @@
-/** Phase 24.4j: the game shell block — its shape, its documents, and that it drives a game without the session and flow. */
+/** Phase 24.4j: the game shell block — its shape, and its documents. */
 import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
@@ -31,12 +31,10 @@ describe('the shell block', () => {
     expect(codes('shell')).toEqual(['field_type /shell']);
   });
 
-  it('names documents of the project, and never sits beside the flow or the game session', () => {
+  it('names documents of the project', () => {
     const docs = [{ uiDocumentId: 'title', name: 'T', root: { type: 'panel' } }];
     expect(refs({ uiDocuments: docs, shell: { screens: { title: 'title' } }, game: null })).toEqual([]);
     expect(refs({ uiDocuments: docs, shell: { screens: { pause: 'gone' }, hud: ['title', 'nope'] } })).toEqual(['reference_missing /shell/screens/pause', 'reference_missing /shell/hud/1']);
-    expect(refs({ shell: {}, flow: { levels: [] } })).toEqual(['field_unexpected /shell']);
-    expect(refs({ shell: {}, game: { title: 'G' } })).toEqual(['field_unexpected /shell']);
   });
 
   it('is canonical whatever order its keys were given in', () => {

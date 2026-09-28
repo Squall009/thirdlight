@@ -114,25 +114,13 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
   for (const scene of plan.scenes.slice(1)) await cmd('createScene', { sceneId: scene.sceneId, name: scene.name });
   if (plan.scenes.length > 1) await cmd('setStartScenes', { sceneIds: plan.scenes.map((s) => s.sceneId) });
 
-  // Camera, player, spawn, goal and the game block.
+  // Camera, player, spawn and a camera track following the player (phase 24.7: the game plays as a scene; the
+  // track rig replaced the deleted game block's following camera).
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.camera.position } });
   await cmd('setComponent', { entityId: 'cam-main', component: 'camera', value: { type: 'perspective', fovY: 50, near: 0.1, far: plan.camera.far } });
-  await cmd('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } });
-  const spawn = await cmd('createEntity', { kind: 'group', name: 'Start spawn', transform: { position: plan.spawn }, components: { playerSpawn: {} } });
+  await cmd('createEntity', { kind: 'group', name: 'Start spawn', transform: { position: plan.spawn }, components: { playerSpawn: {} } });
   const player = await cmd('createEntity', { kind: 'box', name: 'Player', transform: { position: plan.player.position }, box: { size: plan.player.size, material: { color: '#3070c0' } }, components: { controller: {} } });
-  await cmd('createEntity', { kind: 'group', name: 'Goal', transform: { position: plan.goal }, components: { gameZone: { role: 'goal', size: [1, 2] } } });
-  await cmd('setGameConfig', {
-    game: {
-      configVersion: 2,
-      title: `Benchmark ${plan.className}`,
-      objective: 'Reach the goal',
-      instructions: 'Move and jump.',
-      playerId: player['createdId'],
-      cameraId: 'cam-main',
-      spawnId: spawn['createdId'],
-      cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
-    },
-  });
+  await cmd('createEntity', { kind: 'group', name: 'Camera track', transform: { position: plan.camera.position }, components: { virtualCamera: { rig: 'track', target: player['createdId'], deadZone: [1, 1, 1], damping: 0.2 } } });
 
   const resolve = (e: EntityValue): EntityValue => {
     const inst = e.components['instances'] as { buffer?: string } | undefined;

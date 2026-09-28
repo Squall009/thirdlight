@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { canonicalController, controllerTuningOf, DEFAULT_CONTROLLER_TUNING } from './components';
-import { validateContentV4 } from './content';
+import { ENGINE_TIMING_DEFAULTS, validateContentV4 } from './content';
 import { captureContentViewV3 } from './manifest-v2';
 import { validateSceneV4 } from './scene-v3';
 
@@ -47,20 +47,11 @@ describe('tuning values in the project model (phase 15.3)', () => {
     for (const bad of [{ skin: 0 }, { acceleration: 0 }, { coyoteTime: 2 }, { autostep: 'yes' }, { jumpRelease: 1.5 }]) {
       expect(validateSceneV4(scene([{ id: 'player-0001', components: { transform: T, controller: bad } }])).ok, JSON.stringify(bad)).toBe(false);
     }
-    const cam = (follow: Obj) => scene([{ id: 'cam-0001', components: { transform: T, camera: { type: 'perspective', fovY: 50, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, ...follow } } }]);
-    const camOk = validateSceneV4(cam({ distance: 9, maxSpeed: 100 }));
-    expect(camOk.ok).toBe(true);
-    if (camOk.ok) expect(Object.keys((camOk.normalized.entities[1]!.components as Obj)['cameraFollow'] as Obj)).toEqual(['deadZone', 'smoothing', 'distance', 'maxSpeed']);
-    expect(validateSceneV4(cam({ distance: 0 })).ok).toBe(false);
   });
 
-  it('the game block takes the session timing (v4), in seconds within their ranges', () => {
-    const game = { configVersion: 2, title: 'T', objective: 'O', instructions: 'I', playerId: 'player-0001', cameraId: 'cam-0001', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } };
-    const ok = validateContentV4(content({ game: { ...game, respawnDelay: 1, dropThroughTime: 0.2, settleTime: 0 } }));
-    expect(ok.ok, JSON.stringify(ok.ok ? null : ok.errors)).toBe(true);
-    if (ok.ok) expect(Object.keys(ok.normalized.game!).slice(-3)).toEqual(['respawnDelay', 'dropThroughTime', 'settleTime']);
-    expect(validateContentV4(content({ game: { ...game, respawnDelay: 11 } })).ok).toBe(false);
-    expect(validateContentV4(content({ game: { ...game, dropThroughTime: 0 } })).ok).toBe(false);
+  it('phase 24.7: the engine timing is a fixed default (no game block carries it)', () => {
+    expect(ENGINE_TIMING_DEFAULTS).toEqual({ dropThroughTime: 0.125, settleTime: 0.1 });
+    expect(Object.isFrozen(ENGINE_TIMING_DEFAULTS)).toBe(true);
   });
 
   it('model metrics may record bounds (min <= max, finite); they reach the captured content view', () => {

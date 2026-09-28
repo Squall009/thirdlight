@@ -30,7 +30,8 @@ interface Props {
   eventCues?: readonly EventCue[];
   fieldContext?: FieldContext;
   eventCuesError?: string | null;
-  onSetEventCues?: (next: EventCue[]) => void;
+  /** `base`: the table the edit was made on (phase 24.7: re-applied row by row onto the table as it is at send time). */
+  onSetEventCues?: (next: EventCue[], base: EventCue[]) => void;
 }
 
 const MAX_EVENT_CUES = 64;
@@ -56,7 +57,8 @@ function EventSounds(p: Props): JSX.Element | null {
   const desc = cueItemDesc(p.registry);
   const cues = p.eventCues ?? [];
   if (p.onSetEventCues === undefined || p.fieldContext === undefined || desc === null) return null;
-  const set = p.onSetEventCues;
+  const setCues = p.onSetEventCues;
+  const set = (next: EventCue[]): void => setCues(next, [...cues]);
   const ctx = p.fieldContext;
   const sounds = p.assets.filter((a) => a.kind === 'audio');
   const pick = sound !== '' ? sound : (sounds[0]?.assetId ?? '');

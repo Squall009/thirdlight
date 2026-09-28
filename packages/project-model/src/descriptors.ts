@@ -41,10 +41,9 @@ import { SHELL_LIMITS } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
-import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PICKUP_KINDS, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, PICKUP_RESPAWN, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
+import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
-import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
-import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
+import { M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_HOLD_MIN, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS, MAX_INPUT_GLYPHS, POINTER_AXES, POINTER_BUTTONS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
@@ -59,8 +58,8 @@ import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-ki
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
 import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
-import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
-import { GAME_ZONE_ROLES_V4, MAX_INSTANCES, MAX_TAGS } from './types-v3';
+import { DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MAX_LOCAL_INTENSITY, SURFACE_DEFAULTS } from './scene-v3';
+import { MAX_INSTANCES, MAX_TAGS } from './types-v3';
 
 // ---- the descriptor types ----------------------------------------------------
 
@@ -72,22 +71,20 @@ export type DescriptorScalar = string | number | boolean;
 export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices' | 'px';
 
 /** The Scene-view handle kinds (15.2 draws and drags them). */
-export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'segment1d', 'cone', 'direction', 'path', 'polygon', 'point', 'height'] as const;
+export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'cone', 'direction', 'path', 'polygon', 'point', 'height'] as const;
 export type HandleKind = (typeof HANDLE_KINDS)[number];
 
 /**
  * The roles each handle kind binds to fields, as alternative role sets
- * (a `box2` edits a `[w, h]` size, or half extents `hx`/`hy`, or world
- * bounds `minX..maxY`).
+ * (a `box2` edits a `[w, h]` size, or half extents `hx`/`hy`).
  */
 export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string[])[]>> = {
   // Phase 23.0: half extents with an optional depth (a collider box: three axes once hz is set).
-  box2: [['size'], ['halfX', 'halfY'], ['halfX', 'halfY', 'halfZ'], ['minX', 'maxX', 'minY', 'maxY']],
+  box2: [['size'], ['halfX', 'halfY'], ['halfX', 'halfY', 'halfZ']],
   box3: [['size']],
   radius: [['radius']],
   // Phase 23.1: a centred capsule (a collider or trigger) has no offset.
   capsule: [['radius', 'height', 'offset'], ['radius', 'height']],
-  segment1d: [['range']],
   cone: [['direction', 'angle', 'range']],
   direction: [['direction']],
   path: [['points']],
@@ -303,8 +300,6 @@ export interface HandleDescriptor {
    * included (`transform`: a box mesh's size).
    */
   readonly follows?: 'rotationZ' | 'rotation' | 'transform';
-  /** Phase 15.2 (`box2`/`box3` sizes): the point a height drag keeps — the centre (absent) or the bottom (a body standing on its feet). */
-  readonly anchor?: 'bottom';
   /** Phase 15.2 (`radius`): measured along X only (the engine compares horizontal distance) instead of in the X/Y plane. */
   readonly along?: 'x';
   /** Phase 15.2 (`radius` along X): a field (pointer) giving the half height of the band drawn with it (read, not dragged). */
@@ -651,8 +646,6 @@ const collider: ComponentDescriptor = {
     { component: 'socketAttach', reason: 'a socket poses the object every step; a physics body is posed by physics' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'controller', reason: 'the player controller has its own capsule' },
-    { component: 'enemy', reason: 'an enemy\'s size is its body' },
-    { component: 'gameZone', reason: 'a zone never blocks movement' },
     { component: 'playerSpawn', reason: 'a player spawn is a marker' },
     { component: 'instances', reason: 'an instance set is scenery without its own body' },
     { component: 'patrol', reason: 'a patroller is not a physics body (give it a hitbox)' },
@@ -718,8 +711,6 @@ const controller: ComponentDescriptor = {
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'collider', reason: 'the player controller has its own capsule' },
     { component: 'mover', reason: 'the player moves by input, not along waypoints' },
-    { component: 'enemy', reason: 'the player is not an enemy' },
-    { component: 'gameZone', reason: 'a zone is never a physics body' },
     { component: 'playerSpawn', reason: 'the spawn marks where the player starts' },
     { component: 'instances', reason: 'an instance set is scenery' },
     { component: 'collectible', reason: 'the character collects; it is not collected' },
@@ -727,41 +718,6 @@ const controller: ComponentDescriptor = {
   ],
   prefab: false,
   rules: PHYSICS_RULES,
-};
-
-const gameZone: ComponentDescriptor = {
-  name: 'gameZone',
-  label: 'Zone',
-  tooltip: 'An area that does something when the player enters it: hurts (hazard), saves progress (checkpoint), ends the level (goal) or loads other scenes (exit).',
-  category: 'Gameplay',
-  value: obj('gameZone', 'Zone', 'A game zone.', [
-    enm('role', 'Role', 'What the zone does.', GAME_ZONE_ROLES_V4, { required: true, default: 'hazard' }),
-    vec2('size', 'Size', 'Width and height of the area.', { required: true, min: 0, minExclusive: true, max: MAX_ZONE_SPAN, step: 0.1, unit: 'm', default: [2, 2], labels: ['w', 'h'], handle: 'box2' }),
-    int('damage', 'Damage', 'Health taken per hit (0: instant death).', { when: when('role', 'hazard'), min: 0, max: 1000, default: 0 }),
-    entity('safeSpawnId', 'Respawn at', 'The player spawn used after a death once this checkpoint is reached.', { required: true, when: when('role', 'checkpoint'), component: 'playerSpawn' }),
-    obj('activation', 'Activation look', 'How the checkpoint looks once reached.', [
-      // Phase 15.5: a new checkpoint glows plain white at 1 (reads as "lit" in any palette).
-      color('emissive', 'Glow colour', 'The glow when reached.', { required: true, default: '#ffffff' }),
-      num('emissiveIntensity', 'Glow strength', 'How strongly it glows.', { required: true, min: 0, max: MAX_EMISSIVE_INTENSITY, step: 0.1, default: 1 }),
-      asset('cueAssetId', 'Sound', 'Played when reached (none: the game\'s checkpoint cue).', ['audio'], { required: true, nullable: true, default: null }),
-    ], { required: true, when: when('role', 'checkpoint') }),
-    list('load', 'Load scenes', 'Scenes loaded when the player enters.', scene('*', 'Scene', 'A scene to load.'), { when: when('role', 'exit'), maxItems: MAX_EXIT_SCENES, unique: true }),
-    list('unload', 'Unload scenes', 'Scenes unloaded when the player enters.', scene('*', 'Scene', 'A scene to unload.'), { when: when('role', 'exit'), maxItems: MAX_EXIT_SCENES, unique: true }),
-    entity('spawnId', 'Arrive at', 'Where the player arrives (absent: stays where it is).', { when: when('role', 'exit'), component: 'playerSpawn', anyScene: true }),
-    // Phase 20.2: a visual effect where the zone is when it is reached (visual only).
-    ref('effect', 'Effect when reached', 'A project effect played where the zone is when the player reaches it (none: no effect).', 'effect', { when: when('role', 'checkpoint', 'goal') }),
-  ], { rules: ['An exit loads or unloads at least one scene.'] }),
-  add: { kind: 'never', reason: 'removed in phase 24: build it as project scripts over the generic primitives (kept for old data until phase 24.7)' },
-  legacy: true,
-  handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
-  excludes: [
-    { component: 'collider', reason: 'a zone never blocks movement' },
-    { component: 'controller', reason: 'a zone is never a physics body' },
-    { component: 'playerSpawn', reason: 'a spawn is a separate marker' },
-    { component: 'instances', reason: 'an instance set is scenery' },
-  ],
-  prefab: false,
-  rules: MARKER_RULES,
 };
 
 const playerSpawn: ComponentDescriptor = {
@@ -780,43 +736,12 @@ const playerSpawn: ComponentDescriptor = {
   icon: 'spawn',
   handles: [],
   excludes: [
-    { component: 'gameZone', reason: 'a spawn is a separate marker' },
     { component: 'collider', reason: 'a player spawn is a marker' },
     { component: 'controller', reason: 'the spawn marks where the player starts' },
     { component: 'instances', reason: 'an instance set is scenery' },
   ],
   prefab: false,
   rules: MARKER_RULES,
-};
-
-const cameraFollow: ComponentDescriptor = {
-  name: 'cameraFollow',
-  label: 'Camera follow',
-  tooltip: 'The camera follows the player, with a dead zone, smoothing and optional bounds.',
-  category: 'Camera',
-  value: obj('cameraFollow', 'Camera follow', 'How the camera follows the player.', [
-    obj('deadZone', 'Dead zone', 'The player moves this far from the centre before the camera follows.', [
-      num('x', 'X', 'Horizontal dead zone.', { required: true, min: 0, max: V3_LIMIT, step: 0.1, unit: 'm', default: 0.5 }),
-      num('y', 'Y', 'Vertical dead zone.', { required: true, min: 0, max: V3_LIMIT, step: 0.1, unit: 'm', default: 0.5 }),
-    ], { required: true }),
-    num('smoothing', 'Smoothing', 'How much the camera lags behind (0: none).', { required: true, min: 0, max: 1, step: 0.05, default: 0.2 }),
-    obj('bounds', 'Bounds', 'The camera stays inside this rectangle (absent: anywhere).', [
-      num('minX', 'Left', 'Left edge.', { required: true, min: -V3_LIMIT, max: V3_LIMIT, step: 0.5, unit: 'm', default: -50, handle: 'box2' }),
-      num('maxX', 'Right', 'Right edge.', { required: true, min: -V3_LIMIT, max: V3_LIMIT, step: 0.5, unit: 'm', default: 50, handle: 'box2' }),
-      num('minY', 'Bottom', 'Bottom edge.', { required: true, min: -V3_LIMIT, max: V3_LIMIT, step: 0.5, unit: 'm', default: -10, handle: 'box2' }),
-      num('maxY', 'Top', 'Top edge.', { required: true, min: -V3_LIMIT, max: V3_LIMIT, step: 0.5, unit: 'm', default: 20, handle: 'box2' }),
-    ], { rules: ['minX < maxX and minY < maxY'] }),
-    // Phase 15.3.
-    num('distance', 'Distance', 'How far in front of the player plane the camera stays (absent: where the camera is placed).', { ...CAMERA_FOLLOW_LIMITS.distance, step: 0.5, unit: 'm' }),
-    num('maxSpeed', 'Max speed', 'The fastest the smoothed camera moves per axis (a safety cap; smoothing shapes the motion).', { ...CAMERA_FOLLOW_LIMITS.maxSpeed, step: 10, unit: 'm/s', default: CAMERA_FOLLOW_DEFAULTS.maxSpeed }),
-  ]),
-  // Phase 15.5: a 0.5 m dead zone (small steps and landings do not move the view) and light smoothing 0.2 (a short lag, no
-  // swim) — generic follow-camera values.
-  add: { kind: 'menu', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } },
-  handles: [{ kind: 'box2', label: 'Bounds', bind: { minX: 'bounds/minX', maxX: 'bounds/maxX', minY: 'bounds/minY', maxY: 'bounds/maxY' }, space: 'world' }],
-  requiresAnyOf: { components: ['camera'], reason: 'the follow settings belong to the camera' },
-  excludes: [{ component: 'virtualCamera', reason: 'the follow settings belong to the scene camera' }, { component: 'socketAttach', reason: 'a socket poses the object every step; the scene camera is posed by its camera module' }],
-  prefab: false,
 };
 
 // Phase 23.4: the camera framework (defaults and their reasons: project-model VIRTUAL_CAMERA_DEFAULTS).
@@ -892,7 +817,6 @@ const virtualCamera: ComponentDescriptor = {
   handles: [{ kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') }],
   excludes: [
     { component: 'camera', reason: 'a virtual camera is a shot; the scene camera draws whichever shot is live' },
-    { component: 'cameraFollow', reason: 'the follow settings belong to the scene camera' },
   ],
   prefab: false,
 };
@@ -931,7 +855,7 @@ const socketAttach: ComponentDescriptor = {
   // A socket needs its target (picked first; the node starts as a placeholder name picked from the target's list next).
   add: { kind: 'pick', value: {}, pick: ['target'] },
   handles: [],
-  excludes: SOCKET_ATTACH_CONFLICTS.map((c) => ({ component: c, reason: c === 'camera' || c === 'cameraFollow' ? 'the scene camera is posed by its camera module' : 'a physics body is posed by physics, not by a socket' })),
+  excludes: SOCKET_ATTACH_CONFLICTS.map((c) => ({ component: c, reason: c === 'camera' ? 'the scene camera is posed by the camera brain' : 'a physics body is posed by physics, not by a socket' })),
   prefab: false,
 };
 
@@ -1062,7 +986,7 @@ const instances: ComponentDescriptor = {
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],
   excludes: [
-    ...['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'gameZone', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
+    ...['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
   ],
   prefab: false,
@@ -1352,44 +1276,13 @@ const health: ComponentDescriptor = {
   value: obj('health', 'Health', 'Health.', [
     int('max', 'Maximum', 'The most health it can have.', { required: true, min: 1, max: 1000, default: 3 }),
     int('start', 'Start', 'Health at the start of a run (absent: the maximum).', { min: 1, max: 1000 }),
-    // The game session's player only (the platformer session, until phase 24.7 removes it).
-    num('invulnerableSeconds', 'Grace time', 'Game session player only: no further hazard or enemy damage for this long after a hit.', { group: 'Game session player', min: 0, max: 10, step: 0.1, unit: 's', default: BD.invulnerableSeconds }),
-    num('knockback', 'Knockback', 'Game session player only: a hit pushes the player away at this speed (0: none).', { group: 'Game session player', min: 0, max: 20, step: 0.5, unit: 'm/s', default: 0 }),
-    num('knockbackTime', 'Knockback time', 'Game session player only: how long a knockback pushes (easing out).', { group: 'Game session player', ...BL.knockbackTime, step: 0.05, unit: 's', default: BD.knockbackTime }),
-    num('hitBounce', 'Hit bounce', 'Game session player only: a hit throws the player up at this speed (0: none).', { group: 'Game session player', ...BL.hitBounce, step: 0.5, unit: 'm/s', default: BD.hitBounce }),
-    // Phase 20.2: a visual effect where the player is when it is hit.
-    ref('hitEffect', 'Hit effect', 'Game session player only: a project effect played where the player is when it takes a hit (none: no effect).', 'effect', { group: 'Game session player' }),
   ], { rules: ['start ≤ max'] }),
-  // Phase 15.5: 3 hits (the common small health pool) with 1 s of grace after each (the grace applies to the game
-  // session's player only; the add value stays as it was until 24.7 removes the session fields).
-  add: { kind: 'menu', value: { max: 3, invulnerableSeconds: 1 } },
+  // Phase 15.5: 3 hits (the common small health pool).
+  add: { kind: 'menu', value: { max: 3 } },
   // Phase 24.5: a 1 m box that can be damaged (scripts or a hitbox with damage take its health).
   create: [{ label: 'Object with health', menu: 'Gameplay', box: { size: [1, 1, 1], color: '#b0b7c3' }, value: { max: 3 } }],
   icon: 'health',
   handles: [],
-  excludes: [],
-  prefab: true,
-};
-
-const pickup: ComponentDescriptor = {
-  name: 'pickup',
-  label: 'Pickup',
-  tooltip: 'A collectable: a coin, gem, heart, extra life, key or a custom counter.',
-  category: 'Gameplay',
-  value: obj('pickup', 'Pickup', 'A collectable.', [
-    enm('kind', 'Kind', 'What it counts as.', PICKUP_KINDS, { required: true, default: 'coin' }),
-    int('value', 'Value', 'How much it adds.', { required: true, min: 1, max: 10000, default: 1 }),
-    str('counter', 'Counter', 'The counter a custom pickup adds to (a letter or _, then letters, digits or _).', { required: true, when: when('kind', 'custom'), format: 'counter', minLength: 1, maxLength: 32 }),
-    vec2('size', 'Size', 'The area that collects it (absent: its model\'s recorded bounds, else 1 × 1 m).', { min: 0.05, max: 20, step: 0.05, unit: 'm', default: [...BD.pickupSize], labels: ['w', 'h'], handle: 'box2' }),
-    enm('respawn', 'Comes back', 'Never, or when the player respawns after a death.', PICKUP_RESPAWN, { default: 'never' }),
-    asset('cue', 'Sound', 'Played when collected.', ['audio']),
-    // Phase 20.2: a visual effect where it was when it is collected.
-    ref('effect', 'Effect', 'A project effect played where it was when it is collected (none: no effect).', 'effect'),
-  ]),
-  add: { kind: 'never', reason: 'removed in phase 24: build it as project scripts over the generic primitives (kept for old data until phase 24.7)' },
-  legacy: true,
-  icon: 'collectible',
-  handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],
   prefab: true,
 };
@@ -1456,7 +1349,6 @@ const patrol: ComponentDescriptor = {
     { component: 'controller', reason: 'the character moves by input, not by itself' },
     { component: 'mover', reason: 'a mover and a patrol would both move it' },
     { component: 'collider', reason: 'a patroller is not a physics body (give it a hitbox)' },
-    { component: 'enemy', reason: 'an enemy walks by its own rules' },
   ],
   prefab: true,
 };
@@ -1490,54 +1382,6 @@ const hitbox: ComponentDescriptor = {
     { kind: 'radius', label: 'Radius', bind: { radius: 'radius' }, space: 'local', when: when('shape', 'sphere') },
   ],
   excludes: [],
-  prefab: true,
-};
-
-const enemy: ComponentDescriptor = {
-  name: 'enemy',
-  label: 'Enemy',
-  tooltip: 'Walks back and forth, hurts on contact, can be stomped; can chase a player it sees nearby.',
-  category: 'Gameplay',
-  value: obj('enemy', 'Enemy', 'A walking enemy.', [
-    enm('patrol', 'Patrol', 'Between two points, or until a ledge or a wall.', ENEMY_PATROLS, { required: true, default: 'edges', labels: { points: 'Between points', edges: 'Edge to edge' } }),
-    vec2('range', 'Range', 'The x offsets [left, right] it walks between.', { required: true, when: when('patrol', 'points'), min: -500, max: 500, step: 0.1, unit: 'm', ascending: true, default: [-2, 2], labels: ['left', 'right'], handle: 'segment1d' }),
-    num('speed', 'Speed', 'Walking speed.', { required: true, min: 0, max: 20, step: 0.1, unit: 'm/s', default: 1.5 }),
-    vec2('size', 'Size', 'Its body: width and height.', { required: true, min: 0.1, max: 20, step: 0.05, unit: 'm', default: [0.8, 0.8], labels: ['w', 'h'], handle: 'box2' }),
-    int('contactDamage', 'Contact damage', 'Health taken on contact (0: harmless).', { required: true, min: 0, max: 1000, default: 1 }),
-    bool('stompable', 'Stompable', 'Jumping on it defeats it.', { required: true, default: true }),
-    int('health', 'Health', 'Stomps needed to defeat it.', { required: true, min: 1, max: 100, default: 1 }),
-    num('chase', 'Chase distance', 'Walks toward the player within this distance (0: never).', { min: 0, max: 50, step: 0.5, unit: 'm', default: 0, handle: 'radius' }),
-    // Phase 15.3: the combat and walking tuning.
-    num('chaseHeight', 'Chase height', 'Notices a player within this height of its feet.', { group: 'Chase', ...BL.chaseHeight, step: 0.1, unit: 'm', default: BD.chaseHeight }),
-    // Phase 24.0: how it runs the player down once it has noticed them.
-    num('chaseSpeed', 'Chase speed', 'How fast it runs while chasing (0: its walking speed).', { group: 'Chase', ...BL.chaseSpeed, step: 0.1, unit: 'm/s', default: BD.chaseSpeed }),
-    bool('chaseSight', 'Needs sight', 'Only notices a player it can see (nothing solid between them).', { group: 'Chase', default: false }),
-    bool('chaseFacing', 'In front only', 'Only notices a player in the direction it is walking.', { group: 'Chase', default: false }),
-    num('chaseMemory', 'Chase memory', 'Keeps chasing this long after it last noticed the player.', { group: 'Chase', ...BL.chaseMemory, step: 0.1, unit: 's', default: BD.chaseMemory }),
-    bool('chaseBeyondPatrol', 'Leaves its post', 'May leave its patrol range while chasing (it walks back when it gives up).', { group: 'Chase', default: false }),
-    num('stompBounce', 'Stomp bounce', 'A stomp throws the player up at this speed.', { group: 'Stomp', ...BL.stompBounce, step: 0.5, unit: 'm/s', default: BD.stompBounce }),
-    num('stompTolerance', 'Stomp tolerance', 'A stomp counts when the player\'s feet were at most this far below its top.', { group: 'Stomp', ...BL.stompTolerance, step: 0.05, unit: 'm', default: BD.stompTolerance }),
-    enm('defeat', 'Defeat effect', 'How it leaves when defeated: at once, squashed flat, or fading out.', DEFEAT_EFFECTS, { group: 'Defeat', default: BD.defeat }),
-    num('defeatTime', 'Defeat time', 'How long the squash or fade takes.', { group: 'Defeat', when: when('defeat', 'squash', 'fade'), ...BL.defeatTime, step: 0.05, unit: 's', default: BD.defeatTime }),
-    num('wallProbe', 'Wall probe', 'How far ahead of its front it looks for a wall to turn at.', { group: 'Walking', when: when('patrol', 'edges'), ...BL.wallProbe, step: 0.01, unit: 'm', default: BD.wallProbe }),
-    num('ledgeProbe', 'Ledge probe', 'How far down, from 0.1 m above its feet, it looks for floor ahead (0.4: a drop deeper than 0.3 m is a ledge).', { group: 'Walking', when: when('patrol', 'edges'), ...BL.ledgeProbe, step: 0.05, unit: 'm', default: BD.ledgeProbe }),
-    // Phase 20.2: visual effects where it is when it is hurt and when it is defeated.
-    ref('hitEffect', 'Hit effect', 'A project effect played where it is when a stomp hurts it (none: no effect).', 'effect', { group: 'Defeat' }),
-    ref('defeatEffect', 'Defeat effect (particles)', 'A project effect played where it is when it is defeated (none: no effect).', 'effect', { group: 'Defeat' }),
-  ]),
-  add: { kind: 'never', reason: 'removed in phase 24: build it as project scripts over the generic primitives (kept for old data until phase 24.7)' },
-  legacy: true,
-  icon: 'patrol',
-  handles: [
-    { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', anchor: 'bottom' },
-    { kind: 'segment1d', label: 'Patrol range', bind: { range: 'range' }, space: 'local', when: when('patrol', 'points') },
-    { kind: 'radius', label: 'Chase distance', bind: { radius: 'chase' }, space: 'local', along: 'x', band: 'chaseHeight' },
-  ],
-  excludes: [
-    { component: 'controller', reason: 'the player is not an enemy' },
-    { component: 'collider', reason: 'an enemy\'s size is its body' },
-    { component: 'patrol', reason: 'an enemy walks by its own rules' },
-  ],
   prefab: true,
 };
 
@@ -1602,29 +1446,6 @@ const ENTITY: ObjectFieldDescriptor = obj('entity', 'Object', 'An object in a sc
 ]);
 
 // ---- content blocks ----------------------------------------------------------------
-
-const AUDIO_CUE = (key: string, label: string, tooltip: string): AssetRefFieldDescriptor => asset(key, label, tooltip, ['audio'], { required: true, nullable: true, default: null });
-
-const GAME: FieldDescriptor = obj('game', 'Game', 'Title texts, who the player is, the camera, the start spawn and the sound cues.', [
-  int('configVersion', 'Version', 'The game block format (2).', { required: true, min: 2, max: 2, default: 2, readOnly: true }),
-  str('title', 'Title', 'The game\'s title.', { required: true, minLength: 1, maxLength: 64, default: 'Untitled game' }),
-  str('objective', 'Objective', 'One line on what to do.', { required: true, minLength: 1, maxLength: 160, default: 'Reach the goal.' }),
-  str('instructions', 'Instructions', 'How to play.', { required: true, minLength: 1, maxLength: 320, default: 'Move and jump.' }),
-  entity('playerId', 'Player', 'The object the player controls.', { required: true, component: 'controller' }),
-  entity('cameraId', 'Camera', 'The game camera.', { required: true, component: 'camera' }),
-  entity('spawnId', 'Start spawn', 'Where the player starts.', { required: true, component: 'playerSpawn' }),
-  obj('cues', 'Sound cues', 'Sounds for game events (none: silent).', [
-    AUDIO_CUE('start', 'Start', 'Played when the game starts.'),
-    AUDIO_CUE('jump', 'Jump', 'Played on every jump.'),
-    AUDIO_CUE('checkpoint', 'Checkpoint', 'Played when a checkpoint is reached.'),
-    AUDIO_CUE('death', 'Death', 'Played when the player dies.'),
-    AUDIO_CUE('goal', 'Goal', 'Played when the goal is reached.'),
-  ], { required: true }),
-  // Phase 15.3: the session timing (absent: the engine defaults, the values every project played with before).
-  num('respawnDelay', 'Respawn delay', 'The pause between a death and the respawn.', { group: 'Session', ...GAME_TIMING_LIMITS.respawnDelay, step: 0.05, unit: 's', default: GAME_TIMING_DEFAULTS.respawnDelay }),
-  num('dropThroughTime', 'Drop-through time', 'How long a one-way platform lets the player fall through it (down + jump).', { group: 'Session', ...GAME_TIMING_LIMITS.dropThroughTime, step: 0.025, unit: 's', default: GAME_TIMING_DEFAULTS.dropThroughTime }),
-  num('settleTime', 'Settle time', 'The world settles this long before the first frame (resting bodies start at rest).', { group: 'Session', ...GAME_TIMING_LIMITS.settleTime, step: 0.05, unit: 's', default: GAME_TIMING_DEFAULTS.settleTime }),
-], { nullable: true, default: null });
 
 const WIND = obj('wind', 'Wind', 'The global wind foliage and cloth sway in.', [
   vec2('direction', 'Direction', 'Horizontal direction [x, z] (not both 0).', { required: true, min: -1, max: 1, step: 0.05, nonZero: true, labels: ['x', 'z'], default: [...DEFAULT_WIND.direction] }),
@@ -1738,69 +1559,6 @@ const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'Sky, fog
   enm('quality', 'Quality', 'The default graphics quality (players change it in Settings).', ['low', 'medium', 'high'], { default: 'high' }),
   list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment).', PRESET, { maxItems: 64 }),
 ]);
-
-const FLOW: FieldDescriptor = obj('flow', 'Game flow', 'Levels, lives, the title screen, HUD, menu look and texts, volumes, menu sounds and score rules.', [
-  list('levels', 'Levels', `1–${MAX_FLOW_LEVELS} levels played in order.`, obj('*', 'Level', 'A level: scenes played together and where the player starts.', [
-    str('id', 'Id', 'A stable id (saves remember levels by it): letters, digits, _ or -.', { format: 'identifier', minLength: 1, maxLength: 64, required: true }),
-    str('name', 'Name', 'Shown in menus.', { minLength: 1, maxLength: 64, required: true }),
-    list('scenes', 'Scenes', `The scenes loaded for this level (1–${MAX_LEVEL_SCENES}).`, scene('*', 'Scene', 'A scene of the level.'), { required: true, minItems: 1, maxItems: MAX_LEVEL_SCENES, unique: true }),
-    entity('spawnId', 'Start spawn', 'The player spawn the level starts at.', { required: true, component: 'playerSpawn', anyScene: true }),
-    asset('music', 'Music', 'Loops while the level plays.', ['music']),
-    obj('environment', 'Level look', 'Sky, fog, post and wind laid over the project environment while the level plays.', [SKY, FOG, POST, WIND]),
-    list('ambience', 'Ambience', `1–${MAX_LEVEL_AMBIENCE} sounds looped while the level plays.`, asset('*', 'Sound', 'An audio or music asset.', ['audio', 'music']), { minItems: 1, maxItems: MAX_LEVEL_AMBIENCE, unique: true }),
-  ]), { required: true, minItems: 1, maxItems: MAX_FLOW_LEVELS }),
-  obj('lives', 'Lives', 'Lives per game (absent: unlimited).', [
-    int('start', 'Start', 'Lives at the start.', { required: true, min: 1, max: 99, default: 3 }),
-    int('max', 'Maximum', 'Most lives (at least the start).', { required: true, min: 1, max: 99, default: 9 }),
-  ], { rules: ['max ≥ start'] }),
-  obj('title', 'Title screen', 'A title screen before the first level (absent: starts on a key press).', [
-    str('subtitle', 'Subtitle', 'A line under the title.', { maxLength: 160 }),
-    asset('music', 'Music', 'Plays on the title screen.', ['music']),
-    scene('scene', 'Background scene', 'Seen behind the title menu (absent: the first level\'s start).'),
-    // Phase 15.5: a new pan starts at 4 m over 20 s each way (a slow 0.2 m/s drift, a
-    // few character widths at human scale) — the same values as the Game window's "pan" box.
-    obj('pan', 'Camera pan', 'A slow sideways pan behind the menu, then back.', [
-      num('distance', 'Distance', 'How far sideways (negative: to the left; not 0).', { required: true, min: -MAX_TITLE_PAN_DISTANCE, max: MAX_TITLE_PAN_DISTANCE, nonZero: true, step: 0.5, unit: 'm', default: 4 }),
-      num('seconds', 'Duration', 'Seconds each way.', { required: true, min: 2, max: 600, step: 1, unit: 's', default: 20 }),
-    ]),
-  ]),
-  obj('hud', 'HUD', 'The in-game display.', [
-    enm('preset', 'Layout', 'Where the counters sit.', HUD_PRESETS, { required: true, default: 'classic' }),
-    bool('timer', 'Timer', 'Show the level time.', { default: false }),
-  ]),
-  obj('ui', 'Menu look', 'Font and colours of the menus and HUD.', [
-    enm('font', 'Font', 'The menu font.', UI_FONTS, { required: true, default: 'sans' }),
-    color('accent', 'Accent', 'Highlights and the selection.', { required: true, default: '#ffc857' }),
-    color('panel', 'Panel', 'Menu backgrounds.', { required: true, default: '#1b2330' }),
-    color('text', 'Text', 'Menu text.', { required: true, default: '#f4f1e8' }),
-    asset('logo', 'Logo', 'An image shown instead of the title text.', ['texture']),
-  ]),
-  obj('texts', 'Texts', 'Menu texts.', [
-    str('levelComplete', 'Level complete', 'Shown when a level is finished.', { maxLength: 64, default: 'Level complete' }),
-    str('gameOver', 'Game over', 'Shown when the lives run out.', { maxLength: 64, default: 'Game over' }),
-    str('credits', 'Credits', 'The credits screen text.', { maxLength: 2000, format: 'multiline' }),
-  ]),
-  obj('volumes', 'Volumes', 'Default volumes before the player changes them in Settings.', [
-    num('music', 'Music', 'Music volume.', { required: true, min: 0, max: 1, step: 0.05, default: 0.8 }),
-    num('sfx', 'Sounds', 'Sound-effect volume.', { required: true, min: 0, max: 1, step: 0.05, default: 1 }),
-    num('ui', 'Menu sounds', 'Menu sound volume.', { min: 0, max: 1, step: 0.05, default: 1 }),
-  ]),
-  obj('sounds', 'Menu sounds', 'Sounds the menus make.', [
-    asset('move', 'Move', 'The selection moves or a value changes.', ['audio']),
-    asset('confirm', 'Confirm', 'An item is chosen.', ['audio']),
-    asset('back', 'Back', 'Back out of a menu.', ['audio']),
-  ]),
-  obj('score', 'Score', 'How a level\'s score is made (absent: no score).', [
-    // Phase 15.5: a new counter row starts at 10 points a unit (the Game window's value; whole-point room for smaller rewards and penalties).
-    map('points', 'Points', 'Points per unit of a run counter (coins, gems, keys, lives, defeated or a custom counter; negative: a penalty).', 'Counter', int('*', 'Points', 'Points per unit.', { min: -MAX_SCORE_POINTS, max: MAX_SCORE_POINTS, default: 10 }), { keyFormat: 'counter', maxEntries: MAX_SCORE_COUNTERS }),
-    // Phase 15.5: a new time bonus starts at a one-minute target and 10 points a second —
-    // round figures the designer tunes (the Game window's starting values).
-    obj('timeBonus', 'Time bonus', 'Points for every second under a target time.', [
-      num('targetSeconds', 'Target time', 'No bonus over this time.', { required: true, min: 1, max: 36000, step: 1, unit: 's', default: 60 }),
-      num('perSecond', 'Per second', 'Points per second under the target.', { required: true, min: 0, max: 100000, step: 1, unit: 'points/s', default: 10 }),
-    ]),
-  ]),
-], { rules: ['Level scenes and spawns, music, logo and sounds must exist in the project.'] });
 
 const KEY_CODE = { format: 'keyCode' as const, minLength: 1, maxLength: 32 };
 const BINDING_KINDS = ['key', 'gamepadButton', 'gamepadAxis', 'keys1d', 'keys2d', 'gamepadButtons1d', 'gamepadStick', 'pointerButton', 'pointerPosition', 'pointerDelta', 'pointerAxis'] as const;
@@ -2036,8 +1794,6 @@ const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The play
 }), { required: true, default: {}, rules: ['min_slope_slide_deg ≤ max_slope_climb_deg'] });
 
 const CONTENT: readonly ContentBlockDescriptor[] = [
-  { key: 'game', label: 'Game', tooltip: 'Title texts, the player, camera, start spawn and sound cues.', required: true, value: GAME, ops: ['setGameConfig'] },
-  { key: 'flow', label: 'Game flow', tooltip: 'Levels, lives, title screen, HUD, menus, volumes and score.', required: false, value: FLOW, ops: ['setFlow'] },
   { key: 'environment', label: 'Environment', tooltip: 'Sky, fog, post-processing, wind and quality.', required: false, value: ENVIRONMENT, ops: ['setEnvironment'] },
   { key: 'input', label: 'Input', tooltip: 'Actions and their bindings.', required: false, value: INPUT, ops: ['setInput'] },
   { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', `Up to ${MAX_MATERIALS} materials.`, MATERIAL_ITEM, { maxItems: MAX_MATERIALS, default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
@@ -2252,19 +2008,15 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   collider,
   controller,
   camera,
-  cameraFollow,
   virtualCamera,
   cameraPath,
   socketAttach,
   light,
-  gameZone,
   playerSpawn,
   mover,
   trigger,
   switchC,
   health,
-  pickup,
-  enemy,
   collectible,
   patrol,
   hitbox,

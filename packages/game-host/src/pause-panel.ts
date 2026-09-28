@@ -1,6 +1,6 @@
 /**
- * Phase 23.10: the engine's pause panel for a game without the platformer
- * flow (a game with game modes that plays as a scene). Shown while the game
+ * Phase 23.10: the engine's pause panel (a game with game modes, or a game
+ * shell without a pause screen of its own). Shown while the game
  * is paused in a mode whose `pauseScreen` is not set; a project replaces it
  * with its own UI document (the mode's `pauseScreen`, drawn by the UI layer
  * with the engine actions resume / restart).
@@ -8,9 +8,9 @@
  * Plain DOM, text only, two buttons (Resume, Restart), keyboard/gamepad
  * navigable through the host's ui edges and clickable; styled through the
  * CSSOM (the Play page's content security policy refuses style attributes
- * and inline style elements). Genre-neutral: no title, lives or score.
+ * and inline style elements). Genre-neutral: only resume and restart.
  */
-import type { HostDom, HostDomNode } from './hud';
+import type { HostDom, HostDomNode } from './dom';
 
 export interface PausePanel {
   show(): void;

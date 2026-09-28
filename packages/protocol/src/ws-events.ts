@@ -102,14 +102,10 @@ export interface RuntimeSnapshotDoc {
 export interface PlayStartResolved {
   /** The scene asked for (as given). */
   sceneId?: string;
-  /** A game with levels: the level that loads the scene. */
-  levelId?: string;
-  /** Without levels: the scenes the game starts with, and the spawn the player starts at. */
+  /** The scenes the game starts with, and the spawn the character starts at. */
   scenes?: string[];
   spawnId?: string;
   variables?: Record<string, unknown>;
-  save?: Record<string, unknown>;
-  saveSlot?: 'auto' | '1' | '2' | '3';
   /** Phase 23.19: a project save document to load at the first step, or a project save slot (1–99) of the page. */
   projectSave?: Record<string, unknown>;
   projectSaveSlot?: number;

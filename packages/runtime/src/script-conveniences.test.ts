@@ -32,7 +32,6 @@ import {
   type BehaviorRandom,
   type BehaviorWorldView,
   type Runtime,
-  type SimulationModuleSpec,
 } from './index';
 import { InstanceRandom, RandomCallError, hashSeed } from './random';
 
@@ -158,8 +157,6 @@ function artifact(behaviorId: string, step: (ctx: Ctx) => void, ownedTransforms:
   } as never;
 }
 
-const stubGameplay: SimulationModuleSpec = { id: 'thirdlight.teststub:gameplay', phases: ['gameplay'], create: () => ({ transformOwners: [], step() {} }) };
-const stubCamera: SimulationModuleSpec = { id: 'thirdlight.teststub:camera', phases: ['camera'], create: () => ({ transformOwners: ['cam-main'], step() {} }) };
 
 function port(): unknown {
   const zero = { x: 0, y: 0 };
@@ -190,7 +187,7 @@ interface BehaviorDef {
 }
 
 function harness(behaviors: Record<string, BehaviorDef>, entities: unknown[], settings: Record<string, number> = {}) {
-  const specs = [...Object.entries(behaviors).map(([id, b]) => createBehaviorModuleSpec({ declaration: DECL, artifact: artifact(id, b.step, b.owned) })), stubGameplay, stubCamera];
+  const specs = [...Object.entries(behaviors).map(([id, b]) => createBehaviorModuleSpec({ declaration: DECL, artifact: artifact(id, b.step, b.owned) }))];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
   const now = { t: 0 };
@@ -204,13 +201,12 @@ function harness(behaviors: Record<string, BehaviorDef>, entities: unknown[], se
         sceneId: 'scene-main',
         revision: 1,
         entities: [
-          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
-          { id: 'player-0001', components: { transform: at(0, 0) } },
+          { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
+          { id: 'player-0001', components: { transform: at(0, 0), controller: {} } },
           { id: 'spawn-0001', components: { transform: at(0, 0), playerSpawn: {} } },
           ...entities,
         ],
       },
-      game: { configVersion: 2, title: 'Conveniences', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       prefabs: PREFABS,
     },
     registry,
@@ -227,7 +223,6 @@ function harness(behaviors: Record<string, BehaviorDef>, entities: unknown[], se
   expect(rt.start().ok).toBe(true);
   expect(rt.tick(now.t).ok).toBe(true);
   // (A script that fails in the settle pre-roll already stopped the run: the bad-call cases read the diagnostics.)
-  rt.gameCommand('start');
   const tick = (n = 1): void => {
     for (let i = 0; i < n; i += 1) {
       now.t += DT;
@@ -259,7 +254,7 @@ describe('ctx.random in the runtime', () => {
     const run = (settings: Record<string, number> = {}) => {
       const log: string[] = [];
       const h = harness({ roller: roller(log) }, [carrier('box-0001', 'roller'), carrier('box-0002', 'roller')], settings);
-      log.length = 0; // the settle pre-roll's draws (the start of the run starts every stream over)
+      // (the log keeps the settle pre-roll's draws: a scene's run starts with them)
       h.tick(100);
       return { h, log };
     };
@@ -270,12 +265,14 @@ describe('ctx.random in the runtime', () => {
     const one = a.log.filter((l) => l.startsWith('box-0001')).map((l) => l.slice(9));
     const two = a.log.filter((l) => l.startsWith('box-0002')).map((l) => l.slice(9));
     expect(one).not.toEqual(two);
-    // Replay: the same sequence again from its start.
+    // A restart (the engine's, a new run): the same sequence again from its start.
     const first = [...a.log];
+    expect(a.h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
+    a.h.tick(2); // sampled in the next step, applied at the boundary after it
     a.log.length = 0;
-    expect(a.h.rt.gameCommand('replay').ok).toBe(true);
     a.h.tick(100);
-    expect(a.log).toEqual(first);
+    expect(a.log.length).toBeGreaterThanOrEqual(20); // ten draws per object in 100 steps
+    expect(a.log).toEqual(first.slice(0, a.log.length));
     expect(a.h.diag().state).toBe('running');
     // Another project seed: other numbers; the default seed equals an explicit 0.
     expect(run({ random_seed: 99 }).log).not.toEqual(first);

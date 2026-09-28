@@ -1,7 +1,6 @@
 /**
  * Phase 24.4j: the game shell (`content.shell`, v4) — the menus around a game
- * and its HUD, as project UI documents, for a game that plays as a scene (no
- * game session, no flow).
+ * and its HUD, as project UI documents.
  *
  * - `screens`: the UI documents drawn for the shell's screens — a title
  *   before play, the pause screen (absent: the engine's pause panel), a
@@ -101,12 +100,10 @@ export function validateShell(v: unknown, path: string, errors: ModelErrorV2[]):
   for (const k of ['pause', 'status'] as const) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is true or false`, v[k], 'boolean');
 }
 
-/** The UI documents the shell names exist; the shell drives a game without the game session and flow. */
+/** The UI documents the shell names exist. */
 export function validateShellReferences(content: Record<string, unknown>, errors: ModelErrorV2[]): void {
   const shell = content['shell'];
   if (!isPlainObject(shell)) return;
-  if (content['flow'] !== undefined) err(errors, 'field_unexpected', '/shell', 'a project has the shell or the flow, not both (the flow drives a game with the game session)', 'shell');
-  if (content['game'] !== undefined && content['game'] !== null) err(errors, 'field_unexpected', '/shell', 'the shell drives a game that plays as a scene; this project has the game session (content.game)', 'shell');
   const docIds = new Set((Array.isArray(content['uiDocuments']) ? (content['uiDocuments'] as unknown[]) : []).filter(isPlainObject).map((d) => d['uiDocumentId']));
   const doc = (id: unknown, path: string): void => {
     if (typeof id === 'string' && !docIds.has(id)) err(errors, 'reference_missing', path, `no UI document "${id}" in this project`, id, 'a uiDocumentId');

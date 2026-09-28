@@ -74,8 +74,11 @@ export function sha256Hex(bytes: Uint8Array): string {
 }
 
 /** A synthetic v3 authoring envelope (scene + content) with one model asset
- * and one audio asset, self-consistent digests. */
-export function syntheticV3(opts?: { withSourceBehavior?: boolean }): {
+ * and one audio asset, self-consistent digests. The model is reached through
+ * the model/modelAnimation components; the audio through a declared `assetRef`
+ * property of a declaration-only behavior on one entity (phase 24 removed the
+ * game block whose cues reached it before). */
+export function syntheticV3(): {
   scene: unknown;
   content: unknown;
   blobs: Map<string, { digest: string; byteLength: number; bytes: Uint8Array }>;
@@ -100,7 +103,6 @@ export function syntheticV3(opts?: { withSourceBehavior?: boolean }): {
         components: {
           transform: { position: [0, 4, 12], ...T },
           camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 },
-          cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: 0, maxX: 48, minY: -4, maxY: 8 } },
         },
       },
       {
@@ -118,6 +120,14 @@ export function syntheticV3(opts?: { withSourceBehavior?: boolean }): {
       },
       { id: 'group-0001', name: 'Player', components: { transform: { position: [3, 0.9, 0], ...T }, controller: {} } },
       { id: 'spawn-0001', components: { transform: { position: [3, 0.91, 0], ...T }, playerSpawn: {} } },
+      {
+        id: 'sfx-0001',
+        name: 'Start sound',
+        components: {
+          transform: { position: [3, 0, 0], ...T },
+          behavior: { behaviorId: 'behavior-sfx', values: { sound: 'asset-audio-start' } },
+        },
+      },
       {
         id: 'static-0001',
         components: {
@@ -180,21 +190,18 @@ export function syntheticV3(opts?: { withSourceBehavior?: boolean }): {
       },
     ],
     prefabs: [],
-    behaviors: opts?.withSourceBehavior ? [{ behaviorId: 'behavior-x', source: { sourceDigest: 'ab'.repeat(32), sourceByteLength: 100 } }] : [],
+    behaviors: [
+      {
+        behaviorId: 'behavior-sfx',
+        displayName: 'Start sound',
+        declaration: { properties: [{ key: 'sound', label: 'Sound', type: 'assetRef', default: null }] },
+        source: null,
+        publishedRevision: 1,
+      },
+    ],
     settings: { run_speed: 6 },
     behaviorTrust: { entries: [] },
-    game: {
-      configVersion: 1,
-      title: 'M3 Build',
-      objective: 'Reach the goal',
-      instructions: 'A/D move.',
-      playerId: 'group-0001',
-      cameraId: 'cam-main',
-      spawnId: 'spawn-0001',
-      level: { minX: 0, maxX: 48, minY: -4, maxY: 8 },
-      killY: -4,
-      cues: { start: 'asset-audio-start', jump: null, checkpoint: null, death: null, goal: null },
-    },
+    game: null,
   };
   return { scene, content, blobs };
 }

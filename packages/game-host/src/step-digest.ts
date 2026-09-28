@@ -1,9 +1,8 @@
 /**
  * Phase 22.0: a digest of the committed simulation state after one step —
- * the committed game view, every entity's transform (exact float bits), the
- * counters, the hidden and fading entities, the animator poses, the scene
- * set's revision and spawned entities, the run's save state and (phase 23.4)
- * the resolved camera and (phase 23.9a) the project UI state. Two runs
+ * every entity's transform (exact float bits), the counters, the hidden
+ * entities, the look overrides, the animator poses, the scene set's revision
+ * and spawned entities and (phase 23.4) the resolved camera and (phase 23.9a) the project UI state. Two runs
  * with the same inputs produce the same digest at every step: the check that
  * the simulation worker computes exactly what the page computes.
  */
@@ -42,11 +41,6 @@ export function stepDigest(rt: Runtime): string {
   const h = new Fnv();
   const d = rt.getDiagnostics();
   h.num(d.ok ? d.diagnostics.stepIndex : -1);
-  const view = rt.peekGameView !== undefined ? rt.peekGameView() : (() => {
-    const v = rt.getGameView();
-    return v.ok ? v.view : null;
-  })();
-  h.text(view === null ? 'null' : JSON.stringify(view));
   rt.forEachInterpolated?.((id, p, r, s) => {
     h.text(id);
     for (let k = 0; k < 3; k += 1) h.num(p[k]!);
@@ -57,11 +51,6 @@ export function stepDigest(rt: Runtime): string {
   if (c !== undefined) h.text(JSON.stringify(c));
   const hidden = rt.hiddenEntities?.();
   if (hidden !== undefined) h.text([...hidden].sort().join(','));
-  const fade = rt.entityOpacity?.();
-  if (fade !== undefined) for (const [id, o] of fade) {
-    h.text(id);
-    h.num(o);
-  }
   // Phase 24.4h: the look overrides (only while any is set, so every other digest is unchanged).
   const looks = rt.entityLooks?.();
   if (looks !== undefined && looks.size > 0) h.text(JSON.stringify([...looks].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
@@ -72,8 +61,6 @@ export function stepDigest(rt: Runtime): string {
     h.num(set.revision);
     h.text(set.spawned.map((e) => e.id).join(','));
   }
-  const save = rt.runState?.();
-  if (save !== undefined) h.text(JSON.stringify(save));
   // Phase 23.4: the resolved camera (only a game with a virtual camera has one, so every other digest is unchanged).
   const cam = rt.cameraView?.() ?? null;
   if (cam !== null) {

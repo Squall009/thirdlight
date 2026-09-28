@@ -37,11 +37,15 @@ test('the editor gets the descriptor registry with its first game query', async 
   const registry = ((await (await first).json()) as { descriptors: Registry }).descriptors;
   expect(registry.version).toBe(1);
   const names = registry.components.map((c) => c.name);
-  for (const n of ['transform', 'controller', 'trigger', 'enemy', 'light', 'animator', 'fogVolume', 'gameZone']) expect(names).toContain(n);
+  for (const n of ['transform', 'controller', 'trigger', 'collectible', 'patrol', 'hitbox', 'light', 'animator', 'fogVolume']) expect(names).toContain(n);
+  // Phase 24.7: the platformer's components are gone.
+  for (const n of ['enemy', 'pickup', 'gameZone', 'cameraFollow']) expect(names).not.toContain(n);
   const controller = registry.components.find((c) => c.name === 'controller')!;
   // Phase 23.2 added the 3D-only step-up and ledge height handles (dimension 3).
   expect(controller.handles.map((h) => h.kind)).toEqual(['capsule', 'height', 'height']);
-  expect(registry.content.map((b) => b.key)).toEqual(expect.arrayContaining(['game', 'flow', 'environment', 'input', 'materials', 'animators']));
+  expect(registry.content.map((b) => b.key)).toEqual(expect.arrayContaining(['shell', 'eventCues', 'environment', 'input', 'materials', 'animators']));
+  expect(registry.content.map((b) => b.key)).not.toContain('game');
+  expect(registry.content.map((b) => b.key)).not.toContain('flow');
 
   expect(asked[0]).toBe(true);
 

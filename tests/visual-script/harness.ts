@@ -3,7 +3,7 @@
  * the one compiler, a bounded `node:vm` evaluator (no code generation, as in
  * tests/browser/m2-behaviors/behavior-host.test.ts) and a neutral level in
  * the production composition (game host, platformer controller, Rapier):
- * a floor, the player walking right, a marker box carrying the script.
+ * a floor, the character walking right, a marker box carrying the script.
  */
 import { createContext, runInContext, Script } from 'node:vm';
 
@@ -72,15 +72,14 @@ export interface LevelOptions {
   entities?: Any[];
 }
 
-/** A neutral level: a floor, the player walking right, a marker box carrying the compiled script. */
+/** A neutral scene: a floor, the character walking right, a marker box carrying the compiled script. */
 export async function level(compiled: Compiled, opts: LevelOptions = {}) {
   const d = opts.director ?? [0, -5, 0];
   const entities: Any[] = [
-    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
     { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [60, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 30, hy: 0.5 } } } },
-    { id: 'goal-0001', components: { transform: at(38, 1), gameZone: { role: 'goal', size: [1, 2] } } },
     { id: 'box-director', components: { transform: at(d[0], d[1], d[2]), box: { size: [0.2, 0.2, 0.2], material: { color: '#ffffff' } }, behavior: { behaviorId: 'director', values: opts.values ?? {} }, ...(opts.directorComponents ?? {}) } },
     ...(opts.entities ?? []),
   ];
@@ -111,7 +110,6 @@ export async function level(compiled: Compiled, opts: LevelOptions = {}) {
       projectId: 'visual',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: { configVersion: 2, title: 'Visual', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       prefabs: [],
     },
     settings: SETTINGS,
@@ -135,7 +133,7 @@ export async function level(compiled: Compiled, opts: LevelOptions = {}) {
   if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
   const rt: Any = host.runtime;
   let now = 0;
-  /** One step; its trace line (counters, log count, player x, failed, the script box's position), or the failure. */
+  /** One step; its trace line (counters, log count, character x, failed, the script box's position), or the failure. */
   const tick = (): string => {
     now += DT;
     const r = rt.tick(now);
@@ -146,16 +144,31 @@ export async function level(compiled: Compiled, opts: LevelOptions = {}) {
     const box = transforms.find((t: Any) => t.id === 'box-director')?.position ?? [];
     return JSON.stringify([rt.gameCounters().counters, dg.logCount, Math.round(x * 1e6), dg.failed === true, box.map((v: number) => Math.round(v * 1e6))]);
   };
-  return { rt, tick };
+  /**
+   * A new run (the host's replay: the engine restart). The request rides on
+   * the next step's input, so that step still belongs to the old run; after
+   * it the next `tick` is the new run's first step.
+   */
+  const replay = (): void => {
+    const r = host.control('replay');
+    if (!r.ok) throw new Error(`replay refused: ${JSON.stringify(r)}`);
+    const line = tick();
+    if (line.startsWith('tick failed')) throw new Error(line);
+  };
+  return { rt, host, tick, replay };
 }
 
-/** Settle, start, 60 steps, replay, 60 steps: the trace of every step. */
+/**
+ * The first frame (the settle pre-roll and the first step), then a fresh run
+ * (the replay) of 60 steps, replay, 60 steps: the trace of every step of
+ * the runs.
+ */
 export async function trace(compiled: Compiled, opts: LevelOptions = {}, steps = 60): Promise<string[]> {
   const L = await level(compiled, opts);
   const out: string[] = [L.tick()];
-  if (!L.rt.gameCommand('start').ok) throw new Error('start refused');
+  L.replay();
   for (let i = 0; i < steps; i++) out.push(L.tick());
-  if (!L.rt.gameCommand('replay').ok) throw new Error('replay refused');
+  L.replay();
   for (let i = 0; i < steps; i++) out.push(L.tick());
   return out;
 }

@@ -30,7 +30,6 @@
   "graphEdges": {
     "preview": [
       "game-host",
-      "platformer-game",
       "runtime",
       "platformer",
       "three-adapter",
@@ -43,7 +42,6 @@
     ],
     "export": [
       "game-host",
-      "platformer-game",
       "runtime",
       "platformer",
       "three-adapter",

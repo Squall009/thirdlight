@@ -3,7 +3,7 @@
  *
  * The worker owns the deterministic simulation (runtime, physics, gameplay
  * blocks, animators, timers, spawns, scripts); the page owns input, audio, the
- * DOM (HUD, menus, flow) and rendering. Everything crosses as structured-clone
+ * DOM (project UI, the game shell) and rendering. Everything crosses as structured-clone
  * data; per-frame transforms go as a transferred `Float64Array` (a full array
  * or the changed entities only), or through a `SharedArrayBuffer` when the page
  * is cross-origin isolated. Environment-agnostic: a browser Worker and a Node
@@ -18,10 +18,8 @@ import type {
   DebugCommandState,
   EffectRequest,
   LoadedSceneBatch,
-  GameView,
   PointerSample,
   GameplaySettings,
-  RunSaveState,
   RuntimeDiagnostics,
   RuntimeSnapshot,
   UiEventRecord,
@@ -53,7 +51,7 @@ export const TRANSFORM_STRIDE = 10;
  * Engine limit (22.3): the physics engine's WebAssembly memory may grow to
  * this many bytes; past it the simulation stops with `physics_memory_limit`
  * instead of growing without bound (a runaway spawn loop, a leak). 512 MiB is
- * far above any 2D level (the 16 000-entity benchmark uses a few MiB).
+ * far above any 2D scene (the 16 000-entity benchmark uses a few MiB).
  */
 export const PHYSICS_MEMORY_CAP_BYTES = 512 * 1024 * 1024;
 
@@ -93,12 +91,9 @@ export interface SimTickMessage {
 }
 
 export type SimCommand =
-  | { readonly op: 'gameCommand'; readonly cmd: 'start' | 'replay' }
-  | { readonly op: 'startLevel'; readonly level: { scenes: readonly string[]; spawnId: string }; readonly restore?: unknown }
   | { readonly op: 'setPaused'; readonly paused: boolean }
   | { readonly op: 'requestScene'; readonly sceneOp: 'load' | 'unload'; readonly sceneId: string }
   | { readonly op: 'requestArrival'; readonly sceneId: string; readonly spawnId: string }
-  | { readonly op: 'setViewport'; readonly width: number; readonly height: number }
   /** Phase 23.4: the viewport the view is drawn in (screen↔world projection's aspect). */
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
   // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
@@ -164,9 +159,7 @@ export interface FrameState {
   readonly xfVal?: Float64Array;
   /** Shared memory: the slot the transforms are in (and the buffer when it was (re)allocated). */
   readonly xfShared?: { readonly slot: number; readonly count: number; readonly slotFloats: number; readonly buffer?: SharedArrayBuffer };
-  readonly view?: GameView | null;
   readonly hidden?: readonly string[];
-  readonly opacity?: readonly (readonly [string, number])[];
   /** Phase 24.4h: the look overrides when they changed (the whole list; [] when the last one was cleared). */
   readonly looks?: readonly (readonly [string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }])[];
   readonly poses?: readonly (readonly [string, AnimatorPose])[];
@@ -175,7 +168,6 @@ export interface FrameState {
   readonly healths?: Readonly<Record<string, { readonly current: number; readonly max: number }>>;
   /** Phase 24.4j: the shell's scene list entry the run is at (when it changed). */
   readonly listed?: number;
-  readonly runSave?: RunSaveState;
   readonly sceneSet?: SceneSetWire;
   /** Phase 23.13: the audio intent log's commands (phase 9.10: script sound requests). */
   readonly audio?: readonly AudioCommand[];

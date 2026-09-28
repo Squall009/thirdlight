@@ -3,10 +3,10 @@
  * its in-place upgrade to storage v4 (workspace.md §5.3).
  *
  * The child runner (tests/crash/m3-storage-child.ts, esbuild-bundled) drives a
- * real `setGameConfig` and SIGKILLs itself from inside a WriteOps seam at an
+ * real `setTags` and SIGKILLs itself from inside a WriteOps seam at an
  * exact boundary. The committed v3 fixture is seeded and opened once by the
  * parent (upgraded in place to v4: project.json v2, content.json,
- * scenes/scene-main.json); a game-config edit writes content.json alone. The
+ * scenes/scene-main.json); a tag-registry edit writes content.json alone. The
  * parent reopens (explicit stale-owner takeover where needed) and asserts what
  * is durable:
  *
@@ -72,7 +72,7 @@ type ContentFile = {
   storageVersion: number;
   revision: number;
   retry: { records: { requestId: string }[] };
-  content: { game: { title: string } | null };
+  content: { tags?: { bit: number; name: string }[] };
 };
 function contentFile(root: string): ContentFile {
   return JSON.parse(readFileSync(join(root, 'projects', V3, CONTENT_REL), 'utf8')) as ContentFile;
@@ -117,12 +117,12 @@ function takeover(svc: WorkspaceService, projectId: string): void {
 
 function editRequest(revision: number) {
   return {
-    op: 'setGameConfig',
+    op: 'setTags',
     projectId: V3,
     expectedRevision: revision,
     requestId: REQUEST_ID,
     origin: { kind: 'mcp', clientId: 'pi-crash' },
-    args: { game: { title: 'Crash edited' } },
+    args: { tags: [{ name: 'crash_edited' }] },
   };
 }
 
@@ -196,7 +196,7 @@ describe('packet 46 — real SIGKILL at the content.json boundary of an upgraded
     expect(onDisk.revision).toBe(4);
     expect(onDisk.retry.records.length).toBe(1);
     expect(onDisk.retry.records[0]!.requestId).toBe(REQUEST_ID);
-    expect(onDisk.content.game?.title).toBe('Crash edited');
+    expect(onDisk.content.tags).toEqual([{ bit: 0, name: 'crash_edited' }]);
 
     const svc = open(root);
     takeover(svc, V3);

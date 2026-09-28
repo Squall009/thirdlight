@@ -15,6 +15,9 @@
  * second collectible uncollected).
  */
 import { randomBytes } from 'node:crypto';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -263,3 +266,116 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   await shot('loaded');
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });
+
+/**
+ * Phase 24.7: the generic parts of the deleted level flow's saves test — the
+ * exported game (served statically, backend stopped) saves to a project save
+ * slot and a new page load continues from it with the collectible still
+ * collected; in Play, the editor's "Clear Play save" (Saves tab) forgets the
+ * Play page's slots.
+ */
+test('the export saves to a slot and a new page continues from it; Clear Play save forgets Play\'s slots', async ({ page }) => {
+  test.setTimeout(300_000);
+  const titleDoc = {
+    uiDocumentId: 'title',
+    name: 'Title',
+    root: { type: 'panel', ...FULL, css: { background: '#c02070' }, children: [
+      { type: 'button', id: 'start', anchor: [0.5, 0.6], pivot: [0.5, 0.5], size: [220, 56], text: 'Start', css: BUTTON, onClick: { do: 'engine', action: 'newGame' } },
+      { type: 'button', id: 'continue', anchor: [0.5, 0.8], pivot: [0.5, 0.5], size: [220, 56], text: 'Continue', css: BUTTON, onClick: { do: 'engine', action: 'continue' } },
+    ] },
+  };
+  for (const d of [titleDoc, DOCS[1]!, DOCS[2]!]) await cmd('setUiDocument', { document: d });
+  await cmd('setSaveSchema', { schema: { version: 1, slots: 3, sections: ['components'] } });
+  await cmd('setShell', { shell: { screens: { title: 'title', pause: 'paused' }, hud: ['hud'] } });
+  const tokenA = await create('Token A', [4.3, 0.91, 0], { collectible: { counter: 'items' } });
+
+  // Play: save to slot 1, then Clear Play save; a new Play has no slot left.
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const startPlay = async (): Promise<{ observe: () => Promise<Obs | null>; frame: ReturnType<Page['frameLocator']> }> => {
+    const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+    const observe = async (): Promise<Obs | null> => {
+      const r = await api(`play/${psid}/observe`, {});
+      return r.status === 200 ? (r.json as unknown as Obs) : null;
+    };
+    await expect.poll(async () => (await observe())?.shell?.screen ?? null, { timeout: 60_000 }).toBe('title');
+    return { observe, frame: page.frameLocator('iframe.tl-app__preview-frame') };
+  };
+  let play = await startPlay();
+  await play.frame.locator('[data-tl-ui-doc="title"] [data-widget="start"]').click();
+  await expect.poll(async () => (await play.observe())?.shell?.screen ?? null, { timeout: 15_000 }).toBe('playing');
+  const iframe = page.locator('iframe.tl-app__preview-frame');
+  const box = (await iframe.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8);
+  await hold(page, 'Escape', 100);
+  await expect.poll(async () => (await play.observe())?.shell?.screen ?? null, { timeout: 10_000 }).toBe('pause');
+  await play.frame.locator('[data-tl-ui-doc="paused"] [data-widget="save"]').click();
+  await expect.poll(async () => ((await play.observe())?.saves?.slots ?? []).map((s) => s.slot), { timeout: 15_000 }).toContain(1);
+  await page.getByRole('tab', { name: 'Saves', exact: true }).click();
+  await page.getByRole('button', { name: 'Clear Play save' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'cleared' })).toBeVisible({ timeout: 15_000 });
+  await page.getByTitle('Stop the play preview').click();
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+  play = await startPlay();
+  await expect.poll(async () => ((await play.observe())?.saves?.slots ?? []).length, { timeout: 15_000 }).toBe(0);
+  await page.getByTitle('Stop the play preview').click();
+
+  // The export, served statically with the backend stopped.
+  const res = await be.admin(`projects/${be.projectId}/export`);
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  const out = join(be.exportRoot, String(res.json.outputDir));
+  await page.goto('about:blank');
+  await be.halt();
+  const site = await serveDir(out);
+  const game = await page.context().newPage();
+  const errors: string[] = [];
+  game.on('pageerror', (e) => errors.push(e.message));
+  try {
+    const observe = async (): Promise<Obs> => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? {}) as Promise<Obs>;
+    await game.goto(site.url);
+    const doc = (id: string) => game.locator(`[data-tl-ui-doc="${id}"]`);
+    await expect(doc('title')).toBeVisible({ timeout: 60_000 });
+    await doc('title').locator('[data-widget="start"]').click();
+    await expect.poll(async () => (await observe()).shell?.screen ?? null, { timeout: 15_000 }).toBe('playing');
+    await game.mouse.click(400, 400);
+    await game.keyboard.down('d');
+    try {
+      await expect.poll(async () => (await observe()).counters?.['items'] ?? 0, { timeout: 20_000 }).toBe(1);
+    } finally {
+      await game.keyboard.up('d');
+    }
+    await game.keyboard.press('Escape');
+    await expect(doc('paused')).toBeVisible({ timeout: 10_000 });
+    await doc('paused').locator('[data-widget="save"]').click();
+    await expect(doc('paused').locator('[data-widget="note"]')).toContainText('Saved to slot 1', { timeout: 15_000 });
+    // A new page load: Continue loads the newest slot — the item is still collected and counted.
+    await game.reload();
+    await expect(doc('title')).toBeVisible({ timeout: 60_000 });
+    await doc('title').locator('[data-widget="continue"]').click();
+    await expect.poll(async () => (await observe()).counters?.['items'] ?? 0, { timeout: 20_000 }).toBe(1);
+    expect((await observe()).hidden ?? []).toContain(tokenA);
+    expect((await observe()).shell?.screen).toBe('playing');
+    expect(errors).toEqual([]);
+  } finally {
+    await game.close();
+    await site.close();
+  }
+});
+
+function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
+  const server = createServer((req, res) => {
+    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
+    const file = join(root, rel);
+    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
+    createReadStream(file).pipe(res);
+  });
+  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
+}

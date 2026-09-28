@@ -1,10 +1,12 @@
 /**
  * Phase 20.2: effects at runtime.
  *
- * - A burst effect named by a pickup's "collected" hook (`pickup.effect`):
- *   walking the player over the coin plays it where the coin was — magenta
- *   particles appear in Play (the preview iframe) and in the static export
- *   (backend stopped), none before the coin is collected. Per renderer:
+ * - A burst effect started by a signal: a collectible sends its `onCollect`
+ *   signal, an effect component where it lies starts on that signal —
+ *   walking the character over it plays the burst there: magenta particles
+ *   appear in Play (the preview iframe) and in the static export (backend
+ *   stopped), none before it is collected (phase 24.7: this was the deleted
+ *   pickup's own effect hook). Per renderer:
  *   `auto` in `default` (the CPU executor on WebGL 2, the compute one where a GPU gives WebGPU), `webgpu` in `webgpu`
  *   (the WebGPU compute executor); the canvas reports the executor.
  * - The Scene view plays the selected object's effect in edit mode (Gizmos →
@@ -17,7 +19,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addTitleShell, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
@@ -117,37 +119,40 @@ const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.scre
 
 const VARIANTS: readonly RendererVariant[] = ['auto', 'webgpu'];
 
-for (const variant of VARIANTS) test(`a burst effect on a pickup's collected hook shows particles in Play and the export (${variant})`, async ({ page }) => {
+for (const variant of VARIANTS) test(`a burst effect started by a collectible's signal shows particles in Play and the export (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);
   test.setTimeout(420_000);
-  be = await startBackend('effects-runtime-e2e', 'beacon-reach');
+  be = await startBackend('effects-runtime-e2e', 'starter');
   // The effect executor follows the backend (on a GPU host `auto` takes WebGPU: the compute executor).
   const executor = backendOf(variant) === 'webgpu' ? 'webgpu' : 'cpu';
-  // The template's first stretch (its camera keeps within the level): a coin just right of the start that plays the
-  // burst when collected, and a wall before the first hazard so the player stays near the burst however slow the frames are.
+  // The starter's fixed camera frames x 4 (its step removed): a collectible just right of the start that sends "burst"
+  // when collected, the burst's effect component where it lies (started by that signal), and a wall so the character
+  // stays near the burst however slow the frames are; a title that waits for the start and a HUD with the counter.
   await cmd('setEffect', { effect: burstEffect('fx-burst', false) });
-  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Fx coin', transform: { position: [4.5, 0.8, 0] }, box: { size: [0.4, 0.4, 0.1], material: { color: '#f2c230' } }, components: { pickup: { kind: 'coin', value: 1, effect: 'fx-burst' } } });
-  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Fx wall', transform: { position: [8.5, 1.5, 0] }, box: { size: [0.4, 3, 1], material: { color: '#404850' } }, components: { collider: { shape: { type: 'box', hx: 0.2, hy: 1.5 } } } });
-  await cmd('setFlow', { flow: { levels: [{ id: 'fx-1', name: 'Effect level', scenes: ['scene-main'], spawnId: 'spawn-0002' }] } });
+  await cmd('deleteEntity', { entityId: 'box-0002' });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Fx item', transform: { position: [4.5, 0.8, 0] }, box: { size: [0.4, 0.4, 0.1], material: { color: '#f2c230' } }, components: { collectible: { counter: 'items', onCollect: 'burst', size: [0.8, 2, 0.8] } } });
+  const burst = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Fx burst', transform: { position: [4.5, 0.8, 0] } }))['createdId']);
+  await cmd('setComponent', { entityId: burst, component: 'effect', value: { effectId: 'fx-burst', playOnStart: false, signal: 'burst' } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Fx wall', transform: { position: [6.5, 1.5, 0] }, box: { size: [0.4, 3, 1], material: { color: '#404850' } }, components: { collider: { shape: { type: 'box', hx: 0.2, hy: 1.5 } } } });
+  await addTitleShell(be, 'Items {$flow.counters.items}');
 
-  /** Start a new game from the title (keyboard), walk right until the coin counts, and return the frame after it. */
+  /** Start from the title (keyboard), walk right until the item counts, and return the frame after it. */
   const playThrough = async (keys: Page, surface: Page | FrameLocator, target: Locator | Page, canvas: Locator, click: () => Promise<void>, hud: Locator): Promise<{ before: number; after: number }> => {
-    const flow = surface.locator('.tl-flow');
-    await expect(flow).toHaveAttribute('data-screen', 'title', { timeout: 60_000 });
+    await expect(surface.locator('[data-tl-ui-doc="start-title"]')).toBeVisible({ timeout: 60_000 });
     await click();
-    await keys.keyboard.press('Enter'); // New game
-    await expect(flow).toHaveAttribute('data-screen', 'playing', { timeout: 30_000 });
+    await keys.keyboard.press('Enter'); // Start (the title's focused button)
+    await expect(surface.locator('[data-tl-ui-doc="start-title"]')).toHaveCount(0, { timeout: 30_000 });
     await expect(canvas).toHaveAttribute('data-tl-effects', executor, { timeout: 30_000 });
     await expect(canvas).toHaveAttribute('data-tl-effects-playing', '0');
     await keys.waitForTimeout(800);
     const before = count(await shot(target), magenta);
     await keys.keyboard.down('d');
     try {
-      await expect(hud).toContainText('Coins 1', { timeout: 60_000 });
+      await expect(hud).toContainText('Items 1', { timeout: 60_000 });
     } finally {
       await keys.keyboard.up('d');
     }
-    // The hook played the burst where the coin was.
+    // The signal started the burst where the item was.
     await expect(canvas).toHaveAttribute('data-tl-effects-playing', '1', { timeout: 30_000 });
     await expect(canvas).toHaveAttribute('data-tl-effects-particles', '500', { timeout: 30_000 });
     let after = 0;
@@ -167,7 +172,7 @@ for (const variant of VARIANTS) test(`a burst effect on a pickup's collected hoo
   const play = await playThrough(page, frame, iframe, playCanvas, async () => {
     const box = await iframe.boundingBox();
     await page.mouse.click(box!.x + 20, box!.y + box!.height - 20);
-  }, frame.locator('.tl-game-host-hud'));
+  }, frame.locator('[data-tl-ui-doc="start-hud"] [data-widget="line"]'));
   console.log(`[effects-runtime] ${variant} play: magenta before ${play.before}, after ${play.after}`);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();
@@ -188,7 +193,7 @@ for (const variant of VARIANTS) test(`a burst effect on a pickup's collected hoo
     await exported.goto(`${site.url}${exportQueryFor(variant)}`);
     const canvas = exported.locator('canvas').first();
     await expectRendererBackend(canvas, variant);
-    const ex = await playThrough(exported, exported, exported, canvas, () => exported.mouse.click(20, 1000), exported.locator('.tl-game-host-hud'));
+    const ex = await playThrough(exported, exported, exported, canvas, () => exported.mouse.click(20, 1000), exported.locator('[data-tl-ui-doc="start-hud"] [data-widget="line"]'));
     console.log(`[effects-runtime] ${variant} export: magenta before ${ex.before}, after ${ex.after}`);
     expect(errors).toEqual([]);
   } finally {

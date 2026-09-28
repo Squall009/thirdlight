@@ -9,14 +9,21 @@ import type { SceneV3 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
 import type { CommandState, ContentDocument } from './index';
-import { m3ContractJson } from './test-fixtures';
+import { m2EnvelopeV4, m3NeutralJson } from './test-fixtures';
 
 interface EnvelopeFixture {
   projectId: string;
   scene: SceneV3;
   content: ContentDocument;
 }
-const BEFORE = m3ContractJson<EnvelopeFixture>('commands/scenario.before.json');
+const BEFORE = m3NeutralJson<EnvelopeFixture>('commands/scenario.before.json');
+/**
+ * A scene whose entities reference each other: the `Station` group
+ * (`group-0001`) holds a box and two models; the `Lantern` model
+ * (`model-0001`) carries a behavior whose `target` (an `entityRef`) names the
+ * station.
+ */
+const STATION = m2EnvelopeV4('contracts/commands/prefab-scenario.after.json');
 type State = CommandState<SceneV3>;
 type Ent = { id: string; name?: string; parentId?: string; components: Record<string, any> };
 
@@ -41,42 +48,65 @@ const fresh = (): State => createCommandState(structuredClone(BEFORE.scene), str
 const ents = (s: State) => s.scene.entities as unknown as Ent[];
 const T = (x: number) => ({ position: [x, 1, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 
-/** A folder with a checkpoint zone, its safe spawn, and a box parented to the zone. */
+/** A root folder `room` holding the Station group (moved in, world position kept). */
 function withGroup(): State {
-  let s = fresh();
+  let s = createCommandState(structuredClone(STATION.scene), structuredClone(STATION.content)) as unknown as State;
   s = ok(s, 'createEntity', { kind: 'folder', name: 'room' });
   const folder = ents(s).at(-1)!.id;
-  s = ok(s, 'createEntity', { kind: 'group', name: 'safe', parentId: folder, transform: { position: [10, 1, 0] }, components: { playerSpawn: {} } });
-  const spawn = ents(s).at(-1)!.id;
-  s = ok(s, 'createEntity', {
-    kind: 'group',
-    name: 'cp',
-    parentId: folder,
-    transform: { position: [11, 1, 0] },
-    components: { gameZone: { role: 'checkpoint', size: [1, 2], safeSpawnId: spawn, activation: { emissive: '#ffffff', emissiveIntensity: 1, cueAssetId: null } } },
-  });
+  s = ok(s, 'moveEntities', { entityIds: ['group-0001'], parentId: folder });
   return s;
+}
+/** The folder and its whole subtree, in document order. */
+function roomValues(s: State): Ent[] {
+  const room = ents(s).find((e) => e.name === 'room')!;
+  const inside = new Set([room.id]);
+  for (const e of ents(s)) if (e.parentId !== undefined && inside.has(e.parentId)) inside.add(e.id);
+  return ents(s).filter((e) => inside.has(e.id));
 }
 
 describe('pasteEntities', () => {
-  it('copies a folder subtree with new ids, remaps the safe spawn inside the copy, offsets world positions; one undo', () => {
-    // (a v3 scene holds one checkpoint: paste after deleting the original room)
+  it('phase 24.7: remaps a trigger\'s scene-transition spawn inside the copy (the deleted exit zone\'s rule)', () => {
+    let s = createCommandState(structuredClone(STATION.scene), structuredClone(STATION.content)) as unknown as State;
+    s = ok(s, 'createEntity', { kind: 'folder', name: 'room' });
+    const folder = ents(s).at(-1)!.id;
+    s = ok(s, 'createEntity', { kind: 'group', name: 'Arrival', parentId: folder, transform: T(40), components: { playerSpawn: {} } });
+    const spawn = ents(s).at(-1)!.id;
+    s = ok(s, 'createEntity', { kind: 'group', name: 'Door', parentId: folder, transform: T(41), components: { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: s.scene.sceneId, spawn } } } });
+    const values = roomValues(s);
+    const r = run(s, 'pasteEntities', { entities: values, offset: [10, 0, 0] });
+    expect(r.result.ok, JSON.stringify(r.result)).toBe(true);
+    const [, arrival, door] = ents(r.state).slice(-3) as [Ent, Ent, Ent];
+    expect(arrival.name).toBe('Arrival');
+    expect(arrival.id).not.toBe(spawn);
+    expect(door.components['trigger'].sceneTransition).toEqual({ scene: s.scene.sceneId, spawn: arrival.id });
+  });
+
+  it('copies a folder subtree with new ids, remaps an internal entity reference, offsets world positions; one undo', () => {
     const g = withGroup();
-    const values = ents(g).filter((e) => ['room', 'safe', 'cp'].includes(e.name ?? ''));
-    // Deleting the room takes its checkpoint and that checkpoint's safe spawn together.
-    const s0 = ok(g, 'deleteEntity', { entityId: values[0]!.id });
-    const n0 = ents(s0).length;
-    const r = run(s0, 'pasteEntities', { entities: values, offset: [5, 0, 0] });
+    const values = roomValues(g);
+    expect(values.map((e) => e.id).slice(1)).toEqual(['group-0001', 'box-0001', 'model-0001', 'model-0002']);
+    const station = values[1]!;
+    const n0 = ents(g).length;
+    const r = run(g, 'pasteEntities', { entities: values, offset: [5, 0, 0] });
     expect(r.result.ok, JSON.stringify(r.result)).toBe(true);
     const all = ents(r.state);
-    expect(all.length).toBe(n0 + 3);
-    const [folder, safe, cp] = all.slice(-3) as [Ent, Ent, Ent];
+    expect(all.length).toBe(n0 + 5);
+    const [folder, group, box, lantern, ramp] = all.slice(-5) as [Ent, Ent, Ent, Ent, Ent];
     expect(folder.components['folder']).toEqual({});
     expect(folder.parentId).toBeUndefined();
-    expect(safe.parentId).toBe(folder.id);
-    expect(cp.parentId).toBe(folder.id);
-    expect(cp.components['gameZone'].safeSpawnId).toBe(safe.id);
-    expect(safe.components['transform'].position).toEqual([15, 1, 0]);
+    expect(new Set([folder.id, group.id, box.id, lantern.id, ramp.id]).size).toBe(5);
+    for (const e of [group, box, lantern, ramp]) expect(values.some((v) => v.id === e.id)).toBe(false);
+    expect(group.parentId).toBe(folder.id);
+    expect(box.parentId).toBe(group.id);
+    expect(lantern.parentId).toBe(group.id);
+    expect(ramp.parentId).toBe(group.id);
+    // The behavior's entityRef named the copied station: it now names the copy.
+    expect(lantern.components['behavior'].values.target).toBe(group.id);
+    // The group sits in world space (its folder has no transform): offset;
+    // its children are local to it: unchanged.
+    const p = station.components['transform'].position as number[];
+    expect(group.components['transform'].position).toEqual([p[0]! + 5, p[1], p[2]]);
+    expect(box.components['transform'].position).toEqual(values[2]!.components['transform'].position);
     expect(r.result.createdId).toBe(folder.id);
     expect(r.result.change.type).toBe('pasteEntities');
 
@@ -88,21 +118,20 @@ describe('pasteEntities', () => {
 
   it('keeps a reference that points outside the copy', () => {
     const g = withGroup();
-    const cp = ents(g).find((e) => e.name === 'cp')!;
-    const s0 = ok(g, 'deleteEntity', { entityId: cp.id });
-    const r = run(s0, 'pasteEntities', { entities: [cp], parentId: null, offset: [1, 0, 0] });
+    const lantern = ents(g).find((e) => e.id === 'model-0001')!;
+    const r = run(g, 'pasteEntities', { entities: [lantern], parentId: null, offset: [1, 0, 0] });
     expect(r.result.ok, JSON.stringify(r.result)).toBe(true);
     const copy = ents(r.state).at(-1)!;
-    expect(copy.components['gameZone'].safeSpawnId).toBe(ents(s0).find((e) => e.name === 'safe')!.id);
+    expect(copy.id).not.toBe('model-0001');
+    expect(copy.components['behavior'].values.target).toBe('group-0001');
     expect(copy.parentId).toBeUndefined();
   });
 
   it('keeps the original parent when parentId is absent, uses the given one otherwise', () => {
     const s0 = withGroup();
-    const folder = ents(s0).find((e) => e.name === 'room')!;
-    const safe = ents(s0).find((e) => e.name === 'safe')!;
-    expect(ents(ok(s0, 'pasteEntities', { entities: [safe] })).at(-1)!.parentId).toBe(folder.id);
-    expect(ents(ok(s0, 'pasteEntities', { entities: [safe], parentId: null })).at(-1)!.parentId).toBeUndefined();
+    const box = ents(s0).find((e) => e.id === 'box-0001')!;
+    expect(ents(ok(s0, 'pasteEntities', { entities: [box] })).at(-1)!.parentId).toBe('group-0001');
+    expect(ents(ok(s0, 'pasteEntities', { entities: [box], parentId: null })).at(-1)!.parentId).toBeUndefined();
   });
 
   it('refuses a camera, a missing outside parent, duplicate ids and bad args (nothing changes)', () => {

@@ -1,13 +1,13 @@
 /**
  * Phase 9.9 (wrap-up): a script's overlap queries and show/hide, through the
  * real game host and Rapier — `ctx.physics.overlapBox/overlapCircle` find the
- * level's colliders (never the player), share the 32-per-step budget with
+ * level's colliders (never the character), share the 32-per-step budget with
  * rays, and `ctx.game.setVisible` hides an entity until the next run.
  *
  * Phase 22.0/22.3: in both threading modes — in the simulation worker the
  * queries and their budget are unchanged. The script keeps what it saw in
- * `ctx.save` (the test reads the run's save state; a worker's script cannot
- * write into the test's variables).
+ * `ctx.save` (the test reads it from a project save's storage section; a
+ * worker's script cannot write into the test's variables).
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -49,11 +49,10 @@ describe.each(MODES)('script queries (real host, Rapier; threading: %s)', (mode)
   it('overlapBox/overlapCircle find colliders, share the per-step budget; setVisible hides until a new run', async () => {
     const crate = (id: string, x: number) => ({ id, components: { transform: at(x, 0.5), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } });
     const entities: Any[] = [
-      { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+      { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
       { id: 'player-0001', components: { transform: at(0, 0.91), controller: {}, behavior: { behaviorId: 'probe', values: { speed: 1 } } } },
       { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
       { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5 } } } },
-      { id: 'goal-0001', components: { transform: at(28, 1), gameZone: { role: 'goal', size: [1, 2] } } },
       crate('crate-0001', 3),
       crate('crate-0002', 6),
     ];
@@ -64,8 +63,8 @@ describe.each(MODES)('script queries (real host, Rapier; threading: %s)', (mode)
         projectId: 'q',
         revision: 1,
         scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-        game: { configVersion: 2, title: 'Queries', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       },
+      storage: true,
       settings: SETTINGS,
       physics: {
         character: { x: 0, y: 0.91 },
@@ -85,16 +84,16 @@ describe.each(MODES)('script queries (real host, Rapier; threading: %s)', (mode)
       }
     };
     await tick(40);
-    const seen = rt.runState().values;
+    const seen: Any = await h.storage();
     expect(seen['box']).toEqual(['crate-0001']);
     expect(seen['wide']).toEqual(['crate-0001', 'crate-0002']);
     expect(seen['circle']).toEqual(['crate-0002']);
-    expect(seen['player']).toEqual([]); // the player's capsule is not a level collider
+    expect(seen['player']).toEqual([]); // the character's capsule is not a level collider
     // 32 queries per step (rays and overlaps together), then empty.
     expect(seen['budget']).toEqual([...Array(32).fill(1), 0, 0]);
     expect(rt.hiddenEntities().has('crate-0002')).toBe(true);
-    // A new run shows it again.
-    expect(rt.gameCommand('start').ok).toBe(true);
+    // A new run (the host's replay: the engine restart) shows it again.
+    expect(h.host.control('replay').ok).toBe(true);
     await tick(5);
     expect(rt.hiddenEntities().has('crate-0002')).toBe(false);
   });

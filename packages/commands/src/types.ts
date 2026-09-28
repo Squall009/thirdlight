@@ -30,7 +30,6 @@ import type {
   BehaviorTrust,
   ContentCatalog,
   EntityV3,
-  GameConfig,
   TagDefinition,
   SceneIndexEntry,
   ImportRecipe,
@@ -49,7 +48,6 @@ import type {
   EnvironmentConfig,
   LightingBake,
   AnimatorController,
-  GameFlow,
   InputConfig,
   MaterialDef,
   EffectDef,
@@ -92,13 +90,12 @@ export type ContentMutationOp =
 export type PrefabMutationOp = 'createPrefab' | 'instantiatePrefab';
 
 /**
- * The v3 game/presentation mutation ops (commands.md §2/§8.13–§8.14, packet
- * 45): `applySurfacePreset` copies a preset row; `setGameConfig` is the sole
- * writer of `content.game`.
+ * The v3 presentation mutation ops (commands.md §2/§8.13, packet 45):
+ * `applySurfacePreset` copies a preset row. Phase 24.7: `setGameConfig` and
+ * `setFlow` were deleted with the game block and the level flow.
  */
 export type V3MutationOp =
   | 'applySurfacePreset'
-  | 'setGameConfig'
   | 'updateEntity'
   | 'moveEntities'
   | 'setTags'
@@ -111,7 +108,6 @@ export type V3MutationOp =
   | 'setAnimator'
   | 'deleteAnimator'
   | 'setInput'
-  | 'setFlow'
   // phase 23.3: named collision layers (3D physics)
   | 'setCollisionLayers'
   // phase 23.19: the project save schema
@@ -298,9 +294,7 @@ export type ChangedField = 'position' | 'rotation' | 'scale';
  * `playerSpawn` is a field-less marker; the rest are partial-replaceable.
  */
 export type V3OwnedComponent =
-  | 'gameZone'
   | 'playerSpawn'
-  | 'cameraFollow'
   | 'light'
   | 'surface'
   | 'modelAnimation'
@@ -321,8 +315,6 @@ export type V3OwnedComponent =
   | 'trigger'
   | 'switch'
   | 'health'
-  | 'pickup'
-  | 'enemy'
   | 'audioSource'
   | 'faceMovement'
   /** Phase 18.0, v4 scenes only: overrides of graph-material parameters. */
@@ -351,7 +343,7 @@ export type OwnedComponent =
   | V3OwnedComponent;
 
 /** The three built-in surface-preset names (project-model §23.3.5). */
-export type SurfacePresetName = 'matte-ground' | 'hazard' | 'beacon';
+export type SurfacePresetName = 'matte-ground' | 'signal-red' | 'emissive-accent';
 
 /**
  * The command layer's asset-version value: the v2 record with the v3
@@ -388,7 +380,8 @@ export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
  * typed end to end without changing the accepted v2 catalog shape.
  */
 export interface ContentDocument extends ContentCatalog {
-  game?: GameConfig | null;
+  /** Phase 24.7: the deleted game block (always null; the key goes with the 24.8 format bump). */
+  game?: null;
   /** Phase 12 (b): the project tag registry (ascending bit; absent = none). */
   tags?: TagDefinition[];
 }
@@ -674,12 +667,6 @@ export interface SetGraphInverse {
   restore: GraphDocument | null;
 }
 
-/** Phase 9.10: `setFlow` change data (null = no flow). */
-export interface SetFlowChange {
-  type: 'setFlow';
-  previous: GameFlow | null;
-  next: GameFlow | null;
-}
 
 /** Phase 23.3: `setCollisionLayers` change data (the whole list; empty = only "default"). */
 export interface SetCollisionLayersChange {
@@ -794,15 +781,6 @@ export interface ApplySurfacePresetChange {
   changedFields: readonly string[];
 }
 
-/** `setGameConfig` change data (commands.md §5.3/§8.14, authoring §A4.2). */
-export interface SetGameConfigChange {
-  type: 'setGameConfig';
-  /** Full `GameConfig` values or `null`; `null` = the block is absent. */
-  previous: GameConfig | null;
-  next: GameConfig | null;
-  /** Replaced top-level names in canonical order. */
-  changedFields: readonly string[];
-}
 
 /** `setSettings` change data (commands.md §5.3/§8.11). */
 export interface SetSettingsChange {
@@ -962,7 +940,6 @@ export type ChangeData =
   | RemovePrefabChange
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
-  | SetGameConfigChange
   | UpdateEntityChange
   | MoveEntitiesChange
   | SetTagsChange
@@ -975,7 +952,6 @@ export type ChangeData =
   | SetInputChange
   | SetCollisionLayersChange
   | SetSaveSchemaChange
-  | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
   | SetGraphChange
@@ -1008,7 +984,6 @@ export type ForwardChange =
   | CreatePrefabChange
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
-  | SetGameConfigChange
   | UpdateEntityChange
   | MoveEntitiesChange
   | SetTagsChange
@@ -1021,7 +996,6 @@ export type ForwardChange =
   | SetInputChange
   | SetCollisionLayersChange
   | SetSaveSchemaChange
-  | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
   | SetGraphChange
@@ -1100,11 +1074,6 @@ export interface SetComponentInverse {
   restore: unknown | null;
 }
 
-/** `setGameConfig` inverse: restore the full previous block (or remove it). */
-export interface SetGameConfigInverse {
-  kind: 'setGameConfig';
-  restore: GameConfig | null;
-}
 
 /** `setSettings` inverse: restore the full previous settings map. */
 export interface SetSettingsInverse {
@@ -1161,11 +1130,6 @@ export interface SetAnimatorsInverse {
   restore: AnimatorController[];
 }
 
-/** Undo of `setFlow`: restore the previous flow (null = none). */
-export interface SetFlowInverse {
-  kind: 'setFlow';
-  restore: GameFlow | null;
-}
 
 /** Phase 23.3: undo of `setCollisionLayers`: restore the previous list. */
 export interface SetCollisionLayersInverse {
@@ -1240,7 +1204,6 @@ export type InverseSpec =
   | SetInputInverse
   | SetCollisionLayersInverse
   | SetSaveSchemaInverse
-  | SetFlowInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse
   | SetSceneIndexInverse
@@ -1257,7 +1220,7 @@ export type InverseSpec =
   | SetSettingsInverse
   | AcknowledgeBehaviorTrustInverse
   | RemovePrefabInverse
-  | SetGameConfigInverse;
+;
 
 // ---- history model (§9.1) --------------------------------------------------------
 
@@ -1421,8 +1384,8 @@ export interface CreateEntityArgs {
   model?: ModelArgs;
   /**
    * The add-capable components created in the same transaction (commands.md
-   * §3.1/authoring §A3.1): `collider`, `controller`, `gameZone`, `playerSpawn`,
-   * `cameraFollow`, `light`, `surface`, `modelAnimation`; never `null`.
+   * §3.1/authoring §A3.1): `collider`, `controller`, `playerSpawn`, `light`,
+   * `surface`, `modelAnimation`; never `null`.
    */
   components?: Record<string, unknown>;
   /** Copies a built-in preset row onto `components.surface` (authoring §A3.1). */
@@ -1597,15 +1560,6 @@ export interface SetComponentArgs {
 export interface ApplySurfacePresetArgs {
   entityId: string;
   preset: SurfacePresetName;
-}
-
-/**
- * `setGameConfig` args (commands.md §3.1.10/§8.14): `null` removes the block;
- * a complete object creates it when absent; a non-empty partial object of its
- * top-level fields edits it.
- */
-export interface SetGameConfigArgs {
-  game: GameConfig | null | Record<string, unknown>;
 }
 
 /** `setSettings` args (commands.md §3.1.7/§8.11). */
@@ -1823,8 +1777,7 @@ export type MutationArgs =
   | AcknowledgeBehaviorTrustArgs
   | CreatePrefabArgs
   | InstantiatePrefabArgs
-  | ApplySurfacePresetArgs
-  | SetGameConfigArgs;
+  | ApplySurfacePresetArgs;
 
 /**
  * The M1 mutation request envelope (§3). This type documents the wire
@@ -1965,17 +1918,13 @@ export interface ContentCounts {
   settingsKeys: number;
   /** v3 only: `assets` records with `kind === "audio"` (authoring §A6). */
   audioAssets?: number;
-  /** v3 only: `true` iff `content.game !== null`. */
-  game?: boolean;
-  /** v3 only: entities carrying `components.gameZone`. */
-  zones?: number;
   /** v3 only: entities carrying `components.playerSpawn`. */
   spawns?: number;
 }
 
-/** `queryGameConfig` result (commands.md §3.1.11/§A6): the block or `null`. */
+/** `queryGameConfig` result (commands.md §3.1.11/§A6; phase 24.7: the tags, no game block). */
 export type GameConfigQueryResult =
-  | { ok: true; projectId: string; revision: number; game: GameConfig | null; tags: TagDefinition[] }
+  | { ok: true; projectId: string; revision: number; tags: TagDefinition[] }
   | { ok: false; op?: string; projectId?: string; error: CommandError };
 
 /** One `queryEntities` page (commands.md §4/§5.6): filtered, document order. */

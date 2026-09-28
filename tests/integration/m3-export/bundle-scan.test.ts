@@ -213,12 +213,11 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     expect(text).not.toContain('fetch("https');
   }, 120_000);
 
-  /** The real closure of a synthetic project (`strip`: no controller and no game block — the starter's shape). */
+  /** The real closure of a synthetic project (`strip`: no controller — the starter's shape). */
   async function closureOf(projectId: string, strip: boolean) {
     const { scene, content, blobs } = syntheticV3();
     if (strip) {
       for (const e of (scene as { entities: { components: Record<string, unknown> }[] }).entities) delete e.components['controller'];
-      (content as { game: unknown }).game = null;
     }
     const closure = await buildContentClosureM3({
       service: fakeService({ blobs }) as unknown as WorkspaceService,
@@ -243,34 +242,31 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     return [page, worker].map((b) => ({ inputs: Object.keys(b.metafile.inputs), text: new TextDecoder().decode(b.bytes) }));
   }
 
-  it('phase 24.3: a project with the controller and the game block links exactly the modules its manifest names (game-host + the platformer specs), page and worker alike', async () => {
+  it('phase 24.3: a project with the controller links exactly the modules its manifest names (game-host + the controller spec), page and worker alike', async () => {
     const closure = await closureOf('demo-0006-parity', false);
-    expect(closure.moduleIds).toEqual(expect.arrayContaining(['thirdlight.platformer:controller', 'thirdlight.platformer-game:session', 'thirdlight.platformer-game:camera']));
+    expect(closure.moduleIds).toEqual(expect.arrayContaining(['thirdlight.platformer:controller']));
     for (const b of await bundlesOf(closure)) {
       // The single shared production composition (the SAME host the preview wraps).
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
       expect(b.inputs.some((p) => p.includes('packages/platformer/src/'))).toBe(true);
-      expect(b.inputs.some((p) => p.includes('packages/platformer-game/src/'))).toBe(true);
-      expect(b.text).toContain('createGameSessionModule');
+      expect(b.text).toContain('controllerStepTuning');
       // No editor/exporter-internal/behavior source in the runtime bundle.
       expect(b.inputs.some((p) => p.includes('packages/editor/src/'))).toBe(false);
       expect(b.inputs.some((p) => p.includes('packages/backend/src/'))).toBe(false);
     }
   }, 180_000);
 
-  it('phase 24.3: a project without platformer content (no controller, no game block) ships no platformer code', async () => {
+  it('phase 24.3: a project without platformer content (no controller) ships no platformer code', async () => {
     const closure = await closureOf('demo-0006-plain', true);
     expect(closure.moduleIds.some((id) => id.includes('platformer'))).toBe(false);
     for (const b of await bundlesOf(closure)) {
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
       expect(b.inputs.some((p) => p.includes('packages/platformer/src/'))).toBe(false);
-      expect(b.inputs.some((p) => p.includes('packages/platformer-game/src/'))).toBe(false);
-      expect(b.text).not.toContain('createGameSessionModule');
       expect(b.text).not.toContain('controllerStepTuning');
     }
     // The graph check refuses platformer code the manifest does not name.
-    const withGame = await closureOf('demo-0006-parity', false);
-    const page = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: withGame });
+    const withController = await closureOf('demo-0006-parity', false);
+    const page = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: withController });
     if (!page.ok) throw new Error('bundle build failed');
     const report = checkBundleGraphM3(page.metafile, BOOTSTRAP, closure.moduleIds);
     expect(report.ok).toBe(false);

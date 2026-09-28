@@ -457,3 +457,57 @@ keeps the gate green.
   camera made its world label move). D38's fix is on the modal backdrop's
   `pointerdown` (a `mousedown` handler on the document root broke the
   dialogue box's clicks in Play).
+- 2026-09-28 (24.7): the level flow (`content.flow`: levels, lives, score,
+  menus, per-level looks, flow saves and best scores) is deleted entirely,
+  not slimmed: the game shell (24.4j) is its generic replacement. Lost with
+  it and not re-offered: music per screen, per-level ambience, menu sounds,
+  the title pan, per-level looks, the logo, flow default volumes, flow saves
+  and best scores, and the old key/pad settings migration. `content.flow`
+  and a non-null `content.game` are refused with "removed in phase 24"; the
+  `game` key stays (always null) and the manifest keeps `game: null` and
+  its all-null cue slots until 24.8 (format bump).
+- 2026-09-28 (24.7): deleted from the model, commands, descriptors, editor
+  and MCP: `gameZone` and `cameraFollow` (v3 and v4; the `track` camera rig
+  replaces the latter), `pickup` (the `collectible` replaces it), `enemy`
+  (with the chase fields; `patrol` + `hitbox` + `health` replace it), the
+  player-only knockback, i-frames and hit bounce (`health` is `{max, start}`
+  on any object), `RunSaveState`, the protocol `legacy` block and its run
+  states/events, the play-start `levelId`/flow save, `game-host` flow,
+  score, save and classic HUD, the checkpoint glow and the fade. The
+  `beacon`/`hazard` presets are renamed `emissive-accent`/`signal-red`
+  without an alias (only Beacon Reach used them; 24.8 adds the format
+  alias). `BLOCK_DEFAULTS` keeps `maxPush` only.
+- 2026-09-28 (24.7): the runtime has one mode (every game plays as a
+  scene; the controller entity is the character). Switches run on the 2D
+  plane without the session, `ctx.lifecycle.respawn` works in 2D (at the
+  next step boundary), drop-through and settle times come from
+  `ENGINE_TIMING_DEFAULTS` (0.125 s, 0.1 s: the old game-block defaults, so
+  no replay moved), and a spawn's `facing` left/right maps to a yaw of
+  −90°/+90°. Found and fixed: D40 (a second shell or event-cue edit was
+  refused as a conflict), D41 (a face-movement model turned on a
+  placement). The host observation carries `counters`/`health` (the export
+  reported neither); "Clear Play save" clears the project save slots.
+- 2026-09-28 (24.7): tests. Deleted (subject was the genre layer):
+  beacon-reach, score, flow, pad-menus, saves, level-look, m15-hud-prompts
+  e2e; m3-sample/m3-shell/m3-gameplay/m3-respawn/m3-camera, m4-render, the
+  m3 contract replay, m9-flow flow/save, the m4 baseline evaluation. Ported
+  first: blocks (collectible, plate/door, one-way shelf, lift on the
+  starter), effects-runtime, rebind (pad button), shell (export save and
+  Continue, Clear Play save), `shell-scenes` (new: the scene list and the
+  kept music volume in Play and the export), inspector (event sounds in
+  place of the game block), handles, scenes, shader-parity (`look` case).
+  The m2 motor fixtures (`fixtures/m2/contracts/platformer`) stay: they are
+  the controller's contract, not a game's.
+- 2026-09-28 (24.7): re-recorded: `fixtures/m3/contracts` (3 valid and 10
+  invalid envelopes without the game layer, 11 invalid game/zone/cue cases
+  deleted; `tools/remove-game-layer.mts`), `fixtures/m3/storage` demo
+  scene, `fixtures/m3/delivery` (manifest, digests, pinned run, deps, fetch
+  graph and wire files; buildId `41b5a60b…` → `78f5ca46…`;
+  `tools/derive-manifest.mts`; the wire observation was written by hand and
+  checked by the validator), `tests/integration/m15-tuning/replay-nondefault.json`
+  (the old one recorded session state; bit-identical on two runs), and
+  `tests/perf/baseline.json` (generator 3: the benchmark's camera is a
+  `track` rig instead of the session camera and goal; against the 21.6
+  baseline the medium `command.applyFrameP50` and the sims' heap read
+  higher, but 24.6's tree measures the same — its apply→frame read 48 and
+  370 ms in two runs — so nothing there is 24.7's).

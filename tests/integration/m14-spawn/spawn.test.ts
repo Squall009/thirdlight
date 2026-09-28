@@ -3,10 +3,11 @@
  * (the real game host, the platformer controller, Rapier physics) with
  * neutral prefabs:
  *
- * - a spawned crate blocks the walking player; destroying it frees its
- *   collider and the player walks on;
- * - a spawned coin is collected and counted;
- * - a new run removes every spawned entity (and its collider).
+ * - a spawned crate blocks the walking character; destroying it frees its
+ *   collider and the character walks on;
+ * - a spawned collectible is collected and counted;
+ * - a new run (the host's replay, the engine restart) removes every spawned
+ *   entity (and its collider).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -24,7 +25,7 @@ const SETTINGS = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_spee
 
 const PREFABS = [
   { prefabId: 'crate', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0001', components: { transform: at(0, 0), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } }] },
-  { prefabId: 'coin', displayName: 'Coin', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, pickup: { kind: 'coin', value: 1, size: [0.6, 0.6] } } }] },
+  { prefabId: 'token', displayName: 'Token', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'items', size: [0.6, 0.6] } } }] },
 ];
 
 class FakeNode {
@@ -42,11 +43,10 @@ class FakeNode {
 /** A neutral level (a long floor, top at y = 0), a script on a marker box that runs `script` every step. */
 async function level(script: (ctx: Any) => void) {
   const entities: Any[] = [
-    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
     { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [60, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 30, hy: 0.5 } } } },
-    { id: 'goal-0001', components: { transform: at(38, 1), gameZone: { role: 'goal', size: [1, 2] } } },
     { id: 'box-director', components: { transform: at(0, -5), box: { size: [0.2, 0.2, 0.2], material: { color: '#ffffff' } }, behavior: { behaviorId: 'director', values: {} } } },
   ];
   const statics = entities
@@ -78,7 +78,6 @@ async function level(script: (ctx: Any) => void) {
       projectId: 'spawns',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-      game: { configVersion: 2, title: 'Spawns', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       prefabs: PREFABS,
     },
     settings: SETTINGS,
@@ -110,16 +109,14 @@ async function level(script: (ctx: Any) => void) {
     }
   };
   tick();
-  if (!rt.gameCommand('start').ok) throw new Error('start refused');
   const x = (): number => rt.getInterpolatedState().state.transforms.find((t: Any) => t.id === 'player-0001').position[0];
   const probe = (p: { x: number; y: number }, half: { x: number; y: number }): string[] => (physics.port as Any).overlap({ type: 'box', hx: half.x, hy: half.y }, p);
-  return { rt, tick, x, probe };
+  return { host, rt, tick, x, probe };
 }
 
 describe('ctx.spawn / ctx.destroy (real host, platformer, Rapier)', () => {
-  it('a spawned crate blocks the player; destroying it frees its collider and the player walks on', async () => {
-    // Scripts run from the first step; the run starts after the settle steps and
-    // a new run removes spawned entities, so the test asks once the run is live.
+  it('a spawned crate blocks the character; destroying it frees its collider and the character walks on', async () => {
+    // Scripts run from the first step; the test asks once the run is live.
     let crate: string | null = null;
     let spawnNow = false;
     let destroyNow = false;
@@ -147,21 +144,21 @@ describe('ctx.spawn / ctx.destroy (real host, platformer, Rapier)', () => {
     expect(L.rt.sceneSet().spawned).toEqual([]);
   });
 
-  it('a spawned coin is collected and counted; a new run removes spawned entities and their colliders', async () => {
+  it('a spawned collectible is collected and counted; a new run removes spawned entities and their colliders', async () => {
     let asked = true;
     const L = await level((ctx) => {
       if (!asked) {
         asked = true;
-        ctx.spawn('coin', { position: [2, 0.9] });
+        ctx.spawn('token', { position: [2, 0.9] });
         ctx.spawn('crate', { position: [20, 0.5] });
       }
     });
     asked = false;
     L.tick(90);
-    expect(L.rt.gameCounters().counters).toEqual({ coins: 1 });
+    expect(L.rt.gameCounters().counters).toEqual({ items: 1 });
     expect(L.rt.hiddenEntities().has('spawn-1')).toBe(true);
     expect(L.probe({ x: 20, y: 0.5 }, { x: 0.2, y: 0.2 })).toEqual(['spawn-2']);
-    expect(L.rt.gameCommand('replay').ok).toBe(true);
+    expect(L.host.control('replay').ok).toBe(true);
     L.tick(2);
     expect(L.rt.sceneSet().spawned).toEqual([]);
     expect(L.probe({ x: 20, y: 0.5 }, { x: 0.2, y: 0.2 })).toEqual([]);

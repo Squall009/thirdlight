@@ -26,15 +26,14 @@
  *      `createGltfLoaderPort()` imported from the
  *      `@thirdlight/three-adapter/gltf-loader` subpath (the root stays
  *      loader-free — presentation.md §41.9).
- *   5. the model prepares run during `awaitingStart` and NEVER block the menu
- *      channel (the title screen loads regardless); a hard prepare failure is
- *      a structured on-page error — before the run starts it is a composition
- *      hard failure (the host is disposed); the late loads are discarded (L9).
- *   6. the three.js/WebGL renderer (the scene adapter); the HUD is the
- *      host-owned DOM.
+ *   5. the model prepares run while the game plays and NEVER block it; a hard
+ *      prepare failure is a structured on-page error and the game continues
+ *      without the failed model's visuals.
+ *   6. the three.js/WebGL renderer (the scene adapter); the overlays (project
+ *      UI, the game shell) are the host-owned DOM.
  *
- * The resolved `settings` + the frozen `game` block come from the manifest
- * (delivery.md §2.4: hash-bound through the manifest's self-identity).
+ * The resolved `settings` come from the manifest (delivery.md §2.4:
+ * hash-bound through the manifest's self-identity).
  *
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
@@ -54,7 +53,6 @@ import {
   type ManifestBehaviorRow,
   type ManifestBufferRow,
   type ManifestSceneRow,
-  type FlowConfigLike,
   browserSaveStorage,
   browserProjectSaveBackend,
   readProjectSettings,
@@ -69,7 +67,7 @@ import {
 } from '@thirdlight/game-host';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
+import type { EffectDefLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 // Phase 24.3: the simulation module specs this manifest names (generated per export; nothing else is linked).
@@ -93,7 +91,8 @@ interface ExportManifestV2 {
   settingsDigest: string;
   mediaDigest: string;
   settings: GameplaySettings;
-  game: Record<string, unknown> | null;
+  /** Phase 24.7: always null (the key goes with the 24.8 format bump). */
+  game: null;
   tags?: { bit: number; name: string }[];
   /** Phase 9.4: project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
@@ -166,7 +165,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -275,7 +274,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     projectId: manifest.projectId,
     revision: manifest.revision,
     scene,
-    game: manifest.game ?? null,
+    game: null,
     ...(manifest.tags !== undefined ? { tags: manifest.tags } : {}),
     ...(catalog !== null ? { scenes: catalog.rows } : {}),
     // Phase 9.7: the animator controllers (bound by the buildId).
@@ -446,8 +445,6 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // The project's compiled behaviors ship as behaviors/<digest>.js next to index.html.
   // In worker mode the worker links them.
   const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ new URL(path, document.baseURI).href));
-  // Phase 14.4: a level with its own look needs the environment renderer (and wind) even when the project has no environment.
-  const levelLooks = ((manifest as unknown as { flow?: FlowConfigLike }).flow?.levels ?? []).some((l) => l.environment !== undefined);
   const config: GameHostConfig = {
     snapshot,
     settings,
@@ -469,7 +466,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
           : {}),
         // Phase 9.5: sky, fog, fog volumes, post-processing.
         // Phase 23.18: environment presets need the environment renderer too (scripts blend the look).
-        ...(environmentHasLook(manifest.environment) || levelLooks || (manifest.environment?.presets?.length ?? 0) > 0
+        ...(environmentHasLook(manifest.environment) || (manifest.environment?.presets?.length ?? 0) > 0
           ? {
               environment: {
                 value: manifest.environment ?? {},
@@ -507,7 +504,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
             }
           : {}),
         // Phase 9.4: project materials and wind (textures from the verified bytes).
-        ...(manifest.materials !== undefined || manifest.environment !== undefined || levelLooks
+        ...(manifest.materials !== undefined || manifest.environment !== undefined
           ? {
               materials: {
                 defs: manifest.materials ?? [],
@@ -532,16 +529,11 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     container,
     buildId: manifest.buildId,
     assetPaths: assetPathsById,
-    // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
-    ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
     // Phase 24.4j: the game shell (menus and HUD as UI documents, the scene list).
     ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
     inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
-    setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
-    // Phase 14.5: the title screen's background scene and camera pan.
-    setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
-    // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
+    // Phase 9.11: the player's settings in this browser's localStorage (Play and exported games keep separate ones).
     ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace } : {}),
     // Phase 23.19: project save slots in the player's IndexedDB (no backend: the export runs standalone).
     ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
@@ -560,12 +552,9 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     throw new Error(`host mount failed: ${JSON.stringify(mount.error)}`);
   }
 
-  // The model prepares run during `awaitingStart` and never block the menu
-  // channel (delivery.md (M4) §2.8): a hard failure is a structured on-page
-  // error — before the run starts it is a composition hard failure (the host
-  // is disposed; the in-flight/late loads are discarded — L9). If the failure
-  // lands AFTER the run started (the bounded race), the error is shown and
-  // the run continues without the failed model's visuals (the host stays
+  // The model prepares run while the game plays and never block it
+  // (delivery.md (M4) §2.8): a hard failure is a structured on-page error and
+  // the game continues without the failed model's visuals (the host stays
   // alive; the error is surfaced truthfully).
   if (models !== null && adapterRef.current !== null) {
     void adapterRef.current
@@ -573,13 +562,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       .then((settle) => {
         if (settle === undefined || settle.ok) return;
         const code = settle.code ?? 'models_config_invalid';
-        const res = host.observe();
-        if (res.ok && res.observation.legacy.runState === 'awaitingStart') {
-          host.dispose();
-          hud(`export error: the model prepare hard-failed (${code}); the composition is unavailable`, true);
-        } else {
-          hud(`export error: the model prepare hard-failed (${code}); the run continues without the failed model`, true);
-        }
+        hud(`export error: the model prepare hard-failed (${code}); the game continues without the failed model`, true);
       })
       .catch(() => undefined);
   }
@@ -592,26 +575,19 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   window.addEventListener('keydown', unlockOnce, { once: true });
 
   // Phase 23.0: the game-observe path of the static export (there is no backend
-  // relay here) — the host's own observation (a game's run state, or a scene's
-  // step), with the player's position; read by tooling and the e2e suite.
-  const playerId = snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)?.id;
+  // relay here) — the host's own observation (its step, play state and the
+  // character's position); read by tooling and the e2e suite.
   // Phase 23.19: a project save slot's picture (a data URL) for the page — a game's load screen, tests.
   (window as unknown as { __thirdlightSaveThumbnail?: (slot: number) => Promise<string | null> }).__thirdlightSaveThumbnail = (slot: number) => host.projectSaves?.thumbnail(slot) ?? Promise.resolve(null);
   (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve = () => {
-    const game = host.observe();
-    if (game.ok) {
-      const st = playerId !== undefined ? host.runtime.getInterpolatedState() : null;
-      const tr = st !== null && st.ok ? st.state.transforms.find((t) => t.id === playerId) : undefined;
-      return { ...game.observation, ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}) };
-    }
-    const scene = host.observeScene?.();
-    return scene !== undefined && scene.ok ? scene.observation : null;
+    const res = host.observe();
+    return res.ok ? res.observation : null;
   };
 
   const refresh = (): void => {
     const res = host.observe();
     if (!res.ok) {
-      hud('', false); // scene mode: no game state to report
+      hud('', false); // disposed: nothing to report
       return;
     }
     const obs = res.observation;

@@ -35,19 +35,8 @@ const SETTINGS = {
   min_slope_slide_deg: 30,
 } as const;
 
-// A small frozen game block in canonical GameConfig order.
-const GAME = {
-  configVersion: 1,
-  title: 'T',
-  objective: 'O',
-  instructions: 'I',
-  playerId: 'p-1',
-  cameraId: 'cam-1',
-  spawnId: 'sp-1',
-  level: { minX: 0, maxX: 10, minY: -2, maxY: 6 },
-  killY: -4,
-  cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
-} as const;
+// Phase 24.7: the game block is gone; the manifest carries game: null.
+const GAME = null;
 
 // A minimal media identity (no cues, one animation row).
 const ROLES = {
@@ -94,7 +83,7 @@ function v2Input(over: Record<string, unknown> = {}) {
     settings: SETTINGS,
     game: GAME,
     media: MEDIA,
-    moduleIds: ['thirdlight.platformer-game:session', 'thirdlight.platformer:controller'],
+    moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.platformer:controller'],
     ...over,
   };
 }
@@ -127,12 +116,12 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     if (!res.ok) return;
     const keys = Object.keys(res.manifest);
     // `tags` (phase 12 b) is present only when the project defines tags.
-    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'flow' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
+    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
     expect(keys[keys.length - 1]).toBe('buildId');
     const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'enemy' }] } as never);
     expect(tagged.ok).toBe(true);
     if (tagged.ok) {
-      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'flow' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
+      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
       expect(validateManifestV2(tagged.manifest).ok).toBe(true);
     }
     expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_2);
@@ -196,8 +185,12 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     if (!res.ok) return;
     const ids = (res.manifest.modules as readonly Record<string, unknown>[]).map((m) => m['id']);
     expect(ids).toEqual([...ids].sort());
-    const session = res.manifest.modules.find((m) => m['id'] === 'thirdlight.platformer-game:session') as Record<string, unknown>;
-    expect(session['package']).toBe('@thirdlight/platformer-game');
+    const physics = res.manifest.modules.find((m) => m['id'] === 'thirdlight.physics-rapier:3d') as Record<string, unknown>;
+    expect(physics['package']).toBe('@thirdlight/physics-rapier');
+    const controller = res.manifest.modules.find((m) => m['id'] === 'thirdlight.platformer:controller') as Record<string, unknown>;
+    expect(controller['package']).toBe('@thirdlight/platformer');
+    // Phase 24.7: the platformer game package is no engine pin.
+    expect(res.manifest.enginePins.map((p) => (p as Record<string, unknown>)['id'])).not.toContain('@thirdlight/platformer-game');
   });
 });
 
@@ -341,13 +334,14 @@ describe('manifest-v2: version-compat rule (delivery.md §2.1)', () => {
 
 describe('manifest-v2: contract constants', () => {
   it('the v2 key order carries the six added keys and buildId last', () => {
-    expect(MANIFEST_KEYS_V2).toHaveLength(46); // incl. the 24.4j shell, the 24.4i eventCues, the 23.10 modes, the 23.16 dialogue, the 23.17 timelines, the 23.19 saveSchema, the 23.11 rigs, the 23.3 collisionLayers, the 23.5 blockTypes and cellFields, the 23.9a uiThemes and uiDocuments, the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, the 20.2 effects, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs, the 9.8 input and the 9.10 flow
+    expect(MANIFEST_KEYS_V2).toHaveLength(45); // (phase 24.7: no flow key) incl. the 24.4j shell, the 24.4i eventCues, the 23.10 modes, the 23.16 dialogue, the 23.17 timelines, the 23.19 saveSchema, the 23.11 rigs, the 23.3 collisionLayers, the 23.5 blockTypes and cellFields, the 23.9a uiThemes and uiDocuments, the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, the 20.2 effects, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs and the 9.8 input
     expect(MANIFEST_KEYS_V2).toContain('gameDigest');
     expect(MANIFEST_KEYS_V2).toContain('settingsDigest');
     expect(MANIFEST_KEYS_V2).toContain('mediaDigest');
     expect(MANIFEST_KEYS_V2).toContain('settings');
     expect(MANIFEST_KEYS_V2).toContain('game');
     expect(MANIFEST_KEYS_V2).toContain('media');
+    expect(MANIFEST_KEYS_V2).not.toContain('flow');
     expect(MANIFEST_KEYS_V2[MANIFEST_KEYS_V2.length - 1]).toBe('buildId');
   });
 

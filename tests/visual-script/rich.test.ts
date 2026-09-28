@@ -6,7 +6,7 @@
  *   hand-written TypeScript give the same per-step trace over a run and a
  *   replay (and the graph twice gives the same trace).
  * - Sensors and messages: on trigger enter → a timer → hide this object, add
- *   a coin, play a sound, send a message another event counts; the transform
+ *   an item, play a sound, send a message another event counts; the transform
  *   phase moves the script's own object (`ownedTransforms: ["@self"]`,
  *   generated). Graph and TypeScript give the same trace.
  * - Bounds: a runaway While, a list past its cap and a runaway loop inside a
@@ -204,7 +204,7 @@ export default {
 };
 `;
 
-/** Trigger → timer → hide + coin + sound + message; the transform phase moves this object. */
+/** Trigger → timer → hide + item + sound + message; the transform phase moves this object. */
 const SENSOR: GraphData = {
   nodes: [
     node('v-speed', 'var.number', { name: 'speed', default: 0.001 }, [0, -200]),
@@ -214,7 +214,7 @@ const SENSOR: GraphData = {
     node('left', 'api.game.add', { name: 'left' }),
     node('e3-fired', 'event.timer', { timer: 'open' }, [0, 200]),
     node('hide', 'api.game.setVisible', { visible: false }),
-    node('coin', 'api.game.add', { name: 'coins' }),
+    node('item', 'api.game.add', { name: 'items' }),
     node('sound', 'api.audio.play', { assetId: 'ding' }),
     node('send', 'api.messages.send', { name: 'opened', value: '7' }),
     node('e4-msg', 'event.message', { message: 'opened', type: 'number' }, [0, 300]),
@@ -230,8 +230,8 @@ const SENSOR: GraphData = {
     wire('1', 'e1-enter', 'then', 'timer', 'in'),
     wire('2', 'e2-exit', 'then', 'left', 'in'),
     wire('3', 'e3-fired', 'then', 'hide', 'in'),
-    wire('4', 'hide', 'then', 'coin', 'in'),
-    wire('5', 'coin', 'then', 'sound', 'in'),
+    wire('4', 'hide', 'then', 'item', 'in'),
+    wire('5', 'item', 'then', 'sound', 'in'),
     wire('6', 'sound', 'then', 'send', 'in'),
     wire('7', 'e4-msg', 'then', 'heard', 'in'),
     wire('8', 'e4-msg', 'value', 'heard', 'amount'),
@@ -261,7 +261,7 @@ export default {
       for (const ev of (ctx.events ?? []) as any[]) if (ev.type === 'exit') ctx.game?.add('left', 1);
       if (ctx.timers.fired('open')) {
         ctx.game?.setVisible(ctx.entityId, false);
-        ctx.game?.add('coins', 1);
+        ctx.game?.add('items', 1);
         ctx.audio?.play('ding', { volume: 1 });
         ctx.messages?.send('opened', 7);
       }
@@ -294,14 +294,14 @@ describe('rich visual scripts: the graph and the equivalent TypeScript', () => {
     expect(JSON.parse(graphRun[120]!)[0]).toEqual(end[0]);
   });
 
-  it('trigger enter → timer → hide, coin, sound and a message; the transform phase moves this object (@self generated)', async () => {
+  it('trigger enter → timer → hide, item, sound and a message; the transform phase moves this object (@self generated)', async () => {
     const graph = await compileGraph(SENSOR);
     expect(graph.manifest.ownedTransforms).toEqual(['@self']);
     const [graphRun, tsRun] = [await trace(graph, SENSOR_LEVEL, 90), await trace(await compileTs(SENSOR_TS, ['@self']), SENSOR_LEVEL, 90)];
     expect(graphRun).toEqual(tsRun);
     const end = JSON.parse(graphRun[90]!) as [Record<string, number>, number, number, boolean, number[]];
     expect(end[3]).toBe(false);
-    expect(end[0]['coins']).toBe(1);
+    expect(end[0]['items']).toBe(1);
     expect(end[0]['heard']).toBe(7);
     // Moved by its own transform intents (x = 1 + step × speed).
     expect(end[4][0]).toBeGreaterThan(1_000_000);
@@ -314,7 +314,7 @@ describe('bounds: script errors naming the node', () => {
     // Scripts also run in the settle step before the game starts: it may fail there already.
     L.tick();
     if (L.rt.getDiagnostics().diagnostics.failed !== true) {
-      expect(L.rt.gameCommand('start').ok).toBe(true);
+      L.replay();
       for (let i = 0; i < 3; i++) L.tick();
     }
     const d = L.rt.getDiagnostics().diagnostics;

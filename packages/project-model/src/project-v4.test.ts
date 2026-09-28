@@ -1,9 +1,8 @@
 /**
- * Phase 12 (c): v4 scenes (instance sets, exit zones, optional camera-follow
- * bounds, at most one camera), the v4 content block (startScenes, game
- * configVersion 2 without level/killY), the cross-scene project rules and the
- * v3 → v4 migration (run on the neutral starter template; the kill-height
- * case still on the Beacon Reach sample until phase 24.7 deletes both).
+ * Phase 12 (c): v4 scenes (instance sets, at most one camera), the v4 content
+ * block (startScenes; phase 24: no game block, no flow), the cross-scene
+ * project rules and the v3 → v4 migration (run on the neutral starter
+ * template).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -18,10 +17,6 @@ import type { Manifest } from './types';
 const SAMPLE_RAW = Object.values(
   import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
 )[0] as string;
-// Phase 24.2: the one test of a v3 game block's kill height (a game rule, deleted in 24.7).
-const BEACON_RAW = Object.values(
-  import.meta.glob('../../../samples/beacon-reach/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
-)[0] as string;
 const SAMPLE = JSON.parse(SAMPLE_RAW) as { content: { assets: { assetId: string; kind: string }[] } };
 /** A real model asset record (the catalog validates records in full). */
 const MODEL = SAMPLE.content.assets.find((a) => a.kind === 'model')!;
@@ -29,7 +24,7 @@ const GRASS = MODEL.assetId;
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const at = (x: number, y = 0) => ({ position: [x, y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 const DIGEST = 'ab'.repeat(32);
-const camera = (id = 'cam-main') => ({ id, components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } });
+const camera = (id = 'cam-main') => ({ id, components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } });
 const scene = (sceneId: string, entities: unknown[]) => ({ schemaVersion: 4, sceneId, revision: 1, entities });
 const MANIFEST = { schemaVersion: 2, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 const content = (extra: Record<string, unknown> = {}) => ({
@@ -49,39 +44,62 @@ const content = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe('scene v4', () => {
-  it('accepts instance sets, exit zones, bounds-less camera follow and a camera-less scene', () => {
+  it('accepts instance sets and a camera-less scene', () => {
     const r = validateSceneV4(
       scene('scene-a', [
         { id: 'grass-0001', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 12000 } } },
-        { id: 'zone-0001', components: { transform: at(5, 1), gameZone: { role: 'exit', size: [1, 2], load: ['scene-b'], unload: ['scene-a'], spawnId: 'spawn-0002' } } },
+        { id: 'spawn-0002', components: { transform: at(5, 1), playerSpawn: {} } },
       ]),
     );
     expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
     expect(validateSceneV4(scene('scene-core', [camera()])).ok).toBe(true);
   });
 
-  it('refuses bad instance sets, empty exits and two cameras', () => {
+  it('refuses bad instance sets, the removed game components and two cameras', () => {
     const bad = (entities: unknown[], extra: Record<string, unknown> = {}) => validateSceneV4({ ...scene('scene-a', entities), ...extra });
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: 'nope', count: 1 } } }]).ok).toBe(false);
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 70000 } } }]).ok).toBe(false);
     expect(bad([{ id: 'g-1', components: { transform: T, box: { size: [1, 1, 1], material: { color: '#ffffff' } }, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 3 } } }]).ok).toBe(false);
-    expect(bad([{ id: 'z-1', components: { transform: T, gameZone: { role: 'exit', size: [1, 1] } } }]).ok).toBe(false);
+    // Phase 24: gameZone and cameraFollow are no components any more.
+    for (const removed of [{ gameZone: { role: 'exit', size: [1, 1], load: ['scene-a'] } }, { cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } }]) {
+      const r = bad([{ id: 'z-1', components: { transform: T, ...removed } }]);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors.map((e) => [e.code, e.path])).toEqual([['component_unknown', `/entities/0/components/${Object.keys(removed)[0]}`]]);
+    }
     expect(bad([camera('c-1'), camera('c-2')]).ok).toBe(false);
   });
 });
 
 describe('content v4', () => {
-  it('needs startScenes and a configVersion 2 game without level or killY', () => {
+  it('needs startScenes', () => {
     expect(validateContentV4(content()).ok).toBe(true);
     const { startScenes: _s, ...noStart } = content();
     expect(validateContentV4(noStart).ok).toBe(false);
-    const game = { configVersion: 2, title: 'T', objective: 'O', instructions: 'I', playerId: 'p', cameraId: 'c', spawnId: 's', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } };
-    expect(validateContentV4(content({ game })).ok).toBe(true);
-    expect(validateContentV4(content({ game: { ...game, killY: -5 } })).ok).toBe(false);
-    expect(validateContentV4(content({ game: { ...game, configVersion: 1 } })).ok).toBe(false);
     // The start set must come from the scene index; scene ids are unique.
     expect(validateContentV4(content({ startScenes: ['scene-nowhere'] })).ok).toBe(false);
     expect(validateContentV4(content({ scenes: [{ sceneId: 'scene-core', name: 'A' }, { sceneId: 'scene-core', name: 'B' }] })).ok).toBe(false);
+  });
+
+  it('phase 24: refuses a game block and a flow key, naming the removal', () => {
+    const game = { configVersion: 2, title: 'T', objective: 'O', instructions: 'I', playerId: 'p', cameraId: 'c', spawnId: 's', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } };
+    const withGame = validateContentV4(content({ game }));
+    expect(withGame.ok).toBe(false);
+    if (!withGame.ok) {
+      const e = withGame.errors.find((x) => x.path === '/game');
+      expect(e, JSON.stringify(withGame.errors)).toBeDefined();
+      expect(e!.code).toBe('game_config_invalid');
+      expect(e!.message).toContain('removed in phase 24');
+    }
+    const withFlow = validateContentV4(content({ flow: { levels: [] } }));
+    expect(withFlow.ok).toBe(false);
+    if (!withFlow.ok) {
+      const e = withFlow.errors.find((x) => x.path === '/flow');
+      expect(e, JSON.stringify(withFlow.errors)).toBeDefined();
+      expect(e!.message).toContain('removed in phase 24');
+    }
+    // The key itself stays: game must be present and null.
+    const { game: _g, ...noGame } = content();
+    expect(validateContentV4(noGame).ok).toBe(false);
   });
 });
 
@@ -106,10 +124,6 @@ describe('project v4', () => {
     expect(validateProjectV4(MANIFEST, content({ startScenes: ['scene-nope'] }), [core]).ok).toBe(false);
     const noCam = scene('scene-core', []);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [noCam]))).toContain('camera_count_invalid');
-    const exit = scene('scene-exit', [{ id: 'zone-0001', components: { transform: T, gameZone: { role: 'exit', size: [1, 1], load: ['scene-gone'] } } }]);
-    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, exit]))).toContain('an exit names no scene');
-    const badSpawn = scene('scene-exit', [{ id: 'zone-0001', components: { transform: T, gameZone: { role: 'exit', size: [1, 1], load: ['scene-core'], spawnId: 'spawn-0002' } } }]);
-    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, badSpawn]))).toContain('an exit spawn must be');
     // Phase 24.4e: a trigger's scene transition names existing scenes and a player spawn in the scene it loads (or its own).
     const door = (t: Record<string, unknown>) => scene('scene-exit', [{ id: 'door-0001', components: { transform: T, trigger: { size: [1, 1], signal: 'door', sceneTransition: t } } }]);
     expect(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', spawn: 'spawn-0002', unload: ['scene-exit'] })]).ok).toBe(true);
@@ -145,30 +159,6 @@ describe('migration v3 → v4', () => {
     expect(project.content.startScenes).toEqual([env.normalized.scene.sceneId]);
     expect(project.content.game).toBeNull();
     expect(notes).toEqual([]);
-    const v = validateProjectV4(project.manifest, project.content, project.scenes);
-    expect(v.ok, JSON.stringify(!v.ok && v.errors)).toBe(true);
-  });
-
-  it('migrates the Beacon Reach sample: one scene "Main", startScenes, killY becomes a fall zone, and the result validates', () => {
-    const captured = JSON.parse(BEACON_RAW) as {
-      scene: SceneV3;
-      content: ContentCatalogV3;
-    };
-    const env = validateEnvelopeV3({ storageVersion: 3, type: 'authoring-state', projectId: 'beacon', scene: captured.scene, content: captured.content, retry: { retention: 64, records: [] } });
-    expect(env.ok, JSON.stringify(!env.ok && env.errors)).toBe(true);
-    if (!env.ok) return;
-    const manifest: Manifest = { schemaVersion: 1, engineVersion: '0.1.0', id: 'beacon', name: 'Beacon Reach', createdAt: '2026-09-23T00:00:00Z', scenes: [{ id: env.normalized.scene.sceneId, path: 'scenes/main.json' }] };
-    const { project, notes } = migrateProjectV3ToV4(manifest, env.normalized.scene, env.normalized.content);
-    expect(project.scenes).toHaveLength(1);
-    expect(project.scenes[0]).toMatchObject({ schemaVersion: 4, sceneId: env.normalized.scene.sceneId });
-    expect(project.content.scenes).toEqual([{ sceneId: env.normalized.scene.sceneId, name: 'Main' }]);
-    expect(project.content.startScenes).toEqual([env.normalized.scene.sceneId]);
-    expect(project.content.game).not.toHaveProperty('level');
-    expect(project.content.game).not.toHaveProperty('killY');
-    expect(project.content.game?.configVersion).toBe(2);
-    const fall = project.scenes[0]!.entities.find((e) => e.name === 'Fall zone');
-    expect(fall?.components.gameZone).toMatchObject({ role: 'hazard' });
-    expect(notes.join(' ')).toContain('Fall zone');
     const v = validateProjectV4(project.manifest, project.content, project.scenes);
     expect(v.ok, JSON.stringify(!v.ok && v.errors)).toBe(true);
   });

@@ -3,7 +3,7 @@
  * pure part (no DOM, no three.js).
  *
  * Every component of the selected object whose descriptor lists a handle
- * (`box2`, `box3`, `radius`, `capsule`, `segment1d`, `cone`, `direction`,
+ * (`box2`, `box3`, `radius`, `capsule`, `cone`, `direction`,
  * `path`, `polygon`, `point`) and whose `when` holds becomes one
  * `HandleShape`: the bound fields read into a small geometric model, in the
  * handle's frame (world, or the object's position / rotation about Z /
@@ -15,8 +15,8 @@
  * waypoint handles.
  *
  * Snapping (the snap toggle; Shift turns it off for one drag): sizes, radii,
- * ranges and polygon corners land on 5 cm (`SNAP_SIZE_M`), path points and
- * world-space bounds on the translate grid (`SNAP_TRANSLATE_M`), a spot
+ * ranges and polygon corners land on 5 cm (`SNAP_SIZE_M`), path points on
+ * the translate grid (`SNAP_TRANSLATE_M`), a spot
  * cone's half-angle on 5° steps, a direction's components on 0.05.
  */
 import type { DescriptorJson, DescriptorRegistry, FieldCondition, FieldDescriptor, HandleDescriptor, HandleKind, ObjectFieldDescriptor } from '@thirdlight/project-model';
@@ -36,8 +36,6 @@ export const DIRECTION_LENGTH_M = 2;
 export const CONE_DISPLAY_M = 3;
 /** Where a zero radius's grip sits (m) — off the object's own gizmo. */
 const MIN_GRIP_RADIUS_M = 0.25;
-/** The smallest gap a drag keeps between two edges of a range or bounds (m). */
-const MIN_GAP_M = 0.05;
 
 export type Frame = 'world' | 'position' | 'rotationZ' | 'rotation' | 'transform';
 
@@ -60,12 +58,10 @@ export interface Grip {
 type Range = { min: number; max: number };
 
 export type HandleModel =
-  | { type: 'box'; dims: 2 | 3; roles: 'size' | 'half'; center: P3; half: P3; anchor: 'center' | 'bottom' }
-  | { type: 'bounds'; minX: number; maxX: number; minY: number; maxY: number }
+  | { type: 'box'; dims: 2 | 3; roles: 'size' | 'half'; center: P3; half: P3 }
   /** Phase 23.1: `centered` — a capsule without an offset (a collider or trigger): its height grows both ways. */
   | { type: 'capsule'; cx: number; cy: number; radius: number; halfHeight: number; cz?: number; centered?: boolean }
   | { type: 'radius'; r: number; along: 'xy' | 'x'; band: number | null }
-  | { type: 'segment'; left: number; right: number }
   | { type: 'cone'; dir: P3; angle: number; range: number }
   | { type: 'direction'; dir: P3 }
   | { type: 'points'; pts: P3[]; dims: 2 | 3; closed: boolean; start: boolean; minItems: number; maxItems: number }
@@ -203,8 +199,7 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         if (v === null) return null;
         lim('size', s.f);
         const half = p3(v[0]! / 2, v[1]! / 2, dims === 3 ? v[2]! / 2 : 0);
-        const anchor = h.anchor === 'bottom' ? 'bottom' : 'center';
-        return { ...base, ...(deep ? { frame: 'rotation' as const } : {}), model: { type: 'box', dims, roles: 'size', center: p3(0, anchor === 'bottom' ? half.y : 0, 0), half, anchor } };
+        return { ...base, ...(deep ? { frame: 'rotation' as const } : {}), model: { type: 'box', dims, roles: 'size', center: p3(0, 0, 0), half } };
       }
       if (h.bind['halfX'] !== undefined) {
         const hx = at('halfX');
@@ -219,17 +214,11 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         if (hz !== null && typeof hz.v === 'number') {
           lim('halfZ', hz.f);
           // Phase 23.1: the object's whole transform (a 3D collider scales with it).
-          return { ...base, frame: 'transform', model: { type: 'box', dims: 3, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, hz.v), anchor: 'center' } };
+          return { ...base, frame: 'transform', model: { type: 'box', dims: 3, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, hz.v) } };
         }
-        return { ...base, model: { type: 'box', dims: 2, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, 0), anchor: 'center' } };
+        return { ...base, model: { type: 'box', dims: 2, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, 0) } };
       }
-      // World bounds: only while they are set (absent means "anywhere").
-      const parent = (h.bind['minX'] ?? '').split('/').slice(0, -1).join('/');
-      if (parent !== '' && value[parent] === undefined) return null;
-      const b = ['minX', 'maxX', 'minY', 'maxY'].map((r) => at(r));
-      if (!b.every((x) => typeof x.v === 'number')) return null;
-      lim('minX', b[0]!.f);
-      return { ...base, model: { type: 'bounds', minX: b[0]!.v as number, maxX: b[1]!.v as number, minY: b[2]!.v as number, maxY: b[3]!.v as number } };
+      return null;
     }
     case 'capsule': {
       const r = at('radius');
@@ -251,13 +240,6 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       lim('radius', r.f);
       const band = h.band !== undefined ? N(effective(root, value, h.band).v, 0) : null;
       return { ...base, model: { type: 'radius', r: N(r.v), along: h.along === 'x' ? 'x' : 'xy', band } };
-    }
-    case 'segment1d': {
-      const r = at('range');
-      const v = vec(r.v, 2);
-      if (v === null) return null;
-      lim('range', r.f);
-      return { ...base, model: { type: 'segment', left: v[0]!, right: v[1]! } };
     }
     case 'cone': {
       const d = vec(at('direction').v, 3) ?? [0, -1, 0];
@@ -338,16 +320,6 @@ export function gripsOf(s: HandleShape): Grip[] {
       if (m.dims === 3) g.push({ id: 'depth', at: p3(m.center.x, m.center.y, m.center.z + m.half.z), drag: 'axis', axis: p3(0, 0, 1), role: 'size' });
       return g;
     }
-    case 'bounds': {
-      const mx = (m.minX + m.maxX) / 2;
-      const my = (m.minY + m.maxY) / 2;
-      return [
-        { id: 'left', at: p3(m.minX, my), drag: 'plane', role: 'size' },
-        { id: 'right', at: p3(m.maxX, my), drag: 'plane', role: 'size' },
-        { id: 'bottom', at: p3(mx, m.minY), drag: 'plane', role: 'size' },
-        { id: 'top', at: p3(mx, m.maxY), drag: 'plane', role: 'size' },
-      ];
-    }
     case 'capsule':
       return [
         { id: 'top', at: p3(m.cx, m.cy + m.halfHeight), drag: 'plane', role: 'size' },
@@ -355,11 +327,6 @@ export function gripsOf(s: HandleShape): Grip[] {
       ];
     case 'radius':
       return [{ id: 'side', at: p3(Math.max(m.r, MIN_GRIP_RADIUS_M), 0), drag: 'plane', role: 'size' }];
-    case 'segment':
-      return [
-        { id: 'left', at: p3(m.left, 0), drag: 'plane', role: 'size' },
-        { id: 'right', at: p3(m.right, 0), drag: 'plane', role: 'size' },
-      ];
     case 'cone': {
       const L = m.range > 0 ? m.range : CONE_DISPLAY_M;
       const tip = p3(m.dir.x * L, m.dir.y * L, m.dir.z * L);
@@ -445,20 +412,7 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
       };
       if (id === 'side') return { ...s, model: { ...m, half: { ...m.half, x: full('x', 2 * Math.abs(p.x - m.center.x)) / 2 } } };
       if (id === 'depth') return { ...s, model: { ...m, half: { ...m.half, z: full('z', 2 * Math.abs(p.z - m.center.z)) / 2 } } };
-      if (m.anchor === 'bottom') {
-        const bottom = m.center.y - m.half.y;
-        const h = full('y', p.y - bottom);
-        return { ...s, model: { ...m, center: { ...m.center, y: bottom + h / 2 }, half: { ...m.half, y: h / 2 } } };
-      }
       return { ...s, model: { ...m, half: { ...m.half, y: full('y', 2 * Math.abs(p.y - m.center.y)) / 2 } } };
-    }
-    case 'bounds': {
-      const r = L['minX'];
-      const g = (v: number): number => round3(clamp(snapTo(v, getSnapSettings().translateM, snap), r));
-      if (id === 'left') return { ...s, model: { ...m, minX: Math.min(g(p.x), round3(m.maxX - MIN_GAP_M)) } };
-      if (id === 'right') return { ...s, model: { ...m, maxX: Math.max(g(p.x), round3(m.minX + MIN_GAP_M)) } };
-      if (id === 'bottom') return { ...s, model: { ...m, minY: Math.min(g(p.y), round3(m.maxY - MIN_GAP_M)) } };
-      return { ...s, model: { ...m, maxY: Math.max(g(p.y), round3(m.minY + MIN_GAP_M)) } };
     }
     case 'capsule': {
       const rr = L['radius'] ?? { min: 0.05, max: 5 };
@@ -480,11 +434,6 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
     case 'radius': {
       const raw = m.along === 'x' ? Math.abs(p.x) : Math.hypot(p.x, p.y);
       return { ...s, model: { ...m, r: round3(clamp(size(raw), L['radius'])) } };
-    }
-    case 'segment': {
-      const v = round3(clamp(size(p.x), L['range']));
-      if (id === 'left') return { ...s, model: { ...m, left: Math.min(v, round3(m.right - MIN_GAP_M)) } };
-      return { ...s, model: { ...m, right: Math.max(v, round3(m.left + MIN_GAP_M)) } };
     }
     case 'cone': {
       if (id === 'tip') {
@@ -558,15 +507,11 @@ function fieldWrites(s: HandleShape): [string, DescriptorJson][] {
     case 'box':
       if (m.roles === 'half') return [[b['halfX']!, round3(m.half.x)], [b['halfY']!, round3(m.half.y)], ...(m.dims === 3 && b['halfZ'] !== undefined ? [[b['halfZ'], round3(m.half.z)] as [string, DescriptorJson]] : [])];
       return [[b['size']!, m.dims === 3 ? [round3(2 * m.half.x), round3(2 * m.half.y), round3(2 * m.half.z)] : [round3(2 * m.half.x), round3(2 * m.half.y)]]];
-    case 'bounds':
-      return [[b['minX']!, round3(m.minX)], [b['maxX']!, round3(m.maxX)], [b['minY']!, round3(m.minY)], [b['maxY']!, round3(m.maxY)]];
     case 'capsule':
       if (m.centered === true) return [[b['radius']!, round3(m.radius)], [b['height']!, round3(2 * m.halfHeight)]];
       return [[b['radius']!, round3(m.radius)], [b['height']!, round3(2 * m.halfHeight)], [b['offset']!, m.cz !== undefined ? [round3(m.cx), round3(m.cy), m.cz] : [round3(m.cx), round3(m.cy)]]];
     case 'radius':
       return [[b['radius']!, round3(m.r)]];
-    case 'segment':
-      return [[b['range']!, [round3(m.left), round3(m.right)]]];
     case 'cone': {
       const d = snapDirection(m.dir);
       const out: [string, DescriptorJson][] = [[b['direction']!, d], [b['angle']!, round3(m.angle)]];
@@ -632,8 +577,6 @@ export function linesOf(s: HandleShape): P3[][] {
       const edges = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => [p3(c.x + a! * hx, c.y + b! * hy, c.z - hz), p3(c.x + a! * hx, c.y + b! * hy, c.z + hz)]);
       return [front, back, ...edges];
     }
-    case 'bounds':
-      return [rect(m.minX, m.minY, m.maxX, m.maxY)];
     case 'capsule': {
       const seg = Math.max(0, m.halfHeight - m.radius);
       const pts: P3[] = [];
@@ -648,8 +591,6 @@ export function linesOf(s: HandleShape): P3[][] {
         return [rect(-m.r, -h, m.r, h)];
       }
       return [circle(0, 0, m.r)];
-    case 'segment':
-      return [[p3(m.left, 0), p3(m.right, 0)], [p3(m.left, -0.2), p3(m.left, 0.2)], [p3(m.right, -0.2), p3(m.right, 0.2)]];
     case 'cone': {
       const L = m.range > 0 ? m.range : CONE_DISPLAY_M;
       const u = perpendicular(m.dir);

@@ -102,7 +102,6 @@ async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record
         { sceneId: 'scene-main', start: true, entityIds: main.map((e) => e.id) },
         { sceneId: 'scene-two', start: false },
       ],
-      game: null,
       eventCues: [
         { on: 'signal', name: 'opened', assetId: 'cue-open' },
         { on: 'event', name: 'enter', entity: 'door-0001', assetId: 'cue-enter', volume: 0.5 },
@@ -113,6 +112,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record
     physics,
     replay,
     digestSteps: true,
+    storage: true,
     loadScene: async (sceneId: string) => {
       if (sceneId !== 'scene-two') throw new Error('unknown scene');
       return two;
@@ -136,7 +136,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record
   const st = rt.getInterpolatedState().state.transforms;
   return {
     h,
-    values: rt.runState().values,
+    values: await h.storage(),
     maxY,
     final: { player: st.find((x: Any) => x.id === 'player-0001'), look: st.find((x: Any) => x.id === 'look-0001') },
     looks: Object.fromEntries(rt.entityLooks?.() ?? []),

@@ -2,7 +2,7 @@
  * Phase 23.9a — the game host's project UI layer on a small fake DOM: rich
  * text parsing, spatial navigation, bindings (text, bar, list, visibility),
  * UI events and engine actions from buttons, keyboard focus navigation,
- * action-map switching, flow-screen documents and world anchors.
+ * action-map switching, host screen documents and world anchors.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -102,12 +102,12 @@ function layer() {
 
 describe('rich text, navigation and CSS helpers (pure)', () => {
   it('parses markup, placeholders and icons; unknown tags stay text', () => {
-    expect(parseRichText('a [b]bold {x.y}[/b] [icon=coin] [[ [nope]')).toEqual([
+    expect(parseRichText('a [b]bold {x.y}[/b] [icon=star] [[ [nope]')).toEqual([
       { t: 'text', text: 'a ', style: {} },
       { t: 'text', text: 'bold ', style: { bold: true } },
       { t: 'value', path: 'x.y', style: { bold: true } },
       { t: 'text', text: ' ', style: {} },
-      { t: 'icon', name: 'coin', style: {} },
+      { t: 'icon', name: 'star', style: {} },
       { t: 'text', text: ' [ [nope]', style: {} },
     ]);
     expect(parseRichText('[color=#ff0000]r[/color]')[0]).toEqual({ t: 'text', text: 'r', style: { color: '#ff0000' } });
@@ -165,7 +165,7 @@ describe('the UI layer', () => {
     const none = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
     const rest = l.handleEdges({ ...none, down: true, pause: true });
     expect(rest.down).toBe(false);
-    expect(rest.pause).toBe(true); // passes through (the flow's pause)
+    expect(rest.pause).toBe(true); // passes through (the host's pause)
     expect(l.observe().focus).toEqual({ doc: 'shop', widget: 'good', index: 0 });
     expect(events.at(-1)).toEqual({ kind: 'focus', doc: 'shop', widget: 'good', name: '', index: 0 });
     l.handleEdges({ ...none, down: true });
@@ -181,7 +181,7 @@ describe('the UI layer', () => {
     expect(l.hasFocus()).toBe(false);
   });
 
-  it('draws a flow screen document above the simulation\'s; world anchors follow, clamp to the edge or hide', () => {
+  it('draws a host screen document above the simulation\'s; world anchors follow, clamp to the edge or hide', () => {
     const { l, container, apply } = layer();
     apply({ shown: [{ doc: 'hud', layer: 0, modal: false }] });
     l.showScreen('shop');

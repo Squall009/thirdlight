@@ -10,7 +10,7 @@ import type { SceneV3, TransformComponent } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
 import type { CommandState, ContentDocument, MoveEntitiesChange, MutationSuccess, UpdateEntityChange } from './index';
-import { m3ContractJson } from './test-fixtures';
+import { m3NeutralJson } from './test-fixtures';
 
 interface EnvelopeFixture {
   projectId: string;
@@ -18,7 +18,7 @@ interface EnvelopeFixture {
   content: ContentDocument;
 }
 
-const BEFORE = m3ContractJson<EnvelopeFixture>('commands/scenario.before.json');
+const BEFORE = m3NeutralJson<EnvelopeFixture>('commands/scenario.before.json');
 type State = CommandState<SceneV3>;
 
 let counter = 0;
@@ -107,19 +107,21 @@ describe('folders', () => {
     expect(t.result.ok).toBe(false);
   });
 
-  it('folders nest; zones and physics bodies may live in folders', () => {
+  it('folders nest; world-space-only spawns and physics bodies may live in folders', () => {
     let s = ok(fresh(), 'createEntity', { kind: 'folder', name: 'Level' }).state;
     const level = ids(s).at(-1)!;
-    const inner = ok(s, 'createEntity', { kind: 'folder', name: 'Hazards', parentId: level });
+    const inner = ok(s, 'createEntity', { kind: 'folder', name: 'Area', parentId: level });
     s = inner.state;
-    const zone = ok(s, 'createEntity', {
+    // A spawn is world-space only (refused under a transformed parent), but a
+    // folder has no transform.
+    const spawn = ok(s, 'createEntity', {
       kind: 'group',
       parentId: inner.id,
       transform: { position: [3, 1, 0] },
-      components: { gameZone: { role: 'hazard', size: [1, 1] } },
+      components: { playerSpawn: {} },
     });
-    expect(entity(zone.state, zone.id).parentId).toBe(inner.id);
-    const body = ok(zone.state, 'createEntity', { kind: 'box', parentId: inner.id, components: { collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } });
+    expect(entity(spawn.state, spawn.id).parentId).toBe(inner.id);
+    const body = ok(spawn.state, 'createEntity', { kind: 'box', parentId: inner.id, components: { collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } });
     expect(entity(body.state, body.id).parentId).toBe(inner.id);
   });
 });

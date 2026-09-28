@@ -43,7 +43,6 @@
   --kind-audio: #6fe0b2;
   --kind-prefab: #c39bff;
   --kind-script: #7fe0a6;
-  --kind-zone: #ff8a80;
   /* legacy aliases (older panels) */
   --bg: var(--bg-app);
   --panel: var(--surface-1);
@@ -321,9 +320,9 @@ button, input, select, textarea { font-family: inherit; }
 .tl-behaviors__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .tl-behaviors__new { padding: 8px 10px; border-top: 1px solid var(--border); }
 
-/* Packet 56 — M3 gameplay authoring (game config / zones / camera follow /
- * settings). Practical form rows + the imperative zone overlay; the backend
- * projection stays authoritative (sessions.md §6; authoring.md §A8). */
+/* Packet 56 — M3 gameplay authoring (the settings and camera tabs). Practical
+ * form rows; the backend projection stays authoritative (sessions.md §6;
+ * authoring.md §A8). */
 .tl-gameplay__tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tl-gameplay__tabs .tl-btn { flex: 1; padding: 4px 6px; font-size: 11px; text-transform: capitalize; }
 .tl-gameplay__tab { padding: 10px; overflow-y: auto; flex: 1; min-height: 0; }
@@ -348,9 +347,6 @@ button, input, select, textarea { font-family: inherit; }
 .tl-input[type="number"] { -moz-appearance: textfield; }
 .tl-btn--danger { background: rgba(255,82,82,.12); border-color: var(--err); color: var(--err); }
 .tl-btn--danger:hover:not(:disabled) { border-color: var(--err); background: rgba(255,82,82,.2); }
-.tl-zone-row { display: flex; gap: 4px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
-.tl-zone-row__id { font-family: monospace; font-size: 10px; color: var(--muted);
-  max-width: 88px; overflow: hidden; text-overflow: ellipsis; }
 
 /* ------------------------------------------------------------------ */
 /* M3 media / lighting / animation panel (packet 57)                   */
@@ -587,7 +583,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-scatter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; margin: 8px 0; }
 .tl-scatter > .tl-field:first-child { grid-column: 1 / -1; }
 .tl-dialog__error { color: var(--warn); margin: 6px 0; }
-/* Phase 12 (c): the exit-zone dialog. */
+/* Phase 12 (c): a two-column dialog form (Play from…). */
 .tl-exit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; }
 .tl-exit > .tl-field { grid-column: 1 / -1; }
 .tl-exit__scenes { border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; margin: 0; }
@@ -983,4 +979,3 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-uitheme__main { flex: 1; display: flex; gap: 12px; min-height: 0; overflow-y: auto; }
 .tl-uitheme__main > .tl-uidoc__panel { width: 360px; }
 .tl-uitheme__users { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.tl-flow-panel__screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; }

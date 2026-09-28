@@ -36,7 +36,6 @@ import { canonicalAnimators, validateAnimators, type AnimatorController } from '
 import { validateModelRig, type ModelRig } from './model-rig';
 import { canonicalInput, projectInputMaps, validateInput, type InputConfig } from './input';
 import { validateCollisionLayers } from './components';
-import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { canonicalGraphDocuments, graphDocumentsContext, validateGraphDocuments, type GraphDocument } from './graph';
@@ -57,7 +56,6 @@ import type {
   AssetKind,
   AssetRecordV3,
   ContentCatalogV3,
-  GameConfig,
   SceneV3,
   TagDefinition,
 } from './types-v3';
@@ -88,7 +86,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'flow', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'uiDocuments', 'timelines', 'eventCues', 'shell', 'modes', 'dialogue', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -125,7 +123,6 @@ export const MANIFEST_KEYS_V2 = [
   'collisionLayers',
   // Phase 23.19: the project save schema (only when the project declares one).
   'saveSchema',
-  'flow',
   // Phase 23.9a: the project UI (themes, documents) the game host draws.
   'uiThemes',
   'uiDocuments',
@@ -152,7 +149,11 @@ export const MANIFEST_KEYS_V2 = [
   'buildId',
 ] as const;
 
-/** The five game cue slots, in the §2.2 ascending key order. */
+/**
+ * The five cue slots of the manifest's media block, in the §2.2 ascending key
+ * order. Phase 24.7: the game block that filled them was deleted, so every
+ * slot is null; the slots stay in the manifest shape until the 24.8 format bump.
+ */
 export const CUE_SLOTS = ['start', 'jump', 'checkpoint', 'death', 'goal'] as const;
 export type CueSlot = (typeof CUE_SLOTS)[number];
 
@@ -164,15 +165,12 @@ export type CueSlot = (typeof CUE_SLOTS)[number];
  * Ascending by `id`.
  */
 export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVersion: number }> = Object.freeze([
-  Object.freeze({ id: '@thirdlight/platformer-game', version: '0.1.0', apiVersion: 1 }),
   Object.freeze({ id: '@thirdlight/runtime', version: '0.1.0', apiVersion: 2 }),
   Object.freeze({ id: '@thirdlight/three', version: '0.186.0', apiVersion: 0 }),
 ]);
 
 /** The package a known M3 module id belongs to (the manifest `modules` rows). */
 export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
-  'thirdlight.platformer-game:camera': '@thirdlight/platformer-game',
-  'thirdlight.platformer-game:session': '@thirdlight/platformer-game',
   'thirdlight.platformer:controller': '@thirdlight/platformer',
   // Phase 23.0: the 3D physics backend (physics_dimension 3).
   'thirdlight.physics-rapier:3d': '@thirdlight/physics-rapier',
@@ -222,7 +220,8 @@ export interface CapturedContentViewV3 {
   /** The resolved six-key gameplay settings, in registry order. */
   settings: GameplaySettings;
   behaviorTrust: unknown;
-  game: GameConfig | null;
+  /** Phase 24.7: always null (the platformer game block was deleted; the key goes with the 24.8 format bump). */
+  game: null;
   /** `sha256(JSON.stringify({assets,prefabs,behaviors,settings,behaviorTrust,game},null,2)+"\n")`. */
   contentDigest: string;
 }
@@ -290,7 +289,8 @@ export interface RuntimeContentManifestV2 {
   settingsDigest: string;
   mediaDigest: string;
   settings: GameplaySettings;
-  game: GameConfig | null;
+  /** Phase 24.7: always null (the platformer game block was deleted; the key goes with the 24.8 format bump). */
+  game: null;
   /** Phase 12 (b): the tag registry, present only when non-empty. */
   tags?: TagDefinition[];
   /** Phase 18.3: the material functions graph materials call. */
@@ -446,32 +446,9 @@ function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3): ModelResu
   const byId = new Map<string, AssetRecordV3>(content.assets.map((a) => [a.assetId, a]));
   const errors: ModelErrorV2[] = [];
 
-  // cues — the five game slots (ascending CUE_SLOTS order).
+  // cues — phase 24.7: no game block fills them (ascending CUE_SLOTS order, all null).
   const cues = {} as Record<CueSlot, MediaCueRef | null>;
-  const game = content.game;
-  for (const slot of CUE_SLOTS) {
-    if (game === null) {
-      cues[slot] = null;
-      continue;
-    }
-    const ref = game.cues[slot];
-    if (ref === null || ref === undefined) {
-      cues[slot] = null;
-      continue;
-    }
-    const record = byId.get(ref);
-    if (!record) {
-      errors.push(withFound({ code: 'asset_reference_missing', path: `/game/cues/${slot}`, document: 'content', message: 'a game cue resolves to no catalog record', expected: 'an existing audio assetId' }, ref));
-      cues[slot] = null;
-      continue;
-    }
-    if (record.kind !== 'audio') {
-      errors.push(withFound({ code: 'asset_kind_mismatch', path: `/game/cues/${slot}`, document: 'content', message: 'a game cue must reference an audio asset', expected: 'kind "audio"' }, record.kind));
-      cues[slot] = null;
-      continue;
-    }
-    cues[slot] = { assetId: record.assetId, version: record.currentVersion };
-  }
+  for (const slot of CUE_SLOTS) cues[slot] = null;
 
   // animation — one row per modelAnimation entity.
   const rows: MediaAnimationRow[] = [];
@@ -616,7 +593,8 @@ export interface CaptureManifestV2Input {
   /** The resolved six-key settings, in registry order. */
   settings: GameplaySettings;
   /** The frozen `content.game` value (canonical `GameConfig` order) or `null`. */
-  game: GameConfig | null;
+  /** Phase 24.7: always null (the platformer game block was deleted; the key goes with the 24.8 format bump). */
+  game: null;
   /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
   tags?: readonly TagDefinition[];
   /** Phase 9.4: the project materials (only when non-empty) and the environment (only when set). */
@@ -656,8 +634,6 @@ export interface CaptureManifestV2Input {
   collisionLayers?: readonly string[];
   /** Phase 23.19: the project save schema (only when the project declares one). */
   saveSchema?: SaveSchema;
-  /** Phase 9.10: the game flow (only when the project has one). */
-  flow?: GameFlow;
   /**
    * Phase 12 (c): a v4 project's scenes — one artifact each, loaded at start
    * (`start`) or on demand by the game; present only for a v4 project.
@@ -780,7 +756,6 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
     ...(input.collisionLayers !== undefined && input.collisionLayers.length > 0 ? { collisionLayers: [...input.collisionLayers] } : {}),
     ...(input.saveSchema !== undefined ? { saveSchema: canonicalSaveSchema(input.saveSchema) } : {}),
-    ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
     ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
     ...(input.dialogue !== undefined && input.dialogue !== null ? { dialogue: JSON.parse(JSON.stringify(input.dialogue)) as RuntimeDialogueData } : {}),
@@ -913,7 +888,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateShell(d['shell'], '/shell', shErrors);
     if (shErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'shell is not valid', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['flow'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined || d['modes'] !== undefined) {
+  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['uiThemes'] !== undefined || d['uiDocuments'] !== undefined || d['modes'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
     // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
     if (d['materialFunctions'] !== undefined) {
@@ -931,7 +906,6 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
     if (d['collisionLayers'] !== undefined) validateCollisionLayers(d['collisionLayers'], '/collisionLayers', matErrors);
-    if (d['flow'] !== undefined) validateFlow(d['flow'], '/flow', matErrors);
     // Phase 23.9a: the UI validates as content.uiThemes / uiDocuments do.
     if (d['uiThemes'] !== undefined) validateUiThemes(d['uiThemes'], '/uiThemes', matErrors);
     if (d['uiDocuments'] !== undefined) validateUiDocuments(d['uiDocuments'], '/uiDocuments', matErrors, projectInputMaps(d['input']));

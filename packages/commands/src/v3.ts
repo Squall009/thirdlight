@@ -3,16 +3,13 @@
  * project-model.md §§23.3–23.9 (packet 45).
  *
  * Pure helpers shared by the forward ops and the history engine:
- * - the canonical field order of every `setComponent` component and of
- *   `content.game`;
+ * - the canonical field order of every `setComponent` component;
  * - the delegation of a v3 component VALUE to the project-model's
  *   per-component validators (one value authority, project-model §23.3) with
  *   the command-layer error shape (`CommandError`);
  * - the packet-41 `modelAnimation` role-binding stages 2–4 (shape, range,
  *   duplicates), which project-model §23.3.6 deliberately leaves to the
- *   command layer (`presentation.md` §41.3.2);
- * - the §23.6/§23.9 dangling-game-reference scan (one implementation for
- *   deletion, component removal and the game-config edit).
+ *   command layer (`presentation.md` §41.3.2).
  *
  * No I/O, no transport, no renderer: values in, values out.
  */
@@ -23,16 +20,12 @@ import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
-  validateCameraFollowComponent,
   validateInstancesComponent,
-  validateGameZoneComponent,
   validateLightComponent,
   validateModelAnimationComponent,
   validatePlayerSpawnComponent,
   validateSurfaceComponent,
-  type GameConfig,
   type ModelErrorV3,
-  type SceneV3,
 } from '@thirdlight/project-model';
 
 import { animationRoleDuplicate, animationRoleOutOfRange } from './errors';
@@ -46,10 +39,8 @@ import type {
 
 /** §23.3 registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
   // Phase 15.2: a v4 spawn's facing (optional).
   playerSpawn: ['facing', 'yaw'],
-  cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
@@ -64,9 +55,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],
   switch: ['mode', 'signal', 'size', 'once', 'action'],
-  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
-  pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
+  health: ['max', 'start'],
   // Phase 18.0: free-form keys (materialIds); a setComponent replaces the whole value.
   materialParams: [],
   // Phase 20.0: the effect and its parameter overrides (`params` is replaced whole).
@@ -91,32 +80,12 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
 export const SURFACE_CHANGED_FIELDS: readonly string[] = COMPONENT_FIELD_ORDER_V3.surface;
 
-/** §23.4 canonical top-level order of `content.game`. */
-export const GAME_CONFIG_FIELDS = [
-  'configVersion',
-  'title',
-  'objective',
-  'instructions',
-  'playerId',
-  'cameraId',
-  'spawnId',
-  'level',
-  'killY',
-  'cues',
-  // Phase 15.3 (v4): the session timing (optional; `null` in a partial edit goes back to the default).
-  'respawnDelay',
-  'dropThroughTime',
-  'settleTime',
-] as const;
-
 /** §41.3.1 the three role keys, in canonical order. */
 export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 
 /** All six v3 add-capable components, in §8.10 table order. */
 export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
-  'gameZone',
   'playerSpawn',
-  'cameraFollow',
   'light',
   'surface',
   'modelAnimation',
@@ -133,8 +102,6 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'trigger',
   'switch',
   'health',
-  'pickup',
-  'enemy',
   'audioSource',
   'faceMovement',
   // Phase 18.0: v4 scenes only.
@@ -178,11 +145,11 @@ export const REMOVABLE_COMPONENTS: readonly string[] = [
   ...V3_COMPONENTS,
 ];
 
-/** The three built-in preset names (project-model §23.3.5). */
+/** The built-in preset names (project-model §23.3.5; phase 24.7: generic names). */
 export const SURFACE_PRESET_NAMES: readonly SurfacePresetName[] = [
   'matte-ground',
-  'hazard',
-  'beacon',
+  'signal-red',
+  'emissive-accent',
 ];
 
 /**
@@ -215,19 +182,13 @@ export function validateV3ComponentValue(
   component: V3OwnedComponent,
   value: unknown,
   path: string,
-  /** The scene's schemaVersion: v4 adds exit zones, optional camera bounds and instance sets. */
+  /** The scene's schemaVersion: v4 adds instance sets and the v4 fields. */
   version: 3 | 4 = 3,
 ): ModelErrorV3[] {
   const errors: ModelErrorV3[] = [];
   switch (component) {
-    case 'gameZone':
-      validateGameZoneComponent(value, path, errors, version);
-      break;
     case 'playerSpawn':
       validatePlayerSpawnComponent(value, path, errors, version);
-      break;
-    case 'cameraFollow':
-      validateCameraFollowComponent(value, path, errors, version);
       break;
     case 'instances':
       validateInstancesComponent(value, path, errors);
@@ -269,8 +230,6 @@ export function validateV3ComponentValue(
     case 'trigger':
     case 'switch':
     case 'health':
-    case 'pickup':
-    case 'enemy':
     case 'audioSource':
     case 'faceMovement':
     case 'collectible':
@@ -397,46 +356,12 @@ export function animationVersionOf(
   return record.versions.find((v) => v.version === version);
 }
 
-/**
- * `content.game`'s reference to a deleted/removed entity closure
- * (project-model §23.6): the envelope-document JSON Pointers that would
- * dangle, ascending codepoint order. `playerId`/`cameraId`/`spawnId` plus
- * every checkpoint's `safeSpawnId`.
- */
-export function danglingGameReferences(
-  scene: Pick<SceneV3, 'entities'>,
-  game: GameConfig | null | undefined,
-  closure: ReadonlySet<string>,
-): string[] {
-  const refs: string[] = [];
-  if (game !== null && game !== undefined) {
-    if (closure.has(game.playerId)) refs.push('/game/playerId');
-    if (closure.has(game.cameraId)) refs.push('/game/cameraId');
-    if (closure.has(game.spawnId)) refs.push('/game/spawnId');
-  }
-  scene.entities.forEach((e, i) => {
-    // A checkpoint going away together with its safe spawn leaves nothing dangling.
-    if (closure.has(e.id)) return;
-    const zone = (e.components as { gameZone?: { safeSpawnId?: unknown } }).gameZone;
-    if (zone !== undefined && typeof zone.safeSpawnId === 'string' && closure.has(zone.safeSpawnId)) {
-      refs.push(`/entities/${i}/components/gameZone/safeSpawnId`);
-    }
-  });
-  return refs.sort();
-}
-
 /** §5.6/§A6: an entity "carries" a component when the key is present. */
 export function entityHasComponent(
   entity: { components: Record<string, unknown> },
   component: string,
 ): boolean {
   return Object.prototype.hasOwnProperty.call(entity.components, component);
-}
-
-/** `content.game`, treating a v2 catalog (no `game` key) as `null`. */
-export function gameOf(content: ContentDocument | undefined): GameConfig | null {
-  if (content === undefined) return null;
-  return content.game ?? null;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

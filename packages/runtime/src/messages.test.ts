@@ -15,9 +15,9 @@ import {
   instantiateRuntime,
   neutralFrame,
   registerSimulationModule,
+  type BehaviorLifecycle,
   type BehaviorMessages,
   type Runtime,
-  type SimulationModuleSpec,
 } from './index';
 
 const HZ = 120;
@@ -31,6 +31,7 @@ interface Ctx {
   phase: string;
   entityId: string;
   messages: BehaviorMessages;
+  lifecycle: BehaviorLifecycle;
 }
 
 function artifact(behaviorId: string, step: (ctx: Ctx) => void): never {
@@ -46,8 +47,6 @@ function artifact(behaviorId: string, step: (ctx: Ctx) => void): never {
   } as never;
 }
 
-const stubGameplay: SimulationModuleSpec = { id: 'thirdlight.teststub:gameplay', phases: ['gameplay'], create: () => ({ transformOwners: [], step() {} }) };
-const stubCamera: SimulationModuleSpec = { id: 'thirdlight.teststub:camera', phases: ['camera'], create: () => ({ transformOwners: ['cam-main'], step() {} }) };
 
 function port(): unknown {
   const zero = { x: 0, y: 0 };
@@ -69,7 +68,7 @@ function port(): unknown {
 /** One script (`step`) on the boxes `ids`; ticks the running game. */
 function harness(step: (ctx: Ctx) => void, ids: string[]) {
   const spec = createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: artifact('talker', step) });
-  const specs = [spec, stubGameplay, stubCamera];
+  const specs = [spec];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
   const now = { t: 0 };
@@ -83,13 +82,12 @@ function harness(step: (ctx: Ctx) => void, ids: string[]) {
         sceneId: 'scene-main',
         revision: 1,
         entities: [
-          { id: 'cam-main', components: { transform: at(0, 4), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+          { id: 'cam-main', components: { transform: at(0, 4), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
           { id: 'player-0001', components: { transform: at(0, 0) } },
           { id: 'spawn-0001', components: { transform: at(0, 0), playerSpawn: {} } },
           ...ids.map((id, i) => ({ id, components: { transform: at(5 + i, -5), box: BOX, behavior: { behaviorId: 'talker', values: {} } } })),
         ],
       },
-      game: { configVersion: 2, title: 'Messages', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
     },
     registry,
     modules: specs.map((s) => s.id),
@@ -104,7 +102,6 @@ function harness(step: (ctx: Ctx) => void, ids: string[]) {
   const rt: Runtime = res.runtime;
   expect(rt.start().ok).toBe(true);
   expect(rt.tick(now.t).ok).toBe(true);
-  expect(rt.gameCommand('start').ok).toBe(true);
   const tick = (n = 1): void => {
     for (let i = 0; i < n; i += 1) {
       now.t += DT;
@@ -167,16 +164,17 @@ describe('ctx.messages', () => {
           let accepted = 0;
           for (let i = 0; i < MAX_MESSAGES_PER_STEP + 5; i++) if (ctx.messages.send('burst', i)) accepted += 1;
           results.push(accepted === MAX_MESSAGES_PER_STEP);
+          // The engine restart (a new run) applies at the next step boundary.
+          expect(ctx.lifecycle.restart()).toBe(true);
+          replayed = true;
         }
       },
       ['box-a'],
     );
     h.tick(1);
     expect(results).toEqual([false, false, false, false, false, false, true]);
-    // The burst was sent in the last step of the run; a replay starts without it.
+    // The burst was sent in the last step of the run; the restarted run starts without it.
     expect(lastStep).toBeGreaterThan(0);
-    replayed = true;
-    expect(h.rt.gameCommand('replay').ok).toBe(true);
     h.tick(3);
     expect(receivedAfterReplay).toBe(0);
   });

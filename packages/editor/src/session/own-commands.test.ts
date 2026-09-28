@@ -3,14 +3,14 @@
  * one — before that one's WS `mutation.applied` has been handled (a busy main
  * thread runs input first) — used to be sent with the old revision and args
  * built from the old state, and was refused with `revision_conflict`
- * (Inspector preset after a field edit; Game flow subtitle after lives).
+ * (Inspector preset after a field edit; a whole-document edit after another).
  * The client now sends its own commands in order, applies each HTTP ack's
  * change at once and rebases over its own revisions only.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionClient } from './client';
-import { OwnCommands, mergeDocumentEdit } from './own-commands';
+import { OwnCommands, mergeDocumentEdit, mergeListEdit } from './own-commands';
 
 describe('OwnCommands', () => {
   it('rebases over our own revisions only', () => {
@@ -48,17 +48,17 @@ describe('OwnCommands', () => {
 });
 
 describe('mergeDocumentEdit', () => {
-  const base = { lives: { start: 3 }, title: {} as Record<string, string>, hud: { preset: 'classic' } };
+  const base = { screens: { title: 'title-doc' } as Record<string, string>, pause: true, hud: ['hud-main'] };
   it('re-applies only the parts the edit changed onto the current document', () => {
-    const next = { ...base, title: { subtitle: 'Two tiny levels' } };
-    const current = { ...base, lives: { start: 2 } };
-    expect(mergeDocumentEdit(base, next, current)).toEqual({ lives: { start: 2 }, title: { subtitle: 'Two tiny levels' }, hud: { preset: 'classic' } });
+    const next = { ...base, screens: { title: 'title-doc', pause: 'pause-doc' } };
+    const current = { ...base, pause: false };
+    expect(mergeDocumentEdit(base, next, current)).toEqual({ screens: { title: 'title-doc', pause: 'pause-doc' }, pause: false, hud: ['hud-main'] });
   });
   it('is the edit itself when nothing changed in between, and removes a part the edit removed', () => {
-    const next = { ...base, lives: { start: 4 } };
+    const next = { ...base, pause: false };
     expect(mergeDocumentEdit(base, next, { ...base })).toBe(next);
     const { hud: _h, ...noHud } = base;
-    expect(mergeDocumentEdit(base, noHud as typeof base, { ...base, lives: { start: 2 } })).toEqual({ lives: { start: 2 }, title: {} });
+    expect(mergeDocumentEdit(base, noHud as typeof base, { ...base, pause: false })).toEqual({ screens: { title: 'title-doc' }, pause: false });
     expect(mergeDocumentEdit(base, null, base)).toBeNull();
   });
 });
@@ -68,7 +68,7 @@ describe('mergeDocumentEdit', () => {
  * delivered, like a page whose main thread has not got to them yet.
  */
 function fakeBackend() {
-  const state = { revision: 1, flow: null as Record<string, unknown> | null, box: { color: '#ffffff' } as Record<string, unknown> };
+  const state = { revision: 1, shell: null as Record<string, unknown> | null, box: { color: '#ffffff' } as Record<string, unknown> };
   const sent: { op: string; expectedRevision: number; args: Record<string, unknown> }[] = [];
   const reply = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const fetchStub = vi.fn(async (_url: string, init: { body?: string }) => {
@@ -80,9 +80,9 @@ function fakeBackend() {
       return reply(409, { ok: false, error: { code: 'revision_conflict', expectedRevision: env.expectedRevision, currentRevision: state.revision } });
     }
     let change: Record<string, unknown>;
-    if (env.op === 'setFlow') {
-      change = { type: 'setFlow', previous: state.flow, next: env.args['flow'] };
-      state.flow = env.args['flow'] as Record<string, unknown> | null;
+    if (env.op === 'setShell') {
+      change = { type: 'setShell', previous: state.shell, next: env.args['shell'] };
+      state.shell = env.args['shell'] as Record<string, unknown> | null;
     } else if (env.op === 'setComponent') {
       const previous = { ...state.box };
       state.box = { ...state.box, ...(env.args['value'] as Record<string, unknown>) };
@@ -125,20 +125,20 @@ describe('SessionClient — own commands made before the previous result arrived
     expect(be.state.box).toEqual({ color: '#ff0000', roughness: 0.2 });
   });
 
-  it('a whole-flow edit made on the old flow keeps the edit made just before it', async () => {
+  it('a whole-document edit made on the old document keeps the edit made just before it', async () => {
     const be = fakeBackend();
     vi.stubGlobal('fetch', be.fetchStub);
     const c = makeClient();
-    const f0 = { levels: [{ id: 'level-1' }], lives: { start: 3, max: 9 }, title: {} };
-    expect(await c.command('setFlow', { flow: f0 }, c.projection.revision)).toMatchObject({ ok: true });
-    expect(c.getFlow()).toEqual(f0);
-    // The panel showed f0 for both edits (lives, then subtitle), as the Game flow window does.
-    const save = (next: typeof f0) => c.command('setFlow', () => ({ flow: mergeDocumentEdit(f0, next, c.getFlow() as typeof f0 | null) }), c.projection.revision);
-    const lives = save({ ...f0, lives: { start: 2, max: 9 } });
-    const subtitle = save({ ...f0, title: { subtitle: 'Two tiny levels' } } as typeof f0);
-    expect(await lives).toMatchObject({ ok: true });
-    expect(await subtitle).toMatchObject({ ok: true });
-    expect(be.state.flow).toEqual({ levels: [{ id: 'level-1' }], lives: { start: 2, max: 9 }, title: { subtitle: 'Two tiny levels' } });
+    const f0 = { screens: { title: 'title-doc' } as Record<string, string>, pause: true };
+    expect(await c.command('setShell', { shell: f0 }, c.projection.revision)).toMatchObject({ ok: true });
+    expect(c.getShell()).toEqual(f0);
+    // The panel showed f0 for both edits (pause, then a screen), as the Game shell tab does.
+    const save = (next: typeof f0) => c.command('setShell', () => ({ shell: mergeDocumentEdit(f0, next, c.getShell() as typeof f0 | null) }), c.projection.revision);
+    const pause = save({ ...f0, pause: false });
+    const screen = save({ ...f0, screens: { title: 'title-doc', pause: 'pause-doc' } });
+    expect(await pause).toMatchObject({ ok: true });
+    expect(await screen).toMatchObject({ ok: true });
+    expect(be.state.shell).toEqual({ screens: { title: 'title-doc', pause: 'pause-doc' }, pause: false });
   });
 
   it('does not rebase over someone else\'s revision, nor a whole-document edit built from the old view', async () => {
@@ -153,11 +153,27 @@ describe('SessionClient — own commands made before the previous result arrived
     const be2 = fakeBackend();
     vi.stubGlobal('fetch', be2.fetchStub);
     const c2 = makeClient();
-    const first = c2.command('setFlow', { flow: { levels: [], lives: { start: 2, max: 9 } } }, c2.projection.revision);
+    const first = c2.command('setShell', { shell: { pause: false } }, c2.projection.revision);
     // Args fixed at call time (an old view): refused rather than undoing the first edit.
-    const stale = c2.command('setFlow', { flow: { levels: [], lives: { start: 3, max: 9 }, title: {} } }, c2.projection.revision);
+    const stale = c2.command('setShell', { shell: { pause: true, status: true } }, c2.projection.revision);
     expect(await first).toMatchObject({ ok: true });
     expect(await stale).toMatchObject({ ok: false, response: { code: 'revision_conflict' } });
-    expect(be2.state.flow).toEqual({ levels: [], lives: { start: 2, max: 9 } });
+    expect(be2.state.shell).toEqual({ pause: false });
+  });
+});
+
+describe('mergeListEdit (phase 24.7, D40: a table edit re-applied onto the table as it is at send time)', () => {
+  const base = [{ name: 'opened', assetId: 'a' }, { name: 'closed', assetId: 'b' }];
+  it('keeps another row field changed in between (one field of one row edited)', () => {
+    const next = [{ name: 'opened', assetId: 'c' }, { name: 'closed', assetId: 'b' }];
+    const current = [{ name: 'renamed', assetId: 'a' }, { name: 'closed', assetId: 'b' }];
+    expect(mergeListEdit(base, next, current)).toEqual([{ name: 'renamed', assetId: 'c' }, { name: 'closed', assetId: 'b' }]);
+  });
+  it('is the edit as made when nothing changed in between, or when rows were added or removed', () => {
+    const next = [{ name: 'opened', assetId: 'c' }, { name: 'closed', assetId: 'b' }];
+    expect(mergeListEdit(base, next, base)).toEqual(next);
+    const added = [...base, { name: 'third', assetId: 'd' }];
+    expect(mergeListEdit(base, added, [{ name: 'renamed', assetId: 'a' }, base[1]!])).toEqual(added);
+    expect(mergeListEdit(base, next, [base[0]!])).toEqual(next);
   });
 });

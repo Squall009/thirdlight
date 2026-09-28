@@ -1,56 +1,23 @@
 /**
  * Phase 12 (c): the pure parts of the runtime's scene set — what one loaded
- * scene contributes (gameplay zones, spawn markers, static colliders), the
- * root offset of a load, the live tag index that follows loads and unloads,
- * and the exit-zone entry test. No I/O, no three.js.
+ * scene contributes (its static colliders), the root offset of a load and the
+ * live tag index that follows loads and unloads. No I/O, no three.js.
  */
-import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { ColliderShape3D, PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
-import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, ModelBounds, PlayerCapsule } from './types';
+import type { BehaviorTagQuery, ModelBounds, PlayerCapsule } from './types';
 
-/** What one scene adds to the running game. */
+/** What one scene adds to the running game (phase 24.7: its static colliders; the zones went with the session). */
 export interface SceneContribution {
-  zones: GameZoneSpec[];
-  spawns: { entityId: string; center: Vec2; facing?: 'left' | 'right' }[];
   colliders: StaticColliderSpec[];
 }
 
-interface ZoneComponentView {
-  role: GameZoneRole;
-  size: [number, number];
-  safeSpawnId?: string;
-  activation?: CheckpointActivationAppearance;
-  load?: string[];
-  unload?: string[];
-  spawnId?: string;
-}
-
-/** The zones, spawns and static colliders of a list of (resolved) entities. */
+/** The static colliders of a list of (resolved) entities. */
 export function sceneContribution(entities: readonly EntityV3[]): SceneContribution {
-  const out: SceneContribution = { zones: [], spawns: [], colliders: [] };
+  const out: SceneContribution = { colliders: [] };
   for (const e of entities) {
     const c = e.components as unknown as Record<string, unknown>;
-    const t = e.components.transform;
-    const zone = c['gameZone'] as ZoneComponentView | undefined;
-    if (zone !== undefined) {
-      out.zones.push({
-        entityId: e.id,
-        role: zone.role,
-        center: { x: t.position[0], y: t.position[1] },
-        half: { x: zone.size[0] / 2, y: zone.size[1] / 2 },
-        ...(zone.safeSpawnId !== undefined ? { safeSpawnId: zone.safeSpawnId } : {}),
-        ...(zone.activation !== undefined ? { activation: zone.activation } : {}),
-        ...(zone.load !== undefined ? { load: Object.freeze([...zone.load]) } : {}),
-        ...(zone.unload !== undefined ? { unload: Object.freeze([...zone.unload]) } : {}),
-        ...(zone.spawnId !== undefined ? { spawnId: zone.spawnId } : {}),
-      });
-    }
-    if (c['playerSpawn'] !== undefined) {
-      // Phase 15.2: the facing travels only when set (left/right).
-      const facing = (c['playerSpawn'] as { facing?: string }).facing;
-      out.spawns.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] }, ...(facing === 'left' || facing === 'right' ? { facing } : {}) });
-    }
     if (c['controller'] === undefined) {
       const spec = staticColliderOf(e.id, c);
       if (spec !== null) out.colliders.push(spec);
@@ -113,10 +80,6 @@ export function offsetEntities(entities: readonly EntityV3[], at: readonly [numb
   });
 }
 
-/** Ascending entity-id codepoint order (the zone projection order). */
-export function byEntityId(a: { entityId: string }, b: { entityId: string }): number {
-  return a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0;
-}
 
 /** Round to the nanometre (keeps a derived length equal to the constant it replaced: 1.8 / 2 − 0.3 is exactly 0.6). */
 const nano = (v: number): number => Math.round(v * 1e9) / 1e9;
@@ -333,20 +296,6 @@ export function capsuleHalfTotal(capsule: PlayerCapsule): number {
   return nano(capsule.halfHeight + capsule.radius);
 }
 
-/**
- * Whether an upright capsule centred at `p` overlaps a zone rectangle (the
- * gameplay §4.2 closed form over a zero-length segment).
- */
-export function capsuleInZone(p: Vec2, zone: { center: Vec2; half: Vec2 }, radius: number, halfHeight: number, eps: number): boolean {
-  const zx0 = zone.center.x - zone.half.x;
-  const zx1 = zone.center.x + zone.half.x;
-  const zy0 = zone.center.y - zone.half.y;
-  const zy1 = zone.center.y + zone.half.y;
-  const dx = Math.max(0, p.x - zx1, zx0 - p.x);
-  const dy = Math.max(0, p.y - halfHeight - zy1, zy0 - (p.y + halfHeight));
-  const limit = radius - eps;
-  return dx * dx + dy * dy < limit * limit;
-}
 
 /**
  * `ctx.tags` over the loaded entities. Loads add masks, unloads remove them;

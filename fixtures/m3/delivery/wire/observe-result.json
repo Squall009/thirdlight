@@ -2,19 +2,13 @@
   "ok": true,
   "playSessionId": "play-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "snapshotId": "demo-0001@r12",
-  "revision": 12,
-  "buildId": "41b5a60bc73c3a8f8dd65edd4acf95622ca1e80f1ae577502ba00cecbf2ee536",
+  "buildId": "78f5ca46b3b261a8ced07f68fd459b9cbb1b7ecc61ce1e16061002436f927da9",
   "runId": "demo-0001@r12#0",
+  "revision": 12,
+  "observedAt": "2026-09-19T10:00:03Z",
   "stepIndex": 1531,
   "simTime": 12.758333333333333,
-  "state": "playing",
-  "checkpointId": "zone-0004",
-  "checkpointActive": true,
-  "deathCount": 1,
-  "goalReached": false,
-  "eventCount": 3,
-  "eventDropped": 0,
-  "failed": false,
+  "state": "running",
   "inputMode": "physical",
   "sound": {
     "status": "ready",
@@ -23,30 +17,23 @@
     "muted": false,
     "gesture": "local"
   },
-  "events": [
-    {
-      "id": "demo-0001@r12#0/runStarted/0",
-      "kind": "runStarted",
-      "stepIndex": 0,
-      "boundary": true,
-      "deathCount": 0
-    },
-    {
-      "id": "demo-0001@r12#0/died/812",
-      "kind": "died",
-      "stepIndex": 812,
-      "boundary": false,
-      "cause": "hazard",
-      "deathCount": 1
-    },
-    {
-      "id": "demo-0001@r12#0/checkpointActivated/1460",
-      "kind": "checkpointActivated",
-      "stepIndex": 1460,
-      "boundary": false,
-      "zoneId": "zone-0004",
-      "deathCount": 1
+  "simulation": {
+    "mode": "single",
+    "transport": null,
+    "isolated": false
+  },
+  "player": {
+    "x": 24,
+    "y": 1,
+    "z": 0
+  },
+  "counters": {
+    "coins": 3
+  },
+  "health": {
+    "player-0001": {
+      "current": 2,
+      "max": 3
     }
-  ],
-  "observedAt": "2026-09-19T10:00:03Z"
+  }
 }

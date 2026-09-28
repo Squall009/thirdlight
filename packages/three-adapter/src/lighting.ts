@@ -27,7 +27,7 @@ export const SHADOW_PROFILE = Object.freeze({
   near: 0.5,
   /** `SHADOW_DISTANCE` — light position offset from the shadow target, metres. */
   distance: 20,
-  /** `SHADOW_MARGIN` — metres added around the level bounds. */
+  /** `SHADOW_MARGIN` — metres added around the shadow region. */
   margin: 2,
   /** `SHADOW_HALF_EXTENT_MAX` — the largest accepted shadow half-extent, metres. */
   halfExtentMax: 64,
@@ -82,14 +82,14 @@ export const SURFACE_PRESETS = Object.freeze({
     emissive: '#000000',
     emissiveIntensity: 0,
   }),
-  hazard: Object.freeze({
+  'signal-red': Object.freeze({
     color: '#d42a1e',
     roughness: 0.55,
     metalness: 0,
     emissive: '#3a0703',
     emissiveIntensity: 0.35,
   }),
-  beacon: Object.freeze({
+  'emissive-accent': Object.freeze({
     color: '#2f7fd4',
     roughness: 0.4,
     metalness: 0.1,
@@ -98,8 +98,8 @@ export const SURFACE_PRESETS = Object.freeze({
   }),
 } as const);
 
-/** The authored level bounds (`content.game.level`). */
-export interface ShadowLevel {
+/** The XY region the key light's shadow covers (a square around the camera's start). */
+export interface ShadowRegion {
   readonly minX: number;
   readonly maxX: number;
   readonly minY: number;
@@ -134,9 +134,9 @@ export interface ShadowPlan {
 
 /**
  * §41.1.3 — the exact shadow camera derivation. Normative inputs: the
- * authored level bounds and the directional `direction` `d` (let
+ * shadow region and the directional `direction` `d` (let
  * `n = d / ‖d‖`). Z is presentation depth only: the shadow camera covers the
- * authored XY level, not the whole scene.
+ * XY region, not the whole scene.
  *
  * Defensive note: a runtime-validated v3 snapshot guarantees each
  * `|v| ≤ 1`, `‖v‖ ≥ 1e-6` (project-model §23.3.4); a non-finite or
@@ -145,7 +145,7 @@ export interface ShadowPlan {
  * still a finite, bounded result.
  */
 export function deriveShadowCamera(
-  level: ShadowLevel,
+  region: ShadowRegion,
   direction: readonly [number, number, number],
 ): ShadowPlan {
   const dx = direction[0];
@@ -156,10 +156,10 @@ export function deriveShadowCamera(
   const nx = valid ? dx / norm : 0;
   const ny = valid ? dy / norm : 0;
   const nz = valid ? dz / norm : 0;
-  const cx = (level.minX + level.maxX) / 2;
-  const cy = (level.minY + level.maxY) / 2;
+  const cx = (region.minX + region.maxX) / 2;
+  const cy = (region.minY + region.maxY) / 2;
   const halfExtent =
-    Math.max((level.maxX - level.minX) / 2, (level.maxY - level.minY) / 2) +
+    Math.max((region.maxX - region.minX) / 2, (region.maxY - region.minY) / 2) +
     SHADOW_PROFILE.margin;
   const far = Math.min(
     SHADOW_PROFILE.distance + halfExtent + SHADOW_PROFILE.margin,
@@ -231,10 +231,10 @@ export function decideShadows(input: {
   readonly webgl2: boolean;
   readonly castShadow: boolean;
   readonly probeOk: boolean;
-  readonly level: ShadowLevel;
+  readonly region: ShadowRegion;
   readonly direction: readonly [number, number, number];
 }): ShadowOutcome {
-  const plan = deriveShadowCamera(input.level, input.direction);
+  const plan = deriveShadowCamera(input.region, input.direction);
   if (!input.webgl2) return { ok: false, error: 'render_unsupported' };
   if (!input.castShadow)
     return { ok: true, shadows: 'off', shadowReason: 'cast_shadow_false', plan };
@@ -288,7 +288,7 @@ export interface AuthoredSurface {
  */
 export function planSceneLights(
   lights: readonly AuthoredLight[],
-  level: ShadowLevel | null,
+  region: ShadowRegion | null,
   decision: ShadowOutcome,
 ): Array<
   | { readonly kind: 'ambient'; readonly color: string; readonly intensity: number }
@@ -301,10 +301,9 @@ export function planSceneLights(
       readonly castShadow: boolean;
     }
 > {
-  // Defensive, unreachable on a runtime-validated v3 snapshot (game.level is
-  // required there): fall back to the zero level so the derivation always
+  // Defensive: fall back to the zero region so the derivation always
   // returns a finite position.
-  const lvl = level ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+  const lvl = region ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 };
   const out: Array<
     | { readonly kind: 'ambient'; readonly color: string; readonly intensity: number }
     | {

@@ -5,8 +5,8 @@
  *
  * What it draws: the documents the simulation shows (`ctx.ui.show`, a
  * frame's show/hide entry), bound to the scripts' view model (the runtime's
- * `UiOutput` diffs, applied once per frame), plus the document that replaces
- * the current built-in flow screen (`flow.screens`). Widgets: panel, stack,
+ * `UiOutput` diffs, applied once per frame), plus the screen document the
+ * host shows (a game shell screen, a mode's pause screen). Widgets: panel, stack,
  * grid, text (rich text in project fonts), image (9-slice), bar (linear or
  * radial), button, list (repeated from a bound array) and a text input;
  * styles and themes compile to a constructed stylesheet (the Play page's CSP
@@ -16,15 +16,15 @@
  * changes, show/hide from a button) go to the runtime's queue
  * (`queueUiEvent`) and ride on the next sampled input frame, so a replay
  * sees them exactly; engine actions (resume, quit to title, save, load, a
- * setting) go to the host's flow. Keyboard/gamepad focus navigation uses the
+ * setting) go to the host (its game shell or the engine pause). Keyboard/gamepad focus navigation uses the
  * input owner's ui edges; the pointer uses DOM events; the focused
  * document's action map becomes the input owner's active map. World-anchored
  * widgets follow an entity or a point through the renderer's camera.
  */
 import type { DialogueInputRecord } from '@thirdlight/runtime';
 import { applyUiOutputToModel, readUiPath, uiPathSegments, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiWidget } from '@thirdlight/runtime';
-import type { FlowUiEdges } from './flow';
-import type { HostDom, HostDomNode } from './hud';
+import type { UiEdges } from './dom';
+import type { HostDom, HostDomNode } from './dom';
 import { GENERIC_FONTS, UI_BASE_CSS, childrenFlow, containerProps, fontFamilyOf, placementProps, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
 import { orderPick, spatialPick, type NavDirection, type NavRect } from './ui-nav';
 import { parseRichText, uiValueText, type RichToken } from './ui-text';
@@ -54,9 +54,9 @@ export interface UiLayerDeps {
   readonly queueEvent: (event: UiEventRecord) => void;
   /** Phase 23.16: a dialogue input for the simulation (the runtime's `queueDialogueInput`). */
   readonly dialogueInput?: (input: DialogueInputRecord) => void;
-  /** An engine action (the host's flow: resume, quit to title, save, load, a setting, mute). */
+  /** An engine action (the host's shell or engine pause: resume, quit to title, save, load, a setting, mute). */
   readonly engineAction: (action: Extract<UiAction, { do: 'engine' }>) => void;
-  /** The host values `$flow.*` bindings read (null: no flow). */
+  /** The host values `$flow.*` bindings read (null: none). */
   readonly flowValues?: () => Readonly<Record<string, unknown>> | null;
   /** Make only these input action maps active (null: every map). */
   readonly setActiveMaps?: (maps: readonly string[] | null) => void;
@@ -81,7 +81,7 @@ export interface UiLayerDeps {
 export interface UiLayerObservation {
   /** The documents the simulation shows, bottom first. */
   readonly shown: readonly string[];
-  /** The document drawn for the current flow screen (null: none or the built-in one). */
+  /** The screen document the host shows (null: none). */
   readonly screen: string | null;
   /** Phase 24.4j: the HUD documents the host shows (the game shell's). */
   readonly hud?: readonly string[];
@@ -93,14 +93,14 @@ export interface UiLayerObservation {
 export interface UiLayer {
   /** Apply the simulation's UI diff (view model, shown documents, tween/focus commands). */
   applyOutput(out: UiOutput): void;
-  /** Draw this document for the current flow screen (null: none). */
+  /** Draw this document as the host's screen (null: none). */
   showScreen(docId: string | null): void;
   /** Phase 24.4j: the HUD documents the host shows while the game plays (under the simulation's; never focused). */
   setHud(docIds: readonly string[]): void;
   /** Once per frame: $flow values and the view size. */
   frame(): void;
   /** Keyboard/gamepad edges: the focused document takes what it uses; the rest is returned. */
-  handleEdges(edges: FlowUiEdges): FlowUiEdges;
+  handleEdges(edges: UiEdges): UiEdges;
   /** A document with the focus is shown (its edges go to the UI). */
   hasFocus(): boolean;
   /** Place the world-anchored widgets (after the frame is rendered). */
@@ -221,7 +221,7 @@ class DocView {
     this.top = this.build(doc.root, this.content, {}, false);
   }
 
-  /** Focus is wanted: a modal, a document that asks for it, a flow screen. */
+  /** Focus is wanted: a modal, a document that asks for it, a host screen. */
   get wantsFocus(): boolean {
     return this.source === 'screen' || (this.source === 'sim' && (this.doc.focus ?? this.modal));
   }
@@ -1117,7 +1117,7 @@ class LayerImpl implements UiLayer {
     }
   }
 
-  handleEdges(edges: FlowUiEdges): FlowUiEdges {
+  handleEdges(edges: UiEdges): UiEdges {
     const v = this.focusView();
     if (v === null) return edges;
     if (this.dirty) this.refreshAll();

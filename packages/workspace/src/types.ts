@@ -20,7 +20,7 @@ import type {
   MutationResult,
   MutationSuccess,
 } from '@thirdlight/commands';
-import type { EntityV3, GameConfig, Manifest } from '@thirdlight/project-model';
+import type { EntityV3, Manifest } from '@thirdlight/project-model';
 import type { LoadDetail } from './errors';
 
 import type { UnavailableReason } from './errors';
@@ -197,13 +197,12 @@ export interface QueryEntitiesResult {
   entities: readonly EntityV3[];
 }
 
-/** `queryGameConfig` (commands.md §3.1.11 / authoring §A6): the full normalized
- * `content.game` block, or `null` (a v2 state has no `game` key). */
+/** `queryGameConfig` (commands.md §3.1.11 / authoring §A6): the project's tag
+ * registry and descriptors (phase 24.7: the game block was deleted). */
 export interface QueryGameConfigResult {
   ok: true;
   projectId: string;
   revision: number;
-  game: GameConfig | null;
 }
 
 export interface QueryFailure {

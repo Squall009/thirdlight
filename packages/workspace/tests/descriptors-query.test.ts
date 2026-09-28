@@ -5,22 +5,20 @@
  * equals project-model's `DESCRIPTORS`; without the flag nothing extra is
  * sent; a non-boolean flag is refused.
  */
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { DESCRIPTORS, GRAPH_KINDS } from '@thirdlight/project-model';
 import { openWorkspaceService } from '@thirdlight/workspace';
 
-import { REPO_ROOT, makeRoot, seedProject } from './helpers';
+import { makeRoot, seedV3DemoProject } from './helpers';
 
-const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const PROJECT_ID = 'demo-0003';
 const SELF = { backendId: 'tb-' + 'e'.repeat(32), pid: 6302 };
 
 describe('descriptor registry over queryGameConfig (phase 15.0)', () => {
   it('returns the registry only when asked, equal to project-model, and refuses a bad flag', () => {
     const root = makeRoot('descriptors-query');
-    seedProject(root, join(STORAGE, 'project-v3-demo-0003'), PROJECT_ID);
+    seedV3DemoProject(root, PROJECT_ID);
     const svc = openWorkspaceService({ root, utcNow: () => '2026-09-24T10:00:00Z', ...SELF });
     const plain = svc.query({ op: 'queryGameConfig', projectId: PROJECT_ID }) as unknown as Record<string, unknown>;
     expect(plain['ok']).toBe(true);

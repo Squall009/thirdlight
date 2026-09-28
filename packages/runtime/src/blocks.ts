@@ -7,16 +7,14 @@
  *   on it moves with it;
  * - triggers and switches emit signals (seen by movers and scripts in the
  *   next step);
- * - pickups add to counters (coins, gems, keys, lives, custom) or heal, and
- *   disappear; `respawn: "death"` ones come back when the player respawns;
- * - enemies walk (between two offsets, or until a ledge or a wall), hurt the
- *   player on contact, and are stomped from above (the player bounces);
- * - the player's `health` takes damage from enemies and damaging hazards,
- *   with a short invulnerability; at 0 (or without a health component) the
- *   player dies as before.
+ * - the generic primitives (phase 24.4: health, collectibles, patrols,
+ *   hitboxes) run in `primitives.ts`.
  *
- * Boxes (triggers, switches, pickups) are centred on their entity; an enemy's
- * box stands on its entity's position (its feet).
+ * Phase 24.7: the platformer's pickups, enemies, hazard damage and the
+ * session player's health, knockback and bounce were deleted; the blocks test
+ * the character (the controller's object) in both dimensions.
+ *
+ * Boxes (triggers, switches) are centred on their entity.
  *
  * Phase 14.2: a trigger may be a circle (centred on its entity, tested
  * against the player's capsule itself), may emit its signal every step while
@@ -27,17 +25,17 @@
  * port (their full position and their entity's rotation) and carry and push
  * the player in 3D; colliders scripts drive are posed with them; triggers are
  * 3D volumes — a box (turned with its entity), a sphere or a capsule standing
- * along its entity's Y — tested exactly against the player's capsule. The 2D
- * plane's switches, pickups and enemies are refused in 3D by the project
- * model (they come with game modes), so the 3D step runs movers and triggers.
+ * along its entity's Y — tested exactly against the character's capsule. The
+ * 2D plane's switches are refused in 3D by the project model, so the 3D step
+ * runs movers and triggers.
  */
 import type { ActionFrame } from './actions';
 import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import { BLOCK_DEFAULTS, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
-import type { BehaviorMessage, ModelBounds, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
+import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal, colliderRotationZ, colliderShape3DOf } from './scene-set';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
-import { advancePath, Primitives, type HealthRecord, type PathState } from './primitives';
+import { advancePath, Primitives, type PathState } from './primitives';
 
 /**
  * Phase 19.1: script messages per step (`ctx.messages.send`): far above what
@@ -46,11 +44,8 @@ import { advancePath, Primitives, type HealthRecord, type PathState } from './pr
 export const MAX_MESSAGES_PER_STEP = 256;
 
 /**
- * Phase 15.3: every tuning value below is the component's data (health,
- * enemy, mover, pickup); `BLOCK_DEFAULTS` are the values used when a field is
- * absent — the constants every project played with before (replays stay
- * valid), except a pickup without a size, which now collects over its
- * model's recorded bounds (else 1 x 1 m) instead of 0.8 x 0.8 m.
+ * Phase 15.3: the mover's tuning is its data; `BLOCK_DEFAULTS` are the values
+ * used when a field is absent (the constants every project played with before).
  */
 const D = BLOCK_DEFAULTS;
 
@@ -118,113 +113,43 @@ interface Switch extends Box {
   spent: boolean;
 }
 
-interface Pickup extends Box {
-  kind: string;
-  value: number;
-  counter: string | null;
-  respawnOnDeath: boolean;
-  cue: string | null;
-  /** Phase 20.2: the effect played where it was when collected (null: none). */
-  effect: string | null;
-  taken: boolean;
-}
-
-interface Enemy {
-  id: string;
-  start: Vec3;
-  x: number;
-  dir: 1 | -1;
-  patrol: 'points' | 'edges';
-  range: [number, number];
-  speed: number;
-  half: Vec2;
-  contactDamage: number;
-  stompable: boolean;
-  maxHealth: number;
-  health: number;
-  defeated: boolean;
-  chase: number;
-  /** Phase 15.3: the enemy's tuning (its data, else the defaults). */
-  chaseHeight: number;
-  /** Phase 24.0: the speed it runs at while chasing (its walking speed when not set). */
-  chaseSpeed: number;
-  /** Phase 24.0: it only notices a player it can see (nothing solid between them). */
-  chaseSight: boolean;
-  /** Phase 24.0: it only notices a player in the direction it is walking. */
-  chaseFacing: boolean;
-  /** Phase 24.0: steps to keep chasing after it last noticed the player. */
-  chaseMemorySteps: number;
-  /** Phase 24.0: while chasing it may leave its patrol range. */
-  chaseBeyondPatrol: boolean;
-  /** Phase 24.0: steps of chase left after it last noticed the player. */
-  memory: number;
-  stompBounce: number;
-  stompTolerance: number;
-  defeat: 'none' | 'squash' | 'fade';
-  /** Steps the squash or fade takes (at least 1). */
-  defeatSteps: number;
-  wallProbe: number;
-  ledgeProbe: number;
-  /** Steps left of the defeat squash or fade (0: none running). */
-  squash: number;
-  /** The authored Y scale (the squash scales it). */
-  scaleY: number;
-  /** Phase 20.2: effects played where it is when a stomp hurts it and when it is defeated (null: none). */
-  hitEffect: string | null;
-  defeatEffect: string | null;
-}
-
 /** Phase 20.2: a request to the renderer's effect player (presentation only). */
 export interface BlocksEffectRequest {
   op: 'play' | 'stop';
   effectId: string;
   entityId: string | null;
   position: Vec3;
-  source: 'component' | 'pickup' | 'enemyHit' | 'enemyDefeat' | 'playerHit' | 'checkpoint' | 'goal';
+  source: 'component';
 }
 
 export interface BlocksHost {
   readonly hz: number;
   readonly physics: PhysicsPort | undefined;
   readonly curr: Map<string, TransformState>;
-  readonly playerId: string;
+  /** Phase 24.4/24.7: the character the blocks test — the controller's object ('' without one). */
+  readonly characterId: string;
   /**
-   * Phase 14.0: the player's capsule. The blocks test its bounding box: half
-   * width `radius`, half height `halfHeight + radius`, centred at the
-   * player's position plus `offset`.
+   * Phase 14.0: the character's capsule. The blocks test its bounding box:
+   * half width `radius`, half height `halfHeight + radius`, centred at the
+   * character's position plus `offset`.
    */
-  readonly playerCapsule: PlayerCapsule;
-  /** The player's committed position (the entity origin), or null. */
-  player(): Vec2 | null;
-  /** The player's motion in the last step (m per step). */
-  playerDelta(): Vec2;
-  /** The collider entity the player stands on, or null. */
+  readonly characterCapsule: PlayerCapsule;
+  /** The character's committed position on the 2D plane (the entity origin), or null. */
+  character(): Vec2 | null;
+  /** The collider entity the character stands on, or null. */
   groundEntityId(): string | null;
-  /** Kill the player (the session's respawn), only while playing. */
-  kill(): void;
-  /** Play an audio asset through the sfx bus (after the step). */
-  playCue?(assetId: string): void;
   /** Phase 20.2: play or stop a visual effect (presentation only; the simulation never reads it back). */
   effect?(request: BlocksEffectRequest): void;
-  /** The animator of an entity (or of one of its children), for parameters. */
-  animator(entityId: string): { set(name: string, v: number | boolean): boolean; trigger(name: string): boolean } | null;
-  /** Phase 15.3: the gap the player's controller keeps from the world (its `skin`; default 0.01 m). */
-  readonly playerSkin?: number;
-  /** Phase 15.3: a model asset's recorded bounds (from the asset's import metrics), or null. */
-  modelBounds?(assetId: string): ModelBounds | null;
+  /** Phase 15.3: the gap the character's controller keeps from the world (its `skin`; default 0.01 m). */
+  readonly characterSkin?: number;
   /** Phase 23.1: the 3D port (a 3D project) — movers are posed on it and the blocks work in 3D. */
   readonly physics3d?: PhysicsPort3D;
-  /** Phase 23.1 (3D): the player's committed position (the entity origin), or null. */
-  player3?(): Vec3 | null;
-  /** Phase 23.1 (3D): the player's capsule centre offset along Z. */
-  readonly playerOffsetZ?: number;
+  /** Phase 23.1 (3D): the character's committed position (the entity origin), or null. */
+  character3?(): Vec3 | null;
+  /** Phase 23.1 (3D): the character's capsule centre offset along Z. */
+  readonly characterOffsetZ?: number;
   /** Phase 23.1 (3D): the colliders scripts drive, where they are now (posed as kinematic bodies with the movers). */
   scriptColliders3D?(): readonly { entityId: string; position: Vec3; rotation: readonly number[] }[];
-  /**
-   * Phase 24.4: the character the generic primitives test (collectibles, hitbox contacts): the
-   * controller's object, also in a scene without a game session (absent: `playerId`).
-   */
-  readonly characterId?: string;
   /** Phase 24.4e: the character entered a trigger with a scene transition (the runtime loads, unloads and moves it). */
   sceneTransition?(triggerId: string, transition: SceneTransitionRequest): void;
 }
@@ -285,21 +210,17 @@ const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
 const NO_CARRY3: Readonly<Vec3> = Object.freeze([0, 0, 0]) as unknown as Readonly<Vec3>;
 
 /**
- * Phase 9.13: a model facing where its parent goes. Phase 24.4f: `velocity`
- * models face the horizontal motion in any direction (the yaw of the motion
- * about +Y plus an offset, turning at `rateV` rad/s); `sides` ones pick one of
- * two yaws by the sign of the motion along X (the old behaviour).
+ * Phase 9.13 / 24.4f: a model facing where it goes — the yaw of the
+ * horizontal motion of what it follows (its parent, else itself) about +Y,
+ * plus an offset, turning at `rate` rad/s. Phase 24.7: the two-sided mode's
+ * own path was deleted; its data reads as this with the offset `yawRight − 90°`
+ * (24.8 upgrades the stored data).
  */
 interface Facer {
-  mode: 'sides' | 'velocity';
-  right: number;
-  left: number;
-  rate: number;
   yaw: number;
-  lastX: number | null;
-  /** velocity: the offset (rad), the turn rate (rad/s), the last world position (x, z), whose motion it reads (its parent, else itself). */
+  /** The offset (rad), the turn rate (rad/s), the last world position (x, z), whose motion it reads. */
   offset: number;
-  rateV: number;
+  rate: number;
   last: [number, number] | null;
   follow: string;
 }
@@ -308,28 +229,16 @@ export class GameplayBlocks {
   private readonly movers = new Map<string, Mover>();
   private readonly triggers = new Map<string, Trigger>();
   private readonly switches = new Map<string, Switch>();
-  private readonly pickups = new Map<string, Pickup>();
-  private readonly enemies = new Map<string, Enemy>();
   private readonly oneWay = new Set<string>();
-  private readonly hazardDamage = new Map<string, number>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
-  /** Phase 24.4f: how many facers face their velocity (the generic and 3D steps turn only those). */
-  private velocityFacers = 0;
-  /** Phase 9.13: models that face where their parent goes (yaw about +Y, radians). */
+  /** Phase 9.13 / 24.4f: models that face where they go (yaw about +Y, radians). */
   private readonly facers = new Map<string, Facer>();
   private readonly counters = new Map<string, number>();
-  private health: { max: number; start: number; current: number; invulnerable: number; invulnerableUntil: number; knockback: number; hitBounce: number; knockbackSteps: number; hitEffect: string | null } | null = null;
   /** Phase 20.2: entities whose `effect` component (re)starts or stops on a signal. */
   private readonly effectTriggers = new Map<string, { effectId: string; signal: string | null; stop: string | null }>();
-  /** Phase 20.2: checkpoint/goal zones' effects (played when reached). */
-  private readonly zoneEffects = new Map<string, string>();
-  /** Phase 15.3: fading entities (a defeated enemy with `defeat: "fade"`): id -> opacity 0-1. */
-  private readonly opacity = new Map<string, number>();
-  /** The gap a pushing mover keeps from the player (the controller's skin plus a margin). */
+  /** The gap a pushing mover keeps from the character (the controller's skin plus a margin). */
   private readonly pushSkin: number;
-  /** A hit's push: m/s along X, steps left. */
-  private knock = { v: 0, steps: 0, total: 0 };
   private signalsNow = new Set<string>();
   private signalsPrev = new Set<string>();
   /** Phase 14.2: triggers entered/left in this step, and in the previous one (what scripts see). */
@@ -338,13 +247,12 @@ export class GameplayBlocks {
   /** Phase 19.1: script messages sent in this step, and in the previous one (what scripts see); `to` null = every script. */
   private messagesNow: { message: BehaviorMessage; to: string | null }[] = [];
   private messagesPrev: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
-  private pendingBounce: number | null = null;
   private carry: Vec2 = { x: 0, y: 0 };
   /** Phase 23.1 (3D): the carried platform's motion (and pushes) this step, and where each script-driven collider was posed last. */
   private carry3: Readonly<Vec3> = NO_CARRY3;
   private readonly scriptPosed = new Map<string, Vec3>();
   private step = 0;
-  /** Phase 14.0: the player capsule's box — centre offset from the player's position, half width, half height. */
+  /** Phase 14.0: the character capsule's box — centre offset from the character's position, half width, half height. */
   private readonly pc: { ox: number; oy: number; hw: number; hh: number };
   /** Phase 24.4: the generic primitives (health on any object, collectibles, patrols, hitbox contacts). */
   readonly primitives: Primitives;
@@ -353,9 +261,9 @@ export class GameplayBlocks {
     private readonly host: BlocksHost,
     entities: readonly EntityV3[],
   ) {
-    const c = host.playerCapsule;
+    const c = host.characterCapsule;
     this.pc = { ox: c.offset.x, oy: c.offset.y, hw: c.radius, hh: capsuleHalfTotal(c) };
-    this.pushSkin = (host.playerSkin ?? 0.01) + PUSH_MARGIN;
+    this.pushSkin = (host.characterSkin ?? 0.01) + PUSH_MARGIN;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const blocks = this;
     this.primitives = new Primitives({
@@ -379,68 +287,34 @@ export class GameplayBlocks {
 
   /** Phase 24.4: the character's capsule box (centre and half extents), or null without a character. */
   private characterBox(): { id: string; centre: Vec3; half: Vec3 } | null {
-    const id = this.host.characterId ?? this.host.playerId;
+    const id = this.host.characterId;
     const t = id !== '' ? this.host.curr.get(id) : undefined;
     if (t === undefined) return null;
-    const oz = this.host.physics3d !== undefined ? (this.host.playerOffsetZ ?? 0) : 0;
+    const oz = this.host.physics3d !== undefined ? (this.host.characterOffsetZ ?? 0) : 0;
     return { id, centre: [t.position[0] + this.pc.ox, t.position[1] + this.pc.oy, t.position[2] + oz], half: [this.pc.hw, this.pc.hh, this.pc.hw] };
-  }
-
-  /**
-   * Phase 15.3: a pickup's collect area without a `size` — its model's
-   * recorded bounds (its own model, else a direct child's; width x height
-   * scaled by the transforms), else the neutral 1 x 1 m.
-   */
-  private pickupSizeOf(e: EntityV3, childModels: Map<string, { assetId: string; scale: readonly number[] }>): [number, number] {
-    const own = (e.components as { model?: { asset?: { assetId?: string } } }).model?.asset?.assetId;
-    const pick = own !== undefined ? { assetId: own, scale: [1, 1, 1] as readonly number[] } : childModels.get(e.id);
-    const b = pick !== undefined ? (this.host.modelBounds?.(pick.assetId) ?? null) : null;
-    if (pick === undefined || b === null) return [D.pickupSize[0], D.pickupSize[1]];
-    const s = e.components.transform.scale;
-    const w = Math.abs((b.max[0] - b.min[0]) * (s[0] ?? 1) * (pick.scale[0] ?? 1));
-    const h = Math.abs((b.max[1] - b.min[1]) * (s[1] ?? 1) * (pick.scale[1] ?? 1));
-    return w > 0 && h > 0 ? [w, h] : [D.pickupSize[0], D.pickupSize[1]];
   }
 
   /** Entities of a loaded scene. */
   add(entities: readonly EntityV3[]): void {
-    // Phase 15.3: the first model child of each entity (a pickup's visual is often a child).
-    const childModels = new Map<string, { assetId: string; scale: readonly number[] }>();
-    for (const e of entities) {
-      const assetId = (e.components as { model?: { asset?: { assetId?: string } } }).model?.asset?.assetId;
-      if (e.parentId !== undefined && assetId !== undefined && !childModels.has(e.parentId)) childModels.set(e.parentId, { assetId, scale: e.components.transform?.scale ?? [1, 1, 1] });
-    }
     for (const e of entities) {
       if (e.parentId !== undefined) this.parents.set(e.id, e.parentId);
       const c = e.components as unknown as Record<string, Record<string, unknown> | undefined>;
       const p = e.components.transform.position;
-      const zone = c['gameZone'];
-      if (zone !== undefined && zone['role'] === 'hazard' && typeof zone['damage'] === 'number') this.hazardDamage.set(e.id, zone['damage'] as number);
-      if (zone !== undefined && typeof zone['effect'] === 'string') this.zoneEffects.set(e.id, zone['effect'] as string);
       const col = c['collider'];
       if (col !== undefined && col['oneWay'] === true) this.oneWay.add(e.id);
       const face = c['faceMovement'];
-      // Phase 24.4f: a velocity model may sit at the top (it faces its own motion); a two-sided one faces its parent's.
-      const velocity = face?.['mode'] === 'velocity';
-      if (face !== undefined && (e.parentId !== undefined || velocity)) {
-        const right = (num(face['yawRight'], 90) * Math.PI) / 180;
-        const left = (num(face['yawLeft'], -90) * Math.PI) / 180;
+      if (face !== undefined) {
+        // Phase 24.7: a two-sided model (no mode) reads as a velocity one: moving +X faces yawRight (24.8 upgrades the data).
+        const offsetDeg = face['mode'] === 'velocity' ? num(face['yawOffset'], 0) : num(face['yawRight'], 90) - 90;
         const turn = num(face['turnSeconds'], 0.12);
         const q = e.components.transform.rotation;
-        if (this.facers.get(e.id)?.mode === 'velocity') this.velocityFacers -= 1;
         this.facers.set(e.id, {
-          mode: velocity ? 'velocity' : 'sides',
-          right,
-          left,
-          rate: turn > 0 ? Math.abs(right - left) / turn : Infinity,
           yaw: 2 * Math.atan2(q[1] ?? 0, q[3] ?? 1),
-          lastX: null,
-          offset: (num(face['yawOffset'], 0) * Math.PI) / 180,
-          rateV: turn > 0 ? Math.PI / turn : Infinity,
+          offset: (offsetDeg * Math.PI) / 180,
+          rate: turn > 0 ? Math.PI / turn : Infinity,
           last: null,
           follow: e.parentId ?? e.id,
         });
-        if (velocity) this.velocityFacers += 1;
       }
       const m = c['mover'];
       if (m !== undefined) {
@@ -507,87 +381,14 @@ export class GameplayBlocks {
         const size = s['size'] as number[];
         this.switches.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(s['signal']), mode: s['mode'] as Switch['mode'], action: typeof s['action'] === 'string' ? (s['action'] as string) : SWITCH_DEFAULT_ACTION, once: s['once'] === true, inside: false, spent: false });
       }
-      const pk = c['pickup'];
-      if (pk !== undefined) {
-        const size = (pk['size'] as number[] | undefined) ?? this.pickupSizeOf(e, childModels);
-        this.pickups.set(e.id, {
-          id: e.id,
-          half: { x: size[0]! / 2, y: size[1]! / 2 },
-          kind: String(pk['kind']),
-          value: num(pk['value'], 1),
-          counter: typeof pk['counter'] === 'string' ? (pk['counter'] as string) : null,
-          respawnOnDeath: pk['respawn'] === 'death',
-          cue: typeof pk['cue'] === 'string' ? (pk['cue'] as string) : null,
-          effect: typeof pk['effect'] === 'string' ? (pk['effect'] as string) : null,
-          taken: false,
-        });
-      }
-      const en = c['enemy'];
-      if (en !== undefined) {
-        const size = en['size'] as number[];
-        const range = (en['range'] as number[] | undefined) ?? [0, 0];
-        const health = num(en['health'], 1);
-        const speed = num(en['speed'], 1);
-        this.enemies.set(e.id, {
-          id: e.id,
-          start: [p[0], p[1], p[2]],
-          x: p[0],
-          dir: 1,
-          patrol: en['patrol'] as Enemy['patrol'],
-          range: [p[0] + range[0]!, p[0] + range[1]!],
-          speed,
-          half: { x: size[0]! / 2, y: size[1]! / 2 },
-          contactDamage: num(en['contactDamage'], 1),
-          stompable: en['stompable'] === true,
-          maxHealth: health,
-          health,
-          defeated: false,
-          chase: num(en['chase'], 0),
-          chaseHeight: num(en['chaseHeight'], D.chaseHeight),
-          // Phase 24.0: 0 means "the walking speed" (so an untouched enemy keeps its exact old feel).
-          chaseSpeed: num(en['chaseSpeed'], 0) > 0 ? (en['chaseSpeed'] as number) : speed,
-          chaseSight: en['chaseSight'] === true,
-          chaseFacing: en['chaseFacing'] === true,
-          chaseMemorySteps: Math.max(0, Math.round(num(en['chaseMemory'], D.chaseMemory) * this.host.hz)),
-          chaseBeyondPatrol: en['chaseBeyondPatrol'] === true,
-          memory: 0,
-          stompBounce: num(en['stompBounce'], D.stompBounce),
-          stompTolerance: num(en['stompTolerance'], D.stompTolerance),
-          defeat: en['defeat'] === 'none' || en['defeat'] === 'fade' ? (en['defeat'] as 'none' | 'fade') : 'squash',
-          defeatSteps: Math.max(1, Math.round(num(en['defeatTime'], D.defeatTime) * this.host.hz)),
-          wallProbe: num(en['wallProbe'], D.wallProbe),
-          ledgeProbe: num(en['ledgeProbe'], D.ledgeProbe),
-          squash: 0,
-          scaleY: e.components.transform.scale[1] ?? 1,
-          hitEffect: typeof en['hitEffect'] === 'string' ? (en['hitEffect'] as string) : null,
-          defeatEffect: typeof en['defeatEffect'] === 'string' ? (en['defeatEffect'] as string) : null,
-        });
-      }
       const h = c['health'];
-      if (h !== undefined && e.id === this.host.playerId) {
-        const max = num(h['max'], 3);
-        const start = Math.min(max, num(h['start'], max));
-        this.health = {
-          max,
-          start,
-          current: start,
-          invulnerable: num(h['invulnerableSeconds'], D.invulnerableSeconds),
-          invulnerableUntil: -1,
-          knockback: num(h['knockback'], 0),
-          hitBounce: num(h['hitBounce'], D.hitBounce),
-          knockbackSteps: Math.max(1, Math.round(num(h['knockbackTime'], D.knockbackTime) * this.host.hz)),
-          hitEffect: typeof h['hitEffect'] === 'string' ? (h['hitEffect'] as string) : null,
-        };
-      }
       // Phase 20.2: an effect component that a signal starts or stops.
       const fx = c['effect'];
       if (fx !== undefined && (typeof fx['signal'] === 'string' || typeof fx['stopSignal'] === 'string')) {
         this.effectTriggers.set(e.id, { effectId: String(fx['effectId']), signal: typeof fx['signal'] === 'string' ? (fx['signal'] as string) : null, stop: typeof fx['stopSignal'] === 'string' ? (fx['stopSignal'] as string) : null });
       }
-      // Phase 24.4: health on any object (the session player's is the record above), collectibles, patrols, hitboxes.
-      if (h !== undefined || c['collectible'] !== undefined || c['patrol'] !== undefined || c['hitbox'] !== undefined) {
-        this.primitives.add(e.id, c, p, h !== undefined && e.id === this.host.playerId && this.health !== null ? (this.health as HealthRecord) : undefined);
-      }
+      // Phase 24.4: health on any object, collectibles, patrols, hitboxes.
+      if (h !== undefined || c['collectible'] !== undefined || c['patrol'] !== undefined || c['hitbox'] !== undefined) this.primitives.add(e.id, c, p);
     }
   }
 
@@ -607,17 +408,11 @@ export class GameplayBlocks {
       this.movers.delete(id);
       this.triggers.delete(id);
       this.switches.delete(id);
-      this.pickups.delete(id);
-      this.enemies.delete(id);
       this.oneWay.delete(id);
-      this.hazardDamage.delete(id);
       this.hidden.delete(id);
-      this.opacity.delete(id);
       this.parents.delete(id);
-      if (this.facers.get(id)?.mode === 'velocity') this.velocityFacers -= 1;
       this.facers.delete(id);
       this.effectTriggers.delete(id);
-      this.zoneEffects.delete(id);
     }
     this.primitives.remove(ids);
   }
@@ -630,24 +425,14 @@ export class GameplayBlocks {
     }
     for (const t of this.triggers.values()) Object.assign(t, { inside: false, spent: false });
     for (const s of this.switches.values()) Object.assign(s, { inside: false, spent: false });
-    for (const p of this.pickups.values()) p.taken = false;
-    for (const e of this.enemies.values()) {
-      this.writeSquash(e.id, e.scaleY);
-      Object.assign(e, { x: e.start[0], dir: 1, health: e.maxHealth, defeated: false, squash: 0, memory: 0 });
-      this.writeTransform(e.id, e.start);
-    }
     this.hidden.clear();
-    this.opacity.clear();
     this.counters.clear();
-    if (this.health !== null) Object.assign(this.health, { current: this.health.start, invulnerableUntil: -1 });
-    this.knock = { v: 0, steps: 0, total: 0 };
     this.signalsNow.clear();
     this.signalsPrev.clear();
     this.triggerEventsNow = [];
     this.triggerEventsPrev = Object.freeze([]);
     this.messagesNow = [];
     this.messagesPrev = Object.freeze([]);
-    this.pendingBounce = null;
     this.carry = { x: 0, y: 0 };
     this.carry3 = NO_CARRY3;
     this.scriptPosed.clear();
@@ -656,26 +441,32 @@ export class GameplayBlocks {
   }
 
   /**
-   * Phase 15.2: a spawn's facing — the face-movement models under `rootId`
-   * (the player's) turn to it at once, as if the player had just moved that
-   * way (a spawn without a facing leaves them as they are).
+   * Phase 24.7: the character was placed (a spawn, a respawn, a teleport) —
+   * the face-movement models under `rootId` forget their last position, so
+   * the placement is not read as motion (they keep their yaw).
    */
-  faceSpawn(rootId: string, facing: 'left' | 'right' | number): void {
+  placed(rootId: string): void {
+    for (const [id, f] of this.facers) if (this.isUnder(id, rootId)) f.last = null;
+  }
+
+  private isUnder(id: string, rootId: string): boolean {
+    let p = this.parents.get(id);
+    for (let guard = 0; p !== undefined && guard < 64; guard++) {
+      if (p === rootId) return true;
+      p = this.parents.get(p);
+    }
+    return false;
+  }
+
+  /**
+   * Phase 15.2 / 24.4f: a spawn's facing — the face-movement models under
+   * `rootId` (the character's) turn at once to `yaw` (radians about +Y) plus
+   * their offset, as if the character had just moved that way.
+   */
+  faceSpawn(rootId: string, yaw: number): void {
     for (const [id, f] of this.facers) {
-      let p = this.parents.get(id);
-      let under = false;
-      for (let guard = 0; p !== undefined && guard < 64; guard++) {
-        if (p === rootId) {
-          under = true;
-          break;
-        }
-        p = this.parents.get(p);
-      }
-      if (!under) continue;
-      // Phase 24.4f: a yaw (radians about +Y): a velocity model turns to it; a two-sided one to the side it points at.
-      if (typeof facing === 'number') f.yaw = f.mode === 'velocity' ? facing + f.offset : Math.sin(facing) >= 0 ? f.right : f.left;
-      else f.yaw = facing === 'right' ? f.right : f.left;
-      f.lastX = null;
+      if (!this.isUnder(id, rootId)) continue;
+      f.yaw = yaw + f.offset;
       f.last = null;
       const t = this.host.curr.get(id);
       if (t !== undefined) {
@@ -685,19 +476,6 @@ export class GameplayBlocks {
         t.rotation[3] = Math.cos(f.yaw / 2);
       }
     }
-  }
-
-  /** The player respawned after a death: health back to full, some pickups back. */
-  onRespawn(): void {
-    if (this.health !== null) Object.assign(this.health, { current: this.health.start, invulnerableUntil: -1 });
-    this.knock = { v: 0, steps: 0, total: 0 };
-    for (const p of this.pickups.values()) {
-      if (p.taken && p.respawnOnDeath) {
-        p.taken = false;
-        this.hidden.delete(p.id);
-      }
-    }
-    this.pendingBounce = null;
   }
 
   // ---- queries ------------------------------------------------------------------
@@ -710,11 +488,6 @@ export class GameplayBlocks {
 
   hiddenEntities(): ReadonlySet<string> {
     return this.hidden;
-  }
-
-  /** Phase 15.3: entities fading out (id -> opacity 0-1); the renderer applies it. */
-  entityOpacity(): ReadonlyMap<string, number> {
-    return this.opacity;
   }
 
   countersView(): Record<string, number> {
@@ -736,36 +509,10 @@ export class GameplayBlocks {
     for (const [k, v] of Object.entries(values)) if (/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) && Number.isFinite(v)) this.counters.set(k, v);
   }
 
-  /** Phase 9.11: what a save keeps of the run (collected pickups, defeated enemies, counters, health). */
-  snapshotRun(): { counters: Record<string, number>; collected: string[]; defeated: string[]; health: number | null } {
-    return {
-      counters: this.countersView(),
-      collected: [...this.pickups.values()].filter((p) => p.taken).map((p) => p.id).sort(),
-      defeated: [...this.enemies.values()].filter((e) => e.defeated).map((e) => e.id).sort(),
-      health: this.health?.current ?? null,
-    };
-  }
-
-  /** Phase 9.11: a loaded save's run (after the fresh run began): pickups stay collected, enemies defeated. */
-  restoreRun(run: { counters?: Record<string, number>; collected?: readonly string[]; defeated?: readonly string[]; health?: number | null }): void {
-    for (const [k, v] of Object.entries(run.counters ?? {})) if (/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) && Number.isFinite(v)) this.counters.set(k, v);
-    for (const id of run.collected ?? []) {
-      const p = this.pickups.get(id);
-      if (p === undefined) continue;
-      p.taken = true;
-      this.hidden.add(id);
-    }
-    for (const id of run.defeated ?? []) {
-      const e = this.enemies.get(id);
-      if (e === undefined) continue;
-      e.defeated = true;
-      this.hidden.add(id);
-    }
-    if (this.health !== null && typeof run.health === 'number' && run.health >= 1) this.health.current = Math.min(this.health.max, Math.round(run.health));
-  }
-
+  /** Phase 24.7: the character's health (ctx.game.health), or null when it has none. */
   healthView(): { current: number; max: number } | null {
-    return this.health === null ? null : { current: this.health.current, max: this.health.max };
+    const id = this.host.characterId;
+    return id !== '' ? this.primitives.healthOf(id) : null;
   }
 
   /** A signal emitted in the previous step (what consumers see this step). */
@@ -817,13 +564,6 @@ export class GameplayBlocks {
     return Object.freeze(out);
   }
 
-  /** The upward speed to give the player this step (a stomp or a hit), once. */
-  takeBounce(): number | null {
-    const b = this.pendingBounce;
-    this.pendingBounce = null;
-    return b;
-  }
-
   /** The carried platform's motion this step (added to the player's staged move). */
   carryDelta(): Vec2 {
     return this.carry;
@@ -873,8 +613,8 @@ export class GameplayBlocks {
       this.beforeStep3D(this.host.physics3d);
       return;
     }
-    if (this.movers.size === 0 && this.knock.steps <= 0) {
-      // Nothing moves the player this step: no carry, no poses.
+    if (this.movers.size === 0) {
+      // Nothing moves the character this step: no carry, no poses.
       this.carry = NO_CARRY;
       return;
     }
@@ -887,7 +627,7 @@ export class GameplayBlocks {
     // a player at its edge, a sliding block shoves — so the character never
     // ends up inside a kinematic body (the controller would then have to
     // correct beyond its contracted bound).
-    const player = this.host.player();
+    const player = this.host.character();
     const pushed = { x: 0, y: 0 };
     // Phase 14.7: a mover moving mostly upward pushes a player beside or
     // under it (the capsule's centre below the mover's top) out sideways, away
@@ -915,11 +655,6 @@ export class GameplayBlocks {
       if (ground === m.id) this.carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
       else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m, before);
     }
-    // A hit's knockback: a horizontal push that eases out over the health's knockback time.
-    if (this.knock.steps > 0) {
-      pushed.x += (this.knock.v * dt * this.knock.steps) / this.knock.total;
-      this.knock.steps -= 1;
-    }
     this.carry = { x: this.carry.x + pushed.x, y: this.carry.y + pushed.y };
     if (poses.length > 0) this.host.physics?.setKinematicPositions?.(poses);
   }
@@ -944,8 +679,8 @@ export class GameplayBlocks {
     const carry: Vec3 = [0, 0, 0];
     const pushed: Vec3 = [0, 0, 0];
     const poses: KinematicPose3D[] = [];
-    const player = this.host.player3?.() ?? null;
-    const oz = this.host.playerOffsetZ ?? 0;
+    const player = this.host.character3?.() ?? null;
+    const oz = this.host.characterOffsetZ ?? 0;
     const capHalf: Vec3 = [this.pc.hw, this.pc.hh, this.pc.hw];
     const push = (m: Mover, before: Vec3): void => {
       if (player === null || m.aabb === null) return;
@@ -989,30 +724,26 @@ export class GameplayBlocks {
     advancePath(m, dt);
   }
 
-  /** After physics: overlaps with the player, enemies, pickups, switches, damage. */
-  afterPhysics(frame: ActionFrame, playing: boolean): void {
-    // Phase 24.4: the generic primitives first (patrols walk; collectibles and contacts test the character while playing).
-    this.primitives.afterPhysics(playing);
+  /**
+   * After the transform phase (both dimensions): the generic primitives
+   * (patrols walk; collectibles and hitbox contacts test the character),
+   * face-movement models turn, and the triggers (and, on the 2D plane, the
+   * switches) test the character. Phase 24.7: one path with or without a
+   * game mode; the deleted session's pickups, enemies and damage are gone.
+   */
+  afterPhysics(frame: ActionFrame): void {
+    this.primitives.afterPhysics(true);
+    if (this.facers.size > 0) this.turnFacers(1 / this.host.hz);
     if (this.host.physics3d !== undefined) {
-      // Phase 24.4f: velocity-facing models turn in 3D too (two-sided ones stay a 2D-plane feature).
-      if (this.velocityFacers > 0) this.turnFacers(1 / this.host.hz, true);
-      if (playing) this.triggers3D();
+      this.triggers3D();
       return;
     }
-    const dt = 1 / this.host.hz;
-    this.moveEnemies(dt);
-    this.turnFacers(dt);
-    const player = this.host.player();
-    if (player === null || !playing) return;
-    const overlaps = (id: string, half: Vec2, feetAnchored = false): boolean => {
-      const at = this.worldOf(id);
-      if (at === null) return false;
-      const cy = feetAnchored ? at[1] + half.y : at[1];
-      return Math.abs(player.x + this.pc.ox - at[0]) < half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - cy) < half.y + this.pc.hh;
-    };
+    const player = this.host.character();
+    if (player === null) return;
     this.triggers2D(player);
     for (const s of this.switches.values()) {
-      const inside = overlaps(s.id, s.half);
+      const at = this.worldOf(s.id);
+      const inside = at !== null && Math.abs(player.x + this.pc.ox - at[0]) < s.half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - at[1]) < s.half.y + this.pc.hh;
       // Phase 24.4f: an interact switch reads its own action (absent: interact).
       const fire = s.mode === 'stand' ? inside && !s.inside : inside && frame.actions?.[s.action]?.p === 'pressed';
       if (fire && !s.spent) {
@@ -1021,71 +752,15 @@ export class GameplayBlocks {
       }
       s.inside = inside;
     }
-    for (const p of this.pickups.values()) {
-      if (p.taken || !overlaps(p.id, p.half)) continue;
-      p.taken = true;
-      this.hidden.add(p.id);
-      if (p.cue !== null) this.host.playCue?.(p.cue);
-      if (p.effect !== null) this.playAt(p.effect, p.id, 'pickup');
-      if (p.kind === 'heart') {
-        if (this.health !== null) this.health.current = Math.min(this.health.max, this.health.current + p.value);
-      } else {
-        const name = p.kind === 'custom' ? (p.counter ?? 'custom') : p.kind === 'life' ? 'lives' : `${p.kind}s`;
-        this.addCounter(name, p.value);
-      }
-    }
-    const delta = this.host.playerDelta();
-    for (const e of this.enemies.values()) {
-      if (e.defeated || !overlaps(e.id, e.half, true)) continue;
-      const at = this.worldOf(e.id)!;
-      const top = at[1] + 2 * e.half.y;
-      const feetBefore = player.y + this.pc.oy - delta.y - this.pc.hh;
-      if (e.stompable && delta.y < 0 && feetBefore >= top - e.stompTolerance) {
-        e.health -= 1;
-        this.pendingBounce = e.stompBounce;
-        if (e.hitEffect !== null) this.playAt(e.hitEffect, e.id, 'enemyHit');
-        const anim = this.host.animator(e.id);
-        anim?.trigger('hurt');
-        if (e.health <= 0) {
-          e.defeated = true;
-          // Phase 15.3: squash or fade over its defeat time; `none`: gone at once.
-          if (e.defeat === 'none') this.hidden.add(e.id);
-          else e.squash = e.defeatSteps;
-          anim?.set('defeated', true);
-          this.host.animator(e.id)?.set('attacking', false);
-          this.addCounter('defeated', 1);
-          if (e.defeatEffect !== null) this.playAt(e.defeatEffect, e.id, 'enemyDefeat');
-        }
-      } else if (e.contactDamage > 0) {
-        this.damage(e.contactDamage, at[0]);
-      }
-    }
-  }
-
-  /**
-   * Phase 24.4: a 2D-plane step without the game session runs the generic
-   * primitives only (the platformer blocks keep their old scope: they run with
-   * the session, as before).
-   */
-  afterPhysicsGeneric(): void {
-    this.primitives.afterPhysics(true);
-    // Phase 24.4f: velocity-facing models turn without the session too.
-    if (this.velocityFacers > 0) this.turnFacers(1 / this.host.hz, true);
-    // Phase 24.4e: triggers test the character (the controller's object) without the session too.
-    if (this.triggers.size > 0) {
-      const id = this.host.characterId ?? this.host.playerId;
-      const t = id !== '' ? this.host.curr.get(id) : undefined;
-      if (t !== undefined) this.triggers2D({ x: t.position[0], y: t.position[1] });
-    }
   }
 
   /** Phase 24.4: a 2D-plane plain step (no simulation modules): the primitives' events turn over and they step. */
   stepPrimitivesOnly(stepIndex: number): void {
-    if (!this.primitives.active && this.velocityFacers === 0) return;
+    if (!this.primitives.active && this.facers.size === 0) return;
     this.step = stepIndex;
     this.primitives.turnover(stepIndex);
     this.primitives.afterPhysics(true);
-    if (this.velocityFacers > 0) this.turnFacers(1 / this.host.hz, true);
+    if (this.facers.size > 0) this.turnFacers(1 / this.host.hz);
   }
 
   /**
@@ -1146,10 +821,10 @@ export class GameplayBlocks {
    * closer than the radii (a touch is outside, as in 2D).
    */
   private triggers3D(): void {
-    const p = this.host.player3?.() ?? null;
+    const p = this.host.character3?.() ?? null;
     if (p === null) return;
     const seg = Math.max(0, this.pc.hh - this.pc.hw);
-    const c: Vec3 = [p[0] + this.pc.ox, p[1] + this.pc.oy, p[2] + (this.host.playerOffsetZ ?? 0)];
+    const c: Vec3 = [p[0] + this.pc.ox, p[1] + this.pc.oy, p[2] + (this.host.characterOffsetZ ?? 0)];
     const a: Vec3 = [c[0], c[1] - seg, c[2]];
     const b: Vec3 = [c[0], c[1] + seg, c[2]];
     const r = this.pc.hw;
@@ -1170,144 +845,6 @@ export class GameplayBlocks {
     }
   }
 
-  private moveEnemies(dt: number): void {
-    const player = this.host.player();
-    for (const e of this.enemies.values()) {
-      if (e.defeated) {
-        // The defeat: squash toward the feet (or fade out), then gone.
-        if (e.squash > 0) {
-          e.squash -= 1;
-          const total = e.defeatSteps;
-          if (e.defeat === 'fade') this.opacity.set(e.id, e.squash / total);
-          else this.writeSquash(e.id, e.scaleY * (0.15 + (0.85 * e.squash) / total));
-          if (e.squash === 0) {
-            this.hidden.add(e.id);
-            this.opacity.delete(e.id);
-          }
-        }
-        continue;
-      }
-      // Chase: notice a player within range, in front (`chaseFacing`), within its
-      // sight (`chaseSight`); keep running them down for `chaseMemory` after that.
-      let chasing = false;
-      if (e.chase > 0 && player !== null) {
-        const dx = player.x + this.pc.ox - e.x;
-        const feet = player.y + this.pc.oy - this.pc.hh;
-        const near = Math.abs(dx) <= e.chase && Math.abs(feet - e.start[1]) <= e.chaseHeight && Math.abs(dx) > 0.05;
-        const inFront = !e.chaseFacing || dx * e.dir > 0;
-        if (near && inFront && (!e.chaseSight || this.enemySight(e, player))) {
-          e.dir = dx > 0 ? 1 : -1;
-          e.memory = e.chaseMemorySteps;
-          chasing = true;
-        } else if (e.memory > 0) {
-          // It remembers roughly where the player was and keeps coming.
-          e.memory -= 1;
-          if (Math.abs(dx) > 0.05) e.dir = dx > 0 ? 1 : -1;
-          chasing = true;
-        }
-      }
-      this.host.animator(e.id)?.set('attacking', chasing);
-      const speed = chasing ? e.chaseSpeed : e.speed;
-      this.host.animator(e.id)?.set('speed', speed);
-      const step = speed * dt * e.dir;
-      let next = e.x + step;
-      // A points patrol holds it inside its range — unless it is chasing and may
-      // leave its post; a chase that ended outside walks back in.
-      if (e.patrol === 'points' && !(chasing && e.chaseBeyondPatrol)) {
-        if (e.x < e.range[0]) {
-          e.dir = 1;
-          next = e.x + speed * dt;
-        } else if (e.x > e.range[1]) {
-          e.dir = -1;
-          next = e.x - speed * dt;
-        } else if (next > e.range[1]) {
-          next = e.range[1];
-          e.dir = -1;
-        } else if (next < e.range[0]) {
-          next = e.range[0];
-          e.dir = 1;
-        }
-      }
-      // A wall or a ledge ahead stops it — an edge walker always, a chaser too
-      // (it never walks through a wall or off a platform).
-      if ((chasing || e.patrol === 'edges') && this.host.physics?.raycast !== undefined) {
-        const y = e.start[1];
-        const front = e.x + e.dir * e.half.x;
-        // Phase 15.3: the probe distances are the enemy's data (defaults 0.05 m ahead, 0.4 m down).
-        const wall = this.host.physics.raycast({ x: e.x, y: y + e.half.y }, { x: e.dir, y: 0 }, e.half.x + Math.abs(next - e.x) + e.wallProbe);
-        const floor = this.host.physics.raycast({ x: front + e.dir * e.wallProbe, y: y + 0.1 }, { x: 0, y: -1 }, e.ledgeProbe);
-        if (wall !== null || floor === null) {
-          e.dir = e.dir === 1 ? -1 : 1;
-          next = e.x;
-        }
-      }
-      e.x = next;
-      this.writeTransform(e.id, [e.x, e.start[1], e.start[2]]);
-    }
-  }
-
-  /**
-   * Phase 24.0: can the enemy see the player? A ray from its eye to the player's
-   * middle: a wall or a platform edge between them blocks it (the player's own
-   * collider is never hit by a raycast, so a clear ray is a clear view).
-   */
-  private enemySight(e: Enemy, player: Vec2): boolean {
-    const physics = this.host.physics;
-    if (physics?.raycast === undefined) return true;
-    const from = { x: e.x, y: e.start[1] + e.half.y };
-    const to = { x: player.x + this.pc.ox, y: player.y + this.pc.oy };
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const distance = Math.hypot(dx, dy);
-    if (!(distance > 0.05)) return true;
-    const hit = physics.raycast(from, { x: dx, y: dy }, distance);
-    return hit === null || hit.distance >= distance - 1e-6;
-  }
-
-  /** Damage the player (from `fromX`: a knockback pushes away from it); without a health component any damage kills. */
-  damage(amount: number, fromX?: number): 'alive' | 'dead' {
-    if (amount <= 0) return 'alive';
-    if (this.health === null) {
-      this.host.kill();
-      return 'dead';
-    }
-    if (this.step < this.health.invulnerableUntil) return 'alive';
-    this.health.current = Math.max(0, this.health.current - amount);
-    this.health.invulnerableUntil = this.step + Math.round(this.health.invulnerable * this.host.hz);
-    this.host.animator(this.host.playerId)?.trigger('hurt');
-    if (this.health.hitEffect !== null) this.playAt(this.health.hitEffect, this.host.playerId, 'playerHit');
-    if (this.health.current === 0) {
-      this.host.kill();
-      return 'dead';
-    }
-    this.pendingBounce = this.health.hitBounce;
-    const player = this.host.player();
-    if (this.health.knockback > 0 && fromX !== undefined && player !== null) {
-      const total = this.health.knockbackSteps;
-      // Twice the speed at the start, easing to zero: the mean is `knockback`.
-      this.knock = { v: 2 * this.health.knockback * (player.x >= fromX ? 1 : -1), steps: total, total };
-    }
-    return 'alive';
-  }
-
-  /**
-   * A hazard zone touched: with `damage` (and a player health) it hurts —
-   * 'handled' (the player may still die of it); else 'kill' (the session's
-   * plain respawn, with the zone).
-   */
-  hazard(zoneId: string | undefined): 'handled' | 'kill' {
-    const damage = zoneId !== undefined ? this.hazardDamage.get(zoneId) : undefined;
-    if (damage === undefined || damage <= 0 || this.health === null) return 'kill';
-    this.damage(damage);
-    return 'handled';
-  }
-
-  private writeSquash(id: string, sy: number): void {
-    const t = this.host.curr.get(id);
-    if (t === undefined) return;
-    t.scale[1] = sy;
-  }
-
   private writeTransform(id: string, pos: readonly number[]): void {
     const t = this.host.curr.get(id);
     if (t === undefined) return;
@@ -1316,33 +853,9 @@ export class GameplayBlocks {
     t.position[2] = pos[2]!;
   }
 
-  /** World position by summing the parent chain (the runtime's hierarchy has no rotation here). */
-  /** Phase 9.13: each facing model turns toward its parent's horizontal motion (it keeps its yaw while the parent stands). */
-  private turnFacers(dt: number, velocityOnly = false): void {
-    for (const [id, f] of this.facers) {
-      if (f.mode === 'velocity') {
-        this.turnVelocityFacer(id, f, dt);
-        continue;
-      }
-      if (velocityOnly) continue;
-      const parent = this.parents.get(id);
-      const at = parent !== undefined ? this.worldOf(parent) : null;
-      if (at === null) continue;
-      const dx = f.lastX === null ? 0 : at[0] - f.lastX;
-      f.lastX = at[0];
-      const target = dx > 1e-4 ? f.right : dx < -1e-4 ? f.left : null;
-      if (target !== null && target !== f.yaw) {
-        const step = f.rate * dt;
-        f.yaw = Math.abs(target - f.yaw) <= step ? target : f.yaw + Math.sign(target - f.yaw) * step;
-      }
-      const t = this.host.curr.get(id);
-      if (t !== undefined) {
-        t.rotation[0] = 0;
-        t.rotation[1] = Math.sin(f.yaw / 2);
-        t.rotation[2] = 0;
-        t.rotation[3] = Math.cos(f.yaw / 2);
-      }
-    }
+  /** Phase 9.13 / 24.4f: each facing model turns toward the horizontal motion of what it follows. */
+  private turnFacers(dt: number): void {
+    for (const [id, f] of this.facers) this.turnVelocityFacer(id, f, dt);
   }
 
   /**
@@ -1363,7 +876,7 @@ export class GameplayBlocks {
         const target = Math.atan2(dx, dz) + f.offset;
         let d = target - f.yaw;
         d = Math.atan2(Math.sin(d), Math.cos(d));
-        const step = f.rateV * dt;
+        const step = f.rate * dt;
         f.yaw = Math.abs(d) <= step ? f.yaw + d : f.yaw + Math.sign(d) * step;
         f.yaw = Math.atan2(Math.sin(f.yaw), Math.cos(f.yaw));
       }
@@ -1377,19 +890,7 @@ export class GameplayBlocks {
     }
   }
 
-  /** Phase 20.2: a checkpoint or goal reached: its zone's effect where the zone is (no effect: nothing). */
-  zoneReached(zoneId: string, source: 'checkpoint' | 'goal'): void {
-    const effectId = this.zoneEffects.get(zoneId);
-    const at = effectId !== undefined ? this.worldOf(zoneId) : null;
-    if (effectId !== undefined && at !== null) this.host.effect?.({ op: 'play', effectId, entityId: null, position: at, source });
-  }
-
-  /** Phase 20.2: play an effect where an entity is now (world position; it does not follow the entity). */
-  private playAt(effectId: string, entityId: string, source: BlocksEffectRequest['source']): void {
-    const at = this.worldOf(entityId);
-    if (at !== null) this.host.effect?.({ op: 'play', effectId, entityId: null, position: at, source });
-  }
-
+  /** World position by summing the parent chain (the runtime's hierarchy has no rotation here). */
   private worldOf(id: string): Vec3 | null {
     const t = this.host.curr.get(id);
     if (t === undefined) return null;

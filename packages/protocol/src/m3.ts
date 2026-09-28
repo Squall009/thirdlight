@@ -25,14 +25,12 @@ import type {
   ContentCounts,
   GameConfigQueryResult,
   ModelAnimationRolesValue,
-  SetGameConfigArgs,
 } from '@thirdlight/commands';
 /** The v3 mutation ops (commands.md §2; packet 45) — the `commands` package
  *  exports the ops in its type module but not from its public entry, so the
  *  wire layer restates exactly the two accepted names. */
 export type V3MutationOp =
   | 'applySurfacePreset'
-  | 'setGameConfig'
   | 'updateEntity'
   | 'moveEntities'
   | 'setTags'
@@ -47,7 +45,6 @@ export type V3MutationOp =
   | 'setInput'
   | 'setCollisionLayers'
   | 'setSaveSchema'
-  | 'setFlow'
   | 'createScene'
   | 'renameScene'
   | 'deleteScene'
@@ -84,7 +81,7 @@ export type V3MutationOp =
   | 'deleteUiTheme'
   | 'setTimeline'
   | 'deleteTimeline';
-import type { AuthoringEnvelopeV3, ContentCatalogV3, GameConfig, SceneV3 } from '@thirdlight/project-model';
+import type { AuthoringEnvelopeV3, ContentCatalogV3, SceneV3 } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { sessionError, type SessionError } from './errors';
 import { isPlaySessionId, isProjectId, isRelayId } from './ids';
@@ -128,7 +125,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'];
 /** The v3 query op (commands.md §4; packet 45). */
 // Phase 23.5: queryBlocks reads block-layer cells and regions.
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks'];
@@ -147,7 +144,6 @@ export const CHANGE_TYPES = [
   'createPrefab',
   'instantiatePrefab',
   'applySurfacePreset',
-  'setGameConfig',
   'updateEntity',
   'moveEntities',
   'setTags',
@@ -161,7 +157,6 @@ export const CHANGE_TYPES = [
   'setInput',
   'setCollisionLayers',
   'setSaveSchema',
-  'setFlow',
   'graphEdit',
   'setGraph',
   'setEffect',
@@ -291,8 +286,9 @@ export function validateV3SceneShape(value: unknown, path = '/scene'): FieldErro
 
 /**
  * Structural check of the six-key v3 `content` block (workspace.md §16.3):
- * exactly the six keys, `game` present (null or an object), the remaining five
- * of their block types. Deep content validity is `project-model`'s.
+ * exactly the six keys, `game` present and null (phase 24.7: the game block
+ * was deleted), the remaining five of their block types. Deep content
+ * validity is `project-model`'s.
  */
 export function validateV3ContentBlock(value: unknown, path = '/content'): FieldErrorResult {
   if (!isPlainObject(value)) {
@@ -320,8 +316,8 @@ export function validateV3ContentBlock(value: unknown, path = '/content'): Field
   if (!isPlainObject(value.behaviorTrust) || !Array.isArray((value.behaviorTrust as Record<string, unknown>).entries)) {
     return fieldError('field_type', `${path}/behaviorTrust`, 'behaviorTrust must be `{ entries: [] }`');
   }
-  if (value.game !== null && !isPlainObject(value.game)) {
-    return fieldError('field_type', `${path}/game`, 'content.game must be null or an object (GameConfig)', {
+  if (value.game !== null) {
+    return fieldError('field_value', `${path}/game`, 'content.game (the platformer game block) was removed in phase 24; it is null', {
       found: typeof value.game,
     });
   }
@@ -347,7 +343,7 @@ export function validateV3MutationArgs(op: V3MutationOp, value: unknown, path = 
 }
 
 /** The two v3 args types, re-exported (types-only edge, dependencies.md §4.1). */
-export type { ApplySurfacePresetArgs, SetGameConfigArgs, ModelAnimationRolesValue };
+export type { ApplySurfacePresetArgs, ModelAnimationRolesValue };
 
 // ---- full-state / projection / change / query frames --------------------------
 
@@ -400,8 +396,8 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
         });
       }
     }
-    if (value.content.game !== undefined && value.content.game !== null && !isPlainObject(value.content.game)) {
-      return fieldError('field_type', `${path}/content/game`, 'content.game must be null or a GameConfig object');
+    if (value.content.game !== undefined && value.content.game !== null) {
+      return fieldError('field_value', `${path}/content/game`, 'content.game (the platformer game block) was removed in phase 24; it is null');
     }
   }
   return { ok: true, value: value as Record<string, unknown> };
@@ -467,11 +463,7 @@ export function validateQueryResultV3(op: string, value: unknown, path = ''): Fi
     return { ok: true, value: value as Record<string, unknown> };
   }
   if (op === 'queryGameConfig') {
-    if (value.game !== null && !isPlainObject(value.game)) {
-      return fieldError('field_type', `${path}/game`, 'queryGameConfig.game must be null or a GameConfig object', {
-        found: typeof value.game,
-      });
-    }
+    if (value.game !== undefined) return fieldError('field_unexpected', `${path}/game`, 'queryGameConfig no longer returns a game block (removed in phase 24)');
     return { ok: true, value: value as Record<string, unknown> };
   }
   if (op === 'queryProject') {
@@ -485,7 +477,7 @@ export function validateQueryResultV3(op: string, value: unknown, path = ''): Fi
 }
 
 /** Re-export the change-result type (types-only edge). */
-export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelopeV3, ContentCatalogV3, SceneV3, GameConfig };
+export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelopeV3, ContentCatalogV3, SceneV3 };
 
 // ---- §20 game control and observation relay -----------------------------------
 
@@ -494,7 +486,7 @@ export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelop
  * `unloadScene` (with `sceneId`), the same request a script's `ctx.scenes` makes.
  * Phase 19.2 adds the visual-script debugger's `debugPause` / `debugResume` / `debugStep` (Play only).
  */
-export const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
+export const GAME_CONTROL_COMMANDS = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
 
 /**
  * Phase 23.8: a project debug command call (`debugCommand`): its name and
@@ -523,8 +515,6 @@ export const GAME_OBSERVATION_MAX_BYTES = 16_384;
 export const GAME_OBSERVE_TIMEOUT_MIN_MS = 250;
 export const GAME_OBSERVE_TIMEOUT_MAX_MS = 15_000;
 export const GAME_OBSERVE_TIMEOUT_DEFAULT_MS = 5_000;
-/** The retained event bound (gameplay.md §6 `MAX_GAME_EVENTS`). */
-export const GAME_OBSERVATION_EVENT_MAX = 32;
 
 /**
  * Phase 24.6: the closed play-state set of an observation and a control
@@ -535,13 +525,6 @@ export const GAME_OBSERVATION_EVENT_MAX = 32;
 export const PLAY_STATES = ['running', 'paused', 'stopped'] as const;
 export type PlayState = (typeof PLAY_STATES)[number];
 
-/**
- * Phase 24.6: the legacy game session's run states (gameplay.md §2), reported
- * only under an observation's `legacy` block while a project still has the
- * game block. Phase 24.7 deletes them with the session.
- */
-export const LEGACY_RUN_STATES = ['awaitingStart', 'playing', 'respawning', 'won'] as const;
-export type LegacyRunState = (typeof LEGACY_RUN_STATES)[number];
 
 /** The closed sound-status set (§20.1/delivery.md §5.2). */
 export const GAME_SOUND_STATUSES = ['muted', 'blocked', 'ready', 'unavailable'] as const;
@@ -563,16 +546,6 @@ export const GAME_RELAY_ERROR_CODES = [
   'game_relay_timeout',
   'input_relay_conflict',
   'limits_exceeded',
-] as const;
-
-/** Phase 24.6: the legacy game session's event kinds (gameplay.md §6), under `legacy.events` only; deleted in 24.7. */
-export const LEGACY_EVENT_KINDS = [
-  'runStarted',
-  'died',
-  'respawned',
-  'checkpointActivated',
-  'goalReached',
-  'replayed',
 ] as const;
 
 /** `${snapshotId}#${replayEpoch}` (delivery.md §5.3). */
@@ -741,50 +714,9 @@ export function validateGameControlResult(value: unknown): FieldErrorResult {
 }
 
 /**
- * Phase 24.6: the legacy game session's block of an observation — its run
- * state, checkpoint, deaths, goal, events and the level flow. Present only
- * while a project has the game block; phase 24.7 deletes it with the session.
- */
-function validateLegacyObservation(value: unknown): FieldErrorResult | null {
-  if (!isPlainObject(value)) return fieldError('field_type', '/legacy', 'legacy is the game session\'s block { runState, checkpointId, checkpointActive, goalReached, failed, deathCount, eventCount, eventDropped, events, flow?, titleView? }');
-  if (typeof value.runState !== 'string' || !(LEGACY_RUN_STATES as readonly string[]).includes(value.runState)) {
-    return fieldError('field_value', '/legacy/runState', `legacy.runState must be one of ${LEGACY_RUN_STATES.join(', ')}`);
-  }
-  if (value.checkpointId !== null && typeof value.checkpointId !== 'string') {
-    return fieldError('field_type', '/legacy/checkpointId', 'legacy.checkpointId must be a string or null');
-  }
-  for (const key of ['checkpointActive', 'goalReached', 'failed'] as const) {
-    if (typeof value[key] !== 'boolean') return fieldError('field_type', `/legacy/${key}`, `legacy.${key} must be a boolean`);
-  }
-  for (const key of ['deathCount', 'eventCount', 'eventDropped'] as const) {
-    if (!Number.isInteger(value[key]) || (value[key] as number) < 0) return fieldError('field_value', `/legacy/${key}`, `legacy.${key} must be a non-negative integer`);
-  }
-  if (!Array.isArray(value.events)) return fieldError('field_type', '/legacy/events', 'legacy.events must be an array');
-  if (value.events.length > GAME_OBSERVATION_EVENT_MAX) {
-    return fieldError('limits_exceeded', '/legacy/events', `legacy.events must retain at most ${GAME_OBSERVATION_EVENT_MAX} entries`, { limit: 'events', max: GAME_OBSERVATION_EVENT_MAX });
-  }
-  for (let i = 0; i < value.events.length; i += 1) {
-    const ev = value.events[i];
-    const at = `/legacy/events/${i}`;
-    if (!isPlainObject(ev)) return fieldError('field_type', at, 'each event must be an object');
-    if (typeof ev.id !== 'string' || ev.id.length === 0) return fieldError('field_type', `${at}/id`, 'event.id must be a non-empty string');
-    if (typeof ev.kind !== 'string' || !(LEGACY_EVENT_KINDS as readonly string[]).includes(ev.kind)) return fieldError('field_value', `${at}/kind`, 'event.kind must be an accepted game-session event kind');
-    if (!Number.isInteger(ev.stepIndex) || (ev.stepIndex as number) < 0) return fieldError('field_value', `${at}/stepIndex`, 'event.stepIndex must be a non-negative integer');
-    if (typeof ev.boundary !== 'boolean') return fieldError('field_type', `${at}/boundary`, 'event.boundary must be a boolean');
-    if (!Number.isInteger(ev.deathCount) || (ev.deathCount as number) < 0) return fieldError('field_value', `${at}/deathCount`, 'event.deathCount must be a non-negative integer');
-  }
-  // Phase 9.10: the level flow's view (screen, level, lives, totals, music, volumes, …).
-  if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
-    return fieldError('field_type', '/legacy/flow', 'legacy.flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality, save?, score? }');
-  }
-  return null;
-}
-
-/**
  * Validate one §20 observation document (≤ 16 KiB, binary-free). Phase
- * 24.6: its core is generic (the play state, step, sound, counters, health,
- * scenes, …); a project with the legacy game block adds `legacy` (≤ 32
- * events). This validator asserts the wire shape and bounds only.
+ * 24.6/24.7: it is generic (the play state, step, sound, counters, health,
+ * scenes, …). This validator asserts the wire shape and bounds only.
  */
 export function validateGameObservation(value: unknown): FieldErrorResult {
   if (!isPlainObject(value)) {
@@ -847,11 +779,8 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (value.health !== undefined && (!isPlainObject(value.health) || Object.keys(value.health).length > 64 || !Object.values(value.health).every((x) => isPlainObject(x) && typeof x['current'] === 'number' && typeof x['max'] === 'number'))) {
     return fieldError('field_type', '/health', 'health maps object ids to { current, max } (at most 64)');
   }
-  // Phase 24.6: the legacy game session's view (only while the project has the game block; deleted in 24.7).
-  if (value.legacy !== undefined) {
-    const lg = validateLegacyObservation(value.legacy);
-    if (lg !== null) return lg;
-  }
+  // Phase 24.7: the game session's `legacy` block was deleted with the session.
+  if (value.legacy !== undefined) return fieldError('field_unexpected', '/legacy', 'the legacy game-session block was removed in phase 24');
   // Phase 9.7: optional animator states (entity id → state name).
   if (value.animators !== undefined) {
     if (!isPlainObject(value.animators) || Object.keys(value.animators).length > 64 || !Object.values(value.animators).every((x) => typeof x === 'string')) {

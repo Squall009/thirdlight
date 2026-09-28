@@ -3,14 +3,15 @@
  * class and the seed: the same inputs give the same plan (every value comes
  * from a seeded PRNG, never Math.random or the clock), so two runs measure the
  * same project. The plan is data only; `build.ts` applies it through the real
- * command API. Nothing here is tuned to a demo: a neutral platformer lane with
+ * command API. Nothing here is tuned to a demo: a neutral side-view lane with
  * a floor, platforms, background blocks, props of one generated model kit,
  * scripted objects, effects and instanced scatter.
  */
 import { CLASS_SPECS, type BenchClass, type ClassSpec } from './classes';
 
 /** Bump when the generated content changes (it keys the cached projects and the baseline). */
-export const GENERATOR_VERSION = 2;
+// Phase 24.7: 3 — the goal zone became a camera track (the game block was deleted).
+export const GENERATOR_VERSION = 3;
 export const DEFAULT_SEED = 21;
 
 /** One entity value for `pasteEntities` (ids are local; the backend assigns real ones). */
@@ -56,10 +57,9 @@ export interface BenchPlan {
   buffers: BufferPlan[];
   /** The model kit: pieces with LODs and collision boxes (tests/e2e/multi-piece-glb.ts builds the GLB). */
   model: { assetId: string; displayName: string; pieces: { name: string; lods: [number, number, number][]; col?: [number, number, number] }[] };
-  /** The fixed objects made with createEntity in the first scene (their ids feed the game block). */
+  /** The fixed objects made with createEntity in the first scene (the camera track follows the player). */
   player: { position: [number, number, number]; size: [number, number, number] };
   spawn: [number, number, number];
-  goal: [number, number, number];
   camera: { position: [number, number, number]; far: number };
   /** Entity counts by kind (the whole project, built-ins included). */
   counts: Record<string, number>;
@@ -87,7 +87,7 @@ const T = (x: number, y: number, z: number, yawDeg = 0, s: [number, number, numb
 };
 const hex = (n: number): string => `#${Math.floor(n).toString(16).padStart(6, '0').slice(-6)}`;
 
-/** The built-ins every new project has (camera, sun, ambient) plus player, spawn and goal. */
+/** The built-ins every new project has (camera, sun, ambient) plus player, spawn and the camera track. */
 const FIXED_ENTITIES = 6;
 /** One group parent per this many children (a flat but realistic hierarchy). */
 const GROUP_CHILDREN = 15;
@@ -322,7 +322,7 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
   if (totalOf(perScene) > spec.entities) throw new Error(`class ${className}: the special objects do not fit in ${spec.entities} entities`);
 
   const buffers: BufferPlan[] = [];
-  const counts: Record<string, number> = { camera: 1, directional: 1, ambient: 1, player: 1, spawn: 1, goal: 1, block: 0, collider: 0, model: 0, script: 0, effect: 0, light: 0, instances: 0, group: 0, copies: 0 };
+  const counts: Record<string, number> = { camera: 1, directional: 1, ambient: 1, player: 1, spawn: 1, track: 1, block: 0, collider: 0, model: 0, script: 0, effect: 0, light: 0, instances: 0, group: 0, copies: 0 };
   let effectIndex = 0;
   const scenes: ScenePlan[] = perScene.map((list, s) => {
     const sceneId = s === 0 ? 'scene-main' : `scene-bench-${String(s).padStart(2, '0')}`;
@@ -462,7 +462,6 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
     model: KIT,
     player: { position: [0, 1, 0], size: [0.6, 1.8, 0.6] },
     spawn: [0, 1, 0],
-    goal: [spec.scenes * SCENE_WIDTH - 20, 1, 0],
     camera: { position: [0, 4, 14], far: 300 },
     counts,
   };

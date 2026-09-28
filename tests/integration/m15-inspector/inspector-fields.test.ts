@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DESCRIPTORS, validateContentV4, validateSceneV4, type FieldDescriptor, type ObjectFieldDescriptor } from '@thirdlight/project-model';
 import { applyMutation, createCommandState, type CommandState, type ContentDocument } from '@thirdlight/commands';
-import { addEntries, componentPatch, firstReference, normalize, seedsOf, visibleFields, widgetFor, type FieldPath } from '@thirdlight/editor/descriptor-fields';
+import { addEntries, componentPatch, firstReference, seedsOf, visibleFields, widgetFor, type FieldPath } from '@thirdlight/editor/descriptor-fields';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -107,15 +107,13 @@ describe('the generic Inspector over the real registry', () => {
     };
     for (const c of DESCRIPTORS.components) walk(c.value);
     for (const b of DESCRIPTORS.content) walk(b.value);
-    for (const w of ['number', 'int', 'bool', 'enum', 'vector', 'euler', 'color', 'asset', 'entity', 'scene', 'ref', 'signal', 'text', 'multiline', 'object', 'list', 'map', 'readonly']) expect(seen, w).toContain(w);
+    // (Phase 24.7: the game block's instructions were the only multiline component or content field; the UI
+    // editor's rich text fields are its own panel's.)
+    for (const w of ['number', 'int', 'bool', 'enum', 'vector', 'euler', 'color', 'asset', 'entity', 'scene', 'ref', 'signal', 'text', 'object', 'list', 'map', 'readonly']) expect(seen, w).toContain(w);
   });
 
   it('adds every menu component (and preset) with its descriptor value, edits each field in one undoable command, removes it', () => {
-    const entries = [
-      ...addEntries(DESCRIPTORS, new Set(['transform'])).filter((e) => e.enabled && e.pick.length === 0),
-      // Camera follow belongs on the camera (added to the fixture's camera below).
-      ...addEntries(DESCRIPTORS, new Set(['transform', 'camera'])).filter((e) => e.enabled && e.component === 'cameraFollow'),
-    ];
+    const entries = addEntries(DESCRIPTORS, new Set(['transform'])).filter((e) => e.enabled && e.pick.length === 0);
     const needs = (name: string): string | undefined => DESCRIPTORS.components.find((c) => c.name === name)?.requiresAnyOf?.components.find((x) => x !== 'model' && x !== 'instances');
     const edited: string[] = [];
     expect(entries.length).toBeGreaterThan(15);
@@ -124,18 +122,14 @@ describe('the generic Inspector over the real registry', () => {
       // Room for any light type and a camera anywhere: the fixture's own lights and camera go.
       for (const id of ['light-0001', 'light-0002']) s = must(s, 'deleteEntity', { entityId: id }, `delete ${id}`);
       if (entry.component === 'camera') s = must(s, 'setComponent', { entityId: 'cam-main', component: 'camera', value: null }, 'remove the fixture camera');
-      // A spawn a checkpoint zone can name.
+      // A spawn a field can name (a scene transition's arrival).
       s = must(s, 'createEntity', { kind: 'group', name: 'Spawn', components: { playerSpawn: {} } }, 'create a spawn');
-      let target: string;
-      if (entry.component === 'cameraFollow') target = 'cam-main';
-      else {
-        const created = run(s, 'createEntity', { kind: 'group', name: entry.label });
-        expect(created.ok).toBe(true);
-        s = created.state;
-        target = String(created.result.createdId);
-        const pre = needs(entry.component);
-        if (pre !== undefined && pre !== 'camera') s = must(s, 'setComponent', { entityId: target, component: pre, value: addValueOf(pre) }, `${entry.label}: add ${pre}`);
-      }
+      const created = run(s, 'createEntity', { kind: 'group', name: entry.label });
+      expect(created.ok).toBe(true);
+      s = created.state;
+      const target = String(created.result.createdId);
+      const pre = needs(entry.component);
+      if (pre !== undefined && pre !== 'camera') s = must(s, 'setComponent', { entityId: target, component: pre, value: addValueOf(pre) }, `${entry.label}: add ${pre}`);
       s = must(s, 'setComponent', { entityId: target, component: entry.component, value: entry.value as Record<string, unknown> }, `add ${entry.label}`);
 
       // Every editable field: one command, accepted; one undo restores the component.
@@ -178,7 +172,7 @@ describe('the generic Inspector over the real registry', () => {
       expect(componentsOf(back, target)[entry.component]).toEqual(kept);
     }
     // The edits reached the fields a designer tunes.
-    for (const k of ['box.size', 'camera.fovY', 'camera.near', 'camera.far', 'light.type', 'light.intensity', 'trigger.shape', 'patrol.mode', 'hitbox.shape', 'collectible.counter', 'controller.capsule.radius', 'fogVolume.density', 'cameraFollow.deadZone.x'])
+    for (const k of ['box.size', 'camera.fovY', 'camera.near', 'camera.far', 'light.type', 'light.intensity', 'trigger.shape', 'patrol.mode', 'hitbox.shape', 'collectible.counter', 'controller.capsule.radius', 'fogVolume.density'])
       expect(edited, k).toContain(k);
   });
 });
@@ -199,40 +193,6 @@ describe('content blocks edited from their descriptors (15.3 fields included)', 
       edited.push(f.key);
     }
     for (const k of ['gravity_y', 'fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s']) expect(edited, k).toContain(k);
-  });
-
-  it('edits every number field of the v4 game block (session timing included) in one setGameConfig each', () => {
-    const desc = DESCRIPTORS.content.find((b) => b.key === 'game')!.value as ObjectFieldDescriptor;
-    let s = fresh();
-    // A complete block: the descriptor's starting values and a player, the camera and a spawn.
-    s = must(s, 'createEntity', { kind: 'group', name: 'Spawn', components: { playerSpawn: {} } }, 'create a spawn');
-    const spawnId = String(s.scene.entities.find((e: Any) => e.components.playerSpawn !== undefined).id);
-    const player = run(s, 'createEntity', { kind: 'group', name: 'Player', components: { controller: {} } });
-    expect(player.ok, JSON.stringify(player.result)).toBe(true);
-    s = player.state;
-    const playerId = String(player.result.createdId);
-    s = must(s, 'setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } }, 'camera follow');
-    let game = (s.content as Any).game;
-    if (game === null || game === undefined) {
-      const block = normalize(desc, { playerId, cameraId: 'cam-main', spawnId });
-      const created = run(s, 'setGameConfig', { game: block });
-      expect(created.ok, JSON.stringify(created.result.error ?? created.result)).toBe(true);
-      s = created.state;
-      game = (s.content as Any).game;
-    }
-    const edited: string[] = [];
-    for (const f of visibleFields({ desc, value: game })) {
-      if (f.readOnly === true || (f.type !== 'number' && f.type !== 'int')) continue;
-      const before = (s.content as Any).game;
-      const patch = componentPatch(desc, before, [f.key], nudge(f, before[f.key]), {});
-      expect(patch, f.key).not.toBeNull();
-      const r = run(s, 'setGameConfig', { game: patch });
-      expect(r.ok, `${f.key}: ${JSON.stringify(r.result.error ?? r.result)}`).toBe(true);
-      const undone = must(r.state, 'undo', {}, `undo ${f.key}`);
-      expect((undone.content as Any).game, `${f.key} undo`).toEqual(before);
-      edited.push(f.key);
-    }
-    for (const k of ['respawnDelay', 'dropThroughTime', 'settleTime']) expect(edited, k).toContain(k);
   });
 });
 

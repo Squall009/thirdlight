@@ -17,9 +17,8 @@
 
 import type { AnimatorComponent, AnimatorController } from './animator';
 import type { InputConfig } from './input';
-import type { GameFlow } from './flow';
 import type { GraphDocument } from './graph';
-import type { EnemyComponent, HealthComponent, MoverComponent, PickupComponent, SwitchComponent, TriggerComponent } from './blocks';
+import type { HealthComponent, MoverComponent, SwitchComponent, TriggerComponent } from './blocks';
 import type { LightingMap } from './lighting';
 import type { EnvironmentConfig, FogVolumeComponent, MaterialDef } from './materials';
 import type {
@@ -45,54 +44,13 @@ export const V3_REGISTRY = [
   'prefab',
   'collider',
   'controller',
-  'gameZone',
   'playerSpawn',
-  'cameraFollow',
   'light',
   'surface',
   'modelAnimation',
   'folder',
 ] as const;
 export type ComponentV3 = (typeof V3_REGISTRY)[number];
-
-/** §23.3.1 game-zone roles (the closed set). */
-export const GAME_ZONE_ROLES = ['hazard', 'checkpoint', 'goal'] as const;
-/** Phase 12 (c), scene schemaVersion 4: the roles a v4 zone may have (adds `exit`). */
-export const GAME_ZONE_ROLES_V4 = ['hazard', 'checkpoint', 'goal', 'exit'] as const;
-export type GameZoneRole = (typeof GAME_ZONE_ROLES_V4)[number];
-
-/** §23.3.1a checkpoint activation appearance (all three fields explicit). */
-export interface CheckpointActivationAppearance {
-  /** `^#[0-9a-f]{6}$`; canonical lowercase. */
-  emissive: string;
-  /** [0, 4]. */
-  emissiveIntensity: number;
-  /** `null` = use `content.game.cues.checkpoint`. */
-  cueAssetId: string | null;
-}
-
-/** §23.3.1 axis-aligned XY game zone. */
-export interface GameZoneComponent {
-  role: GameZoneRole;
-  /** Phase 9.9, v4 hazards only: the damage it does (absent or 0: instant death). */
-  damage?: number;
-  /** `[widthX, heightY]` full extents (meters). */
-  size: [number, number];
-  /** Required iff `role === 'checkpoint'`; resolves to a `playerSpawn` entity. */
-  safeSpawnId?: string;
-  /** Required iff `role === 'checkpoint'`. */
-  activation?: CheckpointActivationAppearance;
-  /**
-   * Phase 12 (c), `exit` only: the scenes loaded and unloaded when the player
-   * enters (at least one of the two non-empty), and the spawn the player is
-   * moved to once the scene holding it is loaded.
-   */
-  load?: string[];
-  unload?: string[];
-  spawnId?: string;
-  /** Phase 20.2, v4 checkpoints and goals: a project effect played where the zone is when it is reached (visual only). */
-  effect?: string;
-}
 
 /**
  * Phase 12 (c): an instance set — one entity, many copies of one model placed
@@ -117,7 +75,7 @@ export const INSTANCE_FLOATS = 10;
 /** Most copies in one instance set. */
 export const MAX_INSTANCES = 65_536;
 
-/** Phase 15.2: which way the player faces when it starts or respawns at a spawn. */
+/** Phase 15.2: which way the player faces when it starts at a spawn (24.8 upgrades left/right to a yaw). */
 export const PLAYER_SPAWN_FACINGS = ['none', 'left', 'right'] as const;
 export type PlayerSpawnFacing = (typeof PLAYER_SPAWN_FACINGS)[number];
 
@@ -126,20 +84,6 @@ export interface PlayerSpawnComponent {
   facing?: PlayerSpawnFacing;
   /** Phase 24.4f (v4): the character's yaw on arrival, degrees about +Y (0: facing +Z). */
   yaw?: number;
-}
-
-/** §23.3.3 camera follow data (presentation math is packet 40's). */
-export interface CameraFollowComponent {
-  /** Half-extents (meters). */
-  deadZone: { x: number; y: number };
-  /** [0, 1]; `0` = hard snap. */
-  smoothing: number;
-  /** Required in v3; optional in v4 (absent: the camera follows anywhere). */
-  bounds?: { minX: number; maxX: number; minY: number; maxY: number };
-  /** Phase 15.3 (v4): metres in front of the player plane (absent: where the camera is placed). */
-  distance?: number;
-  /** Phase 15.3 (v4): the per-axis speed cap while smoothing, m/s (absent: 480). */
-  maxSpeed?: number;
 }
 
 /** §23.3.4 one directional key light or one ambient fill. */
@@ -229,15 +173,11 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   trigger?: TriggerComponent;
   switch?: SwitchComponent;
   health?: HealthComponent;
-  pickup?: PickupComponent;
-  enemy?: EnemyComponent;
   /** Phase 24.4, v4 only: generic primitives (a collectible, a patrol walker, a hitbox). */
   collectible?: import('./blocks').CollectibleComponent;
   patrol?: import('./blocks').PatrolComponent;
   hitbox?: import('./blocks').HitboxComponent;
-  gameZone?: GameZoneComponent;
   playerSpawn?: PlayerSpawnComponent;
-  cameraFollow?: CameraFollowComponent;
   light?: LightComponent;
   surface?: SurfaceComponent;
   modelAnimation?: ModelAnimationComponent;
@@ -439,38 +379,6 @@ export interface AssetRecordV3 {
   clipsFor?: string;
 }
 
-/** §23.4 a cue reference: an audio `assetId` or `null`. */
-export type CueRef = string | null;
-
-/** §23.4 the bounded game-configuration block. */
-export interface GameConfig {
-  /** 1: scene schemaVersion 3 (with `level`/`killY`); 2: schemaVersion 4 (without). */
-  configVersion: 1 | 2;
-  title: string;
-  objective: string;
-  instructions: string;
-  playerId: string;
-  cameraId: string;
-  spawnId: string;
-  /** v3 only (configVersion 1). v4 has no level bounds: game rules like these belong in scripts. */
-  level?: { minX: number; maxX: number; minY: number; maxY: number };
-  /** v3 only (configVersion 1). v4 has no kill height: falls are hazard zones or script logic. */
-  killY?: number;
-  cues: {
-    start: CueRef;
-    jump: CueRef;
-    checkpoint: CueRef;
-    death: CueRef;
-    goal: CueRef;
-  };
-  /** Phase 15.3 (v4 only): seconds between a death and the respawn (absent: 0.25). */
-  respawnDelay?: number;
-  /** Phase 15.3 (v4 only): seconds a one-way platform ignores the player dropping through it (absent: 0.125). */
-  dropThroughTime?: number;
-  /** Phase 15.3 (v4 only): seconds the world settles before the first frame (absent: 0.1). */
-  settleTime?: number;
-}
-
 /** The v3 content block: the accepted five keys plus the required `game`. */
 export interface ContentCatalogV3 {
   assets: AssetRecordV3[];
@@ -478,7 +386,8 @@ export interface ContentCatalogV3 {
   behaviors: BehaviorRecord[];
   settings: SettingsMap;
   behaviorTrust: BehaviorTrust;
-  game: GameConfig | null;
+  /** Phase 24.7: the platformer game block was deleted; the key stays `null` until the 24.8 format bump drops it. */
+  game: null;
   /** Phase 12 (b): the project tag registry, ascending `bit`; absent = no tags. */
   tags?: TagDefinition[];
 }
@@ -502,8 +411,6 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   animators?: AnimatorController[];
   /** Phase 9.8: input actions and bindings (absent = the defaults). */
   input?: InputConfig;
-  /** Phase 9.10: levels, lives, title screen, HUD, menus (absent = one level, as before). */
-  flow?: GameFlow;
   /** Phase 16.1: standalone graph documents (absent = none). */
   graphs?: GraphDocument[];
   /** Phase 20.0: visual effects (absent = none). */
@@ -566,8 +473,14 @@ export interface AuthoringEnvelopeV3 {
   retry: unknown;
 }
 
-/** §23.3.5 the three built-in surface presets, as frozen value rows. */
-export const SURFACE_PRESETS: Readonly<Record<'matte-ground' | 'hazard' | 'beacon', SurfaceComponent>> =
+/**
+ * §23.3.5 the built-in surface presets, as frozen value rows. Phase 24.7: the
+ * demo-named `hazard` and `beacon` became `signal-red` and `emissive-accent`
+ * (24.8 upgrades the old names in stored data).
+ */
+export const SURFACE_PRESET_NAMES = ['matte-ground', 'signal-red', 'emissive-accent'] as const;
+export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];
+export const SURFACE_PRESETS: Readonly<Record<SurfacePresetName, SurfaceComponent>> =
   Object.freeze({
     'matte-ground': Object.freeze({
       color: '#6f6f6f',
@@ -576,33 +489,30 @@ export const SURFACE_PRESETS: Readonly<Record<'matte-ground' | 'hazard' | 'beaco
       emissive: '#000000',
       emissiveIntensity: 0,
     }),
-    hazard: Object.freeze({
+    'signal-red': Object.freeze({
       color: '#d42a1e',
       roughness: 0.55,
       metalness: 0,
       emissive: '#3a0703',
       emissiveIntensity: 0.35,
     }),
-    beacon: Object.freeze({
+    'emissive-accent': Object.freeze({
       color: '#2f7fd4',
       roughness: 0.4,
       metalness: 0.1,
       emissive: '#1bc8ff',
       emissiveIntensity: 1.2,
     }),
-  }) as Readonly<Record<'matte-ground' | 'hazard' | 'beacon', SurfaceComponent>>;
+  }) as Readonly<Record<SurfacePresetName, SurfaceComponent>>;
 
-/** §23.10 the v3 limit values (contract material: fixtures reference them). */
-export const GAME_ZONE_LIMITS = Object.freeze({
-  zones: 64,
-  checkpointZones: 1,
+/** §23.10 the v3/v4 scene limit values (contract material: fixtures reference them). */
+export const SCENE_LIMITS_V3 = Object.freeze({
   playerSpawns: 16,
   lightsDirectional: 1,
   lightsAmbient: 1,
   entities: 1024,
   audioAssets: 16,
   audioVersions: 8,
-  gameBytes: 16_384,
   animationProfileBytes: 4_096,
 });
 

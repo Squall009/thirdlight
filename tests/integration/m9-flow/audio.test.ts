@@ -2,7 +2,7 @@
  * Phase 9.10: sounds through the production composition — a script's
  * `ctx.audio.play` reaches the audio owner (the host plays it after the
  * step; the simulation never waits), and an audio source's loop gets louder
- * as the player walks towards it (full volume within a quarter of its range,
+ * as the character walks towards it (full volume within a quarter of its range,
  * silent beyond it).
  */
 import { describe, expect, it } from 'vitest';
@@ -56,13 +56,12 @@ function spyAudio() {
 }
 
 describe('sounds (real host, Rapier)', () => {
-  it('ctx.audio.play reaches the audio owner; an audio source is louder near the player', async () => {
+  it('ctx.audio.play reaches the audio owner; an audio source is louder near the character', async () => {
     const entities: Any[] = [
-      { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
+      { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
       { id: 'player-0001', components: { transform: at(0, 0.91), controller: {}, behavior: { behaviorId: 'beeper', values: { speed: 1 } } } },
       { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
       { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5 } } } },
-      { id: 'goal-0001', components: { transform: at(28, 1), gameZone: { role: 'goal', size: [1, 2] } } },
       { id: 'brook-0001', components: { transform: at(20, 0.5), audioSource: { assetId: 'brook', volume: 0.8, range: 12 } } },
     ];
     const physics = await createPhysicsPort({
@@ -72,7 +71,7 @@ describe('sounds (real host, Rapier)', () => {
       controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
     } as Any);
     if (!physics.ok) throw new Error(JSON.stringify(physics.error));
-    // A script that beeps once every 60 steps while playing.
+    // A script that beeps once every 60 steps.
     const beeper = createBehaviorModuleSpec({
       declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 1, min: 0, max: 10, step: 1 }] } as Any,
       artifact: {
@@ -101,7 +100,6 @@ describe('sounds (real host, Rapier)', () => {
         projectId: 'snd',
         revision: 1,
         scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
-        game: { configVersion: 2, title: 'Sounds', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
       },
       settings: SETTINGS,
       physics: physics.port,
@@ -134,9 +132,7 @@ describe('sounds (real host, Rapier)', () => {
     };
     await new Promise((r) => setTimeout(r, 0));
     expect(audio.registered.sort()).toEqual(['beep', 'brook']); // every audio asset, for scripts and sources
-    tick(2);
-    host.control('start');
-    tick(240); // 2 s: the script beeped
+    tick(242); // 2 s: the script beeped
     expect(audio.played.length).toBeGreaterThanOrEqual(3);
     expect(audio.played[0]).toEqual({ assetId: 'beep', volume: 0.5 });
     // Standing at x 0, 20 m from the brook (range 12): silent.
@@ -147,7 +143,7 @@ describe('sounds (real host, Rapier)', () => {
       tick(12);
       gains.push(audio.loops.get('brook-0001')!.gain);
     }
-    // Louder as the player comes near; full volume (0.8) within 3 m.
+    // Louder as the character comes near; full volume (0.8) within 3 m.
     expect(Math.max(...gains)).toBeCloseTo(0.8, 5);
     const firstHeard = gains.findIndex((g) => g > 0);
     expect(firstHeard).toBeGreaterThan(0);

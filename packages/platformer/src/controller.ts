@@ -230,7 +230,6 @@ export function controllerStep(
   cosMinSlopeSlide: number,
   tanMinSlopeSlide: number,
   physics: PhysicsStepClient,
-  bounce?: number,
   tuning: ControllerStepTuning = DEFAULT_STEP_TUNING,
   impulse?: { readonly x: number; readonly y: number },
 ): void {
@@ -250,13 +249,6 @@ export function controllerStep(
     state.jumpStarted = true;
   } else {
     state.jumpStarted = false;
-  }
-  // Phase 9.9: a stomp or a hit throws the character up (an airborne arc).
-  if (bounce !== undefined && bounce > 0) {
-    state.vy = bounce;
-    state.airborne = true;
-    state.buffer = 0;
-    state.coyote = 0;
   }
   // Phase 24.4f: scripts' impulses add to the velocity (up lifts it into an airborne arc; the
   // horizontal approach below brings x back to what the input asks at its acceleration).
@@ -347,13 +339,13 @@ export function createControllerModule(
   return {
     transformOwners: [charId],
     /**
-     * M3 reset-barrier hook (gameplay.md §5.1 R6 / §5.3 coherence table):
-     * zero every window and velocity the step-indexed state can carry, so
-     * nothing a pre-death step left behind (a buffered or held jump, the
-     * coyote window, the last result's grounding/support normal) survives the
-     * respawn. The next physics phase re-derives grounding from the placed
-     * capsule. `slideSteps` is a bounded diagnostic counter, not a window, so
-     * it is preserved (the coherence table lists no action for it).
+     * The reset hook (the character was placed: a restart, an arrival, a
+     * respawn): zero every window and velocity the step-indexed state can
+     * carry, so nothing an earlier step left behind (a buffered or held jump,
+     * the coyote window, the last result's grounding/support normal) survives
+     * the placement. The next physics phase re-derives grounding from the
+     * placed capsule. `slideSteps` is a bounded diagnostic counter, not a
+     * window, so it is preserved.
      */
     reset(ctx: ModuleResetContext): void {
       state.vx = 0;
@@ -386,7 +378,6 @@ export function createControllerModule(
           cosMinSlopeSlide,
           tanMinSlopeSlide,
           ctx.physics,
-          ctx.intents.bounce,
           tuning,
           ctx.intents.impulse,
         );

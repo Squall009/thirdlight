@@ -6,8 +6,8 @@
  * The given entities keep their relative hierarchy: an entity whose
  * `parentId` names another given entity stays its child. Every copy gets a new
  * id (the usual derived prefix). References that point inside the copy are
- * remapped (a checkpoint's safe spawn, an exit zone's spawn, behavior values
- * naming a copied entity); references outside it are kept as they are, and
+ * remapped (a trigger's scene-transition spawn, behavior values naming a
+ * copied entity); references outside it are kept as they are, and
  * the result must validate like any other edit. The roots go under
  * `args.parentId` when it is given (null = scene root), else under their own
  * `parentId`. `offset` moves every copy that is placed in world space (no
@@ -95,11 +95,9 @@ export function applyPasteEntities(scene: SceneDocument, args: PasteEntitiesArgs
     if (comps['camera'] !== undefined) {
       return { ok: false, error: fieldValue('/args/entities', e.id, 'entities without a camera', 'a scene has one camera; copy the objects without it') };
     }
-    const zone = comps['gameZone'] as { safeSpawnId?: unknown; spawnId?: unknown } | undefined;
-    if (zone !== undefined) {
-      if (zone.safeSpawnId !== undefined) zone.safeSpawnId = remap(zone.safeSpawnId);
-      if (zone.spawnId !== undefined) zone.spawnId = remap(zone.spawnId);
-    }
+    // Phase 24.7: a trigger's scene-transition spawn (the deleted exit zone's spawn was remapped the same way).
+    const transition = (comps['trigger'] as { sceneTransition?: { spawn?: unknown } } | undefined)?.sceneTransition;
+    if (transition?.spawn !== undefined) transition.spawn = remap(transition.spawn);
     const behavior = comps['behavior'] as { values?: Record<string, unknown> } | undefined;
     if (behavior?.values !== undefined) for (const k of Object.keys(behavior.values)) behavior.values[k] = remap(behavior.values[k]);
     const t = comps['transform'] as { position?: number[] } | undefined;

@@ -69,7 +69,7 @@ function snapshot(): Any {
     { id: 'path-0001', components: { transform: T([-6, 2, 6]), cameraPath: { points: [[0, 0, 0], [6, 1, -2], [12, 0, 0]] } } },
     { id: 'director-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'director', values: {} } } },
   ];
-  return { snapshotId: 'tl@r1', projectId: 'tl', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null, timelines: [SHOTS] };
+  return { snapshotId: 'tl@r1', projectId: 'tl', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, timelines: [SHOTS] };
 }
 
 function recording(): Any[] {
@@ -98,7 +98,7 @@ async function run(mode: Mode): Promise<{ digests: string[]; obs: Map<number, An
   while (h.digests.length < 1200) {
     now += PATTERN[i++ % PATTERN.length]! * DT;
     await h.tick(now);
-    const o = h.host.observeScene!();
+    const o = h.host.observe();
     if (!o.ok) continue;
     const st = h.rt.getInterpolatedState();
     const actor = st.ok ? st.state.transforms.find((t: Any) => t.id === 'actor-0001') : undefined;

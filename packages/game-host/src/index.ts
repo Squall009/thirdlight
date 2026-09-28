@@ -25,7 +25,6 @@ export {
   AUDIO_MAX_VOICES,
   AUDIO_MAX_DIAGNOSTICS,
   createGameAudioOwner,
-  type CueKind,
   type GameCueEvent,
   type GameAudioStatus,
   type GameAudioError,
@@ -49,9 +48,9 @@ export {
   type AudioVoiceInfo,
   type PannerNodeLike,
 } from './audio';
-export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveRecords, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
-export { counterPoints, levelScore, timeBonus, type ScoreRulesLike } from './score';
-export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges, type LevelEnvironmentLike, type MenuSoundKind, type TitlePanLike, type TitleView } from './flow';
+// The player's settings storage (localStorage in the browser): bindings per profile, the shell's and the project's settings.
+export { browserSaveStorage, createSettingsStore, saveChecksum, SAVE_MAX_BYTES, type SaveStorage, type SettingsStore } from './storage';
+export type { FlowUiEdges, HostDom, HostDomNode, UiEdges } from './dom';
 // Phase 24.4j: the game shell (menus and HUD as UI documents) and the prompts generated from the input actions.
 export { createShellController, type ShellConfigLike, type ShellController, type ShellObservation, type ShellScreenKey, type ShellState } from './shell';
 export {
@@ -61,10 +60,8 @@ export {
   createGameHost,
   composeGameRuntime,
   type GameRuntimeArgs,
-  cueEventsForView,
   linkBehaviorModules,
   mapSoundStatus,
-  titleAnchor,
   type GameControlAction,
   type GameControlResult,
   type GameControlError,
@@ -73,9 +70,7 @@ export {
   type GameStartOptions,
   type GameStartOutcome,
   type GameHostObservation,
-  type GameHostLegacyObservation,
   type PlayState,
-  type GameHostSceneObservation,
   type GameHostEnvironmentObservation,
   type SocketObservation,
   type GameHostSound,
@@ -83,14 +78,6 @@ export {
   type HostRenderAdapter,
   type ManifestBehaviorRow,
 } from './host';
-export {
-  createHud,
-  HUD_PROMPTS,
-  type HostDom,
-  type HostDomNode,
-  type Hud,
-  type HudState,
-} from './hud';
 
 /**
  * The browser entry's ONLY DOM touchpoint (§41.4.7: DOM/`window` access is
@@ -135,7 +122,7 @@ export { stepDigest } from './step-digest';
 export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, type DebugConsole, type DebugConsoleDeps } from './debug-console';
 export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
 export { RelayActionSource } from './relay-input';
-export { DEFAULT_PROMPT_INPUT, actionPrompts, actionWords, hudPrompts, keyBindingLabel, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type ActionPrompt, type HudPromptState } from './bindings';
+export { actionPrompts, actionWords, keyBindingLabel, keyLabel, padButtonLabel, resolveCursorMode, type ActionPrompt, type InputConfigLike } from './bindings';
 // Phase 23.19: project save documents (the page owns the slots: IndexedDB; the settings document: localStorage).
 export { browserProjectSaveBackend, createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type SaveThumbnailInfo, type ThumbnailCapture } from './project-saves';
 export type { ProjectSavesObservation } from './host';

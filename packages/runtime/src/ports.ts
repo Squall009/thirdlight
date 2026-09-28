@@ -232,11 +232,11 @@ export interface CharacterClearanceResult {
 /**
  * The M3 restricted reset/clearance port (gameplay.md §5.2 / runtime.md
  * §15.4). The accepted `PhysicsPort.reset(character)` stays
- * tests/diagnostics-only and is never called by the runtime, a module, the
- * session, the camera, a behavior, the HUD or the editor. The three
- * operations below are callable by the runtime only at the reset barrier —
- * they are NOT on `PhysicsStepClient` and NOT on `GameSessionPort` (game
- * code never receives a physics handle, physics.md §5 one-mutation-path).
+ * tests/diagnostics-only and is never called by the runtime, a module, a
+ * behavior or the editor. The three operations below are callable by the
+ * runtime only at the reset barrier — they are NOT on `PhysicsStepClient`
+ * (game code never receives a physics handle, physics.md §5
+ * one-mutation-path).
  * The concrete implementation is `physics-rapier` (packet 50); the runtime
  * core carries the type only.
  */

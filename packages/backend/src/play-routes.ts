@@ -267,8 +267,6 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         sendError(res, builtM3.error, statusFor(builtM3.error.cls));
         return;
       }
-      // The preview verifies the snapshot's game block against the manifest.
-      snapshot.game = (captured.read.content as { game?: unknown }).game ?? null;
       // Phase 12 (b): the tag registry, when the project defines tags (the
       // preview checks it against the manifest).
       const tags = (captured.read.content as { tags?: unknown[] }).tags;

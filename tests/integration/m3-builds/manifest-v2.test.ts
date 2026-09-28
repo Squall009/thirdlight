@@ -7,9 +7,12 @@
  *      preimages and `digests/expected.json`;
  *   2. runs the package's PURE `captureManifestV2` over the fixture inputs and
  *      asserts the emitted document is byte-identical to the committed
- *      `manifest-v2-example.json` (the self-identifying `buildId` included);
+ *      `manifest-v2-example.json` (the self-identifying `buildId` included;
+ *      the fixtures are re-derived from the product by
+ *      `npx tsx fixtures/m3/delivery/tools/derive-manifest.mts`);
  *   3. derives the captured v3 content view and media identity over the real
- *      `demo-0003-media-v3` envelope;
+ *      `demo-0003-media-v3` envelope (re-recorded without the game layer in
+ *      phase 24.7: fixtures/m3/contracts/tools/remove-game-layer.mts);
  *   4. exercises the strict v2 reader's captured-state re-derivation
  *      (media identity, asset kind) and the v1/v2 version-compat rule.
  *
@@ -157,11 +160,11 @@ describe('manifest-v2: captured v3 content view + media identity', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const view = res.normalized;
-    // The reachable assets carry the record kind; both the model and audio are
-    // reachable (the model via model/modelAnimation, the audio via game cues).
-    const kinds = new Set(view.assets.map((a) => a.kind));
-    expect(kinds.has('model')).toBe(true);
-    expect(kinds.has('audio')).toBe(true);
+    // The reachable assets carry the record kind: the model (via
+    // model/modelAnimation). The catalogued audio asset is referenced by
+    // nothing in this envelope (phase 24 removed the game cues), so it is not
+    // captured.
+    expect(view.assets.map((a) => [a.assetId, a.kind])).toEqual([['asset-model-courier', 'model']]);
     for (const a of view.assets) {
       expect(a.recipe.version).toBe(1);
       expect(a.metricsDigest).toMatch(/^[0-9a-f]{64}$/);
@@ -183,17 +186,14 @@ describe('manifest-v2: captured v3 content view + media identity', () => {
     ]);
   });
 
-  it('resolveMediaIdentityV3 derives the cues + animation rows', () => {
+  it('resolveMediaIdentityV3 derives the cue slots + animation rows', () => {
     const res = resolveMediaIdentityV3(scene, content);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const media = res.normalized;
-    // The envelope's cues: start/checkpoint/death/goal → the audio asset; jump → null.
-    expect(Object.keys(media.cues)).toEqual(['start', 'jump', 'checkpoint', 'death', 'goal']);
-    expect(media.cues['jump']).toBeNull();
-    for (const slot of ['start', 'checkpoint', 'death', 'goal'] as const) {
-      expect(media.cues[slot]?.assetId).toBe('asset-audio-cue-start');
-    }
+    // The five cue slots stay in the §2.2 order; phase 24 removed the game
+    // block that filled them, so every slot is null.
+    expect(media.cues).toEqual({ start: null, jump: null, checkpoint: null, death: null, goal: null });
     // The single modelAnimation entity produces one animation row.
     expect(media.animation).toHaveLength(1);
     const row = media.animation[0]!;
@@ -203,10 +203,9 @@ describe('manifest-v2: captured v3 content view + media identity', () => {
     expect(row.profileDigest).toBe(canonSha(row.roles));
   });
 
-  it('a cue referencing a missing asset fails asset_reference_missing', () => {
-    const badContent = JSON.parse(JSON.stringify(content)) as unknown;
-    const g = (badContent as { game: { cues: Record<string, string | null> } }).game;
-    g.cues.start = 'asset-does-not-exist';
+  it('an animation binding referencing a missing asset fails asset_reference_missing', () => {
+    const badContent = JSON.parse(JSON.stringify(content)) as { assets: { assetId: string }[] };
+    badContent.assets = badContent.assets.filter((a) => a.assetId !== 'asset-model-courier');
     const res = resolveMediaIdentityV3(scene, badContent);
     expect(res.ok).toBe(false);
     if (res.ok) return;
@@ -249,7 +248,7 @@ describe('manifest-v2: validateManifestV2 captured-state re-derivation', () => {
       settings: viewRes.normalized.settings as unknown as Record<string, number>,
       game: viewRes.normalized.game,
       media: mediaRes.normalized,
-      moduleIds: ['thirdlight.platformer-game:session', 'thirdlight.platformer:controller'],
+      moduleIds: ['thirdlight.platformer:controller'],
       ...over,
     });
     if (!res.ok) throw new Error('expected a valid manifest');
@@ -264,11 +263,17 @@ describe('manifest-v2: validateManifestV2 captured-state re-derivation', () => {
 
   it('rejects a media identity that disagrees with the captured content (media_identity)', () => {
     const doc = buildDoc();
-    // A different captured content (cues changed) → the re-derived media differs.
-    const altContent = JSON.parse(JSON.stringify(content)) as unknown;
-    const g = (altContent as { game: { cues: Record<string, string | null> } }).game;
-    g.cues.start = null;
-    const res = validateManifestV2(doc, { scene, content: altContent });
+    // The document claims a different animation profile than the capture
+    // re-derives; its mediaDigest and buildId are re-derived so the document
+    // is SELF-consistent and only the media identity disagrees.
+    const media = doc['media'] as { animation: { roles: Record<string, { clipIndex: number; clipName: string }>; profileDigest: string }[] };
+    const row = media.animation[0]!;
+    row.roles = { ...row.roles, idle: { clipIndex: 7, clipName: 'Other' } };
+    row.profileDigest = canonSha(row.roles);
+    doc['mediaDigest'] = canonSha(media);
+    const { buildId: _b, ...without } = doc;
+    doc['buildId'] = canonSha(without);
+    const res = validateManifestV2(doc, { scene, content });
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toBe('media_identity');

@@ -2,11 +2,11 @@
  * Phase 12 (c) — the runtime scene set: start scenes from the snapshot
  * catalog, loads requested by a script (`ctx.scenes`) and fetched by the host
  * (`takeSceneRequests` / `provideScene`), applied at a step boundary with
- * their colliders, behaviors, tags and zones; unloads releasing all of it;
- * exit zones (load + move the player to a spawn); a replay returning to the
- * start scenes; the `respawn` intent and `ctx.world`.
+ * their colliders, behaviors and tags; unloads releasing all of it;
+ * scene-transition triggers (load + move the character to a spawn); a
+ * restart returning to the start scenes; the `respawn` intent and `ctx.world`.
  *
- * The gameplay/camera modules are test stubs and the physics port records
+ * The character is the scene's controller entity; the physics port records
  * the collider calls; the real browser path is covered by the e2e suite.
  */
 import { describe, expect, it } from 'vitest';
@@ -19,7 +19,6 @@ import {
   registerSimulationModule,
   type BehaviorArtifact,
   type Runtime,
-  type SimulationModuleSpec,
   type StaticColliderSpec,
   type StepContext,
 } from './index';
@@ -35,17 +34,20 @@ interface PortLog {
   placed: { x: number; y: number }[];
 }
 
+/** A port that keeps the character where it was last placed (it starts on the start spawn). */
 function recordingPort(log: PortLog): unknown {
   const neutral = { x: 0, y: 0 };
+  let at = { x: 3, y: 0.91 };
   return {
     stageCharacterMove() {},
     step() {
-      return { requested: { ...neutral }, applied: { ...neutral }, position: { x: 0, y: 0 }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
+      return { requested: { ...neutral }, applied: { ...neutral }, position: { ...at }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
     },
     reset() {},
     clearCharacterMotion() {},
     placeCharacter(c: { x: number; y: number }) {
       log.placed.push({ ...c });
+      at = { x: c.x, y: c.y };
       return { ok: true, supportNormal: { x: 0, y: 1 } };
     },
     characterClearance() {
@@ -64,14 +66,14 @@ function recordingPort(log: PortLog): unknown {
   };
 }
 
-/** The start scene: camera, player, start spawn, a loader box (behavior), an exit zone far away. */
+/** The start scene: camera, the character (the controller entity), start spawn, a loader box (behavior), a scene-transition trigger far away. */
 function mainEntities(exitAt: [number, number]): unknown[] {
   return [
-    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
-    { id: 'player-0001', components: { transform: at(3, 0.91) } },
+    { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
+    { id: 'player-0001', components: { transform: at(3, 0.91), controller: {} } },
     { id: 'spawn-0001', components: { transform: at(3, 0.91), playerSpawn: {} } },
     { id: 'box-loader', components: { transform: at(0, -5), box: { size: [1, 1, 1], material: { color: '#ffffff' } }, behavior: { behaviorId: 'loader', values: {} } } },
-    { id: 'zone-exit', components: { transform: at(exitAt[0], exitAt[1]), gameZone: { role: 'exit', size: [2, 2], load: ['scene-cave'], spawnId: 'spawn-cave' } } },
+    { id: 'box-exit', components: { transform: at(exitAt[0], exitAt[1]), trigger: { size: [2, 2], signal: 'exit', sceneTransition: { scene: 'scene-cave', spawn: 'spawn-cave' } } } },
   ];
 }
 
@@ -90,19 +92,9 @@ function snapshot(exitAt: [number, number]): unknown {
     projectId: 'cave-0001',
     revision: 1,
     scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: mainEntities(exitAt) },
-    game: {
-      configVersion: 2,
-      title: 'Cave',
-      objective: 'Find the cave',
-      instructions: 'Walk.',
-      playerId: 'player-0001',
-      cameraId: 'cam-main',
-      spawnId: 'spawn-0001',
-      cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
-    },
     tags: [{ name: 'Rock', bit: 0 }],
     scenes: [
-      { sceneId: 'scene-main', start: true, entityIds: ['cam-main', 'player-0001', 'spawn-0001', 'box-loader', 'zone-exit'] },
+      { sceneId: 'scene-main', start: true, entityIds: ['cam-main', 'player-0001', 'spawn-0001', 'box-loader', 'box-exit'] },
       { sceneId: 'scene-cave', start: false },
     ],
   };
@@ -130,17 +122,6 @@ function artifact(behaviorId: string, step: (state: unknown, ctx: never) => void
   };
 }
 
-const stubGameplay: SimulationModuleSpec = {
-  id: 'thirdlight.teststub:gameplay',
-  phases: ['gameplay'],
-  create: () => ({ transformOwners: [], step() {} }),
-};
-const stubCamera: SimulationModuleSpec = {
-  id: 'thirdlight.teststub:camera',
-  phases: ['camera'],
-  create: () => ({ transformOwners: ['cam-main'], step() {} }),
-};
-
 interface ScriptCtx {
   stepIndex: number;
   scenes: { load(id: string, o?: unknown): void; unload(id: string): void; status(id: string): string; loaded(): readonly string[] };
@@ -157,7 +138,7 @@ function harness(opts: { exitAt?: [number, number]; loader?: (ctx: ScriptCtx) =>
     artifact: artifact('loader', (_s, ctx) => opts.loader?.(ctx as unknown as ScriptCtx), calls),
   });
   const rock = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('rock', () => {}, calls) });
-  const specs = [loader, rock, stubGameplay, stubCamera];
+  const specs = [loader, rock];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
   const now = { t: 0 };
@@ -179,7 +160,7 @@ function harness(opts: { exitAt?: [number, number]; loader?: (ctx: ScriptCtx) =>
     for (let i = 0; i < n; i += 1) {
       now.t += DT;
       const r = rt.tick(now.t);
-      if (!r.ok) throw new Error(`tick failed: ${JSON.stringify(r.error)}`);
+      if (!r.ok) throw new Error(`tick failed: ${JSON.stringify(r.error)} ${JSON.stringify((rt.getDiagnostics() as { diagnostics?: { errors?: unknown } }).diagnostics?.errors)}`);
     }
   };
   /** Serve every pending load request from the cave fixture (the host's job). */
@@ -273,10 +254,9 @@ describe('runtime scene set (phase 12 c)', () => {
     expect((h.rt.getDiagnostics() as { diagnostics: { stepIndex?: number } }).diagnostics.stepIndex).toBe(steps);
   });
 
-  it('an exit zone loads its scene and moves the player to its spawn; a replay returns to the start scenes', () => {
-    // The exit sits on the start spawn, so the player is inside it once the run starts.
+  it('a scene-transition trigger loads its scene and moves the character to its spawn; a restart returns to the start scenes', () => {
+    // The trigger sits on the start spawn, so the character is inside it once the run starts.
     const h = harness({ exitAt: [3, 1] });
-    expect(h.rt.gameCommand('start').ok).toBe(true);
     h.tick(2);
     expect(h.rt.sceneSet!().status['scene-cave']).toBe('loading');
     h.serve();
@@ -286,13 +266,16 @@ describe('runtime scene set (phase 12 c)', () => {
     const player = (h.rt.getInterpolatedState() as { state: { transforms: { id: string; position: number[] }[] } }).state.transforms.find((t) => t.id === 'player-0001');
     expect(player?.position.slice(0, 2)).toEqual([41, 1]);
 
-    expect(h.rt.gameCommand('replay').ok).toBe(true);
-    h.tick();
+    // The engine restart (a new run): sampled in the next step, applied at the boundary after it.
+    // (The character is back inside the trigger, so the fresh run asks for the cave again — a new request.)
+    expect(h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
+    h.tick(2);
     expect(h.rt.sceneSet!().batches.map((b) => b.sceneId)).toEqual(['scene-main']);
+    expect(h.log.placed.at(-1)).toEqual({ x: 3, y: 0.91 }); // the character where it started
     expect(h.ids()).not.toContain('box-rock');
   });
 
-  it('a script reads transforms through ctx.world and kills the player with a respawn intent', () => {
+  it('a script reads transforms through ctx.world and respawns the character with a respawn intent', () => {
     let killBelow: number | null = null;
     let seenY: number | undefined;
     const h = harness({
@@ -302,14 +285,15 @@ describe('runtime scene set (phase 12 c)', () => {
         if (killBelow !== null && p !== undefined && (p.position[1] ?? 0) < killBelow) ctx.emit({ kind: 'respawn' });
       },
     });
-    expect(h.rt.gameCommand('start').ok).toBe(true);
     h.tick(2);
     expect(seenY).toBeCloseTo(0.91);
-    killBelow = 5; // the player is below it: the script kills them
+    expect(h.log.placed).toEqual([]);
+    killBelow = 5; // the character is below it: the script respawns them (ctx.lifecycle.respawn)
     h.tick();
-    const v = h.rt.getGameView();
-    expect(v.ok && v.view.state).toBe('respawning');
-    expect(v.ok && v.view.deathCount).toBe(1);
+    killBelow = null;
+    expect(h.log.placed).toEqual([]); // the placement waits for the step boundary
+    h.tick();
+    expect(h.log.placed).toEqual([{ x: 3, y: 0.91 }]); // at the start spawn
   });
 });
 

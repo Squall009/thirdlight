@@ -36,7 +36,7 @@ const CAM = { id: 'cam-main', components: { transform: T([0, 6, 14]), camera: { 
 
 function sceneOf(entities: Any[], id: string): { snapshot: Any; physics: Any } {
   return {
-    snapshot: { snapshotId: `${id}@r1`, projectId: id, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null },
+    snapshot: { snapshotId: `${id}@r1`, projectId: id, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
     physics: physics3DConfigOf(entities, SETTINGS),
   };
 }

@@ -3,11 +3,11 @@
  *
  * `startRemoteSimulation` starts the worker's simulation and returns a
  * `Runtime`-shaped mirror of it. The game host presents that mirror exactly
- * as it presents an in-page runtime (HUD, flow, audio, saves, the adapter's
- * per-frame reads — `forEachInterpolated`, the committed view, hidden and
- * fading entities, poses, effect requests), so the observable behaviour is the
+ * as it presents an in-page runtime (UI, shell, audio, saves, the adapter's
+ * per-frame reads — `forEachInterpolated`, hidden entities, look overrides,
+ * poses, effect requests), so the observable behaviour is the
  * same in both modes. Reads are answered from the last frame the worker sent;
- * commands (run start/replay, levels, pause, scene loads, the viewport) go to
+ * commands (pause, scene loads, UI events, the camera viewport) go to
  * the worker in order and apply at its next step boundary, as in the page.
  *
  * The frame driver stays on the page: with `driver: 'raf'` every animation
@@ -29,12 +29,9 @@ import type {
   CameraInfo,
   DebugCommandCall,
   DebugCommandState,
-  GameView,
   InterpolatedState,
   InterpolatedTransform,
   InterpolatedVisitor,
-  RunRestore,
-  RunSaveState,
   Runtime,
   RuntimeDiagnostics,
   RuntimeError,
@@ -76,7 +73,6 @@ export interface RemoteSimulation {
   dispose(): Promise<void>;
 }
 
-const RUN_STATES_REPLAY = new Set(['playing', 'respawning', 'won']);
 const NO_DEBUG_STATE: DebugCommandState = Object.freeze({ registered: Object.freeze([]), applied: Object.freeze([]), revision: 0 });
 
 function rtError(code: string, message: string, extra: Partial<RuntimeError> = {}): RuntimeError {
@@ -102,7 +98,6 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   const queries = new Map<number, (v: unknown) => void>();
   const digests: string[] = [];
   /** Run commands submitted since the last boundary (the runtime's one-pending rule, mirrored). */
-  let pendingCmds: { cmd: 'start' | 'replay'; atStep: number }[] = [];
   let relayDone: ((from: number, to: number) => void) | null = null;
   let relayActive = false;
   let disposedAck: (() => void) | null = null;
@@ -143,7 +138,6 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   const applyFrame = (state: FrameState): void => {
     mirror.apply(state);
     if (state.digests !== undefined) for (const d of state.digests) digests.push(d);
-    if (pendingCmds.length > 0 && pendingCmds.some((p) => mirror.stepIndex > p.atStep)) pendingCmds = pendingCmds.filter((p) => mirror.stepIndex <= p.atStep);
     if (state.tickError !== undefined && failure === null) {
       failure = state.tickError;
       log('error', `[thirdlight] simulation worker: ${state.tickError.code}: ${state.tickError.message}`);
@@ -254,7 +248,6 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     scale[2] = x[o + 9]!;
   };
   const gone = (): boolean => disposed || mirror.state === 'disposed';
-  const noSession = (): RuntimeError => rtError('game_session_unavailable', 'this runtime has no M3 game session (no selected module declares the gameplay or camera phase)', { reason: 'schedule' });
   const emptySet: SceneSetView = Object.freeze({ revision: 0, batches: Object.freeze([]), status: Object.freeze({}), spawned: Object.freeze([]) }) as unknown as SceneSetView;
 
   const diagnostics = (): RuntimeDiagnostics => {
@@ -278,15 +271,6 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       command({ op: 'stop' });
       return { ok: true };
     },
-    startLevel: (level: { scenes: readonly string[]; spawnId: string }, restore?: RunRestore) => {
-      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
-      if (!Array.isArray(level.scenes) || level.scenes.length === 0) return { ok: false, error: rtError('scene_invalid', 'a level loads at least one scene', { reason: 'level' }) };
-      const status = mirror.sceneSet?.status;
-      if (status !== undefined) for (const id of level.scenes) if (!(id in status)) return { ok: false, error: rtError('scene_invalid', `unknown scene ${JSON.stringify(String(id))}`, { reason: 'level' }) };
-      command({ op: 'startLevel', level: { scenes: [...level.scenes], spawnId: String(level.spawnId) }, ...(restore !== undefined ? { restore } : {}) });
-      return { ok: true };
-    },
-    runState: (): RunSaveState => (mirror.runSave as RunSaveState | null) ?? { checkpointId: null, counters: {}, collected: [], defeated: [], health: null, values: {} },
     setPaused: (paused: boolean) => {
       mirror.paused = paused === true;
       command({ op: 'setPaused', paused: paused === true });
@@ -309,7 +293,6 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     setStepWatcher: () => undefined,
     behaviorDebug: () => [],
     hiddenEntities: () => mirror.hidden,
-    entityOpacity: () => mirror.opacity,
     // Phase 24.4h: the look overrides (ctx.look).
     entityLooks: () => mirror.looks,
     animatorPoses: (): ReadonlyMap<string, AnimatorPose> => mirror.poses,
@@ -451,33 +434,6 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     dispose: () => {
       if (disposed) return { ok: true, alreadyDisposed: true };
       void dispose();
-      return { ok: true };
-    },
-    getGameView: (): { ok: true; view: GameView } | { ok: false; error: RuntimeError } => {
-      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
-      return mirror.view !== null ? { ok: true, view: mirror.view } : { ok: false, error: noSession() };
-    },
-    peekGameView: () => (gone() ? null : mirror.view),
-    gameCommand: (cmd: 'start' | 'replay') => {
-      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
-      const view = mirror.view;
-      if (view === null) return { ok: false, error: noSession() };
-      if (mirror.state === 'failed') return { ok: false, error: rtError('runtime_failed', 'the runtime is failed (a failed instance never steps again; the run is frozen at its last committed value)') };
-      // The game session's rule (runtime game-session `submit`), on the mirrored state.
-      if (pendingCmds.some((p) => p.cmd === cmd)) return { ok: true };
-      if (pendingCmds.length > 0) return { ok: false, error: rtError('game_command_invalid', 'a run command is already pending (one pending command per kind; a conflicting submission within the same boundary is rejected)', { reason: 'pending', command: cmd }) };
-      if (cmd === 'start' && view.state !== 'awaitingStart') return { ok: false, error: rtError('game_command_invalid', `"start" is valid only in "awaitingStart" (current run state: "${view.state}")`, { reason: 'state', command: cmd, state: view.state }) };
-      if (cmd === 'replay' && !RUN_STATES_REPLAY.has(view.state)) return { ok: false, error: rtError('game_command_invalid', `"replay" is valid only in "playing"/"respawning"/"won" (current run state: "${view.state}")`, { reason: 'state', command: cmd, state: view.state }) };
-      pendingCmds.push({ cmd, atStep: mirror.stepIndex });
-      command({ op: 'gameCommand', cmd });
-      return { ok: true };
-    },
-    setViewport: (width: number, height: number) => {
-      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
-      if (mirror.view === null) return { ok: false, error: noSession() };
-      const valid = typeof width === 'number' && typeof height === 'number' && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384;
-      if (!valid) return { ok: false, error: rtError('camera_viewport_invalid', `viewport dimensions must be finite, positive and ≤ 16384 (got ${width}×${height}); the previous record is retained`, { width, height } as Partial<RuntimeError>) };
-      command({ op: 'setViewport', width, height });
       return { ok: true };
     },
     // Phase 23.8: debug commands — the worker's registry (mirrored), a call checked here and queued there.

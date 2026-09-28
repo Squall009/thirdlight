@@ -20,6 +20,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { memoryProjectSaveBackend } from '@thirdlight/game-host';
+import { DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D } from '@thirdlight/input';
 import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { FakeNode, MODES, startHarness, type Harness, type Mode } from '../m22-worker/harness';
@@ -116,7 +117,6 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
         { sceneId: 'scene-main', start: true, entityIds: main.map((e) => e.id) },
         { sceneId: 'scene-two', start: false },
       ],
-      game: null,
       uiDocuments: DOCS.map((d) => ({ uiDocumentId: d.uiDocumentId, layer: 0, modal: false })),
       saveSchema: { version: 1, slots: 3, sections: ['components'] },
       sceneList: SHELL.scenes,
@@ -137,7 +137,8 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
       markConfirmConsumed: () => undefined,
       dispose: () => undefined,
     },
-    host: { container, ui: { documents: DOCS }, shell: SHELL, projectSaveBackend: memoryProjectSaveBackend(store), saveNamespace: 'shell' },
+    // The input config as the export passes it (the project declares none: the dimension's engine defaults).
+    host: { container, ui: { documents: DOCS }, shell: SHELL, projectSaveBackend: memoryProjectSaveBackend(store), saveNamespace: 'shell', inputConfig: dim === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG },
   });
   live.push(h);
   const rt: Any = h.rt;
@@ -163,7 +164,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
     edges.push({ ...NONE, ...e });
     await frames(2);
   };
-  const obs = (): Any => (h.host as Any).observeScene().observation;
+  const obs = (): Any => (h.host as Any).observe().observation;
   const step = (): number => obs().stepIndex;
   const items = (): number => rt.gameCounters().counters['items'] ?? 0;
   const px = (): number => rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === 'player-0001').position[0];
@@ -223,7 +224,9 @@ describe.each([2, 3] as const)('the game shell (dimension %s)', (dim) => {
     expect(o.playing.uiHud).toEqual(['hud']);
     // The HUD reads the counter and the prompts generated from the input actions (the engine defaults here).
     // (The fake DOM keeps replaced text nodes: the latest text is last.)
-    expect(o.playing.text).toMatch(/Items 1 \| A\/D move · Space jump$/);
+    // The prompts are the gameplay actions of the dimension's default input, named by the bindings' glyph labels.
+    const prompts = dim === 3 ? 'W S A D move · Left Shift run · Space jump · J attack · E interact' : 'A / D move · Space jump · J attack · E interact';
+    expect(o.playing.text.endsWith(`Items 1 | ${prompts}`), o.playing.text).toBe(true);
     expect(o.paused).toEqual({ screen: 'pause', ui: 'paused', hud: [], held: true });
     expect(o.saved.items).toBe(1);
     expect(o.saved.note).toBe('Saved to slot 1');

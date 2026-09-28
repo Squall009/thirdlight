@@ -65,7 +65,7 @@ const PAD_ICONS: readonly GlyphIcon[] = ['pad-south', 'pad-east', 'pad-west', 'p
 const DPAD = ['D-pad up', 'D-pad down', 'D-pad left', 'D-pad right'];
 /**
  * Standard-mapping button labels per family. Generic uses the letters most
- * PC pads print (the labels the classic HUD always showed); Switch pads in
+ * PC pads print; Switch pads in
  * the standard mapping put B at the bottom and A on the right.
  */
 const PAD_LABELS: Readonly<Record<GamepadFamily, readonly string[]>> = {

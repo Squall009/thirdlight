@@ -95,11 +95,11 @@ export interface EnvironmentLayerLike {
 }
 
 /**
- * Phase 14.4: the environment a level plays with — the project's, with each
- * part the level gives laid over it: `sky`, `fog` and `wind` replace the
- * project's part whole (a sky mode's fields only make sense together), `post`
- * merges per effect (a level may change only its bloom or its grading). No
- * layer: the base unchanged.
+ * Phase 14.4: the project environment with a layer laid over it: each part
+ * the layer gives — `sky`, `fog` and `wind` replace the project's part whole
+ * (a sky mode's fields only make sense together), `post` merges per effect
+ * (a layer may change only its bloom or its grading). No layer: the base
+ * unchanged.
  */
 export function layerEnvironment<T extends EnvironmentLike & { readonly wind?: unknown }>(base: T | null, layer: EnvironmentLayerLike | null | undefined): (T & { readonly wind?: unknown }) | null {
   if (layer === null || layer === undefined) return base;
@@ -230,7 +230,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let skyKey = '';
   const textures = new Map<string, Promise<THREE.Texture | null>>();
   let disposed = false;
-  /** The scene's own background, put back when a sky goes (a level without a sky after one with a colour sky). */
+  /** The scene's own background, put back when a sky goes (a look without a sky after one with a colour sky). */
   const baseBackground = scene.background;
 
   const texture = (id: string): Promise<THREE.Texture | null> => {

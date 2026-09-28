@@ -61,7 +61,7 @@ function scene(): { snapshot: Any; physics: Any } {
     { id: 'picker-0001', components: { transform: T([0, -50, 0]), behavior: { behaviorId: 'picker', values: {} } } },
   ];
   return {
-    snapshot: { snapshotId: 'ptr3d@r1', projectId: 'ptr3d', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, game: null, tags: [{ bit: 0, name: 'wall' }] },
+    snapshot: { snapshotId: 'ptr3d@r1', projectId: 'ptr3d', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, tags: [{ bit: 0, name: 'wall' }] },
     physics: physics3DConfigOf(entities, SETTINGS, { layers: ['pickable'] }),
   };
 }
@@ -95,7 +95,7 @@ async function run(mode: Mode, steps: number): Promise<{ h: Harness; digests: st
   while (h.digests.length < steps) {
     now += PATTERN[i++ % PATTERN.length]! * DT;
     await h.tick(now);
-    const o = h.host.observeScene!();
+    const o = h.host.observe();
     if (o.ok) hidden.set(o.observation.stepIndex, (o.observation.hidden ?? []).join(','));
   }
   return { h, digests: [...h.digests], hidden, cursor: h.rt.cursorRequest?.() ?? null };

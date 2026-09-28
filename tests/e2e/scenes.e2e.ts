@@ -234,14 +234,15 @@ test('Play: a scene transition trigger loads its scene and moves the player ther
   await page.screenshot({ path: 'test-results/scenes-exit-unloaded.png' });
 });
 
-test('a project whose recent commands include scene edits and a checkpoint loads again after a backend restart', async () => {
+test('a project whose recent commands include scene edits and a scene transition to a spawn loads again after a backend restart', async () => {
   be = await startBackend('scenes-restart', 'starter');
   await cmd('createScene', { sceneId: 'scene-extra', name: 'Extra' });
   await cmd('renameScene', { sceneId: 'scene-extra', name: 'Extra room' });
   await cmd('setStartScenes', { sceneIds: ['scene-main', 'scene-extra'] });
-  // A checkpoint names its safe spawn: its recorded creation must load without the spawn beside it.
-  const spawn = String((await cmd('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Safe spot', transform: { position: [70, 1, 0] }, components: { playerSpawn: {} } })).createdId);
-  await cmd('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Flag', transform: { position: [69, 1, 0] }, components: { gameZone: { role: 'checkpoint', size: [1, 2], safeSpawnId: spawn, activation: { emissive: '#ffffff', emissiveIntensity: 1, cueAssetId: null } } } });
+  // A scene transition names a spawn (phase 24.7: it replaced the checkpoint zone of this test): its
+  // recorded creation must load without the spawn beside it.
+  const spawn = String((await cmd('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Arrival', transform: { position: [70, 1, 0] }, components: { playerSpawn: {} } })).createdId);
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Door', transform: { position: [69, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-extra', spawn } } } });
   await be.restart();
   const q = await query('queryProject');
   expect(q['ok'], JSON.stringify(q).slice(0, 300)).toBe(true);
