@@ -119,7 +119,9 @@ keeps the gate green.
 | 24.6 | done 2026-09-28 (fast gate): observations and control results report a play state (`running`/`paused`); the session's run state, checkpoint, deaths, goal, events, level flow and title view moved to an optional `legacy` block (24.7 deletes it); `$flow` lost level/lives/HUD/totals/score/result; `health` is every object's; the 20 `addGameSession` tests run in scene mode (a title shell where they waited for a start) |
 | 24.7 | done 2026-09-28 (fast gate): `platformer-game`, the session, flow, enemy, pickup, gameZone, cameraFollow, knockback, legacy block, classic HUD and Beacon Reach deleted; one runtime mode; `packages/platformer` → `packages/character` (`thirdlight.character:controller`, old id aliased) |
 | 24.8 | done 2026-09-28 (fast gate): project.json schemaVersion 3 (a 2 is upgraded on load; removed game data refused by name); content manifest v3 (no game block, no cue slots); input frame version 2 (named actions; controller `moveAction`/`jumpAction`); save format version 2 (`world`: scenes, spawn, character) |
-| 24.9 | — |
+| 24.9 | done 2026-09-28: the vocabulary guard in `tools/check-boundaries.mjs` (0 hits outside a 3-row allowlist: the schema-2 upgrade and its tests); `tests/e2e/starter-game.e2e.ts` builds and plays a small game from the starter template; charter and deployment rewritten; D43, D44 fixed |
+
+**Phase 24 done 2026-09-28** (owner look pending).
 
 ## 4. Decision log
 
@@ -612,3 +614,44 @@ keeps the gate green.
   under load: `EEXIST` on `.thirdlight`; `createDirectories` compares `errno`
   with a string) and D44 (`tools/gate.sh` never reruns a failed vitest file:
   its grep misses vitest's coloured FAIL line). Neither fixed here.
+- 2026-09-28 (24.9): the guard scans every text file under
+  `packages/<name>/src` (tests included) after splitting camelCase and
+  snake_case identifiers, so `bestScore` or `enemy_count` cannot hide a word;
+  `lives` is flagged in every sense, so the verb was reworded ("is kept in")
+  rather than allowlisted. The allowlist has 3 rows (the upgrade code, its
+  unit test, its HTTP test; 47 uses) and a row that matches nothing fails.
+  Cleaned instead of allowlisted: test fixtures got neutral names (items,
+  walker, wet, credits, token); the `platformer.md` references in the
+  character package became "the controller contract"; the renamed-preset
+  hint was dropped (a `beacon`/`hazard` preset is now refused like any
+  unknown name, listing the three presets); the negative
+  `platformer-game`/old-module-id assertions were dropped (the guard makes
+  them impossible); the removed-component tests read `REMOVED_COMPONENTS`;
+  the unused `hazard` clearance reason was removed. Outside the guard's
+  scope: the m3 fixture `demo-0003-beacon-min-v3.json` became
+  `demo-0003-min-v3.json` (failures.json's digest updated), the m3-render
+  browser host compares the fixture's preset rows by position (they keep
+  their pre-phase-24 ids), and the dead `tests/integration/m4-delivery`
+  probes (a platformer template and the game block; nothing ran them) moved
+  to `archive/removed-phase-24/`. `grep -rniE "sprout|beacon" packages tests
+  tools samples templates` finds only the guard's own word list.
+- 2026-09-28 (24.9): the acceptance test builds the game through the
+  Inspector ("+ Add component": collectible, "Patrol: Waypoints" with its
+  waypoint typed, "Hitbox: Box" with damage, health with max 1, a trigger
+  and its scene transition) and the Game shell tab (title, HUD); the UI
+  documents, the second scene and the project script go through the same
+  commands. The rules script counts `damaged`/`died` for its own object,
+  respawns (`ctx.lifecycle.respawn`) and heals. Input goes through the
+  exercise relay in 10-step runs until the observed goal holds; after the
+  death a run already under way may carry the character up to ~1 m left of
+  the spawn, so the test accepts x > 2 (the hit needs x < 0.6).
+- 2026-09-28 (24.9): D43 fixed (the `.thirdlight` mkdir race: `errnoOf`
+  reads the error's `code`); D44 fixed (the gate strips vitest's colour
+  escapes before finding FAIL lines).
+- 2026-09-28 (24.9): the phase's full gate (one GPU pass): vitest 3809
+  passed, 3 skipped; e2e 218 passed, 28 skipped, 3 failed. `effect-editor`
+  (auto) and `memory` (backend swap) expected the CPU executor / WebGL 2 for
+  `auto` and the webgpu setting: stale expectations since the gates moved to
+  the GPU (as `effects-runtime` and `shader-parity` earlier), now following
+  the backend; both pass on `tools/gate.sh rerun`. `sockets` failed as D42
+  (×0.5 preview measured 0.537; pre-existing, cause not identified, open).
