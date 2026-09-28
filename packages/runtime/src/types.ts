@@ -480,7 +480,7 @@ export interface SimulationPhaseModule {
 }
 
 /**
- * The frozen per-phase context (runtime.md §12.2 / `platformer.md` §3).
+ * The frozen per-phase context (runtime.md §12.2 / the controller contract §3).
  *
  * Contract clarification (packet 29, C29-5): the promoted §12.2 requires the
  * runtime to pass a phase-scoped `state.curr` write target, but the §3
@@ -1063,7 +1063,7 @@ export interface BehaviorEffects {
    */
   play(effectId: string, options?: { position?: readonly number[]; entityId?: string; params?: Readonly<Record<string, number | readonly number[] | string>> }): number;
   /**
-   * Stop spawning: a play's handle, or an object's id (every effect playing on it, its effect component included). Living particles finish their lives.
+   * Stop spawning: a play's handle, or an object's id (every effect playing on it, its effect component included). Living particles finish their lifetimes.
    * @graphNode Stop effect
    */
   stop(target: number | string): void;
@@ -1480,8 +1480,8 @@ export interface BehaviorModes {
 
 /**
  * Phase 23.10: `ctx.lifecycle` — the engine's run lifecycle: respawn the
- * character at a player spawn and restart the run. Lives, scores and goals are
- * the game's own rules (scripts); this is only the mechanism. Phase 24.7: it
+ * character at a player spawn and restart the run. Winning, losing and what a
+ * death means are the game's own rules (scripts); this is only the mechanism. Phase 24.7: it
  * works on the 2D plane too (the character controller session that owned it is gone).
  */
 export interface BehaviorLifecycle {

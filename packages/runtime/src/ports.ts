@@ -62,7 +62,7 @@ export interface PhysicsDiagnostics {
 /**
  * The injected physics port (physics.md §5). Initialization happens before
  * `instantiateRuntime` — the runtime only ever receives an already-initialized
- * port (`createPhysicsPort(config, signal?)` lives in the concrete adapter).
+ * port (`createPhysicsPort(config, signal?)` is in the concrete adapter).
  */
 export interface PhysicsPort {
   readonly implementation?: string;
@@ -223,7 +223,7 @@ export interface PhysicsHit {
 /** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */
 export interface CharacterClearanceResult {
   ok: boolean;
-  reason?: 'blocked' | 'no_support' | 'out_of_bounds' | 'hazard' | 'query_failed';
+  reason?: 'blocked' | 'no_support' | 'out_of_bounds' | 'query_failed';
   supportNormal?: Vec2;
   /** m, deepest overlap with a static collider. */
   penetration?: number;

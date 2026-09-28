@@ -18,7 +18,7 @@
  *        └─ ModelInstance.createPreviewController() ─► local material/animation
  *                                                       preview state only
  *
- * Non-goals (normative for this packet): this module never mutates the M1
+ * Out of scope (normative for this packet): this module never mutates the M1
  * runtime's simulation state or the authoring scene (no second scene-mutation
  * engine); it never reads a clock (the host owns the frame loop and drives
  * `AssetPreviewController.update(dt)`), never fetches, and holds no token, URL
@@ -134,7 +134,7 @@ const REASON_TO_CODE: Readonly<Record<VisualLoadFailureReason, AdapterErrorCode>
 
 /**
  * The injected loader port. The adapter binds to no concrete loader at this
- * layer: the real GLTFLoader-backed port lives on the
+ * layer: the real GLTFLoader-backed port is on the
  * `@thirdlight/three-adapter/gltf-loader` subpath (so the export/preview bundle
  * graphs stay free of the loader until packets 35/36 need it), and tests inject
  * a synthetic port. A port must not fetch, hold a token or read a path.

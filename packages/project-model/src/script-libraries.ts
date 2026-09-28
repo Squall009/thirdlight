@@ -19,7 +19,7 @@
  * The game never reads libraries: their code is bundled into each
  * dependent's compiled output.
  *
- * Pure data rules; the compiler lives in behavior-build.
+ * Pure data rules; the compiler is in behavior-build.
  */
 import type { ModelErrorV2 } from './errors';
 import { sha256HexOfText } from './sha256';

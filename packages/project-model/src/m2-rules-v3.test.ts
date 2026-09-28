@@ -4,7 +4,7 @@
  * archive/removed-v1-v2/project-model/).
  *
  * The committed fixtures under fixtures/m2/model/ are schemaVersion 2
- * documents. The v2 scene model is gone, but every rule they pin lives on in
+ * documents. The v2 scene model is gone, but every rule they pin is kept in
  * the v3 validators, so each document is upgraded IN MEMORY by exactly two
  * edits — scene `schemaVersion` 2 → 3 and content `game: null` — and then
  * run through `validateSceneV3`/`parseSceneV3`/`validateContentV3`/

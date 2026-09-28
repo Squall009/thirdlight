@@ -1700,7 +1700,7 @@ export class Viewport {
     };
     visit(obj);
     // Phase 21.5: the nodes themselves — the renderer keeps an object's render objects (pipeline,
-    // bindings, uniforms) while its material lives on (a project material, a shared box look).
+    // bindings, uniforms) while its material stays (a project material, a shared box look).
     disposeObjectTree(obj, { skip: (c) => (c as { entityId?: string }).entityId !== own });
   }
 

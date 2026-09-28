@@ -4,7 +4,7 @@
  * never HTML):
  *
  *   [b]bold[/b]  [i]italic[/i]  [color=#ff8800]colour[/color]
- *   [size=20]bigger[/size]  [icon=coin] (an icon of the document/theme)
+ *   [size=20]bigger[/size]  [icon=star] (an icon of the document/theme)
  *   {hud.hp} (a view-model value)   [[ (a literal "[")   {{ (a literal "{")
  *   {action:jump} (phase 23.14: the action's glyph for the device used last)
  *

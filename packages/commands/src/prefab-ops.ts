@@ -543,7 +543,7 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
     ok: true,
     op: {
       scene: gate.scene,
-      // Content is unchanged (provenance lives in the scene).
+      // Content is unchanged (provenance is in the scene).
       change,
       // §8.7.6/§9.1: one undo removes the whole subtree; redo re-inserts the
       // recorded entries with their recorded IDs (no re-allocation).

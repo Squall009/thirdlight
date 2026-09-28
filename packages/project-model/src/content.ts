@@ -2175,7 +2175,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
   // Phase 24.7: the level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
-  if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (levels, lives, score and their menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
+  if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (the level flow and its menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
   // Phase 16.1: standalone graph documents.
   if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
   // Phase 20.0: visual effects.

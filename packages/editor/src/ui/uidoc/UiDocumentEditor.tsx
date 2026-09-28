@@ -118,7 +118,7 @@ function writeMock(key: string, text: string): void {
   try {
     globalThis.localStorage?.setItem(key, text);
   } catch {
-    /* storage full or refused: the mock lives for this session */
+    /* storage full or refused: the mock lasts for this session */
   }
 }
 

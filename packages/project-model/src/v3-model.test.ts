@@ -351,7 +351,7 @@ describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
   });
 
   it('the v3 envelope refuses every unsupported new combination with one error', () => {
-    const base = JSON.parse(m3ContractFixtureText('envelope/valid/demo-0003-beacon-min-v3.json')) as Record<string, unknown>;
+    const base = JSON.parse(m3ContractFixtureText('envelope/valid/demo-0003-min-v3.json')) as Record<string, unknown>;
     const cases: [number, number][] = [
       [1, 3],
       [2, 3],

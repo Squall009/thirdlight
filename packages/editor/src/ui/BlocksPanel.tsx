@@ -406,7 +406,7 @@ export function BlocksPanel(p: Props): JSX.Element {
         <section className="tl-blocks__col" aria-label="cell metadata">
           <div className="tl-panel__title">Metadata</div>
           {p.fields.length === 0 ? (
-            <p className="tl-note">No cell fields yet. A field is data every cell can carry (walkable, hazard, cost…).</p>
+            <p className="tl-note">No cell fields yet. A field is data every cell can carry (walkable, slippery, cost…).</p>
           ) : (
             <>
               <div className="tl-blocks__row">

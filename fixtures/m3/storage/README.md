@@ -39,7 +39,7 @@ fixtures/m3/storage/
 ## Provenance
 
 - `project-v3-demo-0003/scenes/main.json` is byte-identical to the committed
-  packet-39 `fixtures/m3/contracts/envelope/valid/demo-0003-beacon-min-v3.json`
+  packet-39 `fixtures/m3/contracts/envelope/valid/demo-0003-min-v3.json`
   (`a932b05a…be9414`); its manifest is a minimal v1 manifest with the same id.
 - `project-v2-demo-0002/project.json` is byte-identical to the committed
   packet-39 `fixtures/m3/contracts/migration/v2-source/project.json`. Its

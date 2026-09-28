@@ -254,7 +254,7 @@ export interface ModelsRealization {
   instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
   /**
    * Phase 23.5: a model instance a block look is built from (one per asset and
-   * piece, kept while the realization lives) — null while the asset loads
+   * piece, kept while the realization exists) — null while the asset loads
    * (`onReady` runs once when it is ready) or when it is not a model row.
    */
   blockInstance?(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
@@ -562,7 +562,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const rowsByAsset = new Map<string, SceneAdapterModelAsset>();
   for (const row of ctx.models.assets) rowsByAsset.set(row.assetId, row);
 
-  /** Phase 14.6: animation-only assets asked for by an animator (kept while the realization lives). */
+  /** Phase 14.6: animation-only assets asked for by an animator (kept while the realization exists). */
   const clipAssets = new Set<string>();
   /** Whether any live entity still uses the asset. */
   function assetInUse(assetId: string): boolean {

@@ -1,7 +1,7 @@
 /**
  * Packet 32 — controller unit tests (pure, no library, no I/O).
  *
- * These exercise the algorithm of `platformer.md` §7 A–K and the
+ * These exercise the algorithm of the controller contract §7 A–K and the
  * classification of `physics.md` §8 with a deterministic in-memory
  * `PhysicsStepClient`: single jump, variable height on release, the
  * integer-step coyote/jump-buffer windows (including the off-by-one edges),
@@ -108,8 +108,8 @@ function harness() {
   };
 }
 
-describe('contract constants (dependencies.md §3 platformer row)', () => {
-  it('exposes the module id and the platformer.md §12 constants', () => {
+describe('contract constants (dependencies.md §3 character row)', () => {
+  it('exposes the module id and the the controller contract §12 constants', () => {
     expect(CHARACTER_MODULE_ID).toBe('thirdlight.character:controller');
     expect(CONTROLLER_CONSTANTS).toEqual({
       offsetSkin: 0.01,
@@ -124,7 +124,7 @@ describe('contract constants (dependencies.md §3 platformer row)', () => {
     });
   });
 
-  it('starts at the authored transform with the platformer.md §4 state', () => {
+  it('starts at the authored transform with the the controller contract §4 state', () => {
     expect(createControllerState(1.5, 0.91)).toEqual({
       vx: 0,
       vy: 0,
@@ -169,7 +169,7 @@ describe('grounding from support normals (physics.md §8)', () => {
   });
 });
 
-describe('jump (platformer.md §7 A–G)', () => {
+describe('jump (the controller contract §7 A–G)', () => {
   it('starts one jump on the press edge and integrates gravity the same step', () => {
     const state = createControllerState(0, 0.91);
     const h = harness();
@@ -242,7 +242,7 @@ describe('jump (platformer.md §7 A–G)', () => {
   });
 });
 
-describe('coyote and buffer windows (platformer.md §7.1)', () => {
+describe('coyote and buffer windows (the controller contract §7.1)', () => {
   /**
    * The last step whose **result** is grounded is step 0. A press at step k
    * uses `groundedPrev = result(k−1).grounded`.
@@ -264,7 +264,7 @@ describe('coyote and buffer windows (platformer.md §7.1)', () => {
   it('allows the jump at the last coyote step and refuses one step later (fixture boundary)', () => {
     // The last grounded result is step 0. The fixture's normative model
     // (`jump-coyote-last-step`: m = 14, last step = 21) permits the press at
-    // m + 7 and refuses m + 8; platformer.md §7.1's "(m .. m+5)" prose is one
+    // m + 7 and refuses m + 8; the controller contract §7.1's "(m .. m+5)" prose is one
     // short of the replayed fixture (recorded as contract-change request
     // C32-3 in the evidence manifest).
     expect(coyoteCase(7)).toBe(true);

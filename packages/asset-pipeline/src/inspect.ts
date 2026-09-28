@@ -1224,7 +1224,7 @@ class Inspector {
   private meshoptDecodedBytes = 0;
 
   /**
-   * Decode one EXT_meshopt_compression bufferView (its compressed stream lives
+   * Decode one EXT_meshopt_compression bufferView (its compressed stream is kept
    * in the BIN chunk) into exactly `byteLength` bytes, or report why not.
    */
   private decodeMeshoptView(ext: unknown, byteLength: number, path: string, out: ImportDiagnostic[]): Uint8Array | null {

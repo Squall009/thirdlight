@@ -2,8 +2,7 @@
  * Phase 20.2: effect requests are presentation events — recorded in step
  * order, deterministic for the same inputs, never read back by the
  * simulation: scripts (`ctx.effects.play/stop`) and effect components'
- * signals (phase 24.7: the genre hooks — pickup, enemy, player hit,
- * checkpoint / goal — went with the genre layer). Neutral fixtures.
+ * signals (phase 24.7: the genre layer's hooks went with it). Neutral fixtures.
  */
 import { describe, expect, it } from 'vitest';
 import type { EntityV3 } from '@thirdlight/project-model';

@@ -12,7 +12,7 @@
  * project database.
  *
  * Browser-only: uses `fetch` + `WebSocket` + `location` (the DOM). The pure
- * decision logic lives in `projection.ts` / `gesture.ts` / `envelope.ts`
+ * decision logic is in `projection.ts` / `gesture.ts` / `envelope.ts`
  * (unit-tested in Node); this module is the thin transport that drives them.
  */
 

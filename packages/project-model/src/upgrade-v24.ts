@@ -111,7 +111,7 @@ export function upgradeProjectDocsV24(contentIn: unknown, scenesIn: readonly unk
       else errors.push(refused('content', undefined, '/game', `content.game (the game block: player, camera, spawn, cues and timing) was ${REMOVED_IN_PHASE_24}`, typeof content['game'], 'field_unexpected'));
     }
     if (content['flow'] !== undefined) {
-      errors.push(refused('content', undefined, '/flow', `content.flow (levels, lives, score and their menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, 'flow', 'field_unexpected'));
+      errors.push(refused('content', undefined, '/flow', `content.flow (the level flow and its menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, 'flow', 'field_unexpected'));
     }
   }
 

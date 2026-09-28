@@ -8,8 +8,8 @@
  * scene graph: box primitives (unit-geometry scaled by `size`, simple
  * Lambert material from `material.color`), one perspective camera
  * (project-model §10.3: exactly one camera entity), and a fixed M1
- * component→Object3D table (no registration API — dependencies.md §6
- * non-goal). One renderer path: three's WebGPURenderer from the renderer
+ * component→Object3D table (no registration API — dependencies.md §6:
+ * out of scope). One renderer path: three's WebGPURenderer from the renderer
  * factory — WebGPU where it starts, else its WebGL 2 backend (phase 17.4;
  * runtime.md §8: the SELECTED backend is reported in diagnostics).
  *

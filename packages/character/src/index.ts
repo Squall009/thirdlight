@@ -1,12 +1,12 @@
 /**
- * `@thirdlight/character` — public surface (dependencies.md §3 `platformer`
+ * `@thirdlight/character` — public surface (dependencies.md §3 `character`
  * row: `characterControllerSpec`, `CHARACTER_MODULE_ID`, `CONTROLLER_CONSTANTS`).
  *
- * Packet 32 (`docs/contracts/runtime.md` §12, promoted from `platformer.md`
+ * Packet 32 (`docs/contracts/runtime.md` §12, promoted from the controller contract
  * and `physics.md`): the pure fixed-step controller module
  * `thirdlight.character:controller` for the M2 2.5D character.
  *
- * - **Algorithm** — `platformer.md` §7's exact order A–K: one jump per press,
+ * - **Algorithm** — the controller contract §7's exact order A–K: one jump per press,
  *   variable height on release, the integer-step coyote (6) and jump-buffer
  *   (8) windows, no air/wall jump, no automatic stair climbing and the
  *   horizontal `approach()` arrival rule.

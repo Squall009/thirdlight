@@ -53,7 +53,7 @@ node fixtures/m3/contracts/tools/check-fixtures.mjs --report /tmp/m3-39-report.j
 rm -rf /tmp/m3-corrupt && cp -r fixtures/m3/contracts /tmp/m3-corrupt
 # break one value so the document is no longer valid and no longer hashed as recorded
 sed -i 's/"spawnId": "spawn-0001"/"spawnId": "spawn-9999"/' \
-  /tmp/m3-corrupt/envelope/valid/demo-0003-beacon-min-v3.json
+  /tmp/m3-corrupt/envelope/valid/demo-0003-min-v3.json
 TL39_FIXTURE_ROOT=/tmp/m3-corrupt node fixtures/m3/contracts/tools/check-fixtures.mjs
 echo "EXIT=$?"
 ```

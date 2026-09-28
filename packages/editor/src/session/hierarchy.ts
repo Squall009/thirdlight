@@ -168,7 +168,7 @@ export function dropTarget(
   return { parentId, beforeId: next?.id ?? null, zone: 'after' };
 }
 
-/** Phase 12 (c): whether every dragged entity lives in `sceneId` (always true without scenes). */
+/** Phase 12 (c): whether every dragged entity is in `sceneId` (always true without scenes). */
 function sameScene(byId: ReadonlyMap<string, ProjectedEntity>, dragged: readonly string[], sceneId: string | undefined): boolean {
   return dragged.every((id) => byId.get(id)?.sceneId === sceneId);
 }

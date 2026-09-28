@@ -35,6 +35,7 @@ import {
   type ListFieldDescriptor,
   type ObjectFieldDescriptor,
 } from './descriptors';
+import { REMOVED_COMPONENTS } from './upgrade-v24';
 import type { ModelErrorV2 } from './errors';
 import { validateInput } from './input';
 import { validateModes } from './modes';
@@ -778,7 +779,7 @@ function runAllProbes(): void {
   MATERIAL_BASES.forEach((b, i) => probe(`materials[${i}]`, (v) => errorsOf((e) => validateMaterials(v, '', e)), b, '', block('materials'), 'materials:'));
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
-  probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
+  probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'walker' }], '', block('tags'), 'tags:');
   probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
@@ -909,7 +910,7 @@ describe('descriptor registry (phase 15.0)', () => {
     // it travels in every queryGameConfig: keep it small
     // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
     // repeat the sky/fog/post descriptors, about 9 KB; phase 24.4: + collectible, patrol and hitbox, about 6 KB;
-    // phase 24.7: - the game block, flow, gameZone, cameraFollow, pickup and enemy)
+    // phase 24.7: - the game block, the flow and the removed game components)
     // (phase 24.4e–i: + scene transitions, the track rig, face velocity, event sounds, about 4 KB)
     // (phase 24.5: + the create menu entries and icons, about 3 KB)
     expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(250_000);
@@ -996,7 +997,7 @@ describe('descriptor registry (phase 15.0)', () => {
     }
     expect(entries).toBeGreaterThanOrEqual(12);
     // Phase 24.7: the removed game components and blocks are not described at all.
-    for (const n of ['gameZone', 'cameraFollow', 'pickup', 'enemy']) expect(DESCRIPTORS.components.find((c) => c.name === n), n).toBeUndefined();
+    for (const n of Object.keys(REMOVED_COMPONENTS)) expect(DESCRIPTORS.components.find((c) => c.name === n), n).toBeUndefined();
     for (const n of ['game', 'flow']) expect(DESCRIPTORS.content.find((b) => b.key === n), n).toBeUndefined();
   });
 

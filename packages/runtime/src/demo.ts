@@ -14,7 +14,7 @@
  * catch-up drops are exact (§5.2). Bit-exact within the same JS engine
  * (§7.3).
  *
- * §7.3 (normative non-goal): no user scripts — this module is
+ * §7.3 (normative, out of scope): no user scripts — this module is
  * compile-time-linked through the narrow registry (dependencies.md §6).
  */
 import type {

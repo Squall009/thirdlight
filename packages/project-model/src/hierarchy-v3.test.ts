@@ -142,7 +142,7 @@ describe('tags (phase 12 b)', () => {
     expect(validateContentV3({ ...base, tags: [{ bit: 1, name: 'b' }, { bit: 0, name: 'a' }] })).toMatchObject({ ok: true, normalized: { tags: [{ bit: 0, name: 'a' }, { bit: 1, name: 'b' }] } });
     expect('tags' in (validateContentV3({ ...base, tags: [] }) as { normalized: object }).normalized).toBe(false);
     expect(validateContentV3({ ...base, tags: [{ bit: 0, name: 'a' }, { bit: 0, name: 'b' }] }).ok).toBe(false);
-    expect(validateContentV3({ ...base, tags: [{ bit: 0, name: 'Enemy' }, { bit: 1, name: 'enemy' }] }).ok).toBe(false);
+    expect(validateContentV3({ ...base, tags: [{ bit: 0, name: 'Walker' }, { bit: 1, name: 'walker' }] }).ok).toBe(false);
     expect(validateContentV3({ ...base, tags: [{ bit: 32, name: 'a' }] }).ok).toBe(false);
     const manifest = { schemaVersion: 1, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z', scenes: [{ id: 'scene-main', path: 'scenes/main.json' }] };
     const doc = scene([{ id: 'box-0001', tags: 0b10, components: { transform: T } }]);

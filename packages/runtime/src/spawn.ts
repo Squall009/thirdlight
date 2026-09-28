@@ -1,7 +1,7 @@
 /**
  * Phase 14.1: the pure parts of `ctx.spawn` / `ctx.destroy` — the engine
  * limits, the spawn options a script passes, and the expansion of a project
- * prefab definition into fresh runtime entities. A spawned copy lives in the
+ * prefab definition into fresh runtime entities. A spawned copy is in the
  * running game only (never in the project, never in a save). No I/O.
  */
 import type { EntityV3, PrefabDefinition } from '@thirdlight/project-model';

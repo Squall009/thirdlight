@@ -21,7 +21,7 @@ export function spatialPick(current: NavRect, candidates: readonly (NavRect | nu
   const cx = current.left + current.width / 2;
   const cy = current.top + current.height / 2;
   let best = -1;
-  let bestScore = Infinity;
+  let bestCost = Infinity;
   for (let i = 0; i < candidates.length; i += 1) {
     const r = candidates[i];
     if (i === skip || r === null || r === undefined) continue;
@@ -50,9 +50,9 @@ export function spatialPick(current: NavRect, candidates: readonly (NavRect | nu
         break;
     }
     if (along <= 0.5) continue;
-    const score = along + 2 * side;
-    if (score < bestScore) {
-      bestScore = score;
+    const cost = along + 2 * side;
+    if (cost < bestCost) {
+      bestCost = cost;
       best = i;
     }
   }

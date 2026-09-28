@@ -134,7 +134,7 @@ interface Playing extends EffectPlayParts {
   position: THREE.Vector3;
   handle: number;
   entityId: string | null;
-  /** An entity's own component play (kept while the entity lives; restarted by its signal). */
+  /** An entity's own component play (kept while the entity exists; restarted by its signal). */
   component: boolean;
   params: string;
   /** GPU: living particles as last read back, and whether a read is in flight. */

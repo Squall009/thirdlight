@@ -3,7 +3,7 @@
  *
  * The pipeline is exercised with an INJECTED fake workspace service and an
  * INJECTED in-memory `ExportFs` (the exporter's own edge set has no Node
- * builtins — the real-fs + real-service + real-HTTP end-to-end lives in the
+ * builtins — the real-fs + real-service + real-HTTP end-to-end is in the
  * backend package's export.test.ts, where `node:fs` is allowed). The esbuild
  * build is REAL: the actual `export-bootstrap.ts` entry is bundled against
  * the real installed `three@0.186.0`, so the graph check and the §5.4 scan

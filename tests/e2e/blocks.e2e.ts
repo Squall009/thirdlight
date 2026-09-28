@@ -8,8 +8,7 @@
  * counter), opens the door by stepping on the plate, jumps up through the
  * shelf, walks onto the lift and rides it up.
  *
- * Phase 24.7: this was Beacon Reach's platformer level (coins, a stomped
- * enemy, the player's health against it); the enemy and pickup rules were
+ * Phase 24.7: this was the deleted sample game's level; its game rules were
  * deleted with the genre layer. The generic blocks stay, and the 2D-plane
  * switches now work without the session.
  */

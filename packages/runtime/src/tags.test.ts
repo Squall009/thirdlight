@@ -22,11 +22,11 @@ import {
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const BOX = { size: [1, 1, 1], material: { color: '#ffffff' } };
 const TAGS = [
-  { bit: 0, name: 'hazard' },
+  { bit: 0, name: 'spiky' },
   { bit: 4, name: 'pickup' },
 ];
 
-/** Hazards folder (hazard) > spike; lava (own hazard + pickup); Off folder (inactive) > buried (hazard); scripted box. */
+/** Spikes folder (spiky) > spike; lava (own spiky + pickup); Off folder (inactive) > buried (spiky); scripted box. */
 function scene(): unknown {
   return {
     schemaVersion: 3,
@@ -34,7 +34,7 @@ function scene(): unknown {
     revision: 1,
     entities: [
       { id: 'cam-main', components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
-      { id: 'folder-0001', name: 'Hazards', tags: 0b1, components: { folder: {} } },
+      { id: 'folder-0001', name: 'Spikes', tags: 0b1, components: { folder: {} } },
       { id: 'box-0001', name: 'spike', parentId: 'folder-0001', components: { transform: T, box: BOX } },
       { id: 'box-0002', name: 'lava', tags: 0b10001, components: { transform: T, box: BOX } },
       { id: 'folder-0002', name: 'Off', active: false, components: { folder: {} } },
@@ -61,16 +61,16 @@ describe('ctx.tags', () => {
       namespace: {
         default: {
           instantiate: (_p: unknown, inst: { tags: BehaviorTagQuery }) => {
-            seen.instantiate = inst.tags.query(inst.tags.mask('hazard'));
+            seen.instantiate = inst.tags.query(inst.tags.mask('spiky'));
             return {};
           },
           step: (_s: unknown, ctx: { tags: BehaviorTagQuery }) => {
             const t = ctx.tags;
             seen.step = {
-              any: t.query(t.mask('Hazard', 'pickup')),
-              all: t.query(t.mask('hazard', 'pickup'), 'all'),
+              any: t.query(t.mask('Spiky', 'pickup')),
+              all: t.query(t.mask('spiky', 'pickup'), 'all'),
               lava: t.of('box-0002'),
-              spikeIsHazard: t.has('box-0001', t.mask('hazard')),
+              spikeIsSpiky: t.has('box-0001', t.mask('spiky')),
             };
           },
         },
@@ -86,7 +86,7 @@ describe('ctx.tags', () => {
     const ctx = { stepIndex: 0, phase: 'intent', action: {}, settings, physics: {}, state: {}, intents: Object.freeze([]), emit: () => undefined };
     mod.step('intent', ctx as never);
     expect(seen.instantiate).toEqual(['box-0001', 'box-0002']);
-    expect(seen.step).toEqual({ any: ['box-0001', 'box-0002'], all: ['box-0002'], lava: 0b10001, spikeIsHazard: true });
+    expect(seen.step).toEqual({ any: ['box-0001', 'box-0002'], all: ['box-0002'], lava: 0b10001, spikeIsSpiky: true });
   });
 
   it('unknown names and a bad match mode fail loudly; the snapshot registry is validated', () => {

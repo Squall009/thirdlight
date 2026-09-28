@@ -9,7 +9,7 @@
  * them — past localStorage's ~5 MB per origin), one key per slot for the
  * metadata (the slot list reads only these), one for the body and one for the
  * thumbnail. The project settings document is small and must be known before
- * the first step (the runtime starts with it), so it lives in the synchronous
+ * the first step (the runtime starts with it), so it is in the synchronous
  * key/value storage (`localStorage`, see `storage.ts`) next to the player's
  * other settings. Play and an export use different namespaces. No backend is
  * involved: an exported game keeps its saves in the player's browser.
@@ -63,7 +63,7 @@ export interface ProjectSaveServiceConfig {
   readonly namespace: string;
   /** Answers for the simulation (queued into its next step's input). */
   readonly queue: (event: SaveEvent) => void;
-  /** The synchronous storage the settings document lives in (absent: settings last for the session only). */
+  /** The synchronous storage the settings document is in (absent: settings last for the session only). */
   readonly settingsStorage?: SaveStorage;
   readonly captureThumbnail?: ThumbnailCapture;
   /** Apply an engine setting a settings field drives. */

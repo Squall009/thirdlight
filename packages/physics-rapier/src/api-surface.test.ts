@@ -20,7 +20,7 @@ const RAD = (deg: number): number => (deg * Math.PI) / 180;
 
 /**
  * A local mirror of the accepted runtime.md §12.6 `PhysicsInitConfig` (the
- * runtime package does not export the init-config type — the factory lives in
+ * runtime package does not export the init-config type — the factory is in
  * this adapter). Assigning it to `createPhysicsPort` is the compile-time
  * check that the adapter config is a structural superset of the accepted
  * shape.

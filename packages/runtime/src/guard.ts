@@ -1,5 +1,5 @@
 /**
- * Phase-scoped write guard — runtime.md §12.2 (promoted from `platformer.md`
+ * Phase-scoped write guard — runtime.md §12.2 (promoted from the controller contract
  * §2.2).
  *
  * The runtime passes a write-only `state.curr` during the `transform` phase
@@ -45,7 +45,7 @@ const arrayGuard: ProxyHandler<number[]> = {
   deleteProperty: () => violation(CURR_READ_ONLY),
 };
 
-/** One guard proxy per guarded object while it lives (the runtime overwrites its transforms in place). */
+/** One guard proxy per guarded object while it exists (the runtime overwrites its transforms in place). */
 const guardedArrays = new WeakMap<readonly number[], number[]>();
 const guardedTransforms = new WeakMap<TransformState, TransformState>();
 

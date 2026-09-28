@@ -78,7 +78,7 @@
 
 /*
  * Ported to storage v4 (phase 9.3 step B): the project's scene file is
- * `scenes/scene-main.json` (a createEntity's retry record lives there; the
+ * `scenes/scene-main.json` (a createEntity's retry record is there; the
  * release clears it). T1, T4(b) and T4(c) pin the legacy outcomes for v4
  * too (the 9.3 step B follow-up: ownership_conflict for a foreign record,
  * no release after a new-undurable records-clearing write, write_failed

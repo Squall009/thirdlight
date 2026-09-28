@@ -6,7 +6,7 @@
  *
  * These were the schemaVersion 2 scene's component rules; the v2 scene
  * validator itself was removed in phase 9.3 (only v4 projects load, v3 ones
- * upgrade on open), and what the v3/v4 validators reuse lives here.
+ * upgrade on open), and what the v3/v4 validators reuse is here.
  *
  * Pure and total: same input → same result, never throws, never reads files.
  */

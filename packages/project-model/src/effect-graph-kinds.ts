@@ -155,7 +155,7 @@ const FADE_GRADIENT = [0, 1, 1, 1, 1, 1, 1, 1, 1, 0];
 
 const CONTEXT_NODES: readonly GraphNodeDef[] = [
   contextNode('spawn', 'Spawn', 'How many particles are born each step: the sum of its blocks (rates, bursts, distance, events).'),
-  contextNode('initialize', 'Initialize', 'Runs once for each new particle, in chain order: where it starts, how it moves, how long it lives, how it looks.'),
+  contextNode('initialize', 'Initialize', 'Runs once for each new particle, in chain order: where it starts, how it moves, how long it lasts, how it looks.'),
   contextNode('update', 'Update', 'Runs every step for each living particle, in chain order: forces, then the position moves, then collisions and kills.'),
   contextNode('output', 'Output', 'How the particles are drawn: every renderer on the chain draws them (in chain order).'),
 ];
@@ -217,7 +217,7 @@ const INIT_NODES: readonly GraphNodeDef[] = [
     num('speedMin', 'Speed min', 1, 0, SPEED),
     num('speedMax', 'Speed max', 2, 0, SPEED),
   ]),
-  block('initialize', 'init.lifetime', 'Lifetime', 'Initialize', 'How long the particle lives: random between min and max seconds.', [
+  block('initialize', 'init.lifetime', 'Lifetime', 'Initialize', 'How long the particle lasts: random between min and max seconds.', [
     /** 1 s: short enough to recycle, long enough to read. */
     num('min', 'Min (s)', 1, 0.001, 3600),
     num('max', 'Max (s)', 1, 0.001, 3600),

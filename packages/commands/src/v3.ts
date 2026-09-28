@@ -153,19 +153,6 @@ export const SURFACE_PRESET_NAMES: readonly SurfacePresetName[] = [
 ];
 
 /**
- * Phase 24.8: the presets renamed in phase 24.7 (old name → new). Project
- * files never stored a preset name (a preset is copied as surface values), so
- * there is nothing to upgrade on load; a command naming an old one is refused
- * with the new name.
- */
-export const RENAMED_SURFACE_PRESETS: Readonly<Record<string, SurfacePresetName>> = Object.freeze({ beacon: 'emissive-accent', hazard: 'signal-red' });
-
-/** The refusal's hint for an old preset name ('' for any other value). */
-export function renamedPresetHint(preset: unknown): string {
-  return typeof preset === 'string' && Object.prototype.hasOwnProperty.call(RENAMED_SURFACE_PRESETS, preset) ? ` ("${preset}" was renamed "${RENAMED_SURFACE_PRESETS[preset]}" in phase 24)` : '';
-}
-
-/**
  * Map one project-model error into the command-layer error shape, keeping the
  * §5.2 key order (`code`, `cls`, code-specific fields, `message`).
  */

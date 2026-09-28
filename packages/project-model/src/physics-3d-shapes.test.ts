@@ -4,7 +4,7 @@
  * rules that follow the project's physics dimension: 3D shapes only in a 3D
  * project, a mesh never on a mover, no one-way collider in 3D, a 3D
  * collider's positive (uniform for round shapes) scale, the 2D plane's unit
- * scale kept exactly, and the 2D-plane blocks (switch, pickup, enemy)
+ * scale kept exactly, and the 2D-plane switch block
  * refused in 3D.
  */
 import { describe, expect, it } from 'vitest';

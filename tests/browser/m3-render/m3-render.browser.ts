@@ -11,8 +11,8 @@
  * scene with an authored key/fill light and surface boxes, and records the
  * B11 named checklist (Gate K: "same preset id → same colour/roughness
  * values and the same visible key-light direction/hazard contrast"; phase 24
- * renamed the presets `hazard` → `signal-red`, `beacon` → `emissive-accent`,
- * the fixture still records them under the old ids) — the
+ * renamed two presets `signal-red` and `emissive-accent`; the fixture still
+ * records them under their pre-phase-24 ids, compared row by row in order) — the
  * authored values, the derived parameters via the pure §41.1.3/§41.2 math,
  * the realized diagnostics, real screenshots at two canvas sizes, a
  * synthetic context-loss/recovery cycle, and repeated create/dispose.
@@ -239,10 +239,10 @@ async function main(): Promise<void> {
       }
     : null;
   evidence.checklist.presetRows = {
-    // The fixture rows carry the pre-phase-24 ids (hazard → signal-red, beacon → emissive-accent).
-    adapter: { 'matte-ground': SURFACE_PRESETS['matte-ground'], hazard: RED, beacon: ACCENT },
+    // The fixture rows carry the pre-phase-24 ids: compared by position (ground, red, accent).
+    adapter: { 'matte-ground': SURFACE_PRESETS['matte-ground'], 'signal-red': RED, 'emissive-accent': ACCENT },
     fixture: fixture?.presets ?? null,
-    match: fixture ? eq(fixture.presets, { 'matte-ground': SURFACE_PRESETS['matte-ground'], hazard: RED, beacon: ACCENT }) : false,
+    match: fixture ? eq(Object.values(fixture.presets), [SURFACE_PRESETS['matte-ground'], RED, ACCENT]) : false,
   };
   evidence.checklist.shadowConstants = {
     adapter: { mapSize: SHADOW_PROFILE.mapSize, type: SHADOW_PROFILE.type, near: SHADOW_PROFILE.near, distance: SHADOW_PROFILE.distance, margin: SHADOW_PROFILE.margin, halfExtentMax: SHADOW_PROFILE.halfExtentMax, farMax: SHADOW_PROFILE.farMax },

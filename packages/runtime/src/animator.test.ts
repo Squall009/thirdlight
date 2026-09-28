@@ -87,8 +87,8 @@ describe('animator state machine', () => {
   });
 
   it('ignores unknown parameters and wrong types; clamps ints', () => {
-    const m = new AnimatorMachine(controller({ parameters: [...controller().parameters, { name: 'lives', type: 'int', default: 3 }] }), { lives: 2.7, nope: 1 });
-    expect(m.get('lives')).toBe(2);
+    const m = new AnimatorMachine(controller({ parameters: [...controller().parameters, { name: 'count', type: 'int', default: 3 }] }), { count: 2.7, nope: 1 });
+    expect(m.get('count')).toBe(2);
     expect(m.set('speed', true)).toBe(false);
     expect(m.set('grounded', 1)).toBe(false);
     expect(m.set('missing', 1)).toBe(false);

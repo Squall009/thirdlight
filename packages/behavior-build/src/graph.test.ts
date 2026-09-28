@@ -25,7 +25,7 @@ describe('generateGraphSource', () => {
     const g = graph(
       [
         { id: 'start', type: 'event.start', position: [0, 0] },
-        { id: 'add', type: 'api.game.add', position: [200, 0], data: { name: 'coins' } },
+        { id: 'add', type: 'api.game.add', position: [200, 0], data: { name: 'items' } },
         { id: 'get', type: 'var.get', position: [0, 100], data: { variable: 'amount' } },
         { id: 'secret', type: 'var.boolean', position: [0, -100], data: { name: 'armed', visibility: 'private', default: true, group: 'Rules', tooltip: 'Starts armed' } },
       ],
@@ -100,8 +100,8 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
       { id: 'or', type: 'logic.or', position: [300, 700] },
       { id: 'not', type: 'logic.not', position: [300, 750] },
       { id: 'log', type: 'debug.log', position: [800, 200], data: { level: 'warn' } },
-      { id: 'gadd', type: 'api.game.add', position: [800, 300], data: { name: 'score' } },
-      { id: 'gget', type: 'api.game.counter', position: [300, 800], data: { name: 'score' } },
+      { id: 'gadd', type: 'api.game.add', position: [800, 300], data: { name: 'points' } },
+      { id: 'gget', type: 'api.game.counter', position: [300, 800], data: { name: 'points' } },
       { id: 'emit', type: 'api.signals.emit', position: [1000, 0], data: { name: 'ping' } },
       { id: 'on', type: 'api.signals.on', position: [300, 850], data: { name: 'ping' } },
     ];
@@ -179,7 +179,7 @@ describe('phase 19.1: a script at the node budget', () => {
       // Long ids and three API kinds with outputs: about the most code a node makes.
       const id = `node-${String(i).padStart(4, '0')}-abcdefghijklmnop`;
       const type = i % 3 === 0 ? 'api.game.add' : i % 3 === 1 ? 'api.audio.play' : 'api.physics.raycast';
-      nodes.push({ id, type, position: [i * 10, 0], data: type === 'api.game.add' ? { name: 'coins' } : type === 'api.audio.play' ? { assetId: 'sound-1' } : {} });
+      nodes.push({ id, type, position: [i * 10, 0], data: type === 'api.game.add' ? { name: 'items' } : type === 'api.audio.play' ? { assetId: 'sound-1' } : {} });
       edges.push([prev, 'then', id, 'in']);
       prev = id;
     }

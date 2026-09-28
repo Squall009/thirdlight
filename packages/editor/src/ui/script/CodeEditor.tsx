@@ -4,7 +4,7 @@
  * completion, inline diagnostics (squiggles + gutter markers) and Ctrl+S.
  *
  * One `EditorView` per mounted component; each file keeps its own
- * `EditorState` (text, selection, undo history) while the component lives,
+ * `EditorState` (text, selection, undo history) while the component exists,
  * so switching files in the list does not lose a file's undo steps.
  *
  * Browser-only (React + DOM).

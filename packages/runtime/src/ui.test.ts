@@ -161,8 +161,8 @@ const HZ = 120;
 const DT = 1 / HZ;
 const at = (x: number, y: number, z = 0): { position: number[]; rotation: number[]; scale: number[] } => ({ position: [x, y, z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 
-/** A shop-like script: counts coins, publishes them, shows the HUD at the start and opens the menu on "open"; "buy" spends. */
-function shopStep(state: { coins: number; log: string[] }, ctx: BehaviorContext): void {
+/** A shop-like script: counts credits, publishes them, shows the HUD at the start and opens the menu on "open"; "buy" spends. */
+function shopStep(state: { credits: number; log: string[] }, ctx: BehaviorContext): void {
   const ui = ctx.ui!;
   if (ctx.phase !== 'intent') {
     // The events are the intent phase's (a script that runs in both phases sees them once).
@@ -170,12 +170,12 @@ function shopStep(state: { coins: number; log: string[] }, ctx: BehaviorContext)
     return;
   }
   if (ctx.stepIndex === 13) ui.show('hud');
-  if (ctx.stepIndex % 30 === 0) state.coins += 1;
+  if (ctx.stepIndex % 30 === 0) state.credits += 1;
   for (const e of ui.events()) {
-    if (e.kind === 'click' && e.name === 'buy' && state.coins >= Number(e.value ?? 1)) state.coins -= Number(e.value ?? 1);
+    if (e.kind === 'click' && e.name === 'buy' && state.credits >= Number(e.value ?? 1)) state.credits -= Number(e.value ?? 1);
     state.log.push(`${ctx.stepIndex}:${e.kind}:${e.doc}:${e.name}:${ui.isShown('menu')}`);
   }
-  ui.set('hud.coins', state.coins);
+  ui.set('hud.credits', state.credits);
   ui.set('hud.step', ctx.stepIndex);
   const clicked = ui.event('buy');
   if (clicked !== null) ui.play('hud', 'pop');
@@ -195,7 +195,7 @@ function makeRuntime(frames: readonly ActionFrame[] | null, logs: string[][]): {
       namespace: {
         default: {
           instantiate: () => {
-            const s = { coins: 0, log: [] as string[] };
+            const s = { credits: 0, log: [] as string[] };
             logs.push(s.log);
             return s;
           },
@@ -259,9 +259,9 @@ describe('ctx.ui in the runtime', () => {
     tick(20);
     const first = rt.takeUiOutput!()!;
     expect(first.shown).toEqual([{ doc: 'hud', layer: 0, modal: false }]);
-    expect(rt.uiView!().model).toMatchObject({ hud: { coins: expect.any(Number), step: expect.any(Number) } });
-    tick(100); // coins accrue
-    const before = (rt.uiView!().model as { hud: { coins: number } }).hud.coins;
+    expect(rt.uiView!().model).toMatchObject({ hud: { credits: expect.any(Number), step: expect.any(Number) } });
+    tick(100); // credits accrue
+    const before = (rt.uiView!().model as { hud: { credits: number } }).hud.credits;
     expect(before).toBeGreaterThan(2);
     const at0 = stepOf(rt);
     expect(rt.queueUiEvent!({ kind: 'show', doc: 'menu', widget: 'open', name: '' }).ok).toBe(true);
@@ -277,7 +277,7 @@ describe('ctx.ui in the runtime', () => {
     const out = rt.takeUiOutput!()!;
     expect(out.shown?.map((s) => s.doc)).toEqual(['hud', 'menu']);
     expect(out.commands).toEqual([{ op: 'play', doc: 'hud', tween: 'pop', widget: '' }]);
-    expect((rt.uiView!().model as { hud: { coins: number } }).hud.coins).toBe(before - 2);
+    expect((rt.uiView!().model as { hud: { credits: number } }).hud.credits).toBe(before - 2);
     rt.dispose();
   });
 

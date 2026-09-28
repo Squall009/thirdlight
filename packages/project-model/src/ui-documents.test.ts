@@ -20,7 +20,7 @@ const doc = (over: Partial<UiDocument> = {}): UiDocument => ({
     stretch: 'both',
     children: [
       { id: 'hp', type: 'bar', anchor: [0, 0], offset: [16, 16], size: [200, 16], value: { bind: 'player.hp' }, max: { bind: 'player.max' }, fillColor: '#40c040' },
-      { id: 'label', type: 'text', text: '[b]Score[/b] {score} [icon=star]', style: 'panel' },
+      { id: 'label', type: 'text', text: '[b]Items[/b] {items} [icon=star]', style: 'panel' },
       {
         id: 'menu',
         type: 'stack',
@@ -83,7 +83,7 @@ describe('UI documents: shape and limits', () => {
 });
 
 describe('UI documents: project references', () => {
-  const theme: UiTheme = { uiThemeId: 'base', name: 'Base', styles: { title: { font: 'font-a', fontSize: 24 } }, icons: { coin: { asset: 'tex-star', rect: [0, 0, 16, 16] } } };
+  const theme: UiTheme = { uiThemeId: 'base', name: 'Base', styles: { title: { font: 'font-a', fontSize: 24 } }, icons: { badge: { asset: 'tex-star', rect: [0, 0, 16, 16] } } };
   const kinds: Record<string, string> = { 'tex-star': 'texture', 'font-a': 'font' };
   const check = (content: Record<string, unknown>): ModelErrorV2[] => {
     const e: ModelErrorV2[] = [];
@@ -92,7 +92,7 @@ describe('UI documents: project references', () => {
   };
 
   it('resolves styles and icons through the theme, assets by kind, show/hide targets', () => {
-    const d = doc({ theme: 'base', root: { type: 'text', text: '[icon=coin]', style: ['title'] } });
+    const d = doc({ theme: 'base', root: { type: 'text', text: '[icon=badge]', style: ['title'] } });
     expect(validateUiTheme(theme, '', [])).not.toBeNull();
     expect(check({ uiDocuments: [d], uiThemes: [theme] })).toEqual([]);
     expect(check({ uiDocuments: [d], uiThemes: [] }).map((e) => e.path)).toContain('/uiDocuments/0/theme');

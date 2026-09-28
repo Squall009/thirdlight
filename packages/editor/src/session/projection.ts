@@ -86,7 +86,7 @@ export interface ProjectedEntity {
   modelAnimation?: ModelAnimationComponent;
   /** Phase 12 (c): the instance set (one model, many placements from a buffer). */
   instances?: { assetId: string; piece?: string; buffer: string; count: number };
-  /** Phase 12 (c): the scene the entity lives in (v4 projects; absent for older ones). */
+  /** Phase 12 (c): the scene the entity is in (v4 projects; absent for older ones). */
   sceneId?: string;
   /**
    * Phase 15.1: the entity's whole component bag as stored (a private copy,

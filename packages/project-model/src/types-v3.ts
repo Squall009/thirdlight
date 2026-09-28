@@ -470,8 +470,8 @@ export interface AuthoringEnvelopeV3 {
 
 /**
  * §23.3.5 the built-in surface presets, as frozen value rows. Phase 24.7: the
- * demo-named `hazard` and `beacon` became `signal-red` and `emissive-accent`
- * (24.8 upgrades the old names in stored data).
+ * two demo-named presets became `signal-red` and `emissive-accent` (a
+ * command naming an old one is refused with the new name).
  */
 export const SURFACE_PRESET_NAMES = ['matte-ground', 'signal-red', 'emissive-accent'] as const;
 export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];

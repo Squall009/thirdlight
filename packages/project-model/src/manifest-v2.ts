@@ -30,7 +30,7 @@
  * prefabs, behaviors, settings, behaviorTrust}` order and the manifest in `MANIFEST_KEYS_V2` order
  * (`buildId` last). A `null` block hashes its own four canonical bytes (`null`).
  *
- * This module lives in the zero-dependency `project-model` leaf (the single
+ * This module is in the zero-dependency `project-model` leaf (the single
  * pure owner of the manifest derivation, C36-2); it reuses the M2 canonical
  * helpers and the `./sha256` digest primitives.
  */

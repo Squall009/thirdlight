@@ -188,7 +188,7 @@ const CANCELLED = Symbol('physics-init-cancelled');
 /**
  * Phase 22.3: the Rapier module's WebAssembly memory, noted when the library
  * instantiates it (its only allocation arena: every world, body and collider
- * lives there). The library does not expose it, so the first init watches
+ * is there). The library does not expose it, so the first init watches
  * `WebAssembly.instantiate` for the instance it creates and restores the
  * function right after.
  */

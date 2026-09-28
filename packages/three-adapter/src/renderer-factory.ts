@@ -393,7 +393,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
   let releaseTextureListeners: (() => void) | null = null;
   let loseOnDispose = o.loseContextOnDispose === true;
 
-  /** The WebGL 2 context's lose extension (taken while the context lives; the handle decides when to use it). */
+  /** The WebGL 2 context's lose extension (taken while the context exists; the handle decides when to use it). */
   let loseExt: LoseContextLike | null = null;
 
   const destroyDevice = (device: GpuDeviceLike | null, after: unknown): void => {

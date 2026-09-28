@@ -113,17 +113,17 @@ describe('phase 23.11: the socket system', () => {
       [
         { id: 'tt', t: [10, 0, 0], r: qy(90), s: [2, 2, 2], kinds: ['transform', 'model'] },
         { id: 'holder', t: [0, 1, 0] },
-        { id: 'gem', parentId: 'holder', t: [5, 5, 5] },
+        { id: 'item', parentId: 'holder', t: [5, 5, 5] },
       ],
       poses,
     );
     const sys = new SocketSystem({ 'model-a': RIG }, w.host);
-    sys.add([entity('tt', MODEL), entity('holder', {}), entity('gem', { socketAttach: { target: 'tt', node: 'hand', position: [0, 0.25, 0] } }, 'holder')]);
-    expect(sys.list()).toEqual([{ entityId: 'gem', target: 'tt', node: 'hand' }]);
+    sys.add([entity('tt', MODEL), entity('holder', {}), entity('item', { socketAttach: { target: 'tt', node: 'hand', position: [0, 0.25, 0] } }, 'holder')]);
+    expect(sys.list()).toEqual([{ entityId: 'item', target: 'tt', node: 'hand' }]);
     sys.resolve();
     // node (model space) at clip time 2: [2, 0.5, 0.5]; offset +0.25 y → [2, 0.75, 0.5]; ×2, turned 90° about y
     // ([x, y, z] → [z, y, −x]), + [10, 0, 0] → [11, 1.5, −4]; relative to the holder (+1 y) → [11, 0.5, −4].
-    const g = w.curr.get('gem')!;
+    const g = w.curr.get('item')!;
     expect(g.position[0]).toBeCloseTo(11, 12);
     expect(g.position[1]).toBeCloseTo(0.5, 12);
     expect(g.position[2]).toBeCloseTo(-4, 12);
@@ -143,24 +143,24 @@ describe('phase 23.11: the socket system', () => {
   });
 
   it('detaches keeping the world pose or snapping back, and re-attaches authored sockets on reset', () => {
-    const w = world([{ id: 'tt', kinds: ['transform', 'model'] }, { id: 'gem', t: [7, 8, 9] }]);
+    const w = world([{ id: 'tt', kinds: ['transform', 'model'] }, { id: 'item', t: [7, 8, 9] }]);
     const sys = new SocketSystem({ 'model-a': RIG }, w.host);
-    sys.add([entity('tt', MODEL), entity('gem', { socketAttach: { target: 'tt', node: 'hand' } })]);
+    sys.add([entity('tt', MODEL), entity('item', { socketAttach: { target: 'tt', node: 'hand' } })]);
     sys.resolve();
-    const g = w.curr.get('gem')!;
+    const g = w.curr.get('item')!;
     expect(g.position).toEqual([0, 0.5, 0.5]);
     // Snap back: to the transform it had when it was attached.
-    expect(sys.detach('gem', false)).toBe(true);
+    expect(sys.detach('item', false)).toBe(true);
     expect(g.position).toEqual([7, 8, 9]);
     expect(sys.active).toBe(false);
     // Keep the world pose: it stays where the node left it.
-    expect(sys.attach('gem')).toBe(true);
+    expect(sys.attach('item')).toBe(true);
     sys.resolve();
-    expect(sys.detach('gem')).toBe(true);
-    expect(sys.detach('gem')).toBe(false);
+    expect(sys.detach('item')).toBe(true);
+    expect(sys.detach('item')).toBe(false);
     expect(g.position).toEqual([0, 0.5, 0.5]);
     sys.reset();
-    expect(sys.attachedTo('gem')).toEqual({ entityId: 'gem', target: 'tt', node: 'hand' });
+    expect(sys.attachedTo('item')).toEqual({ entityId: 'item', target: 'tt', node: 'hand' });
   });
 
   it('refuses unknown nodes, loops, physics bodies and a target without a rig, with a warning', () => {

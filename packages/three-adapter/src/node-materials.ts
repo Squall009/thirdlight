@@ -115,7 +115,7 @@ export function withoutAmbientLight(material: THREE.Material): void {
 
 /**
  * `material.clone()` keeping the instance's own hooks: `Material.clone()`
- * drops them (the no-ambient hook lives there).
+ * drops them (the no-ambient hook is there).
  */
 export function cloneMaterial<T extends THREE.Material>(material: T): T {
   const c = material.clone() as T;

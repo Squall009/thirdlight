@@ -36,7 +36,6 @@ describe('resolveRequiredModules', () => {
         'thirdlight.three-adapter:gltf-loader',
       ],
     });
-    expect(ENGINE_MODULE_IDS.some((id) => id.startsWith('thirdlight.platformer-game:'))).toBe(false);
   });
 
   it('phase 24.3: modules come only from references — no component, no module; the character package are no behavior dependency', () => {

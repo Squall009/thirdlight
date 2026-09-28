@@ -1604,7 +1604,7 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
   map('glyphs', 'Glyphs', 'Glyph key → an image shown instead of the engine\'s generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space).', 'Glyph', asset('*', 'Image', 'The texture shown for this glyph.', ['texture']), { maxEntries: MAX_INPUT_GLYPHS }),
 ], { default: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as DescriptorJson, rules: ['Action names are unique.'] });
 
-/** One shader parameter, as a descriptor field (the schema lives in `MATERIAL_PARAMS`). */
+/** One shader parameter, as a descriptor field (the schema is in `MATERIAL_PARAMS`). */
 function paramField(key: string, t: MaterialParamType, shader: string): FieldDescriptor {
   const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()).replace(/\bao\b/i, 'AO');
   const w = when('../shader', shader);
@@ -1826,7 +1826,7 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   {
     key: 'cellFields',
     label: 'Cell fields',
-    tooltip: 'The project\'s cell metadata schema (walkable, hazard, move cost, terrain…): what every block-layer cell can carry.',
+    tooltip: 'The project\'s cell metadata schema (walkable, slippery, move cost, terrain…): what every block-layer cell can carry.',
     required: false,
     value: list('cellFields', 'Cell fields', `Up to ${BLOCK_LIMITS.cellFields} fields.`, obj('*', 'Cell field', 'One metadata field.', [
       str('key', 'Key', 'The field name scripts read (an identifier).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),

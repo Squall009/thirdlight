@@ -63,7 +63,7 @@ describe('a visual-script behavior', () => {
     const r = ok(s0, 'graphEdit', {
       owner,
       ops: [
-        { op: 'addNodes', nodes: [{ id: 'add', type: 'api.game.add', position: [240, 0], data: { name: 'coins' } }] },
+        { op: 'addNodes', nodes: [{ id: 'add', type: 'api.game.add', position: [240, 0], data: { name: 'items' } }] },
         { op: 'connect', edges: [{ id: 'w1', from: { node: 'start', port: 'then' }, to: { node: 'add', port: 'in' } }] },
       ],
     });

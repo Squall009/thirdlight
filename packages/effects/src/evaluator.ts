@@ -245,7 +245,7 @@ export class EffectInstance {
   time = 0;
   /** Steps since the effect (re)started. */
   stepIndex = 0;
-  /** Spawning on (stop() ends it; living particles finish their lives). */
+  /** Spawning on (stop() ends it; living particles finish their lifetimes). */
   playing = true;
   private origin: EffectOrigin = IDENTITY_ORIGIN;
   private worldTime = 0;
@@ -285,7 +285,7 @@ export class EffectInstance {
   play(): void {
     this.playing = true;
   }
-  /** Stops spawning; living particles finish their lives. */
+  /** Stops spawning; living particles finish their lifetimes. */
   stop(): void {
     this.playing = false;
   }

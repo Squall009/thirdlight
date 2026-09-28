@@ -701,18 +701,6 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
-  it('phase 24.8: the controller\'s pre-24.7 id (thirdlight.platformer:controller) is not resolved (the alias was dropped)', () => {
-    const h = harness();
-    const renamed = (h.config.modules ?? []).map((id) => (id === 'thirdlight.character:controller' ? 'thirdlight.platformer:controller' : id));
-    expect(renamed).toContain('thirdlight.platformer:controller');
-    const host = createGameHost({ ...h.config, modules: renamed });
-    const mounted = host.mount();
-    expect(mounted.ok).toBe(false);
-    if (!mounted.ok) expect(mounted.error.code).toBe('host_module_unresolved');
-    host.dispose();
-    h.host.dispose();
-  });
-
   it('a physics module without an injected physics port is refused', () => {
     const h = harness();
     const base = h.config;

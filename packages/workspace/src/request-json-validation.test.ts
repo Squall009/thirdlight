@@ -35,7 +35,7 @@
  *                              disk; a healthy sibling stays usable.
  *
  * Ported to storage v4 (phase 9.3 step B): a createEntity edits only the
- * scene, so its retry record lives in `scenes/scene-main.json` (store-v4.ts
+ * scene, so its retry record is in `scenes/scene-main.json` (store-v4.ts
  * `changedFiles`); the R11 "nothing written" oracle covers the scene file
  * AND content.json, and the R12/R13 corruptions are applied to the record in
  * the scene file (loadV4 validates each file's retry block).

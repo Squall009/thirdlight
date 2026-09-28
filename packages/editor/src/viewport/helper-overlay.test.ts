@@ -70,7 +70,7 @@ describe('helper overlay gameplay helpers', () => {
     overlay.sync([
       entity('lift', { mover: { waypoints: [[0, 3, 0], [4, 3, 0]], speed: 1, mode: 'loop' } }),
       entity('plate', { switch: { mode: 'stand', signal: 'open', size: [1, 1] } }),
-      entity('gem', { collectible: { size: [0.5, 0.5] } }),
+      entity('item', { collectible: { size: [0.5, 0.5] } }),
       entity('blade', { hitbox: { shape: 'box', size: [1, 0.2] } }),
       entity('walker', { patrol: { mode: 'edges', speed: 1, size: [0.8, 0.8] } }),
     ]);

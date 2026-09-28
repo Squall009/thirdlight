@@ -937,7 +937,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           // flight — the old buffer is discarded and never played; a fresh
           // decode for the SAME asset is re-armed so a legitimate cue of the
           // new run can still sound (the cue is an asset reference; run
-          // identity lives on the event, which submit re-checks).
+          // identity is on the event, which submit re-checks).
           diag('stale_work_discarded', assetId, 'decode resolved after a run change; discarded, decode re-armed for the current run');
           assets.set(assetId, { state: 'pending', bytes: cur.bytes, token: cur.token });
           startDecode(assetId);

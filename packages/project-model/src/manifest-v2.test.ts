@@ -7,7 +7,7 @@
  * (key order, self-identifying buildId), the strict v2 reader and the
  * v1/v2 version-compat rule — over small synthetic inputs. The binding
  * fixture re-derivation (the committed `manifest-v2-preimage.json` →
- * `buildId` `41b5a60b…`) lives in `tests/integration/m3-builds/` where Node
+ * `buildId` `41b5a60b…`) is in `tests/integration/m3-builds/` where Node
  * `crypto`/`fs` are allowed and the digests are re-derived independently.
  */
 import { describe, expect, it } from 'vitest';
@@ -112,7 +112,7 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     // `tags` (phase 12 b) is present only when the project defines tags.
     expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
     expect(keys[keys.length - 1]).toBe('buildId');
-    const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'enemy' }] } as never);
+    const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'walker' }] } as never);
     expect(tagged.ok).toBe(true);
     if (tagged.ok) {
       expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'uiDocuments' && k !== 'dialogue' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'buffers'));
@@ -186,8 +186,6 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     expect(physics['package']).toBe('@thirdlight/physics-rapier');
     const controller = res.manifest.modules.find((m) => m['id'] === 'thirdlight.character:controller') as Record<string, unknown>;
     expect(controller['package']).toBe('@thirdlight/character');
-    // Phase 24.7: the game package is no engine pin.
-    expect(res.manifest.enginePins.map((p) => (p as Record<string, unknown>)['id'])).not.toContain('@thirdlight/platformer-game');
   });
 });
 

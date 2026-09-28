@@ -40,7 +40,7 @@ function save(s: DockSizes): void {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(s));
   } catch {
-    // no storage: the layout lives for this page only
+    // no storage: the layout lasts for this page only
   }
 }
 

@@ -10,7 +10,7 @@
  * - the generic primitives (phase 24.4: health, collectibles, patrols,
  *   hitboxes) run in `primitives.ts`.
  *
- * Phase 24.7: the pickups, enemies, hazard damage and the
+ * Phase 24.7: the removed game components, their damage and the
  * session player's health, knockback and bounce were deleted; the blocks test
  * the character (the controller's object) in both dimensions.
  *
@@ -729,7 +729,7 @@ export class GameplayBlocks {
    * (patrols walk; collectibles and hitbox contacts test the character),
    * face-movement models turn, and the triggers (and, on the 2D plane, the
    * switches) test the character. Phase 24.7: one path with or without a
-   * game mode; the deleted session's pickups, enemies and damage are gone.
+   * game mode; the deleted session's game components and damage are gone.
    */
   afterPhysics(frame: ActionFrame): void {
     this.primitives.afterPhysics(true);

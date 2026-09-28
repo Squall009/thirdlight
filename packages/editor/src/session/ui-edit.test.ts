@@ -115,7 +115,7 @@ describe('widget paths and the tree', () => {
 
   it('names stay unique and in the id syntax', () => {
     expect(uniqueName('text', new Set(['text', 'text2']))).toBe('text3');
-    expect(uniqueName('9 lives!', new Set())).toBe('lives');
+    expect(uniqueName('9 items!', new Set())).toBe('items');
     expect(uniqueDocId('Main HUD', ['main-hud'], 'ui')).toBe('main-hud-2');
     expect(uniqueDocId('!!!', [], 'ui')).toBe('ui');
     const w = newWidget('bar', new Set(['bar']), null);

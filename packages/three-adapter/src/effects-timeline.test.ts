@@ -27,7 +27,7 @@ function graph(chains: Partial<Record<'spawn' | 'initialize' | 'update' | 'outpu
   }
   return { nodes, edges } as never;
 }
-/** 40 per second, 1.5 s lives, random positions in a sphere and random velocities (so determinism is not trivial). */
+/** 40 per second, 1.5 s lifetimes, random positions in a sphere and random velocities (so determinism is not trivial). */
 const STREAM: EffectDefLike = {
   effectId: 'stream',
   name: 'Stream',

@@ -29,7 +29,7 @@ import {
   settingUnknown,
 } from './errors';
 import { CAMERA_PATH_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
-import { renamedPresetHint, SURFACE_PRESET_NAMES } from './v3';
+import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
   ApplySurfacePresetArgs,
@@ -79,7 +79,7 @@ export function validatePublishAssetArgs(
   }
   // §3.1.1/§23.3.7: `kind` is required on create for a v3 state and optional
   // on reimport (where it must equal the record's kind). The state-aware
-  // requirement lives in the op — the accepted v2 fixtures create model
+  // requirement is in the op — the accepted v2 fixtures create model
   // records without it (handoff 45 CC-45-4).
   if (args['kind'] !== undefined && args['kind'] !== 'model' && args['kind'] !== 'audio' && args['kind'] !== 'texture' && args['kind'] !== 'music' && args['kind'] !== 'font') {
     return {
@@ -269,7 +269,7 @@ export function validateApplySurfacePresetArgs(
         '/args/preset',
         preset,
         '"matte-ground", "signal-red" or "emissive-accent"',
-        `preset must be one of the three built-in surface presets${renamedPresetHint(preset)}`,
+        `preset must be one of the three built-in surface presets`,
       ),
     };
   }

@@ -90,7 +90,7 @@
       "bytes": 47,
       "note": "opaque placeholder bytes; not a GLB and not an import-profile claim"
     },
-    "envelope/valid/demo-0003-beacon-min-v3.json": {
+    "envelope/valid/demo-0003-min-v3.json": {
       "sha256": "16d1e82322d38cca3d6559b58c82e0050e195ceaae890b3e864a5bd78d32f4ff",
       "bytes": 5668,
       "kind": "v3-envelope-valid"
@@ -275,8 +275,8 @@
       "kind": "command"
     },
     "commands/failures.json": {
-      "sha256": "3475ee40adf5b3451080f4dff67d847f7ce2c10fb727314dc76309b35f1d8ae8",
-      "bytes": 4772,
+      "sha256": "d6447ecf0f30447dc0da14b4aecf4f62dc6b5f30ea54d0309f40324304a5bb46",
+      "bytes": 4765,
       "kind": "command"
     }
   }

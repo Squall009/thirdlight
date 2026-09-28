@@ -489,7 +489,7 @@ class GraphCode {
   execName(n: GraphNode, port: string): string {
     return port === 'in' ? this.name(n) : `${this.name(n)}_${port}`;
   }
-  /** Where a variable lives: this frame (a local) or the instance state. */
+  /** Where a variable is kept: this frame (a local) or the instance state. */
   varRef(name: string): string {
     return `${this.locals.has(name) ? 'f' : 's'}.v[${q(name)}]`;
   }

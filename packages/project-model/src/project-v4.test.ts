@@ -80,7 +80,7 @@ describe('content v4', () => {
   });
 
   it('phase 24: refuses a game block and a flow key, naming the removal', () => {
-    const game = { configVersion: 2, title: 'T', objective: 'O', instructions: 'I', playerId: 'p', cameraId: 'c', spawnId: 's', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } };
+    const game = { configVersion: 2, title: 'T', objective: 'O', instructions: 'I', playerId: 'p', cameraId: 'c', spawnId: 's', cues: { start: null, jump: null } };
     const withGame = validateContentV4(content({ game }));
     expect(withGame.ok).toBe(false);
     if (!withGame.ok) {

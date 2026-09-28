@@ -46,7 +46,7 @@ export const API_TYPINGS_PATH = 'behavior-api.d.ts';
 /** Idle pause before a draft is compiled (long enough not to compile mid-word). */
 export const CHECK_IDLE_MS = 700;
 
-/** A behavior's unpublished edits (kept by the app while the session lives). */
+/** A behavior's unpublished edits (kept by the app while the session exists). */
 export interface ScriptDraft {
   container: ScriptContainer;
   /** The published source digest the draft started from (`null`: none yet). */

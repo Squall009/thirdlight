@@ -12,7 +12,7 @@
  * self-identifying digest (sessions.md §17.1.1), never an engine-independent
  * binary hash.
  *
- * This module lives in the zero-dependency `project-model` leaf because the
+ * This module is in the zero-dependency `project-model` leaf because the
  * canonical JSON text and the SHA-256 helpers (`./sha256`) already live here
  * (dependencies.md §3 lists `captureManifest` on the project-model row). The
  * contract's duplicate constants on the `protocol` row (`RUNTIME_CONTENT_TYPE`,

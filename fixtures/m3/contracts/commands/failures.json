@@ -105,7 +105,7 @@
     },
     {
       "id": "F8",
-      "state": "envelope/valid/demo-0003-beacon-min-v3.json",
+      "state": "envelope/valid/demo-0003-min-v3.json",
       "expectedRevision": 3,
       "op": "setComponent",
       "args": {

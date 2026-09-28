@@ -1248,7 +1248,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
 
 /**
  * Phase 12 rules over a structurally valid scene: a folder sits at the root
- * or in another folder; the camera and every checkpoint's safe spawn are
+ * or in another folder; the camera and the spawns the scene relies on are
  * active (an inactive entity is not in the game).
  */
 function checkFolderHierarchy(scene: SceneV3, errors: ModelErrorV3[]): void {
@@ -1331,7 +1331,7 @@ export function normalizeSceneV3(doc: unknown): ModelResultV3<SceneV3> {
 /**
  * Phase 12 (c): a runtime scene made of several v4 scenes loaded together
  * (the start set, merged by the host): the v4 rules without the per-scene
- * limits (one checkpoint, zone/spawn/collider counts, the entity cap).
+ * limits (spawn/collider counts, the entity cap).
  */
 export function validateMergedSceneV4(doc: unknown): ModelResultV3<SceneV4> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);

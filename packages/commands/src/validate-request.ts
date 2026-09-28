@@ -50,7 +50,7 @@ import {
   jsonType,
   limitsExceeded,
 } from './errors';
-import { renamedPresetHint, SURFACE_PRESET_NAMES } from './v3';
+import { SURFACE_PRESET_NAMES } from './v3';
 import { validatePasteArgs } from './paste-ops';
 import {
   validateAcknowledgeBehaviorTrustArgs,
@@ -844,7 +844,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     if (typeof preset !== 'string' || !(SURFACE_PRESET_NAMES as readonly string[]).includes(preset)) {
       return {
         ok: false,
-        error: fieldValue('/args/surfacePreset', preset, '"matte-ground", "signal-red" or "emissive-accent"', `surfacePreset must be one of the three built-in presets${renamedPresetHint(preset)}`),
+        error: fieldValue('/args/surfacePreset', preset, '"matte-ground", "signal-red" or "emissive-accent"', `surfacePreset must be one of the three built-in presets`),
       };
     }
     if (out.components !== undefined && out.components['surface'] !== undefined) {

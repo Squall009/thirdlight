@@ -12,7 +12,15 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { checkWorkspace, extractSpecifiers, UNITS, NODE_SIDE_ALLOWED } from './check-boundaries.mjs';
+import {
+  checkWorkspace,
+  checkVocabulary,
+  extractSpecifiers,
+  vocabularyHits,
+  UNITS,
+  NODE_SIDE_ALLOWED,
+  VOCABULARY_ALLOWLIST,
+} from './check-boundaries.mjs';
 
 const roots = [];
 afterEach(() => {
@@ -967,5 +975,62 @@ describe('specifier extraction (the three normative forms)', () => {
       "const r = require('old-style');\n" +
       "const s = 'use import from carefully';\n";
     expect(extractSpecifiers(src)).toEqual([]);
+  });
+});
+describe('check 2 — genre vocabulary in package sources (phase 24.9)', () => {
+  it('fails a package source file with a genre word, tests inside src included, naming file and line', () => {
+    const root = makeRoot();
+    addPkg(root, 'runtime', {
+      files: {
+        'src/index.ts': 'export const ok = true;\n',
+        'src/count.test.ts': "// neutral line\nconst name = 'Coins';\n",
+      },
+    });
+    const r = checkVocabulary(root, []);
+    expect(r.violations).toEqual([
+      expect.objectContaining({ file: 'packages/runtime/src/count.test.ts', line: 2, rule: 'genre-vocabulary' }),
+    ]);
+  });
+
+  it('splits identifiers, so camelCase and snake_case names cannot hide a word', () => {
+    expect(vocabularyHits('let bestScore = 0; const enemy_count = 1; type LevelComplete = 1;').map((h) => h.word.toLowerCase()))
+      .toEqual(['score', 'enemy', 'level complete']);
+  });
+
+  it('matches whole words only (a particle lifetime, a goalpost-free scoreboard are not hits)', () => {
+    expect(vocabularyHits('particle lifetime; scoreboard; beaconing; livestock; the item stays on')).toEqual([]);
+    expect(vocabularyHits('the Sprout project; a PLATFORMER; stomped').length).toBe(3);
+  });
+
+  it('allows a reviewed allowlist row and fails a stale one', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { files: { 'src/index.ts': "export const OLD = { coin: 'coins' };\n" } });
+    const row = { file: 'packages/project-model/src/index.ts', pattern: /^coins?$/i, reason: 'test' };
+    const stale = { file: 'packages/project-model/src/other.ts', pattern: /^gem$/i, reason: 'test' };
+    writeFileSync(join(root, stale.file), 'export const two = 2;\n');
+    expect(checkVocabulary(root, [row]).violations).toEqual([]);
+    expect(checkVocabulary(root, [row, stale]).violations).toEqual([
+      expect.objectContaining({ file: stale.file, rule: 'genre-vocabulary-stale-allowlist' }),
+    ]);
+  });
+
+  it('the CLI (npm run build) exits non-zero on a hit', () => {
+    const root = makeRoot();
+    addPkg(root, 'runtime', { files: { 'src/index.ts': '/** a checkpoint */\nexport const ok = true;\n' } });
+    const out = runBoundaryCLI(root);
+    expect(out.status).not.toBe(0);
+    expect(out.stderr).toContain('[genre-vocabulary]');
+    expect(out.stderr).toContain('packages/runtime/src/index.ts:1');
+  });
+
+  it('the repository passes with a short allowlist', () => {
+    const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
+    const r = checkVocabulary(repo);
+    expect(r.violations).toEqual([]);
+    expect(VOCABULARY_ALLOWLIST.length).toBeLessThanOrEqual(5);
+    for (const row of VOCABULARY_ALLOWLIST) {
+      expect(row.reason.length).toBeGreaterThan(10);
+      expect(readFileSync(join(repo, row.file), 'utf8').length).toBeGreaterThan(0);
+    }
   });
 });

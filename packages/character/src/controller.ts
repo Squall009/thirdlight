@@ -1,6 +1,6 @@
 /**
  * The character controller module — `docs/contracts/runtime.md` §12
- * (promoted from `platformer.md` §2–§9; packet 32).
+ * (promoted from the controller contract §2–§9; packet 32).
  *
  * Pure fixed-step logic over the injected input/physics **ports**: the module
  * holds no reference to the concrete port, the DOM, the clock, the workspace
@@ -10,7 +10,7 @@
  * `transform` module runs (`runtime.md` §12.1.1 item 5), so this module never
  * writes a transform at all.
  *
- * Step algorithm: `platformer.md` §7 (normative exact order A–K) plus the
+ * Step algorithm: the controller contract §7 (normative exact order A–K) plus the
  * grounding classification of `physics.md` §8 items 1–4. Every window is an
  * integer-step counter; phase 15.3: the acceleration, deceleration, windows
  * and jump-release factor are the player's `controller` data (absent: the
@@ -94,7 +94,7 @@ export function controllerStepTuning(controller: unknown, fixedStepHz: number): 
 export const GROUND_NORMAL_TOLERANCE = 1e-6;
 
 /**
- * The controller's private per-step state (`platformer.md` §4). Created at
+ * The controller's private per-step state (the controller contract §4). Created at
  * `create()` from the authored transform; `coyote` starts at the full window
  * and `buffer` at 0 (the settle pre-roll then runs the normal phases).
  */
@@ -120,7 +120,7 @@ export interface ControllerState {
   slideSteps: number;
 }
 
-/** `platformer.md` §7 `approach(v, target, up, down)` — never overshoots. */
+/** the controller contract §7 `approach(v, target, up, down)` — never overshoots. */
 export function approach(v: number, target: number, up: number, down: number): number {
   if (Math.abs(target - v) <= 1e-9) return target;
   if (v < target) return Math.min(target, v + up);
@@ -128,7 +128,7 @@ export function approach(v: number, target: number, up: number, down: number): n
   return v;
 }
 
-/** Create the state at the authored character transform (`platformer.md` §4); the coyote window starts full. */
+/** Create the state at the authored character transform (the controller contract §4); the coyote window starts full. */
 export function createControllerState(charX: number, charY: number, coyoteSteps: number = CONTROLLER_CONSTANTS.coyoteSteps): ControllerState {
   return {
     vx: 0,
@@ -165,7 +165,7 @@ export function isGrounded(
  * Packet-32 slide policy (contract-change request C32-1; see the evidence
  * manifest).
  *
- * `platformer.md` §7's A–K algorithm contains no sliding rule, while
+ * the controller contract §7's A–K algorithm contains no sliding rule, while
  * `physics.md` §7/§8 declare `min_slope_slide_deg` (30°) as "the minimum
  * slope angle at which the character slides down the slope, if it is not
  * moving", and packet 31 recorded (C31-4) that the real 0.20.0 adapter does
@@ -215,12 +215,12 @@ export function slideDirection(
 }
 
 /**
- * One executed controller step (`platformer.md` §7, exact order). Reads the
+ * One executed controller step (the controller contract §7, exact order). Reads the
  * previous result from `state.prevResult` and stages exactly one character
  * move; the caller (the runtime) commits the port result afterwards.
  *
  * `dt` is `1 / fixedStepHz` captured at `create()` (the accepted `StepContext`
- * does not carry the step rate; `platformer.md` §7 defines `dt` as that
+ * does not carry the step rate; the controller contract §7 defines `dt` as that
  * value). `cosMaxSlopeClimb`/`cosMinSlopeSlide` are the resolved settings'
  * angles in radians-precomputed cosine form.
  */
@@ -352,7 +352,7 @@ export function findControllerEntity(snapshot: RuntimeSnapshot): string {
   return ids[0] as string;
 }
 
-/** Build a controller module instance (`platformer.md` §4/§12). */
+/** Build a controller module instance (the controller contract §4/§12). */
 export function createControllerModule(
   snapshot: RuntimeSnapshot,
   cfg: ModuleConfig,
@@ -440,7 +440,7 @@ export function createControllerModule(
 }
 
 /**
- * The registered controller module spec (`platformer.md` §2 inventory):
+ * The registered controller module spec (the controller contract §2 inventory):
  * phases `["controller", "transform"]`, the single `components.controller`
  * entity as its transform owner, mutually exclusive with the M1 demo module
  * and requiring the injected physics port.

@@ -1,7 +1,7 @@
 /**
  * Packet 32 — public-surface and module-boundary assertions for
- * `@thirdlight/character` (dependencies.md §3 `platformer` row and §4.1
- * `platformer → runtime (types)` edge).
+ * `@thirdlight/character` (dependencies.md §3 `character` row and §4.1
+ * `character → runtime (types)` edge).
  *
  * The package must expose exactly the three contracted names, its spec must
  * declare the contract's phases/owner/exclusion metadata, and the module must
@@ -30,7 +30,7 @@ const TRANSFORM = {
   transform: { position: [1, 0.91, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
 };
 
-describe('public exports (dependencies.md §3 platformer row)', () => {
+describe('public exports (dependencies.md §3 character row)', () => {
   it('exports exactly the contracted names', () => {
     expect(Object.keys(character).sort()).toEqual([
       'CHARACTER_MODULE_ID',
@@ -42,7 +42,7 @@ describe('public exports (dependencies.md §3 platformer row)', () => {
     expect(characterControllerSpec.id).toBe(CHARACTER_MODULE_ID);
   });
 
-  it('declares the platformer.md §2 module metadata', () => {
+  it('declares the the controller contract §2 module metadata', () => {
     expect(characterControllerSpec.phases).toEqual(['controller', 'transform']);
     expect(characterControllerSpec.excludes).toEqual(['thirdlight.demo:box-motion']);
     expect(characterControllerSpec.requiresPhysicsPort).toBe(true);

@@ -19,7 +19,7 @@ const TYPES: BlockType[] = [
 ];
 const FIELDS: CellField[] = [
   { key: 'walkable', type: 'bool' },
-  { key: 'hazard', type: 'bool' },
+  { key: 'wet', type: 'bool' },
   { key: 'cost', type: 'int', default: 1, min: 0, max: 9 },
 ];
 
@@ -55,13 +55,13 @@ describe('runtime grid (phase 23.5)', () => {
     grid.addLayers([layerEntity('ground', [10, 0, -4], floor)]);
     const api = grid.api;
     expect(api.layers()).toEqual(['ground']);
-    expect(api.get('ground', 3, 0, 3)).toEqual({ block: 'stone', rot: 0, variant: 0, meta: { walkable: false, hazard: false, cost: 1 } });
+    expect(api.get('ground', 3, 0, 3)).toEqual({ block: 'stone', rot: 0, variant: 0, meta: { walkable: false, wet: false, cost: 1 } });
     expect(api.get('ground', 3, 1, 3)).toBeNull();
     expect(api.columnTop('ground', 3, 3)).toBe(0);
     grid.beginStep(1);
-    expect(api.set('ground', 3, 1, 3, { block: 'grass', meta: { hazard: true } })).toBe(true);
+    expect(api.set('ground', 3, 1, 3, { block: 'grass', meta: { wet: true } })).toBe(true);
     expect(api.meta('ground', 3, 1, 3, 'walkable')).toBe(true);
-    expect(api.meta('ground', 3, 1, 3, 'hazard')).toBe(true);
+    expect(api.meta('ground', 3, 1, 3, 'wet')).toBe(true);
     expect(api.columnTop('ground', 3, 3)).toBe(1);
     // refused: unknown block, disallowed rotation, bad metadata, outside the bounds
     expect(api.set('ground', 4, 1, 4, { block: 'nope' })).toBe(false);

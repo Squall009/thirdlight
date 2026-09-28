@@ -1,6 +1,6 @@
 /**
  * Packet 32 — the controller's movement constants (`docs/contracts/runtime.md`
- * §12.1/§12.2, promoted from `platformer.md` §7/§12 and `physics.md` §7).
+ * §12.1/§12.2, promoted from the controller contract §7/§12 and `physics.md` §7).
  *
  * Phase 15.3: these are no longer contract constants but the **defaults** of
  * the player's `controller` tuning data (acceleration, deceleration,
@@ -17,7 +17,7 @@ export const CHARACTER_MODULE_ID = 'thirdlight.character:controller' as const;
 
 /**
  * The default of every tuning value the controller algorithm uses
- * (`platformer.md` §12; phase 15.3: overridden by the player's `controller`
+ * (the controller contract §12; phase 15.3: overridden by the player's `controller`
  * data). `autostep` is `false` by default: a side-view character climbs by jumping.
  * The capsule is not here: since phase 14.0 it is the player's data
  * (`controller.capsule`), handed to the physics port by the host.

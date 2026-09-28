@@ -26,7 +26,7 @@ export interface TemplateSource {
 }
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-/** Phase 24.7: the engine ships templates only (the Beacon Reach sample was deleted). */
+/** Phase 24.7: the engine ships templates only (no sample games). */
 const ROOTS = ['templates'];
 
 function templateDir(engineRoot: string, id: string): string | null {

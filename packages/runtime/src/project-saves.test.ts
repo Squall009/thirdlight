@@ -96,11 +96,11 @@ describe('phase 23.19: runtime project saves', () => {
   it('a v1 save is migrated to v2 on load by the registered function; sections and play time restored', () => {
     const port = fakePort();
     const r = new RuntimeSaves(SCHEMA, 60, port, undefined, () => undefined);
-    const file = { format: 'thirdlight.save', version: 1, playSeconds: 42, doc: { coins: 5 }, sections: { storage: { restored: true } } } as const;
+    const file = { format: 'thirdlight.save', version: 1, playSeconds: 42, doc: { items: 5 }, sections: { storage: { restored: true } } } as const;
     step(r, [{ kind: 'loaded', slot: 1, ok: true, save: file }], () => {
-      r.api.migration('v1to2', (doc, from) => ({ ...(doc as object), gold: (doc as { coins: number }).coins * 10, migratedFrom: from }));
+      r.api.migration('v1to2', (doc, from) => ({ ...(doc as object), gold: (doc as { items: number }).items * 10, migratedFrom: from }));
     });
-    expect(r.api.read()).toEqual({ coins: 5, gold: 50, migratedFrom: 1 });
+    expect(r.api.read()).toEqual({ items: 5, gold: 50, migratedFrom: 1 });
     expect(port.storage).toEqual({ restored: true });
     step(r, []);
     expect(r.api.playSeconds()).toBeCloseTo(42 + 1 / 60, 9);

@@ -55,7 +55,7 @@ export function rememberToken(token: string): void {
   try {
     window.localStorage.setItem(TOKEN_KEY, token);
   } catch {
-    // Storage unavailable: the token lives only in this page load.
+    // Storage unavailable: the token is only in this page load.
   }
 }
 

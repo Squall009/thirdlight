@@ -9,7 +9,7 @@
  * real keyboard/gamepad events to plain-data calls here and reads the
  * `MenuSample` out; the game host consumes `confirm`/`mute` and calls
  * `consumeConfirm()` when it consumes a press (the §4.2 fresh-release
- * state machine lives here so the owner can suppress the same physical
+ * state machine is here so the owner can suppress the same physical
  * press from also becoming a jump).
  *
  * Bindings (delivery.md §4.1, hard constants — no remapping):

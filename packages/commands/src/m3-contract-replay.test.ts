@@ -3,7 +3,7 @@
  * (`fixtures/m3/contracts/commands/**`) through the REAL engine.
  *
  * Phase 24.7: the packet-39 scenario was recorded against the character controller
- * layer that phase 24 removed (goal/hazard/checkpoint zones, the camera
+ * layer that phase 24 removed (its zones, the camera
  * follow, `setGameConfig`). Its recorded message stream (5 of 7 messages are
  * zone or game-block edits) and its byte-exact after-envelope can no longer be
  * replayed, so the scenario replay is gone. What remains are the recorded
@@ -83,8 +83,8 @@ interface FailureCase {
 /**
  * The recorded failure cases whose subject is generic. F1–F5 and F10–F12
  * exercise the removed game block and zones (`game_reference_in_use`, a
- * zone/spawn conflict, `setGameConfig`, a checkpoint edit); F7 names the
- * removed `hazard` surface preset.
+ * zone/spawn conflict, `setGameConfig`, a zone edit); F7 names a removed
+ * surface preset.
  */
 const GENERIC_FAILURES = ['F6', 'F8', 'F9'];
 

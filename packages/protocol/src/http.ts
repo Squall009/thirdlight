@@ -239,7 +239,7 @@ export interface AdminCreateProjectRequest {
   name: string;
   /** Optional template/sample id to create the project from. */
   template?: string;
-  /** Optional absolute server folder: the project lives there (marker + thirdlight/) instead of the data root. */
+  /** Optional absolute server folder: the project is there (marker + thirdlight/) instead of the data root. */
   folder?: string;
 }
 

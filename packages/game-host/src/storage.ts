@@ -1,7 +1,7 @@
 /**
  * The key/value storage a game keeps its player settings in — injected by
  * the wrapper (`localStorage` in the browser; a Map in tests), keyed by the
- * game's namespace (Play and an export use different ones). What lives there:
+ * game's namespace (Play and an export use different ones). What is kept there:
  * the player's changed input bindings per profile (the rebinding API), the
  * game shell's settings (volumes, quality) and a project's settings document.
  * Project save slots live elsewhere (IndexedDB, see `project-saves.ts`).

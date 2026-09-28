@@ -32,10 +32,10 @@ const DECL = { properties: [{ key: 'target', label: 'Target', type: 'entityRef',
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const at = (x: number, y: number, z = 0): { position: number[]; rotation: number[]; scale: number[] } => ({ position: [x, y, z], ...T });
 
-/** Neutral prefabs: a crate that blocks, a coin, a sliding block (mover), a two-part thing with a script whose property names its child. */
+/** Neutral prefabs: a crate that blocks, a token, a sliding block (mover), a two-part thing with a script whose property names its child. */
 const PREFABS = [
   { prefabId: 'crate', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0001', components: { transform: at(5, 5, -1), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } }] },
-  { prefabId: 'coin', displayName: 'Coin', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'coins', size: [0.6, 0.6] } } }] },
+  { prefabId: 'token', displayName: 'Token', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'tokens', size: [0.6, 0.6] } } }] },
   { prefabId: 'slider', displayName: 'Slider', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0003', components: { transform: at(0, 0), box: { size: [0.2, 0.2, 0.2], material: { color: '#ffffff' } }, mover: { waypoints: [[10, 0, 0]], speed: 30, mode: 'once' } } }] },
   {
     prefabId: 'pair',
@@ -247,18 +247,18 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(h.diag().state).toBe('running');
   });
 
-  it('destroy frees a spawned collider; a spawned coin is collected and counted; a spawned mover moves', () => {
+  it('destroy frees a spawned collider; a spawned token is collected and counted; a spawned mover moves', () => {
     let destroyed = false;
     const h = harness((ctx) => {
       if (ctx.stepIndex === 20) {
         ctx.spawn('crate', { position: [4, 0.5] });
-        ctx.spawn('coin', { position: [0, 0] }); // on the player (the recording port keeps it at 0, 0)
+        ctx.spawn('token', { position: [0, 0] }); // on the player (the recording port keeps it at 0, 0)
         ctx.spawn('slider', { position: [0, 3] });
       }
       if (ctx.stepIndex === 60 && !destroyed) destroyed = ctx.destroy('spawn-1');
     });
     h.tick(30);
-    expect(h.rt.gameCounters!().counters).toEqual({ coins: 1 });
+    expect(h.rt.gameCounters!().counters).toEqual({ tokens: 1 });
     expect(h.rt.hiddenEntities!().has('spawn-2')).toBe(true);
     const x = h.transforms().get('spawn-3')![0]!;
     expect(x).toBeGreaterThan(0.5);
@@ -288,7 +288,7 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     const h = harness((ctx) => {
       if (!burst) return;
       if (ctx.stepIndex >= 20 && ctx.stepIndex < 20 + 17) {
-        for (let i = 0; i < MAX_SPAWNS_PER_STEP + 1; i++) results.push(ctx.spawn('coin', { position: [50 + i, 50] }));
+        for (let i = 0; i < MAX_SPAWNS_PER_STEP + 1; i++) results.push(ctx.spawn('token', { position: [50 + i, 50] }));
       }
     });
     h.tick(40);

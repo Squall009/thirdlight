@@ -65,7 +65,7 @@ describe('publishing a visual script (HTTP)', () => {
     expect((refused.json['error'] as { diagnostics: { nodeId?: string }[] }).diagnostics[0]?.nodeId).toBe('add');
 
     // Fix it with a graph edit (the same command the editor and MCP send).
-    const edit = await command('graphEdit', { owner: { kind: 'behavior', id: 'counter' }, ops: [{ op: 'setNodeData', id: 'add', data: { name: 'coins' } }] });
+    const edit = await command('graphEdit', { owner: { kind: 'behavior', id: 'counter' }, ops: [{ op: 'setNodeData', id: 'add', data: { name: 'items' } }] });
     expect(edit.ok, JSON.stringify(edit)).toBe(true);
     const checked = await source({ check: true, graph: true, behaviorId: 'counter' });
     expect(checked.json).toMatchObject({ ok: true, compiled: true, sourceKind: 'graph', declaredInCode: true });
@@ -100,7 +100,7 @@ describe('publishing a visual script (HTTP)', () => {
     const container = JSON.parse((stored.json as { source: string }).source) as { files: { path: string; text: string }[] };
     const all = container.files.map((f) => f.text).join('\n');
     expect(container.files.find((f) => f.path === 'src/index.ts')!.text.startsWith('// Thirdlight visual script v1')).toBe(true);
-    expect(all).toContain('const a0 = "coins";');
+    expect(all).toContain('const a0 = "items";');
     expect(all).toContain('c.game?.add(a0, a1);');
 
     // A behavior without a graph cannot be published as one.
@@ -138,7 +138,7 @@ describe('phase 19.1: a script with a function and a shared function (HTTP)', ()
           nodes: [
             { id: 'call', type: 'fn.call', position: [200, 0], data: { function: 'double' } },
             { id: 'lib', type: 'fn.library', position: [400, 0], data: { function: 'triple' } },
-            { id: 'add', type: 'api.game.add', position: [600, 0], data: { name: 'score' } },
+            { id: 'add', type: 'api.game.add', position: [600, 0], data: { name: 'points' } },
           ],
         },
         {

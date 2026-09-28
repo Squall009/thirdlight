@@ -98,7 +98,7 @@ describe('block brush maths', () => {
     expect(strokeEdits(stroke('column', [[1, 0, 1]]), ctx({ invert: true }))).toEqual([{ kind: 'column', at: [1, 1], delta: -1 }]);
     expect(strokeEdits(stroke('replace', [[1, 0, 1]]), ctx({ brush: { ...DEFAULT_BRUSH, block: 'ramp' }, type: RAMP, target: { block: 'stone' } }))).toEqual([{ kind: 'replace', match: { block: 'stone' }, cell: { block: 'ramp' } }]);
     expect(strokeEdits(stroke('replace', [[1, 0, 1]]), ctx({ target: null }))).toBeNull();
-    expect(strokeEdits(stroke('meta', [[1, 0, 1], [2, 0, 1]]), ctx({ meta: { field: 'hazard', value: true, occupiedOnly: false, shape: 'cells' } }))).toEqual([{ kind: 'meta', set: { hazard: true }, at: [1, 0, 1, 2, 0, 1] }]);
+    expect(strokeEdits(stroke('meta', [[1, 0, 1], [2, 0, 1]]), ctx({ meta: { field: 'wet', value: true, occupiedOnly: false, shape: 'cells' } }))).toEqual([{ kind: 'meta', set: { wet: true }, at: [1, 0, 1, 2, 0, 1] }]);
     expect(strokeEdits(stroke('meta', [[1, 0, 1], [2, 0, 3]], false), ctx({ meta: { field: 'cost', value: null, occupiedOnly: true, shape: 'rect' } }))).toEqual([{ kind: 'meta', set: { cost: null }, box: [1, 0, 1, 3, 1, 4], occupiedOnly: true }]);
     expect(strokeEdits(stroke('region', [[0, 0, 0], [1, 0, 1]], false), ctx({ region: 'zone.a', invert: true }))).toEqual([{ kind: 'region', regionId: 'zone.a', op: 'remove', boxes: [[0, 0, 0, 2, 1, 2]] }]);
     expect(strokeEdits(stroke('stamp', [[4, 1, 4]]), ctx({ stamp: { stampId: 'hut', rot: 90, mirror: 'x' } }))).toEqual([{ kind: 'stamp', stampId: 'hut', at: [4, 1, 4], rot: 90, mirror: 'x' }]);
@@ -166,11 +166,11 @@ describe('block brush maths', () => {
 });
 
 describe('metadata overlay colours', () => {
-  const hazard = { key: 'hazard', type: 'bool' as const, color: '#FF0000' };
+  const wet = { key: 'wet', type: 'bool' as const, color: '#FF0000' };
   const terrain = { key: 'terrain', type: 'enum' as const, values: ['grass', 'sand', 'water'] };
   const cost = { key: 'cost', type: 'int' as const, default: 1, min: 0, max: 9, color: '#0000ff' };
   it('colours from the schema, generated palettes for enums', () => {
-    expect(fieldColor(hazard)).toBe('#ff0000');
+    expect(fieldColor(wet)).toBe('#ff0000');
     expect(fieldColor({ key: 'x' })).toMatch(/^#[0-9a-f]{6}$/);
     expect(fieldColor({ key: 'x' })).toBe(fieldColor({ key: 'x' }));
     const c = enumColors(terrain);
@@ -178,21 +178,21 @@ describe('metadata overlay colours', () => {
     expect(new Set(Object.values(c)).size).toBe(3);
   });
   it('draws true bools, every enum value, numbers off their default, set strings', () => {
-    expect(overlayColor(hazard, true)).toBe('#ff0000');
-    expect(overlayColor(hazard, false)).toBeNull();
+    expect(overlayColor(wet, true)).toBe('#ff0000');
+    expect(overlayColor(wet, false)).toBeNull();
     expect(overlayColor(terrain, 'sand')).toBe(enumColors(terrain)['sand']);
     expect(overlayColor(cost, 1)).toBeNull();
     expect(overlayColor(cost, 9)).not.toBeNull();
     expect(overlayColor(cost, 9)).not.toBe(overlayColor(cost, 2));
     expect(overlayColor({ key: 's', type: 'string' }, '')).toBeNull();
     expect(overlayColor({ key: 's', type: 'string' }, 'door')).not.toBeNull();
-    expect(overlayColor(hazard, true, false)).toBeNull();
+    expect(overlayColor(wet, true, false)).toBeNull();
   });
   it('lists a legend for the shown fields and parses typed values', () => {
-    const legend = overlayLegend([hazard, terrain, cost], new Set(['terrain', 'hazard']));
-    expect(legend.map((l) => l.key)).toEqual(['hazard', 'terrain']);
+    const legend = overlayLegend([wet, terrain, cost], new Set(['terrain', 'wet']));
+    expect(legend.map((l) => l.key)).toEqual(['wet', 'terrain']);
     expect(legend[1]!.entries.map((e) => e.label)).toEqual(['grass', 'sand', 'water']);
-    expect(parseMetaValue(hazard, 'true')).toEqual({ ok: true, value: true });
+    expect(parseMetaValue(wet, 'true')).toEqual({ ok: true, value: true });
     expect(parseMetaValue(cost, '4')).toEqual({ ok: true, value: 4 });
     expect(parseMetaValue(cost, '4.5').ok).toBe(false);
     expect(parseMetaValue(cost, '12').ok).toBe(false);

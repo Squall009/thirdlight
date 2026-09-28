@@ -206,7 +206,7 @@ const entityOptionCache = new WeakMap<ProjectedEntity, { id: string; name: strin
 
 function EditorApp(): JSX.Element {
   const cfg = useRef(readEditorConfig());
-  /** Phase 17.1: the Scene view's canvas lives in this host (the Viewport replaces it on a renderer backend change). */
+  /** Phase 17.1: the Scene view's canvas is in this host (the Viewport replaces it on a renderer backend change). */
   const viewportHostRef = useRef<HTMLDivElement | null>(null);
   /** Phase 17.1: the page's ?renderer= flag (it overrides the project setting everywhere, Play included). */
   const urlRenderer = useRef(rendererPreferenceFromUrl(pageSearch()));

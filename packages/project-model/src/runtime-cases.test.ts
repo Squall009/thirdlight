@@ -1,6 +1,6 @@
 /**
  * Runtime (non-JSON) validation cases — the packet-05 non-finite cases
- * (contract §12.7; the M1 case list lives on in
+ * (contract §12.7; the M1 case list is kept in
  * archive/removed-v1-v2/fixtures-project-model/runtime/non-finite-cases.md).
  * JSON has no literal NaN/±Infinity tokens, so R1–R4 are exercised IN MEMORY
  * by building the document value directly and passing it to the validator.

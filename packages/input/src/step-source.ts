@@ -3,7 +3,7 @@
  * "separate injectable step-input source"; input.md §6's replay model
  * expressed over *raw* snapshots rather than pre-built frames).
  *
- * The engine-level frame-level replay source lives in `@thirdlight/runtime`
+ * The engine-level frame-level replay source is in `@thirdlight/runtime`
  * (`createRecordedActionSource`). This source is its raw-input counterpart:
  * it threads the exact same pure mapping state across the supplied steps, so
  * a recorded `(stepIndex, RawInputSnapshot)` sequence replays byte-identically

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { canonicalPrefabs, validatePrefabDefinitions } from './content';
 import type { ModelErrorV2 } from './errors';
+import { REMOVED_COMPONENTS } from './upgrade-v24';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const def = (components: Record<string, unknown>, extra: Record<string, unknown>[] = [], prefabId = 'thing') => ({
@@ -30,7 +31,7 @@ describe('v4 prefab components (phase 14.1)', () => {
   it('accepts gameplay components in v4 and refuses them in v3', () => {
     const good = [
       def({ collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true } }),
-      def({ collectible: { counter: 'coins', amount: 1 } }),
+      def({ collectible: { counter: 'items', amount: 1 } }),
       def({ patrol: { mode: 'edges', speed: 1, size: [1, 1] }, hitbox: { size: [1, 1], damage: 1 }, health: { max: 1 } }),
       def({ mover: { waypoints: [[4, 0, 0]], speed: 2, mode: 'once' } }),
       def({ trigger: { size: [2, 2], signal: 'hit' } }),
@@ -43,25 +44,23 @@ describe('v4 prefab components (phase 14.1)', () => {
   it('keeps the scene rules: scene-only components, a parented collider, a patrol with a collider, bad values', () => {
     expect(codes([def({ controller: {} })])).toContain('component_unknown');
     // Phase 24: the removed game components are unknown in a prefab too.
-    expect(codes([def({ gameZone: { role: 'hazard', size: [1, 1] } })])).toContain('component_unknown');
-    expect(codes([def({ pickup: { kind: 'coin', value: 1 } })])).toContain('component_unknown');
-    expect(codes([def({ enemy: { patrol: 'edges', speed: 1, size: [1, 1], contactDamage: 1, stompable: true, health: 1 } })])).toContain('component_unknown');
+    for (const name of Object.keys(REMOVED_COMPONENTS)) expect(codes([def({ [name]: { size: [1, 1] } })]), name).toContain('component_unknown');
     expect(codes([def({ camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } })])).toContain('prefab_component_forbidden');
     const child = { localId: 'box-0002', parentLocalId: 'box-0001', components: { transform: T, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } };
     expect(codes([def({}, [child])])).toContain('physics_transform_unsupported');
     expect(codes([def({ collider: { shape: { type: 'box', hx: 1, hy: 1 } }, patrol: { mode: 'edges', speed: 1, size: [1, 1] } })])).toContain('component_conflict');
-    expect(errorsOf([def({ collectible: { counter: '9 coins' } })]).length).toBeGreaterThan(0);
+    expect(errorsOf([def({ collectible: { counter: '9 items' } })]).length).toBeGreaterThan(0);
     expect(codes([def({ animator: { controller: 'anim' } })])).toContain('component_missing'); // an animator needs a model
     expect(codes([def({}), def({})])).toContain('id_duplicate');
   });
 
   it('the canonical form keeps every gameplay field', () => {
-    const d = def({ collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true }, collectible: { counter: 'coins', amount: 2, size: [0.5, 0.5] }, surface: { color: '#FF0000' } });
+    const d = def({ collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true }, collectible: { counter: 'items', amount: 2, size: [0.5, 0.5] }, surface: { color: '#FF0000' } });
     expect(errorsOf([d])).toEqual([]);
     const [c] = canonicalPrefabs([d as never]);
     const comps = c!.entities[0]!.components as unknown as Record<string, unknown>;
     expect(comps['collider']).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true });
-    expect(comps['collectible']).toMatchObject({ counter: 'coins', amount: 2, size: [0.5, 0.5] });
+    expect(comps['collectible']).toMatchObject({ counter: 'items', amount: 2, size: [0.5, 0.5] });
     expect((comps['surface'] as { color: string }).color).toBe('#ff0000');
   });
 });

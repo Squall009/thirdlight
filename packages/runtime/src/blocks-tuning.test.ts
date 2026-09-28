@@ -1,7 +1,7 @@
 /**
  * Phase 15.3: the gameplay blocks read their tuning from the components, each
  * absent field at the value every project played with before
- * (`BLOCK_DEFAULTS`). Phase 24.7: the health, enemy and pickup tuning went with
+ * (`BLOCK_DEFAULTS`). Phase 24.7: the removed game components' tuning went with
  * the genre layer; the mover push tuning stays.
  */
 import { describe, expect, it } from 'vitest';

@@ -35,7 +35,7 @@ const TYPES: BlockType[] = [
 ];
 const FIELDS: CellField[] = [
   { key: 'walkable', type: 'bool' },
-  { key: 'hazard', type: 'bool', color: '#ff0000' },
+  { key: 'wet', type: 'bool', color: '#ff0000' },
   { key: 'cost', type: 'int', default: 1, min: 0, max: 9 },
   { key: 'terrain', type: 'enum', values: ['soil', 'rock'] },
 ];
@@ -116,7 +116,7 @@ describe('block layers: data rules', () => {
       const data = g.toData('layer-1', null, g.takeDirty().chunks);
       return errs((e) => composeBlockLayers(data === null ? [] : [data], entities, content, e));
     };
-    expect(check([{ kind: 'cells', at: [1, 0, 1], cell: { block: 'stone', meta: { hazard: true, cost: 3 } } }])).toEqual([]);
+    expect(check([{ kind: 'cells', at: [1, 0, 1], cell: { block: 'stone', meta: { wet: true, cost: 3 } } }])).toEqual([]);
     expect(check([{ kind: 'cells', at: [1, 0, 1], cell: { block: 'nope' } }])[0]?.code).toBe('reference_missing');
     expect(check([{ kind: 'cells', at: [1, 0, 1], cell: { meta: { cost: 'x' } } }])[0]?.code).toBe('field_value');
     expect(check([{ kind: 'cells', at: [1, 0, 1], cell: { meta: { unknown: 1 } } }])[0]?.code).toBe('reference_missing');
@@ -149,8 +149,8 @@ describe('block layers: the grid and bulk edits', () => {
     // a 3 × 1 × 2 array: stone, stone, (-1 keeps), slab, slab, slab
     edit(g, { kind: 'array', origin: [0, 0, 0], size: [3, 1, 2], palette: [{ block: 'stone' }, { block: 'slab' }], data: [2, 0, 1, -1, 3, 1] });
     expect([g.get(0, 0, 0)?.block, g.get(1, 0, 0)?.block, g.get(2, 0, 0), g.get(0, 0, 1)?.block]).toEqual(['stone', 'stone', null, 'slab']);
-    edit(g, { kind: 'meta', at: [0, 0, 0], set: { hazard: true } }, { kind: 'replace', match: { block: 'stone' }, cell: { block: 'grass' } });
-    expect(g.get(0, 0, 0)).toEqual({ block: 'grass', meta: { hazard: true } });
+    edit(g, { kind: 'meta', at: [0, 0, 0], set: { wet: true } }, { kind: 'replace', match: { block: 'stone' }, cell: { block: 'grass' } });
+    expect(g.get(0, 0, 0)).toEqual({ block: 'grass', meta: { wet: true } });
     // painting an empty cell makes a metadata-only cell; null removes a field
     edit(g, { kind: 'meta', box: [5, 0, 5, 7, 1, 6], set: { walkable: false } });
     expect(g.get(6, 0, 5)).toEqual({ meta: { walkable: false } });
@@ -205,8 +205,8 @@ describe('block layers: the grid and bulk edits', () => {
   });
 
   it('effective metadata: schema defaults, then block defaults, then the cell', () => {
-    expect(effectiveCellMeta({ block: 'grass', meta: { cost: 4 } }, typeMap, FIELDS)).toEqual({ walkable: true, hazard: false, cost: 4, terrain: 'soil' });
-    expect(effectiveCellMeta(null, typeMap, FIELDS)).toEqual({ walkable: false, hazard: false, cost: 1, terrain: 'soil' });
+    expect(effectiveCellMeta({ block: 'grass', meta: { cost: 4 } }, typeMap, FIELDS)).toEqual({ walkable: true, wet: false, cost: 4, terrain: 'soil' });
+    expect(effectiveCellMeta(null, typeMap, FIELDS)).toEqual({ walkable: false, wet: false, cost: 1, terrain: 'soil' });
   });
 
   it('the variant choice is stable and weighted', () => {

@@ -79,7 +79,7 @@ export interface EffectComponent {
   params?: Record<string, number | number[] | string>;
   /** Phase 20.2: (re)starts the effect when this signal is emitted (a switch, trigger or script sends it). */
   signal?: string;
-  /** Phase 20.2: stops spawning when this signal is emitted (living particles finish their lives). */
+  /** Phase 20.2: stops spawning when this signal is emitted (living particles finish their lifetimes). */
   stopSignal?: string;
 }
 

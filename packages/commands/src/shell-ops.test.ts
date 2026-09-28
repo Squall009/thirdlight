@@ -40,7 +40,7 @@ describe('setShell', () => {
     s = ok(s, 'setUiDocument', { document: doc('title') }).state;
     s = ok(s, 'setUiDocument', { document: doc('hud') }).state;
     // The shape: an unknown screen, a bad field.
-    expect(refused(s, 'setShell', { shell: { screens: { levelComplete: 'title' } } }).code).toBe('field_unexpected');
+    expect(refused(s, 'setShell', { shell: { screens: { gallery: 'title' } } }).code).toBe('field_unexpected');
     expect(refused(s, 'setShell', { shell: { pause: 'yes' } }).code).toBe('field_type');
     expect(refused(s, 'setShell', { shell: 'title' }).code).toBe('field_type');
     const spawn = ok(s, 'createEntity', { parentId: null, kind: 'group', name: 'Start', transform: { position: [0, 1, 0] }, components: { playerSpawn: {} } });

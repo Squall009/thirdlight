@@ -24,7 +24,7 @@ collects it.
 | R3 | **Diagnostics** (`shadows`/`shadowReason`): shadow-on scene ⇒ `shadows: "on"` (the real first-render probe passed and the shadow map was allocated at 512²/PCFShadowMap); shadow-off-by-author scene ⇒ `off` / `cast_shadow_false` | `checklist.diagnosticsShadowOn/Off` |
 | R4 | **Synthetic context loss/recovery** (the accepted packet-26 behavior): the host fires the real `webglcontextlost`/`webglcontextrestored` canvas events; `renderFrame` must report `render_context_lost` while lost and resume after restoration; nothing is disposed on loss | `contextLoss` |
 | R5 | **Repeated create/dispose** (five cycles): idempotent disposal, diagnostics coherent after dispose | `repeatedDispose` |
-| R6 | **Material independence (value-level, §41.2.3)**: entity A edited from `hazard` to `beacon` in a second realization — only A's committed values change; B keeps its own `matte-ground` row (the adapter realizes the committed `surface` values literally; the per-placement material instance is by construction) | `materialIndependence` |
+| R6 | **Material independence (value-level, §41.2.3)**: entity A edited from the red preset to the accent preset in a second realization — only A's committed values change; B keeps its own `matte-ground` row (the adapter realizes the committed `surface` values literally; the per-placement material instance is by construction) | `materialIndependence` |
 
 The **unsupported-shadows fallback** (probe failure ⇒ `off` /
 `shadow_unsupported`) is a soft-degradation path that cannot be forced in a

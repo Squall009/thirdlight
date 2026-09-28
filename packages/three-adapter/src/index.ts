@@ -7,7 +7,7 @@
  * token/URL/fetch; GLTFLoader/AnimationClip preview helpers").
  *
  * The root subpath stays loader-free: the real `three/examples/jsm` GLTFLoader
- * binding lives on the `./gltf-loader` subpath (packet-26 contract-change
+ * binding is on the `./gltf-loader` subpath (packet-26 contract-change
  * request C26-1) so the M1 export/preview bundle graphs keep their recorded
  * `export.md` §5.4.1 counts until packets 35/36 re-measure them.
  *

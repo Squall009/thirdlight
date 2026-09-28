@@ -5,7 +5,7 @@
  * the scene is not enough:
  *
  * - A render object (the object × material × pass: its pipeline, bindings,
- *   uniform buffers) lives in the renderer's `RenderObjects` set until the
+ *   uniform buffers) is in the renderer's `RenderObjects` set until the
  *   object, its material or its geometry fires `dispose`. Disposing the
  *   geometry only clears an attribute cache, so an object whose material
  *   outlives it (project materials, shared box materials, shared model
@@ -45,7 +45,7 @@ interface RenderObjectLike {
 
 const live = new Set<unknown>();
 
-/** Register a renderer while it lives (the factory does; tests may too). Returns its release. */
+/** Register a renderer while it exists (the factory does; tests may too). Returns its release. */
 export function trackRenderer(renderer: unknown): () => void {
   live.add(renderer);
   return () => {

@@ -49,6 +49,9 @@
  * test files unchanged, and a production file importing `vitest` fails
  * (`forbidden-external`). Tests are NOT exempt from boundary checking.
  *
+ * Check 2 (phase 24.9, `checkVocabulary`): no genre vocabulary in
+ * every `packages/<name>/src/` file (the words and the reviewed allowlist are below).
+ *
  * Plain Node using the already-pinned TypeScript compiler API; no new
  * dependency. Any violation ⇒ non-zero exit, `file:line: [rule] message`.
  *
@@ -67,7 +70,7 @@
  * commented-out assignments). These checks are not a hostile-code sandbox.
  */
 
-import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -997,11 +1000,139 @@ export function checkWorkspace(root) {
   };
 }
 
+// --- Check 2: genre vocabulary (phase 24.9) ------------------------------------
+//
+// The engine holds capabilities only; game rules live in game repos
+// (docs/roadmap.md principle 1b, docs/plan-phase-24.md). Every text file under
+// `packages/*/src/**` (tests inside src included) is scanned for the words of
+// the deleted platformer layer. Matching is case-insensitive on whole words;
+// identifiers are split first (`bestScore` → `best Score`, `enemy_count` →
+// `enemy count`), so a camelCase or snake_case name cannot hide a word.
+
+/** The genre words (one alternation; `\b` on both sides after identifier splitting). */
+export const GENRE_VOCABULARY =
+  /\b(coins?|gems?|lives|stomp(?:s|ed|ing|able)?|enem(?:y|ies)|boars?|checkpoints?|goals?|hazards?|scores?|level[- ]complete|platformers?|sprout|beacons?)\b/gi;
+
+/**
+ * The reviewed allowlist: a hit is allowed when its file is `file` and the
+ * matched word matches `pattern`. Keep it short; every row names why the use
+ * is not a game rule. A row that matches nothing fails (it is stale).
+ */
+export const VOCABULARY_ALLOWLIST = Object.freeze([
+  {
+    file: 'packages/project-model/src/upgrade-v24.ts',
+    pattern: /^(coins?|gems?|lives|stomp|enemy|hazard|checkpoint|goal|score)$/i,
+    reason: 'the schemaVersion 2 → 3 upgrade must name the removed components, pickup kinds and counters it converts or refuses',
+  },
+  {
+    file: 'packages/project-model/src/upgrade-v24.test.ts',
+    pattern: /^(coins?|gems?|lives|enemy|enemies|goal)$/i,
+    reason: 'tests of that upgrade: old pickup kinds, the counters they become, the refused enemy component',
+  },
+  {
+    file: 'packages/backend/src/format-upgrade.test.ts',
+    pattern: /^(coins?|enemy)$/i,
+    reason: 'the upgrade over HTTP: an old coin pickup becomes a counter, an old enemy component is refused by name',
+  },
+]);
+
+const VOCABULARY_TEXT_FILE = /\.(?:ts|tsx|mts|cts|js|mjs|cjs|css|json|html|md|txt|glsl|wgsl)$/i;
+
+/** Split identifiers into words without moving line breaks (camelCase, snake_case, digits). */
+export function splitIdentifiers(src) {
+  return src
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+    .replace(/_/g, ' ');
+}
+
+/** Vocabulary hits of one file's text: [{ line, word }]. */
+export function vocabularyHits(src) {
+  const text = splitIdentifiers(src);
+  const hits = [];
+  GENRE_VOCABULARY.lastIndex = 0;
+  let m;
+  while ((m = GENRE_VOCABULARY.exec(text)) !== null) {
+    let line = 1;
+    for (let i = 0; i < m.index; i++) if (text.charCodeAt(i) === 10) line++;
+    hits.push({ line, word: m[1] });
+  }
+  return hits;
+}
+
+/**
+ * Check 2: genre vocabulary in `packages/*\/src/**`. Returns
+ * `{ filesScanned, hits, allowed, violations }` (violations as check 1's).
+ */
+export function checkVocabulary(root, allowlist = VOCABULARY_ALLOWLIST) {
+  const violations = [];
+  const used = new Set();
+  let filesScanned = 0;
+  let hitCount = 0;
+  let allowed = 0;
+  const pkgRoot = join(root, 'packages');
+  let pkgDirs = [];
+  try {
+    pkgDirs = readdirSync(pkgRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch {
+    pkgDirs = [];
+  }
+  for (const name of pkgDirs) {
+    const files = [];
+    const walk = (dir) => {
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (e.name === 'node_modules') continue;
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (VOCABULARY_TEXT_FILE.test(e.name)) files.push(p);
+      }
+    };
+    walk(join(pkgRoot, name, 'src'));
+    for (const file of files.sort()) {
+      filesScanned++;
+      const rel = relative(root, file).split('\\').join('/');
+      for (const hit of vocabularyHits(readFileSync(file, 'utf8'))) {
+        hitCount++;
+        const row = allowlist.findIndex((a) => a.file === rel && a.pattern.test(hit.word));
+        if (row >= 0) {
+          allowed++;
+          used.add(row);
+          continue;
+        }
+        violations.push({
+          file: rel,
+          line: hit.line,
+          rule: 'genre-vocabulary',
+          message: `'${hit.word}' — genre vocabulary in engine source: game rules live in game repos ` +
+            '(docs/plan-phase-24.md 24.9; a generic use needs a reviewed VOCABULARY_ALLOWLIST row)',
+        });
+      }
+    }
+  }
+  // A row whose file exists but matches nothing is stale (rows for files that
+  // are not there are skipped, so fixture workspaces can run the CLI; the
+  // tool's own test checks that every row's file exists in the repository).
+  allowlist.forEach((a, i) => {
+    if (!used.has(i) && existsSync(join(root, a.file))) {
+      violations.push({ file: a.file, line: 0, rule: 'genre-vocabulary-stale-allowlist', message: `allowlist row ${a.pattern} matches nothing: remove it` });
+    }
+  });
+  return { filesScanned, hits: hitCount, allowed, violations };
+}
+
 // --- CLI ---------------------------------------------------------------------
 
 function main() {
   const root = process.cwd();
   const result = checkWorkspace(root);
+  const vocabulary = checkVocabulary(root);
+  result.violations.push(...vocabulary.violations);
   if (result.violations.length > 0) {
     console.error(
       `check-boundaries: FAIL — ${result.violations.length} violation(s):`,
@@ -1023,6 +1154,10 @@ function main() {
         'no boundary violations.',
     );
   }
+  console.log(
+    `check-boundaries: OK — genre vocabulary: ${vocabulary.filesScanned} package source file(s), ` +
+      `${vocabulary.allowed} allowlisted use(s) in ${VOCABULARY_ALLOWLIST.length} reviewed row(s), no other hits.`,
+  );
 }
 
 // CLI guard — realpath-based, so it also works when the tool is invoked

@@ -10,7 +10,7 @@
  *   plate (`stand`) that emits a signal.
  * - `health`: an object's health (phase 24.4b: any object; `ctx.health`).
  *
- * Phase 24.7: the pickup and enemy components and the session
+ * Phase 24.7: the removed game components and the session
  * player's grace time, knockback and hit bounce were deleted (collectible,
  * patrol and hitbox are the generic primitives below).
  */
@@ -300,7 +300,7 @@ export const canonicalAudioSource = (c: AudioSourceComponent): AudioSourceCompon
 
 /**
  * Phase 9.13: a model that turns to face where its parent is going (the
- * player's model, a boar under its enemy): yaw (degrees about +Y) when the
+ * player's model, a creature's model under its patroller): yaw (degrees about +Y) when the
  * parent moves right or left, reached over `turnSeconds`.
  */
 export interface FaceMovementComponent {

@@ -289,7 +289,7 @@ const FLOW_NODES: readonly GraphNodeDef[] = [
 
 // ---- variables ----------------------------------------------------------------------------
 
-/** Where a variable lives: public/private = a per-object property (Inspector / hidden), local = one event run or one function call. */
+/** Where a variable is kept: public/private = a per-object property (Inspector / hidden), local = one event run or one function call. */
 export const VARIABLE_VISIBILITY = ['public', 'private', 'local'] as const;
 
 /** A variable's declaration node (one type per kind). In a function every variable is local to one call. */

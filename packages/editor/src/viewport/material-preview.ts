@@ -131,7 +131,7 @@ export class MaterialPreview {
     this.undo = null;
     if (this.shapeObject !== null) {
       this.holder.remove(this.shapeObject);
-      // Phase 21.5: the primitive's render objects (it wore the library's material, which lives on).
+      // Phase 21.5: the primitive's render objects (it wore the library's material, which stays).
       if (this.ownedGeometry !== null) disposeObjectTree(this.shapeObject);
     }
     this.ownedGeometry?.dispose();

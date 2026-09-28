@@ -9,7 +9,7 @@
  *
  * Normative behaviors this module makes testable in Node:
  *
- *  - the **committed catalog** lives only in `ContentProjection` and is updated
+ *  - the **committed catalog** is only in `ContentProjection` and is updated
  *    only by an applied `publishAsset` change. A failed upload, a failed
  *    inspect, a stale/late job or a cancelled flow therefore leaves the
  *    previous committed content and the projection untouched;

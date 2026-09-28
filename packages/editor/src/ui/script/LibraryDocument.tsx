@@ -27,7 +27,7 @@ import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
 import { API_TYPINGS_PATH, CHECK_IDLE_MS } from './ScriptDocument';
 
-/** A library's unsaved edits (kept by the app while the session lives). */
+/** A library's unsaved edits (kept by the app while the session exists). */
 export interface LibraryDraft {
   files: ScriptFile[];
   /** The stored files' text the draft started from (to tell a newer stored version). */
