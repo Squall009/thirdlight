@@ -109,16 +109,18 @@ import { answerScreenshot } from './screenshot-answer';
 
 /**
  * Phase 22.0: the simulation worker's script on the preview origin (a static
- * file next to the decoders, built from `./sim-worker.ts`).
+ * file next to the decoders, built from `./sim-worker.ts`). Phase 25.24c: in
+ * the play build (`buildRoot`, a digest-keyed URL the browser caches) when
+ * the page names one.
  */
-const PREVIEW_SIM_WORKER_PATH = '/sim-worker.js';
+const PREVIEW_SIM_WORKER_FILE = 'sim-worker.js';
 
 /**
  * Phase 23.0: the 3D physics backend's script on the preview origin (built
  * from `./physics-3d.ts`), loaded only by a project whose physics_dimension
  * is 3 — in the page (single thread) or by the worker (next to its script).
  */
-const PREVIEW_PHYSICS_3D_PATH = '/physics-3d.js';
+const PREVIEW_PHYSICS_3D_FILE = 'physics-3d.js';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
 export interface PreviewManifestV2 {
@@ -195,6 +197,15 @@ export class PreviewM3Error extends Error {
 export interface M3PreviewConfig {
   /** The locator-relative artifact root (e.g. `/play-content/<contentId>/`). */
   readonly contentRoot: string;
+  /**
+   * Phase 25.24c: the project's cache root (`/play-content/<cacheId>/`): the
+   * declared artifacts by digest, at URLs that stay the same from Play to
+   * Play (the browser's cache hits; the bytes are still checked against the
+   * manifest here). Absent: everything from `contentRoot`.
+   */
+  readonly cacheRoot?: string | null;
+  /** Phase 25.24c: the play build's root (the worker and physics scripts); absent: the preview origin's root. */
+  readonly buildRoot?: string | null;
   /** The verified manifest buildId (from the play handshake). */
   readonly expectedBuildId: string;
   /** The bridge-delivered runtime snapshot (the v3 scene — §17.6). */
@@ -237,10 +248,31 @@ const sha256Hex = sha256HexAsync;
 
 /** The locator-relative artifact reader (manifest-declared paths only). */
 function readPreviewArtifact(contentRoot: string, path: string): Promise<ArrayBuffer> {
-  return fetch(`${contentRoot}${path}`, { credentials: 'omit' }).then((res) => {
+  return readArtifactUrl(`${contentRoot}${path}`, path);
+}
+
+function readArtifactUrl(url: string, path: string): Promise<ArrayBuffer> {
+  return fetch(url, { credentials: 'omit' }).then((res) => {
     if (!res.ok) return Promise.reject(new Error(`artifact read failed for ${path} (HTTP ${String(res.status)})`));
     return res.arrayBuffer();
   });
+}
+
+/**
+ * Phase 25.24c: where a declared artifact of this build is read. Assets,
+ * instance buffers, scene files and compiled scripts are named by their
+ * digest in the manifest, so they are read from the project's cache root by
+ * digest (the same URL every Play); anything else from the play's own root.
+ */
+export function artifactUrls(manifest: { scenes?: readonly { path: string; digest: string }[] }, contentRoot: string, cacheRoot: string | null | undefined): (path: string) => string {
+  if (cacheRoot === null || cacheRoot === undefined) return (path) => `${contentRoot}${path}`;
+  const scenes = new Map((manifest.scenes ?? []).map((r) => [r.path, r.digest] as const));
+  return (path) => {
+    if (/^content\/sha256\/[0-9a-f]{64}$/.test(path) || /^behaviors\/[0-9a-f]{64}\.js$/.test(path)) return `${cacheRoot}${path}`;
+    const scene = scenes.get(path);
+    if (scene !== undefined && /^[0-9a-f]{64}$/.test(scene)) return `${cacheRoot}content/sha256/${scene}`;
+    return `${contentRoot}${path}`;
+  };
 }
 
 /** Deep structural equality (key-order independent): the snapshot's tags against the manifest's. */
@@ -279,7 +311,7 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
  * identity, hash-bound through `mediaDigest`); `resolveBytes` = the
  * wrapper-verified byte map (the adapter never re-hashes).
  */
-function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, reader: VerifiedAssetReader, contentRoot: string): SceneAdapterModels | null {
+function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, reader: VerifiedAssetReader, read: (path: string) => Promise<ArrayBuffer>): SceneAdapterModels | null {
   // Phase 12 (c): scenes loaded later may use any model of the build (the
   // manifest's asset list is the closure over every scene).
   const referenced = manifest.scenes !== undefined
@@ -306,7 +338,7 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
     // Phase 25.24b: read (once, checked) when the model is first needed — at start for the start scenes' models.
     resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => reader.bytes(assetId, version),
     ...(manifest.buffers !== undefined
-      ? { resolveBuffer: bufferResolver(manifest.buffers, { read: (path) => readPreviewArtifact(contentRoot, path), sha256Hex }) }
+      ? { resolveBuffer: bufferResolver(manifest.buffers, { read, sha256Hex }) }
       : {}),
   };
 }
@@ -389,6 +421,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   if (manifest.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
   timings?.end('manifest', `${manifestRes.byteLength} B`);
 
+  // Phase 25.24c: the declared artifacts by digest from the project's cache root (checked against the manifest below as before).
+  const urlOf = artifactUrls(manifest, cfg.contentRoot, cfg.cacheRoot);
+  const readDeclared = (path: string): Promise<ArrayBuffer> => readArtifactUrl(urlOf(path), path);
+
   // 2. The bridge-delivered snapshot: verify its scene re-hashes to
   //    manifest.sceneDigest (§17.6). Phase 24.8: no game block to compare.
   // Phase 23.8: a test/debug start (resolved by the backend) is not part of the runtime snapshot.
@@ -411,7 +447,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // members; the others load on demand through the host).
   timings?.begin('startScenes');
   const catalog0 = manifest.scenes !== undefined
-    ? await prepareSceneCatalog(manifest.scenes, { read: (path) => readPreviewArtifact(cfg.contentRoot, path), sha256Hex })
+    ? await prepareSceneCatalog(manifest.scenes, { read: readDeclared, sha256Hex })
     : null;
   timings?.end('startScenes');
   // Phase 25.24a: each scene loaded during play is timed (request, read, the frame that attaches it).
@@ -476,7 +512,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
 
   const settings = manifest.settings;
   // Phase 25.24b: every declared asset is read through this reader, once, checked against the manifest.
-  const assetReader = createVerifiedAssetReader(manifest.assets, { read: (path) => readPreviewArtifact(cfg.contentRoot, path), sha256Hex });
+  const assetReader = createVerifiedAssetReader(manifest.assets, { read: readDeclared, sha256Hex });
   // Phase 9.11 / 23.19: this project's saves in Play (an export uses its own namespace).
   const playSaveNamespace = `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
   // Physics runs only for a game (a player controller); a plain scene plays
@@ -513,7 +549,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
     if (threadMode === 'worker') {
-      const worker = createBrowserSimWorker(new URL(PREVIEW_SIM_WORKER_PATH, location.href).href);
+      const worker = createBrowserSimWorker(new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_SIM_WORKER_FILE}`, location.href).href);
       if (worker === null) {
         threadMode = 'single';
         threadReason = 'the browser refused to start the worker: single thread';
@@ -528,7 +564,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
               physics: physicsConfig,
               modules: moduleIds,
               // The worker imports each compiled script from the locator (absolute same-origin URLs).
-              behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(`${cfg.contentRoot}${r.path}`, location.href).href])) },
+              behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(urlOf(r.path), location.href).href])) },
               shared: resolveTransport(globalThis as never) === 'shared',
               // Phase 23.8: injected script variables (ctx.save from step 0).
               ...(startVariables !== undefined ? { variables: startVariables } : {}),
@@ -571,7 +607,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     }
     // 4. The single shared production composition (delivery.md §3.2) with the
     //    §2.1 `models` block (or none — the loader-free M1/M2/M3 surface).
-    const models = buildModelsBlock(manifest, snapshot, assetReader, cfg.contentRoot);
+    const models = buildModelsBlock(manifest, snapshot, assetReader, readDeclared);
 
     let remote: RemoteSimulation | null = null;
     if (remoteStart !== null) {
@@ -593,7 +629,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     if (remote === null && physicsConfig !== null) timings?.begin('physics');
     if (remote === null && physicsConfig !== null && 'dimension' in physicsConfig) {
       // Phase 23.0: the 3D backend (a separate script, loaded only for a 3D project).
-      const backend = await loadPhysics3D(new URL(PREVIEW_PHYSICS_3D_PATH, location.href).href);
+      const backend = await loadPhysics3D(new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_PHYSICS_3D_FILE}`, location.href).href);
       const init = await backend.createPhysicsPort3D(physicsConfig as never);
       if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
       const p = init.port as PhysicsPort3D;
@@ -642,7 +678,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     const adapterRef: { current: SceneAdapter | null } = { current: null };
     // The project's compiled behaviors (same-origin modules under the locator); in worker mode the worker links them.
     if (remote === null && behaviorRows.length > 0) timings?.begin('behaviors');
-    const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ `${cfg.contentRoot}${path}`));
+    const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ urlOf(path)));
     if (remote === null && behaviorRows.length > 0) timings?.end('behaviors');
     const config: GameHostConfig = {
       snapshot,
@@ -685,7 +721,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       input,
       audio,
       // Phase 25.24b: a declared asset (a sound, a glyph, a UI image) through the checked reader; other paths as they are.
-      readArtifact: (path) => assetReader.bytesAt(path) ?? readPreviewArtifact(cfg.contentRoot, path),
+      readArtifact: (path) => assetReader.bytesAt(path) ?? readDeclared(path),
       ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
       container: cfg.container as unknown as HostDomNode,
       buildId: manifest.buildId,
@@ -807,6 +843,9 @@ export function bootstrapPreviewM3(): void {
   recordBundleTimings(timings);
   const cfg = (window as { __thirdlightPreview?: PreviewM3PageConfig }).__thirdlightPreview;
   const contentRoot = (window as { __thirdlightContentRoot?: string }).__thirdlightContentRoot ?? '/play-content/';
+  // Phase 25.24c: the stable roots the backend names (the project's cache root, the play build).
+  const cacheRoot = (window as { __thirdlightCacheRoot?: string }).__thirdlightCacheRoot ?? null;
+  const buildRoot = (window as { __thirdlightBuildRoot?: string }).__thirdlightBuildRoot ?? null;
   if (!cfg || cfg.v !== 2 || cfg.playSessionId === null) {
     const el = document.createElement('div');
     el.textContent = 'no M3 play session';
@@ -874,6 +913,8 @@ export function bootstrapPreviewM3(): void {
     disposePlay();
     void startM3Preview({
       contentRoot,
+      cacheRoot,
+      buildRoot,
       expectedBuildId,
       snapshot,
       canvas,

@@ -153,6 +153,12 @@ export interface ContentClosureM3Input {
    * depends on it. Stages: view, behaviors, assets, scenes, rigs, manifest.
    */
   timings?: { readonly now: () => number; readonly add: (stage: string, ms: number) => void };
+  /**
+   * Phase 25.24c: SHA-256 (lowercase hex) for the scene files' bytes — a
+   * host's native hash (the backend's), else project-model's portable one.
+   * The digests are the same either way.
+   */
+  sha256?: (bytes: Uint8Array) => string;
 }
 
 export interface ContentClosureM3 {
@@ -324,6 +330,71 @@ async function compileReachableBehaviors(
 }
 
 /**
+ * Phase 25.24c: what a closure derives from the captured project alone — the
+ * content view, the media identity, the scene files and their digests, the
+ * instance buffers and the start scenes' merged file — kept for the next
+ * build of the same capture. A Play of an unchanged project (the same
+ * revision, the same captured objects) then serializes and hashes nothing
+ * again; any change is a new capture (new objects) and derives everything.
+ * Only frozen inputs are remembered (the workspace's captured reads are
+ * deep-frozen), so a remembered input can never have changed.
+ */
+interface DerivedCapture {
+  readonly projectId: string;
+  readonly revision: number;
+  readonly startScenes: string;
+  /** The identities the derivation came from (each scene's fields, the merged scene's fields and entities). */
+  readonly identities: readonly unknown[];
+  readonly view: CapturedView;
+  readonly media: MediaBlock;
+  readonly sceneArtifacts: readonly ClosureArtifact[];
+  readonly sceneRows: readonly ManifestSceneRow[];
+  readonly bufferArtifacts: readonly ClosureArtifact[];
+  readonly sceneBytes: Uint8Array;
+  readonly sceneDigest: string;
+}
+type CapturedView = Extract<ReturnType<typeof captureContentViewV3>, { ok: true }>['normalized'];
+
+/** One remembered derivation per captured content object (a changed project has a new one). */
+const derivedCaptures = new WeakMap<object, DerivedCapture>();
+
+/** Phase 25.24c: derivations reused / made (tests). */
+export const closureCacheStats = { hits: 0, misses: 0 };
+
+/** The identities a derivation depends on, or null when an input is not frozen (never remembered). */
+function captureIdentities(scene: unknown, scenes: readonly unknown[] | undefined): unknown[] | null {
+  const out: unknown[] = [];
+  const fields = (o: unknown, spread: string | null): boolean => {
+    if (typeof o !== 'object' || o === null || !Object.isFrozen(o)) return false;
+    for (const [k, v] of Object.entries(o)) {
+      out.push(k);
+      if (k === spread && Array.isArray(v)) {
+        if (!Object.isFrozen(v)) return false;
+        out.push(v.length);
+        for (const e of v) {
+          if (typeof e === 'object' && e !== null && !Object.isFrozen(e)) return false;
+          out.push(e);
+        }
+      } else {
+        if (typeof v === 'object' && v !== null && !Object.isFrozen(v)) return false;
+        out.push(v);
+      }
+    }
+    return true;
+  };
+  // The merged start scene is a new object per capture; its entities are the scenes' own (frozen) objects.
+  if (!fields(scene, 'entities')) return null;
+  for (const sc of scenes ?? []) if (!fields(sc, null)) return null;
+  return out;
+}
+
+function sameIdentities(a: readonly unknown[], b: readonly unknown[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
  * `buildContentClosureM3(input)` — the M3 shared closure builder (packet 58):
  * ONE captured input (the single acknowledged envelope read's v3 scene +
  * content halves) → the v2 manifest + the declared artifact bytes, for BOTH
@@ -352,22 +423,39 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     stageAt = t;
   };
 
+  const hash = input.sha256 ?? sha256Hex;
+  // Phase 25.24c: the derivation of this very capture, when a build before this one made it.
+  const contentKey = typeof input.content === 'object' && input.content !== null && Object.isFrozen(input.content) ? (input.content as object) : null;
+  const identities = contentKey !== null ? captureIdentities(input.scene, input.scenes) : null;
+  const startKey = (input.startScenes ?? []).join('\u0000');
+  const remembered = contentKey !== null && identities !== null ? derivedCaptures.get(contentKey) : undefined;
+  const derived = remembered !== undefined && remembered.projectId === projectId && remembered.revision === input.revision && remembered.startScenes === startKey && sameIdentities(remembered.identities, identities!) ? remembered : null;
+  if (derived !== null) closureCacheStats.hits += 1;
+  else closureCacheStats.misses += 1;
+
   // 1. The captured v3 content view (project-model §19 v3) — reachable
   //    kind-tagged assets, the resolved settings, contentDigest.
-  const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes);
-  if (!viewRes.ok) {
-    const e = viewRes.errors[0]!;
-    return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
-  }
-  const view = viewRes.normalized;
+  let view: CapturedView;
+  let media: MediaBlock;
+  if (derived !== null) {
+    view = derived.view;
+    media = derived.media;
+  } else {
+    const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes);
+    if (!viewRes.ok) {
+      const e = viewRes.errors[0]!;
+      return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
+    }
+    view = viewRes.normalized;
 
-  // 2. The media identity (delivery.md §2.3, the C35-2 rationale).
-  const mediaRes = resolveMediaIdentityV3(input.scene, input.content, input.scenes);
-  if (!mediaRes.ok) {
-    const e = mediaRes.errors[0]!;
-    return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
+    // 2. The media identity (delivery.md §2.3, the C35-2 rationale).
+    const mediaRes = resolveMediaIdentityV3(input.scene, input.content, input.scenes);
+    if (!mediaRes.ok) {
+      const e = mediaRes.errors[0]!;
+      return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
+    }
+    media = mediaRes.normalized;
   }
-  const media = mediaRes.normalized;
 
   // 3. The required engine modules, derived from the declared dependencies
   //    (the referenced content, what each behavior requires).
@@ -461,16 +549,16 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   stage('assets');
   // 5b. Phase 12 (c): every scene of a v4 project as its own artifact, and the
   //     instance-set buffers (verified digest-addressed reads).
-  const sceneArtifacts: ClosureArtifact[] = [];
-  const sceneRows: ManifestSceneRow[] = [];
-  const bufferArtifacts: ClosureArtifact[] = [];
-  if (input.scenes !== undefined) {
+  const sceneArtifacts: ClosureArtifact[] = derived !== null ? [...derived.sceneArtifacts] : [];
+  const sceneRows: ManifestSceneRow[] = derived !== null ? [...derived.sceneRows] : [];
+  const bufferArtifacts: ClosureArtifact[] = derived !== null ? [...derived.bufferArtifacts] : [];
+  if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     const buffers = new Map<string, number>();
     for (const doc of input.scenes) {
       const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number } } }[] };
       const bytes = new TextEncoder().encode(`${JSON.stringify(doc, null, 2)}\n`);
-      const digest = sha256Hex(bytes);
+      const digest = hash(bytes);
       const path = `scenes/${sc.sceneId}.json`;
       sceneArtifacts.push({ path, bytes, digest, contentType: 'application/json' });
       sceneRows.push({ sceneId: sc.sceneId, path, digest, byteLength: bytes.length, start: start.has(sc.sceneId) });
@@ -496,9 +584,11 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   stage('rigs');
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
-  const sceneDoc = input.scene;
-  const sceneBytes = new TextEncoder().encode(`${JSON.stringify(sceneDoc, null, 2)}\n`);
-  const sceneDigest = sha256Hex(sceneBytes);
+  const sceneBytes = derived !== null ? derived.sceneBytes : new TextEncoder().encode(`${JSON.stringify(input.scene, null, 2)}\n`);
+  const sceneDigest = derived !== null ? derived.sceneDigest : hash(sceneBytes);
+  if (derived === null && contentKey !== null && identities !== null) {
+    derivedCaptures.set(contentKey, { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], bufferArtifacts: [...bufferArtifacts], sceneBytes, sceneDigest });
+  }
 
   // 7. The v2 manifest (pure derivation) + self-identifying buildId.
   const captured = captureManifestV2({

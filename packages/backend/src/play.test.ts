@@ -7,6 +7,7 @@
  * screenshot/diagnostics relays with the exact result shapes.
  */
 import { writeFileSync } from 'node:fs';
+import { closureCacheStats } from '@thirdlight/exporter';
 import { join } from 'node:path';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -353,6 +354,97 @@ describe('phase 25.24: the backend part of a Play start', () => {
       const c = await playAndStop();
       expect(new TextDecoder().decode(bundleOf(c.psid).bytes)).toContain('rebuilt');
       expect(bundleOf(c.psid).digest).not.toBe(bundleOf(a.psid).digest);
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  });
+});
+
+describe('phase 25.24c: caching across Plays', () => {
+  it('the play scripts and the declared artifacts are served at digest-keyed URLs that stay the same from Play to Play (immutable, ETag, 304); blobs are held once', async () => {
+    const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      const get = async (path: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: Headers; bytes: Uint8Array }> => {
+        const res = await fetch(`${tb.prevUrl}${path}`, { headers });
+        return { status: res.status, headers: res.headers, bytes: new Uint8Array(await res.arrayBuffer()) };
+      };
+      const playOnce = async (): Promise<{ psid: string; shell: string; manifest: { scenes?: { path: string; digest: string }[] } }> => {
+        const r = await playStart(tb);
+        expect(r.status).toBe(200);
+        const psid = r.json.playSessionId as string;
+        const content = r.json.playContent as { contentId: string; path: string };
+        const shell = new TextDecoder().decode((await get(`/play/${psid}?content=${content.contentId}`)).bytes);
+        const manifest = JSON.parse(new TextDecoder().decode((await get(`${content.path}manifest.json`)).bytes)) as { scenes?: { path: string; digest: string }[] };
+        return { psid, shell, manifest };
+      };
+      const stop = async (psid: string): Promise<void> => {
+        await editor.waitUntil(() => tb.backend._test.plays.get(psid)?.state === 'presented');
+        editor.stoppedEvents.length = 0;
+        await api(`${tb.authUrl}/api/v1/projects/demo-0001/play/${psid}/stop`, { body: {}, token: tb.authToken });
+        await editor.waitForEvent('play.stopped');
+      };
+      const rootsOf = (shell: string): { build: string; cache: string } => ({
+        build: /<script src="(\/play-build\/[0-9a-f]{64}\/)game\.js"><\/script>/.exec(shell)![1]!,
+        cache: /__thirdlightCacheRoot = "(\/play-content\/[A-Za-z0-9_-]{43}\/)"/.exec(shell)![1]!,
+      });
+      const a = await playOnce();
+      const ra = rootsOf(a.shell);
+      // The bundle at the play build's URL: immutable, its digest the ETag; a revalidation that names it is a 304.
+      const bundle = await get(`${ra.build}game.js`);
+      expect(bundle.status).toBe(200);
+      expect(bundle.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+      const etag = bundle.headers.get('etag')!;
+      expect(etag).toBe(`"${tb.backend._test.playContent.forPlay(a.psid)!.artifacts.get('game.js')!.digest}"`);
+      expect((await get(`${ra.build}game.js`, { 'if-none-match': etag })).status).toBe(304);
+      expect((await get(`/play-build/${'0'.repeat(64)}/game.js`)).status).toBe(404);
+      // A declared artifact (a scene file) by digest under the project's cache root.
+      const scene = a.manifest.scenes![0]!;
+      const byDigest = await get(`${ra.cache}content/sha256/${scene.digest}`);
+      expect(byDigest.status).toBe(200);
+      expect(byDigest.headers.get('etag')).toBe(`"${scene.digest}"`);
+      expect(byDigest.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+      expect((await get(`${ra.cache}content/sha256/${'1'.repeat(64)}`)).status).toBe(404);
+      expect((await get(`${ra.cache}manifest.json`)).status).toBe(404);
+      await stop(a.psid);
+      // The next Play: the same URLs; its set shares the bytes (held once, by digest); the unchanged
+      // capture's derivation (content view, scene files and digests) is reused, not made again.
+      const derivedBefore = { ...closureCacheStats };
+      const b = await playOnce();
+      expect(closureCacheStats.hits).toBe(derivedBefore.hits + 1);
+      expect(closureCacheStats.misses).toBe(derivedBefore.misses);
+      expect(b.manifest.scenes).toEqual(a.manifest.scenes);
+      expect(rootsOf(b.shell)).toEqual(ra);
+      const setA = tb.backend._test.playContent.forPlay(a.psid)!;
+      const setB = tb.backend._test.playContent.forPlay(b.psid)!;
+      expect(setB.artifacts.get(scene.path)!.bytes).toBe(setA.artifacts.get(scene.path)!.bytes);
+      const counters = tb.backend._test.playContent.counters();
+      expect(counters.blobs).toBe(new Set([...setA.artifacts.values(), ...setB.artifacts.values()].map((x) => x.digest)).size);
+      await stop(b.psid);
+      // An edit: a new capture, derived again (never the remembered one).
+      const revision = Number((b.manifest as { revision?: number }).revision ?? 0);
+      const mut = await api(`${tb.authUrl}/api/v1/projects/demo-0001/commands`, {
+        body: { op: 'createEntity', projectId: 'demo-0001', requestId: `req-${'cd'.repeat(16)}`, expectedRevision: revision, args: { kind: 'box', parentId: null, name: 'box-25-24c' }, origin: { kind: 'mcp', clientId: 'harness' } },
+        token: tb.authToken,
+        origin: null,
+      });
+      expect(mut.status).toBe(200);
+      const missesBefore = closureCacheStats.misses;
+      // A rebuilt bundle: a new play build address; the previous one is still served (a page that started before it).
+      writeFileSync(join(tb.root, 'preview', 'preview-m3.js'), '// M3 preview bundle stub (tests), rebuilt for 25.24c\n');
+      const c = await playOnce();
+      expect(closureCacheStats.misses).toBe(missesBefore + 1);
+      expect(c.manifest.scenes).not.toEqual(a.manifest.scenes);
+      const rc = rootsOf(c.shell);
+      expect(rc.build).not.toBe(ra.build);
+      expect(new TextDecoder().decode((await get(`${rc.build}game.js`)).bytes)).toContain('rebuilt for 25.24c');
+      expect((await get(`${ra.build}game.js`)).status).toBe(200);
+      await stop(c.psid);
       editor.close();
     } finally {
       await tb.teardown();

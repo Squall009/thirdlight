@@ -133,6 +133,8 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     content: input.content,
     ...(input.scenes !== undefined ? { scenes: input.scenes, startScenes: input.startScenes ?? [] } : {}),
     ...(input.timings !== undefined ? { timings: { now: () => performance.now(), add: (stage: string, ms: number) => void (input.timings![stage] = Math.round(ms)) } } : {}),
+    // Phase 25.24c: Node's native SHA-256 for the scene files (the same digests as the portable one).
+    sha256: sha256HexBytes,
   });
   if (!built.ok) {
     return { ok: false, error: sessionErrorFromM3Closure(built.error) };

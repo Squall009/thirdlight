@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { classifyLocatorPath, isContentId, redactContentId, sessionError, type SessionError } from '@thirdlight/protocol';
 import { type BackendConfig } from './config';
 import { decodersNeeded } from '@thirdlight/exporter';
-import { PlayContentStore, type PlayContentSet } from './play-content';
+import { PlayContentStore, type PlayArtifact, type PlayContentSet } from './play-content';
+import { etagMatches, parsePlayBuildPath, type PlayBuildCache } from './play-build';
 
 import { hex } from './util';
 
@@ -18,13 +19,44 @@ export interface PreviewRoutesContext {
   readonly previewCsp: (nonce?: string, allowEval?: boolean) => string;
   readonly locatorBaseHeaders: (res: ServerResponse) => void;
   readonly previewTemplate: () => string;
-  readonly previewShellHtml: (playSessionId: string, contentId: string, nonce: string) => string;
+  readonly previewShellHtml: (playSessionId: string, contentId: string, nonce: string, roots?: { cacheRoot: string; buildRoot: string | null }) => string;
+  /** Phase 25.24c: the prebuilt play scripts at digest-keyed URLs. */
+  readonly playBuild: PlayBuildCache;
   /** Phase 22.0: COOP + COEP when the deployment asks for cross-origin isolation (`embeddable`: the play page itself). */
   readonly isolationHeaders: (res: ServerResponse, embeddable?: boolean) => void;
 }
 
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
-  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = ctx;
+  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild } = ctx;
+
+  /** Phase 25.24c: the page's stable roots (the project's cache root, the play build). */
+  const rootsOf = (set: PlayContentSet): { cacheRoot: string; buildRoot: string | null } => ({
+    cacheRoot: `/play-content/${playContent.cacheIdFor(set.projectId)}/`,
+    buildRoot: playBuild.current()?.root ?? null,
+  });
+
+  /**
+   * Phase 25.24c: one immutable, digest-named response — `ETag` the digest, a
+   * year's `max-age` (the URL can never mean other bytes), 304 for a
+   * revalidation that names it.
+   */
+  const sendImmutable = (req: IncomingMessage, res: ServerResponse, a: { bytes: Uint8Array; digest: string; contentType: string }, maxAge: number): void => {
+    const etag = `"${a.digest}"`;
+    res.setHeader('etag', etag);
+    res.setHeader('cache-control', `private, max-age=${maxAge}, immutable`);
+    res.setHeader('x-thirdlight-digest', a.digest);
+    locatorBaseHeaders(res);
+    if (etagMatches(req.headers['if-none-match'], etag)) {
+      res.statusCode = 304;
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', a.contentType);
+    res.setHeader('content-length', String(a.bytes.length));
+    res.end(req.method === 'HEAD' ? undefined : a.bytes);
+  };
+  /** A year: digest-named bytes never change. */
+  const IMMUTABLE_MAX_AGE = 31_536_000;
 
   /** `trusted`: the page request came from a trusted network — the editor then asks for no token. */
   const serveEditorPage = (res: ServerResponse, trusted = false): void => {
@@ -112,7 +144,18 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         res.setHeader('referrer-policy', 'no-referrer');
         res.setHeader('cache-control', 'no-store');
         isolationHeaders(res, true);
-        res.end(previewShellHtml(psid, contentId, nonce));
+        res.end(previewShellHtml(psid, contentId, nonce, rootsOf(set)));
+        return;
+      }
+      // Phase 25.24c: the prebuilt play scripts, by the play build's digest.
+      if (p.startsWith('/play-build/')) {
+        const parsed = parsePlayBuildPath(p);
+        const file = parsed === null ? undefined : playBuild.get(parsed.digest)?.files.get(parsed.name);
+        if (file === undefined) {
+          locatorError(res, sessionError('path_rejected', 'not_found', 'no such play build file (a rebuilt build has a new address)'), 404);
+          return;
+        }
+        sendImmutable(req, res, file, IMMUTABLE_MAX_AGE);
         return;
       }
       // M2 locator paths (artifact root + shell).
@@ -120,6 +163,18 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         const locator = classifyLocatorPath(p);
         if (locator.kind === 'invalid') {
           locatorError(res, sessionError('path_rejected', 'validation', 'no locator route matches this path (listing/traversal/undeclared path rejected)'), 400);
+          return;
+        }
+        // Phase 25.24c: a project's cache root serves its declared artifacts by digest (the same URL every Play).
+        const cacheProject = playContent.cacheProject(locator.contentId);
+        if (cacheProject !== undefined) {
+          const digest = locator.kind === 'asset-digest' ? locator.digest : locator.kind === 'behavior' ? locator.outputDigest : null;
+          const artifact: PlayArtifact | undefined = digest === null ? undefined : playContent.artifactByDigest(cacheProject, digest);
+          if (artifact === undefined) {
+            locatorError(res, sessionError('path_rejected', 'not_found', 'no play of this project declares this artifact'), 404);
+            return;
+          }
+          sendImmutable(req, res, artifact, IMMUTABLE_MAX_AGE);
           return;
         }
         const set = playContent.get(locator.contentId);
@@ -144,7 +199,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
           res.setHeader('referrer-policy', 'no-referrer');
           res.setHeader('cache-control', 'no-store');
           isolationHeaders(res, true);
-          res.end(previewShellHtml(set.playSessionId, set.contentId, nonce));
+          res.end(previewShellHtml(set.playSessionId, set.contentId, nonce, rootsOf(set)));
           return;
         }
         const verdict = locatorStatus(set);
@@ -158,14 +213,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
           locatorError(res, sessionError('path_rejected', 'validation', 'the requested artifact is not declared by the served manifest'), 400);
           return;
         }
-        const maxAge = playContent.remainingMaxAge(set);
-        res.setHeader('content-type', artifact.contentType);
-        res.setHeader('content-length', String(artifact.bytes.length));
-        res.setHeader('x-thirdlight-digest', artifact.digest);
-        res.setHeader('etag', `"${artifact.digest}"`);
-        res.setHeader('cache-control', `private, max-age=${maxAge}, immutable`);
-        locatorBaseHeaders(res);
-        res.end(artifact.bytes);
+        sendImmutable(req, res, artifact, playContent.remainingMaxAge(set));
         return;
       }
     } catch (err) {

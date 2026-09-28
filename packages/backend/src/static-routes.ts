@@ -103,13 +103,18 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
    * injects the §13.2/§17.6 page config (no tokens, no API URLs) and loads the
    * pinned play bundle from the artifact root.
    */
-  const previewShellHtml = (playSessionId: string, contentId: string, nonce: string): string => {
+  const previewShellHtml = (playSessionId: string, contentId: string, nonce: string, roots?: { cacheRoot: string; buildRoot: string | null }): string => {
     const origin = config.authoringOrigin.replace(/"/g, '\\"');
     const root = `/play-content/${contentId}/`;
+    // Phase 25.24c: the project's cache root (declared artifacts by digest) and the play build (the bundle,
+    // the worker and physics scripts) — URLs that stay the same from Play to Play, so the browser's caches hit.
+    const cacheRoot = roots?.cacheRoot ?? null;
+    const buildRoot = roots?.buildRoot ?? null;
+    const extra = `${cacheRoot !== null ? `window.__thirdlightCacheRoot = "${cacheRoot}";` : ''}${buildRoot !== null ? `window.__thirdlightBuildRoot = "${buildRoot}";` : ''}`;
     return (
       '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <title>Thirdlight Play Preview</title>\n  </head>\n  <body>\n' +
-      `    <script nonce="${nonce}">window.__thirdlightPreview = { v: 2, authoringOrigin: "${origin}", playSessionId: "${playSessionId}", contentId: "${contentId}", manifestPath: "./manifest.json" };window.__thirdlightContentRoot = "${root}";</script>\n` +
-      `    <script src="${root}game.js"></script>\n` +
+      `    <script nonce="${nonce}">window.__thirdlightPreview = { v: 2, authoringOrigin: "${origin}", playSessionId: "${playSessionId}", contentId: "${contentId}", manifestPath: "./manifest.json" };window.__thirdlightContentRoot = "${root}";${extra}</script>\n` +
+      `    <script src="${buildRoot ?? root}game.js"></script>\n` +
       '  </body>\n</html>\n'
     );
   };

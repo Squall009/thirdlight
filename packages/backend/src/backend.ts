@@ -38,6 +38,7 @@ import { PlayManager, type PlayRecord } from './play';
 import { makeSessionRoutes } from './session-routes';
 import { createHeadlessEditors } from './headless';
 import { makePreviewRoutes } from './preview-routes';
+import { createPlayBuildCache } from './play-build';
 import { makeStaticRoutes } from './static-routes';
 import { makeAdminRoutes } from './admin-routes';
 import { makePlayRoutes } from './play-routes';
@@ -1537,14 +1538,16 @@ export function createBackend(
     }
   }, sweepIntervalMs);
 
-  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless });
+  // Phase 25.24c: the prebuilt play scripts (bundle, worker, physics), read once per build, at digest-keyed URLs.
+  const playBuild = createPlayBuildCache(config.previewStaticDir);
+  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild });
 
   const pinWarned = new Set<string>();
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 
-  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders });
+  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild });
 
   authoringServer.on('request', (req, res) => {
     void dispatch(req, res);

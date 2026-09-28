@@ -11,6 +11,7 @@ import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
 import type { HeadlessEditors } from './headless';
 import { resolvePlayStart } from './play-start';
+import type { PlayBuildCache } from './play-build';
 
 // ---- ID / token allocation (sessions.md §3: hex, CSPRNG) ----------------------
 
@@ -41,10 +42,12 @@ export interface PlayRoutesContext {
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
   /** Phase 11: opens a headless editor when no browser is connected. */
   readonly headless: HeadlessEditors;
+  /** Phase 25.24c: the prebuilt play scripts (the bundle served as `game.js`). */
+  readonly playBuild: PlayBuildCache;
 }
 
 export function makePlayRoutes(ctx: PlayRoutesContext) {
-  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless } = ctx;
+  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild } = ctx;
 
   /**
    * The project's live (active or presented) play with this id, or null after
@@ -65,28 +68,11 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   };
 
   /**
-   * The prebuilt play bundle bytes served as `game.js` (bounded read), and
-   * their digest. Phase 25.24g: read from disk once and kept while the file
-   * is unchanged (its size and modification time; a rebuild of `dist/` is
-   * read again on the next Play), instead of once per Play.
+   * The prebuilt play bundle bytes served as `game.js`, and their digest.
+   * Phase 25.24g/c: from the play build (read and hashed once while the file
+   * is unchanged — a rebuild of `dist/` is read again on the next Play).
    */
-  let bundleCache: { path: string; size: number; mtimeMs: number; bytes: Uint8Array; digest: string } | null = null;
-  const readGameBundle = (file = 'preview-m3.js'): { bytes: Uint8Array; digest: string } | null => {
-    const path = join(config.previewStaticDir, file);
-    try {
-      if (!existsSync(path)) return null;
-      const st = statSync(path);
-      if (!st.isFile()) return null;
-      const hit = bundleCache;
-      if (hit !== null && hit.path === path && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit;
-      const bytes = new Uint8Array(readFileSync(path));
-      if (bytes.length === 0 || bytes.length > 33_554_432) return null;
-      bundleCache = { path, size: st.size, mtimeMs: st.mtimeMs, bytes, digest: sha256HexBytes(bytes) };
-      return bundleCache;
-    } catch {
-      return null;
-    }
-  };
+  const readGameBundle = (): { bytes: Uint8Array; digest: string } | null => playBuild.current()?.files.get('game.js') ?? null;
 
   /** Phase 21.4: each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play; 25.24: released when it ends). */
   const snapshotBytesOf = (rec: PlayRecord): Uint8Array => {
@@ -262,7 +248,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       }
       // The v3 play bundle (the M3 preview wrapper entry — the single shared
       // createGameHost composition), served as the locator's game.js.
-      const gameBundleM3 = readGameBundle('preview-m3.js');
+      const gameBundleM3 = readGameBundle();
       mark('bundle');
       if (gameBundleM3 === null) {
         sendError(
@@ -342,11 +328,13 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     const startedBy: OriginDoc | null =
       scope === 'admin' && req.headers.origin === undefined ? { kind: 'admin', clientId: 'operator' } : { kind: 'browser', clientId: session.sessionId };
     const playContentRef = { contentId: published.contentId, buildId: builtCore.buildId, path: `/play-content/${published.contentId}/` };
-    let payload = makePlayStarted({ playSessionId, startedBy, snapshot, playContent: playContentRef });
     // Phase 21.4: a snapshot that does not fit one WebSocket frame (1 MiB,
     // WS_OUT_FRAME_MAX) goes by reference: the editor fetches it from the
     // play's snapshot route over HTTP. Nothing is held on the frame bound.
-    if (utf8Len(payload) > WS_OUT_FRAME_MAX) {
+    // Phase 25.24c: a snapshot over the bound on its own is not serialized into a message first.
+    const inline = snapshotBytesOf(rec).length <= WS_OUT_FRAME_MAX;
+    let payload = inline ? makePlayStarted({ playSessionId, startedBy, snapshot, playContent: playContentRef }) : '';
+    if (!inline || utf8Len(payload) > WS_OUT_FRAME_MAX) {
       const bytes = snapshotBytesOf(rec).length;
       payload = makePlayStarted({ playSessionId, startedBy, snapshot: { ref: { path: playSnapshotPath(projectId, playSessionId), bytes } }, playContent: playContentRef });
       logStartup(`play.started: the ${bytes}-byte snapshot goes by reference (over the 1 MiB frame bound)`);

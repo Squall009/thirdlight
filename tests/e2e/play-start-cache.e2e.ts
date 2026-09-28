@@ -1,11 +1,17 @@
 /**
- * Phase 25.24d: what a Play start no longer does twice.
+ * Phase 25.24c/d: what a Play start no longer does twice.
  *
- * Many groups of one repeated model (a detailed sphere in ten world
+ * (d) Many groups of one repeated model (a detailed sphere in ten world
  * cells: ten automatic batches of one material) are drawn with shared node
  * programs, not one per batch; the first present waits for a precompile
  * (`renderer.compileAsync`), and so does a scene loaded later; the picture
  * shows the spheres.
+ *
+ * (c) The second Play in the same editor page takes its game bundle and its
+ * model file from the browser's cache: both are at URLs that stay the same
+ * from Play to Play (the play build's, the project's cache root), and the
+ * preview still checks the model's bytes against the manifest (it reads
+ * through the same checked reader; `assetReads` counts the read).
  */
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -126,4 +132,42 @@ for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): batches of o
   expect(after.renderer!.precompile!.runs).toBeGreaterThan(runs);
   expect(after.startTimings!.sceneLoads.find((l) => l.sceneId === 'scene-more')!.precompileMs).not.toBeNull();
   await stop(page, 'shared', psid);
+});
+
+test('25.24c: the second Play takes its bundle and its model file from the browser cache (stable URLs); the model is still checked', async ({ page }) => {
+  test.setTimeout(300_000);
+  await sphereProject('cached', 1, 2);
+  await openEditor(page, 'cached');
+  type Entry = { name: string; transferSize: number; decodedBodySize: number };
+  const resources = async (frame: Frame): Promise<Entry[]> =>
+    frame.evaluate(() => performance.getEntriesByType('resource').map((e) => ({ name: e.name, transferSize: (e as PerformanceResourceTiming).transferSize, decodedBodySize: (e as PerformanceResourceTiming).decodedBodySize })));
+  const pick = (entries: Entry[], re: RegExp): Entry => {
+    const e = entries.find((x) => re.test(new URL(x.name).pathname));
+    expect(e, `${String(re)} in ${entries.map((x) => new URL(x.name).pathname).join(', ')}`).toBeDefined();
+    return e!;
+  };
+  const bundleRe = /^\/play-build\/[0-9a-f]{64}\/game\.js$/;
+  const modelRe = /^\/play-content\/[A-Za-z0-9_-]{43}\/content\/sha256\/[0-9a-f]{64}$/;
+  const first = await play(page, 'cached');
+  const e1 = await resources(first.frame);
+  const bundle1 = pick(e1, bundleRe);
+  const model1 = pick(e1, modelRe);
+  expect(bundle1.transferSize).toBeGreaterThan(0);
+  await stop(page, 'cached', first.psid);
+
+  const second = await play(page, 'cached');
+  const e2 = await resources(second.frame);
+  const bundle2 = pick(e2, bundleRe);
+  const model2 = pick(e2, modelRe);
+  // The same URLs, and nothing came over the wire for them (the browser's cache answered).
+  expect(bundle2.name).toBe(bundle1.name);
+  expect(model2.name).toBe(model1.name);
+  expect(bundle2.transferSize).toBe(0);
+  expect(bundle2.decodedBodySize).toBeGreaterThan(0);
+  expect(model2.transferSize).toBe(0);
+  // The model was still read through the checked reader (length and digest against the manifest).
+  const d = ((await be.post(`/api/v1/projects/cached/play/${second.psid}/diagnostics`, {})).json as Diag).diagnostics ?? {};
+  expect(d.assetReads?.reads).toBe(1);
+  await expect.poll(async () => (((await be.post(`/api/v1/projects/cached/play/${second.psid}/diagnostics`, {})).json as Diag).diagnostics?.renderer?.models?.instances ?? 0), { timeout: 30_000 }).toBe(2);
+  await stop(page, 'cached', second.psid);
 });

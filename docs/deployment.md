@@ -539,6 +539,15 @@ picture and before it shows a scene loaded later (phase 25.24d): the
 stays. Repeated objects of one material are drawn with one shader however
 many batches they form (`renderer.batching.programs`).
 
+From the second Play on, the browser takes the game's scripts and the
+project's files from its cache (phase 25.24c): the preview origin serves the
+game bundle and the worker scripts under `/play-build/<digest>/`, and a
+project's models, textures, scene files and compiled scripts by their digest
+under a per-project address, with `Cache-Control: private, max-age=31536000,
+immutable` and the digest as `ETag` (a proxy in front of the preview origin
+should pass these headers on). The page still checks every file against the
+build before using it. The addresses change when the backend restarts.
+
 A Play (and an exported game) reads only its start scenes' files before it
 starts (phase 25.24b): the models, textures and bakes its start scenes use,
 eight at a time, each checked against the build. A scene loaded later reads

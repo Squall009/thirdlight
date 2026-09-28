@@ -24,6 +24,7 @@ export { exportProjectM3 } from './export-m3';
 // manifest/closure builder + the packet-19 meta.json fields").
 export {
   buildContentClosureM3,
+  closureCacheStats,
   type ClosureArtifact,
   type ClosureBehavior,
   type ContentClosureCompilerPort,

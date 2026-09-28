@@ -240,6 +240,8 @@ export interface BehaviorCompiler {
    * syntax, bounds) against the given library set; nothing is produced.
    */
   checkLibrary?(input: ScriptLibraryCheckInput): Promise<ScriptLibraryCheckResult>;
+  /** Phase 25.24c: the compile cache (a repeated compile of the same input is not run again). */
+  cacheStats?(): { hits: number; misses: number; entries: number };
 }
 
 /** Phase 23.7: `checkScriptLibrary` input. */

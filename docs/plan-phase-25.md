@@ -160,7 +160,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.24a | done 2026-09-28: stage timings in Play diagnostics (`startTimings`: bundle, manifest, start scenes, worker, assets, mount, models, ready, renderer init, first render, slow frames after; per scene load) and the backend's (`buildTimings`, `closure.*`); perf harness `--plays N --gpu`, an asset-heavy class; before split in §6 |
 | 25.24b, g | done 2026-09-28: Play and the export read only the start scenes' assets before the start (at most 8 at a time, each checked once), the rest when asked for (a later scene, a texture, a sound); the game bundle is read and hashed once per build, not per Play; the preview no longer re-serializes and hashes the scene; after split in §6 |
 | 25.24d | done 2026-09-28: pipelines built ahead of a present (`compileAsync` into the pass the frame draws, before the first present and after each scene attach, both backends; `precompile` stage and counters in diagnostics); automatic batches drawn through instance-matrix columns so batches of one material share one node program (three r186 built one per instanced mesh: 573 on the large bench); the shadow probe is the first frame, not an extra render; large first frame 7.1 → 3.7–3.9 s; after split in §6 |
-| 25.7–25.23, 25.24c, e, f, h | — |
+| 25.24c | done 2026-09-28: the bundle, worker and physics scripts at `/play-build/<digest>/`, a project's declared artifacts by digest under a stable per-project cache root (`immutable`, `ETag`, 304; the page still checks the bytes); blobs held once by digest; compiled behaviors cached by source, declaration, library and compiler digests; the closure's derivation of an unchanged capture reused, scene files hashed natively; large second Play 7.1 → 2.7 s (backend 1 s → 40–60 ms, bundle from the browser's caches); after split in §6 |
+| 25.7–25.23, 25.24e, f, h | — |
 
 ## 6. Decision log
 
@@ -453,4 +454,74 @@ boundary it changes (Playwright for any editor surface).
   The large class now waits ~1.2 s for the backend (25.24c's), ~0.5 s for
   the simulation worker, ~0.3 s for the models and ~1 s for the precompile
   and first draw.
+- 2026-09-28 (25.24c): caching across Plays, measured first (backend CPU
+  profile of the large bench's start): of the closure's ~1 s, 0.62 s was
+  project-model's portable (pure JavaScript) SHA-256 over the scene files,
+  0.24 s validating the 16 000 entities twice (content view, media
+  identity), ~0.1 s pretty-printing them; compiling was 12 ms. So:
+  - **Scripts at stable URLs.** The game bundle, the simulation worker and
+    the 3D physics script are one "play build" (read and hashed once while
+    the files are unchanged; the build before it stays servable for a page
+    that started before a rebuild), served at `/play-build/<digest>/<name>`
+    (the digest of the three files' digests). The play page loads the
+    bundle and the worker from there (the worker finds the physics script
+    next to itself).
+  - **Declared artifacts by digest under a stable root.** Each project gets
+    a cache root `/play-content/<cacheId>/`, the cacheId a keyed hash of the
+    project id with a per-process secret (the contentId's shape: the same
+    for every Play of the project while the backend runs, unguessable, new
+    after a restart). Under it only the digest routes answer
+    (`content/sha256/<digest>`, `behaviors/<digest>.js`, a scene file by its
+    digest), and only while a live (or grace) Play of that project declares
+    the digest; the manifest and anything else stay on the Play's own root.
+    The page reads assets, scene files, instance buffers and compiled
+    scripts from there, and still checks every asset, scene file and buffer
+    against the manifest before use (compiled scripts are imported by URL,
+    as before; the URL is their digest and the backend serves only bytes it
+    hashed to it). Every locator and build response is `private,
+    max-age=31536000, immutable` (per-Play ones keep their remaining-TTL
+    max-age) with the digest as `ETag`, and answers a matching
+    `If-None-Match` with 304. Consequence: the browser's HTTP and code
+    caches hit from the second Play on (large: bundle 0 ms over the wire,
+    evaluation 11–14 ms instead of 56–64).
+  - **Blobs by digest.** The play-content store holds each artifact's bytes
+    once by digest with the sets that declare it; a new Play of unchanged
+    content shares them (the closure still reads and checks each asset
+    through the workspace; `counters().blobs`).
+  - **Compiled behaviors** are kept by the compiler instance (successful
+    compiles, 256 least recently used) keyed by the digest of the source
+    container, the declaration, each library's digest, the forbidden-string
+    list and the compiler's recipe (compiler and esbuild pins, pinned
+    modules, limits); a custom `build` is never cached.
+  - **The closure's derivation of a capture** (content view, media
+    identity, scene files and digests, instance buffers, the merged start
+    scene and its digest) is kept for the next build of the same capture:
+    keyed by the captured content object and compared by identity over the
+    captured scenes' fields and the merged scene's entities, with the
+    revision and start scenes. Only frozen inputs are remembered (the
+    workspace's captured reads are deep-frozen), so a remembered input
+    cannot have changed; an edit is a new capture and derives everything
+    again (tested). The backend passes Node's native SHA-256 for the scene
+    files (the same digests).
+  - The play-started message no longer serializes an over-bound snapshot
+    into a message before sending it by reference.
+  Not done: the preview origin's other static files (the Draco/KTX2
+  decoders) still carry no cache headers; the export path still hashes
+  scene files with the portable SHA-256 (not part of a Play start).
+  **After split** (same command; Plays 2–3, Play 1 in brackets):
+
+  | Stage | small | large | asset-heavy |
+  |---|---|---|---|
+  | Play-start response (backend total) | 73–75 (3–10) [113] | 133–178 (37–61) [2 526 (485)] | 109–110 (42–43) [471] |
+  | backend closure view / scenes / manifest | 0–1 / 0 / 1–5 | 10–15 / 0 / 6–29 [325 / 54 / 69] | 2 / 0 / 3 |
+  | bundle fetch + eval | 0 + 12 (was 47–49 + 56–58) | 0 + 11–14 (was 49–70 + 59–79) | 0 + 12–13 |
+  | first frame | **467–468** [628] (was 580–595 after d) | **2 662–2 692** [5 458] (was 3 718–3 930) | **562–622** [1 299] (was 778–902) |
+  | frames > 50 ms in the 10 s after (worst) | 0 | 23–55 of 209–222 (61–71; 0 > 250 ms) | 0 |
+
+  The acceptance's large case (under 3 s from the second Play on) is met;
+  its steady frame time on this GPU is ~48 ms at 583 draws, so the frames
+  over 50 ms after the first are not a start effect. Play 1 of the run
+  above answered its start after 2.5 s (backend 0.5 s): the editor's Scene
+  view was still building its first frame's programs for the instance sets
+  (chunked instanced meshes, one program each) — see the next entry.
 

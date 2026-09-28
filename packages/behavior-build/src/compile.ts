@@ -43,6 +43,7 @@ import type {
   BehaviorCompileInput,
   BehaviorCompileOptions,
   BehaviorCompileResult,
+  BehaviorCompileSuccess,
   BehaviorCompiler,
   BehaviorCompilerLimits,
   BehaviorManifest,
@@ -489,6 +490,8 @@ export function createBehaviorCompiler(
     pinnedModules?: readonly PinnedModuleRef[];
     now?: () => number;
     build?: BehaviorCompileOptions['build'];
+    /** Phase 25.24c: successful compiles kept (least recently used first out; default 256, 0: none). */
+    cacheEntries?: number;
   } = {},
 ): BehaviorCompiler {
   const pinnedModules = options.pinnedModules ?? M2_PINNED_MODULES;
@@ -496,11 +499,46 @@ export function createBehaviorCompiler(
   const compileOptions: BehaviorCompileOptions = { libraryCache: createLibraryCache() };
   if (options.now !== undefined) compileOptions.now = options.now;
   if (options.build !== undefined) compileOptions.build = options.build;
+  // Phase 25.24c: a compile is a pure function of its input and this compiler (a custom `build` is not
+  // cached), so a successful one is kept by the digest of what it compiled: the source container, the
+  // declaration, the libraries it may link (their digests), the pinned modules, the limits and the
+  // compiler's recipe. A Play of unchanged scripts then compiles nothing.
+  const maxEntries = options.build !== undefined ? 0 : Math.max(0, options.cacheEntries ?? 256);
+  const memo = new Map<string, BehaviorCompileSuccess>();
+  const stats = { hits: 0, misses: 0 };
+  const keyOf = (input: BehaviorCompileInput): string =>
+    sha256HexOfText(
+      canonicalJsonText({
+        behaviorId: input.behaviorId,
+        declaration: input.declaration,
+        source: sha256Hex(input.containerBytes),
+        libraries: (input.libraries ?? []).map((l) => ({ libraryId: l.libraryId, digest: sha256Hex(l.containerBytes) })),
+        forbidden: input.forbiddenStrings ?? [],
+        recipe: compileRecipe({ properties: [] }, pinnedModules, withLimits(COMPILER_LIMITS, input.limits)),
+      }),
+    );
   return {
     pinnedModules,
     compile(input: BehaviorCompileInput): Promise<BehaviorCompileResult> {
-      return compileBehavior({ ...input, pinnedModules }, compileOptions);
+      if (maxEntries === 0) return compileBehavior({ ...input, pinnedModules }, compileOptions);
+      const key = keyOf(input);
+      const hit = memo.get(key);
+      if (hit !== undefined) {
+        stats.hits += 1;
+        memo.delete(key);
+        memo.set(key, hit);
+        return Promise.resolve(hit);
+      }
+      stats.misses += 1;
+      return compileBehavior({ ...input, pinnedModules }, compileOptions).then((r) => {
+        if (r.ok) {
+          memo.set(key, r);
+          if (memo.size > maxEntries) memo.delete(memo.keys().next().value as string);
+        }
+        return r;
+      });
     },
+    cacheStats: () => ({ hits: stats.hits, misses: stats.misses, entries: memo.size }),
     checkLibrary(input: ScriptLibraryCheckInput): Promise<ScriptLibraryCheckResult> {
       return checkScriptLibrary({ ...input, pinnedModules }, compileOptions);
     },

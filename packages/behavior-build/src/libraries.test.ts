@@ -175,6 +175,26 @@ describe('script libraries', () => {
     expect(transforms).toBe(1);
     expect(typeof compiler.checkLibrary).toBe('function');
   });
+
+  it('phase 25.24c: a compiler instance compiles the same input once (keyed by source, declaration and library digests)', async () => {
+    const compiler = createBehaviorCompiler();
+    const src = (v: string): Uint8Array => container([{ path: 'src/index.ts', text: `import { NAME } from '@lib/rules';\nexport default { v: NAME + '${v}', step() {} };\n` }]);
+    const input = { behaviorId: 'one', declaration: NO_PROPS, containerBytes: src('a'), pinnedModules: M2_PINNED_MODULES, libraries: [RULES] };
+    const a = await compiler.compile(input);
+    const b = await compiler.compile({ ...input, containerBytes: src('a') });
+    expect(a.ok && b.ok).toBe(true);
+    expect(b).toBe(a);
+    expect(compiler.cacheStats!()).toEqual({ hits: 1, misses: 1, entries: 1 });
+    // Another source, another library version, another declaration: compiled again.
+    const c = await compiler.compile({ ...input, containerBytes: src('b') });
+    const otherRules = lib('rules', [{ path: 'src/index.ts', text: "export const NAME = 'other';\n" }]);
+    const d = await compiler.compile({ ...input, libraries: [otherRules] });
+    const e = await compiler.compile({ ...input, declaration: { properties: [{ key: 'speed', type: 'number', default: 1 }] } as never });
+    expect([c, d].every((r) => r.ok && r !== a)).toBe(true);
+    expect(e).not.toBe(a);
+    expect(compiler.cacheStats!().misses).toBe(4);
+    if (a.ok && c.ok && d.ok) expect(new Set([a.outputDigest, c.outputDigest, d.outputDigest]).size).toBe(3);
+  });
 });
 
 describe('.json data modules', () => {

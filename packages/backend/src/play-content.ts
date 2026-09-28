@@ -20,7 +20,7 @@
  * buffered and bounded (512 MiB per set, 32 MiB per artifact) so a locator
  * read can never reach a project directory, a temp directory or a listing.
  */
-import { createHash, randomBytes as nodeRandomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes as nodeRandomBytes } from 'node:crypto';
 
 import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, PLAY_CONTENT_GRACE_SECONDS, PLAY_CONTENT_SET_MAX_BYTES, PLAY_CONTENT_TTL_SECONDS, type LocatorPath, type SessionError } from '@thirdlight/protocol';
 
@@ -122,6 +122,15 @@ export class PlayContentStore {
   private readonly maxArtifactBytes: number;
   private readonly sets = new Map<string, PlayContentSet>();
   private readonly byPlay = new Map<string, string>();
+  /**
+   * Phase 25.24c: every artifact once by its digest (a Play of unchanged
+   * content shares the bytes of the Plays before it instead of holding a
+   * copy), with the sets that declare it.
+   */
+  private readonly blobs = new Map<string, { artifact: PlayArtifact; holders: Set<string> }>();
+  /** Phase 25.24c: the per-project cache root ids (a keyed hash of the project id) → the project. */
+  private readonly cacheIds = new Map<string, string>();
+  private readonly cacheSecret = nodeRandomBytes(32);
   private sweepTimer: ReturnType<typeof setInterval> | undefined;
   /** Counters for the lifecycle/leak tests. */
   published = 0;
@@ -166,7 +175,17 @@ export class PlayContentStore {
     let contentId = this.randomId();
     while (this.sets.has(contentId)) contentId = this.randomId();
     const artifacts = new Map<string, PlayArtifact>();
-    for (const a of input.artifacts) artifacts.set(a.path, a);
+    for (const a of input.artifacts) {
+      // Phase 25.24c: the bytes already held under this digest are shared, not kept twice.
+      const held = this.blobs.get(a.digest);
+      if (held !== undefined && held.artifact.bytes.length === a.bytes.length) {
+        artifacts.set(a.path, held.artifact.path === a.path && held.artifact.contentType === a.contentType ? held.artifact : { ...a, bytes: held.artifact.bytes });
+        held.holders.add(contentId);
+      } else {
+        artifacts.set(a.path, a);
+        if (held === undefined) this.blobs.set(a.digest, { artifact: a, holders: new Set([contentId]) });
+      }
+    }
     const set: PlayContentSet = {
       contentId,
       playSessionId: input.playSessionId,
@@ -189,6 +208,41 @@ export class PlayContentStore {
 
   get(contentId: string): PlayContentSet | undefined {
     return this.sets.get(contentId);
+  }
+
+  /**
+   * Phase 25.24c: the project's cache root id — a keyed hash of the project
+   * id (43 base64url characters, the contentId shape), the same for every
+   * Play of the project while this backend runs, unguessable without the
+   * store's secret. Under it the project's declared artifacts are served by
+   * digest (`content/sha256/<digest>`, `behaviors/<digest>.js`) at URLs that
+   * stay the same from Play to Play, so the browser's cache hits.
+   */
+  cacheIdFor(projectId: string): string {
+    const id = base64Url(new Uint8Array(createHmac('sha256', this.cacheSecret).update(`play-cache:${projectId}`).digest()));
+    this.cacheIds.set(id, projectId);
+    return id;
+  }
+
+  /** The project of a cache root id (undefined: not one). */
+  cacheProject(cacheId: string): string | undefined {
+    return this.cacheIds.get(cacheId);
+  }
+
+  /**
+   * Phase 25.24c: an artifact by its digest under a project's cache root —
+   * only while a set of that project that declares it can still be read
+   * (live, or in its grace window).
+   */
+  artifactByDigest(projectId: string, digest: string): PlayArtifact | undefined {
+    this.reads += 1;
+    const held = this.blobs.get(digest);
+    if (held === undefined) return undefined;
+    for (const contentId of held.holders) {
+      const set = this.sets.get(contentId);
+      if (set !== undefined && set.projectId === projectId && this.status(set) !== 'expired') return held.artifact;
+    }
+    return undefined;
   }
 
   /** The set issued for one play session (a play has at most one). */
@@ -257,6 +311,7 @@ export class PlayContentStore {
       if (deadline + this.ttlMs <= nowMs) {
         this.sets.delete(id);
         if (this.byPlay.get(set.playSessionId) === id) this.byPlay.delete(set.playSessionId);
+        this.release(id, set);
         dropped += 1;
       }
     }
@@ -264,17 +319,28 @@ export class PlayContentStore {
     return dropped;
   }
 
-  /** Leak/accounting counters for the lifecycle tests. */
-  counters(): { sets: number; plays: number; bytes: number; timers: number; published: number; pruned: number; reads: number } {
-    let bytes = 0;
-    for (const set of this.sets.values()) {
-      bytes += set.manifestBytes.length;
-      for (const a of set.artifacts.values()) bytes += a.bytes.length;
+  /** Phase 25.24c: a dropped set no longer holds its blobs (a blob no set holds is let go). */
+  private release(contentId: string, set: PlayContentSet): void {
+    for (const a of set.artifacts.values()) {
+      const held = this.blobs.get(a.digest);
+      if (held === undefined) continue;
+      held.holders.delete(contentId);
+      if (held.holders.size === 0) this.blobs.delete(a.digest);
     }
+  }
+
+  /** Leak/accounting counters for the lifecycle tests (phase 25.24c: `bytes` counts each blob once; `blobs` held). */
+  counters(): { sets: number; plays: number; bytes: number; blobs: number; timers: number; published: number; pruned: number; reads: number } {
+    let bytes = 0;
+    for (const set of this.sets.values()) bytes += set.manifestBytes.length;
+    const unique = new Set<Uint8Array>();
+    for (const set of this.sets.values()) for (const a of set.artifacts.values()) unique.add(a.bytes);
+    for (const b of unique) bytes += b.length;
     return {
       sets: this.sets.size,
       plays: this.byPlay.size,
       bytes,
+      blobs: this.blobs.size,
       timers: this.sweepTimer === undefined ? 0 : 1,
       published: this.published,
       pruned: this.pruned,
@@ -291,6 +357,8 @@ export class PlayContentStore {
     }
     this.sets.clear();
     this.byPlay.clear();
+    this.blobs.clear();
+    this.cacheIds.clear();
   }
 }
 
