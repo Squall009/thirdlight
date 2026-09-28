@@ -154,7 +154,8 @@ describe('the generic Inspector over the real registry', () => {
         if (f === undefined) continue;
         const next = nudge(f, cur);
         if (next === undefined) continue;
-        const pickers = { assets: [], scenes: [], refs: {}, entities: s.scene.entities.map((e: Any) => ({ id: e.id, name: e.name ?? e.id, components: Object.keys(e.components) })) };
+        // Phase 25.24e: the fixture's scene can be named (an absent scene transition is made with its required scene when one of its fields is edited).
+        const pickers = { assets: [], scenes: [{ sceneId: String((s.scene as Any).sceneId), name: 'Main' }], refs: {}, entities: s.scene.entities.map((e: Any) => ({ id: e.id, name: e.name ?? e.id, components: Object.keys(e.components) })) };
         const patch = componentPatch(desc, before, path, next, { seeds: seedsOf(DESCRIPTORS.components.find((c) => c.name === entry.component)!), pick: (g) => firstReference(g, pickers) });
         if (patch === null) continue;
         const r = run(s, 'setComponent', { entityId: target, component: entry.component, value: patch });

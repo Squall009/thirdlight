@@ -58,6 +58,21 @@ export interface SceneLoadTiming {
   attachFrameMs: number | null;
   /** Phase 25.24d: the precompile that frame waited for (ms; null: none). */
   precompileMs?: number | null;
+  /** Phase 25.24e: it was read ahead (a preload) before the game asked. */
+  preloaded?: boolean;
+  /** Phase 25.24e: its assets were prepared (models parsed, textures decoded) and it went to the simulation. */
+  preparedMs?: number | null;
+  /**
+   * Phase 25.24e: draw calls of the last frame drawn before the request, of
+   * the frame that attached it, and the fewest of any frame drawn from the
+   * request to the end of the watch after the attach (an empty world shows
+   * as a drop), with the frames drawn while it loaded and their longest gap.
+   */
+  drawsBefore?: number | null;
+  attachDraws?: number | null;
+  drawsMin?: number | null;
+  loadingFrames?: number;
+  loadingWorstMs?: number;
   /** Frames in the FRAME_WATCH_MS after the attach. */
   after: FrameWatch;
   error?: string;
@@ -90,10 +105,11 @@ export interface StartTimings {
    * frame adds the stages `rendererInit` (first call → the first drawn
    * frame's call) and `firstRender` (that call).
    */
-  frame(info?: { readonly realizedScenes?: readonly string[]; readonly renderMs?: number; readonly firstCallAt?: number; readonly precompile?: { readonly startedAt: number; readonly ms: number } }): void;
-  /** The game asked for a scene / its file is read / the read failed. */
-  sceneRequested(sceneId: string): void;
+  frame(info?: { readonly realizedScenes?: readonly string[]; readonly renderMs?: number; readonly firstCallAt?: number; readonly precompile?: { readonly startedAt: number; readonly ms: number }; readonly draws?: number }): void;
+  /** The game asked for a scene (phase 25.24e: `preloaded` when it was read ahead) / its file is read / prepared / the read failed. */
+  sceneRequested(sceneId: string, preloaded?: boolean): void;
   sceneRead(sceneId: string, entities: number): void;
+  scenePrepared(sceneId: string, entities?: number): void;
   sceneFailed(sceneId: string, message: string): void;
   report(): StartTimingsReport;
 }
@@ -125,6 +141,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
   const counts: Record<string, number> = {};
   let firstFrameMs: number | null = null;
   let lastFrameMs: number | null = null;
+  let lastDraws: number | null = null;
   const afterFirst = emptyWatch();
   const loads: SceneLoadTiming[] = [];
   const pendingLoad = (sceneId: string): SceneLoadTiming | undefined => {
@@ -171,27 +188,44 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
       } else if (t - firstFrameMs <= FRAME_WATCH_MS) {
         addFrame(afterFirst, t, gap);
       }
+      const draws = info?.draws;
       for (const l of loads) {
         if (l.attachedMs !== null && t - l.attachedMs > 0 && t - l.attachedMs <= FRAME_WATCH_MS) addFrame(l.after, t, gap);
+        // Phase 25.24e: frames while it loads, and the fewest draws from the request to the end of the watch.
+        if (l.attachedMs === null && l.error === undefined) {
+          l.loadingFrames = (l.loadingFrames ?? 0) + 1;
+          l.loadingWorstMs = Math.max(l.loadingWorstMs ?? 0, round1(gap));
+        }
+        if (draws !== undefined && (l.attachedMs === null || t - l.attachedMs <= FRAME_WATCH_MS)) l.drawsMin = l.drawsMin === null || l.drawsMin === undefined ? draws : Math.min(l.drawsMin, draws);
       }
+      if (draws !== undefined) lastDraws = draws;
       for (const sceneId of info?.realizedScenes ?? []) {
         const l = pendingLoad(sceneId);
         if (l !== undefined && l.attachedMs === null) {
           l.attachedMs = round1(t);
           l.attachFrameMs = round1(gap);
           l.precompileMs = info?.precompile !== undefined ? round1(info.precompile.ms) : null;
+          l.attachDraws = draws ?? null;
         }
       }
     },
-    sceneRequested(sceneId) {
-      loads.push({ sceneId, requestedMs: round1(now()), readMs: null, entities: null, attachedMs: null, attachFrameMs: null, after: emptyWatch() });
+    sceneRequested(sceneId, preloaded) {
+      loads.push({ sceneId, requestedMs: round1(now()), readMs: null, entities: null, attachedMs: null, attachFrameMs: null, after: emptyWatch(), preloaded: preloaded === true, preparedMs: null, drawsBefore: lastDraws, attachDraws: null, drawsMin: null, loadingFrames: 0, loadingWorstMs: 0 });
       if (loads.length > MAX_SCENE_LOADS) loads.shift();
     },
     sceneRead(sceneId, entities) {
       const l = pendingLoad(sceneId);
-      if (l === undefined) return;
+      if (l === undefined || l.readMs !== null) return;
       l.readMs = round1(now());
       l.entities = entities;
+    },
+    scenePrepared(sceneId, entities) {
+      const l = pendingLoad(sceneId);
+      if (l === undefined) return;
+      if (l.entities === null && entities !== undefined) l.entities = entities;
+      // A scene read ahead was read before the request: its read counts as done then.
+      if (l.readMs === null) l.readMs = l.requestedMs;
+      l.preparedMs = round1(now());
     },
     sceneFailed(sceneId, message) {
       const l = pendingLoad(sceneId);

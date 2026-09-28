@@ -123,7 +123,7 @@ export interface RuntimeSnapshot {
   /** Phase 24.4i, v4 only, optional: the event → cue table (`content.eventCues`); absent: no event sounds. */
   eventCues?: readonly RuntimeEventCue[];
   /** Phase 24.4j, optional: the shell's ordered scene list (`content.shell.scenes`) the `scene` UI event walks. */
-  sceneList?: readonly { readonly scene: string; readonly spawn?: string }[];
+  sceneList?: readonly ListedScene[];
 }
 
 /** Phase 24.4i: one row of the event → cue table (project-model `EventCue`). */
@@ -143,6 +143,14 @@ export interface RuntimeSceneRow {
   entityIds?: readonly string[];
 }
 
+/** Phase 24.4j: one entry of the shell's scene list (phase 25.24e: with the fade of a move to it). */
+export interface ListedScene {
+  readonly scene: string;
+  readonly spawn?: string;
+  readonly fade?: number;
+  readonly fadeColor?: string;
+}
+
 /** Phase 12 (c): where a scene is in its load cycle. */
 export type SceneStatus = 'unloaded' | 'loading' | 'loaded';
 
@@ -153,6 +161,46 @@ export type SceneStatus = 'unloaded' | 'loading' | 'loaded';
  */
 export interface SceneLoadOptions {
   at?: readonly [number, number, number];
+  /**
+   * Phase 25.24e: scenes unloaded when this one is in (a transition). They
+   * stay drawn until the loaded scene replaces them in the same step, so the
+   * view never shows an empty world.
+   */
+  unload?: readonly string[];
+  /** Phase 25.24e: seconds the view fades out before the swap and back in after it (0–5; absent: 0, no fade). */
+  fade?: number;
+  /** Phase 25.24e: the fade's colour ("#rrggbb"; absent: black). */
+  fadeColor?: string;
+}
+
+/**
+ * Phase 25.24e: a scene transition in progress (a trigger's scene
+ * transition, a move along the shell's scene list, a load with `unload` or
+ * `fade`): the scene it waits for, and where it is — `out` while the view
+ * fades out, `loading` while the scene is read and prepared.
+ */
+export interface SceneTransitionView {
+  readonly scene: string;
+  readonly phase: 'out' | 'loading';
+  /** How far the view has faded out (0–1; 1 for a transition without a fade). */
+  readonly fade: number;
+  /** The fade's length (seconds; 0: none) and colour. */
+  readonly seconds: number;
+  readonly color: string;
+  /** The scenes it unloads once its scene is in. */
+  readonly unload: readonly string[];
+}
+
+/**
+ * Phase 25.24e: scene loading as the page reads it (a loading screen, the
+ * fade): the scenes being loaded, the transition waiting (null: none) and
+ * the last swap a transition made (the page fades back in once it has drawn
+ * that scene set revision).
+ */
+export interface SceneLoadingView {
+  readonly loading: readonly string[];
+  readonly transition: SceneTransitionView | null;
+  readonly swap: { readonly scene: string; readonly revision: number; readonly seconds: number; readonly color: string } | null;
 }
 
 /** Phase 12 (c): the scene API a behavior script reaches as `ctx.scenes`. */
@@ -179,6 +227,18 @@ export interface BehaviorSceneControl {
    * @graphNode Loaded scenes
    */
   loaded(): readonly string[];
+  /**
+   * Phase 25.24e: the scenes being loaded (asked for, not yet in), in request order.
+   * @graphPure
+   * @graphNode Loading scenes
+   */
+  loading(): readonly string[];
+  /**
+   * Phase 25.24e: the scene transition in progress (its scene, `out` while the view fades out, `loading` while the scene loads), or null.
+   * @graphPure
+   * @graphNode Scene transition
+   */
+  transition(): SceneTransitionView | null;
 }
 
 /** Phase 12 (c): a read-only view of entity transforms (`ctx.world`). */
@@ -2208,6 +2268,8 @@ export interface Runtime {
   requestArrival?(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError };
   /** Phase 22.0: why `requestScene(op, sceneId)` would be refused now (null: accepted); changes nothing. */
   sceneRequestProblem?(op: 'load' | 'unload', sceneId: string): string | null;
+  /** Phase 25.24e: the scenes being loaded, the transition waiting and the last swap (a loading screen, the fade). */
+  sceneLoadingView?(): SceneLoadingView;
 
   // ---- Phase 23.8 debug commands -------------------------------------------
   /** The registered debug commands and the calls the game ran (newest last, at most 16). */

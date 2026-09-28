@@ -96,13 +96,22 @@ export interface SceneTransitionRequest {
   readonly scene: string;
   readonly spawn: string | null;
   readonly unload: readonly string[];
+  /** Phase 25.24e: seconds the view fades out before the swap and back in after it (0: none), and its colour. */
+  readonly fade?: number;
+  readonly fadeColor?: string;
 }
 
 function transitionOf(v: unknown): SceneTransitionRequest | null {
   if (typeof v !== 'object' || v === null) return null;
-  const t = v as { scene?: unknown; spawn?: unknown; unload?: unknown };
+  const t = v as { scene?: unknown; spawn?: unknown; unload?: unknown; fade?: unknown; fadeColor?: unknown };
   if (typeof t.scene !== 'string') return null;
-  return Object.freeze({ scene: t.scene, spawn: typeof t.spawn === 'string' ? t.spawn : null, unload: Object.freeze(Array.isArray(t.unload) ? t.unload.filter((x): x is string => typeof x === 'string') : []) });
+  return Object.freeze({
+    scene: t.scene,
+    spawn: typeof t.spawn === 'string' ? t.spawn : null,
+    unload: Object.freeze(Array.isArray(t.unload) ? t.unload.filter((x): x is string => typeof x === 'string') : []),
+    ...(typeof t.fade === 'number' && Number.isFinite(t.fade) && t.fade > 0 ? { fade: Math.min(5, t.fade) } : {}),
+    ...(typeof t.fadeColor === 'string' ? { fadeColor: t.fadeColor } : {}),
+  });
 }
 
 interface Switch extends Box {

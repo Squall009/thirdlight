@@ -39,6 +39,10 @@ export interface ShellScene {
   scene: string;
   /** The player spawn the character starts at (a playerSpawn object in that scene; absent: it stays where it is). */
   spawn?: string;
+  /** Phase 25.24e: seconds the view fades out before a move to this scene and back in after it (0–5; absent: no fade). */
+  fade?: number;
+  /** Phase 25.24e: the fade's colour (#rrggbb; absent: black). */
+  fadeColor?: string;
 }
 
 export interface GameShell {
@@ -90,8 +94,10 @@ export function validateShell(v: unknown, path: string, errors: ModelErrorV2[]):
     else {
       scenes.forEach((s, i) => {
         const p = `${path}/scenes/${i}`;
-        if (!isPlainObject(s)) return err(errors, 'field_type', p, 'a listed scene is { scene, spawn? }', s, 'object');
-        for (const k of Object.keys(s)) if (k !== 'scene' && k !== 'spawn') err(errors, 'field_unexpected', `${p}/${k}`, `unknown field "${k}"`, k, 'scene, spawn');
+        if (!isPlainObject(s)) return err(errors, 'field_type', p, 'a listed scene is { scene, spawn?, fade?, fadeColor? }', s, 'object');
+        for (const k of Object.keys(s)) if (k !== 'scene' && k !== 'spawn' && k !== 'fade' && k !== 'fadeColor') err(errors, 'field_unexpected', `${p}/${k}`, `unknown field "${k}"`, k, 'scene, spawn, fade, fadeColor');
+        if (s['fade'] !== undefined && !(typeof s['fade'] === 'number' && Number.isFinite(s['fade']) && s['fade'] >= 0 && s['fade'] <= 5)) err(errors, 'field_value', `${p}/fade`, 'fade is seconds (0–5)', s['fade'], 'a number 0–5');
+        if (s['fadeColor'] !== undefined && !(typeof s['fadeColor'] === 'string' && /^#[0-9a-f]{6}$/.test(s['fadeColor']))) err(errors, 'field_value', `${p}/fadeColor`, 'fadeColor is a colour #rrggbb (lower case)', s['fadeColor'], '#rrggbb');
         if (typeof s['scene'] !== 'string' || s['scene'].length === 0 || s['scene'].length > 128) err(errors, 'field_value', `${p}/scene`, 'a listed scene names a scene', s['scene'], 'a sceneId');
         if (s['spawn'] !== undefined && (typeof s['spawn'] !== 'string' || s['spawn'].length === 0 || s['spawn'].length > 128)) err(errors, 'field_value', `${p}/spawn`, 'spawn names a player spawn object', s['spawn'], 'an entity id');
       });
@@ -116,7 +122,7 @@ export function canonicalShell(s: GameShell): GameShell {
   return {
     ...(s.screens !== undefined ? { screens: Object.fromEntries(SHELL_SCREENS.filter((k) => s.screens![k] !== undefined).map((k) => [k, s.screens![k]!])) } : {}),
     ...(s.hud !== undefined ? { hud: [...s.hud] } : {}),
-    ...(s.scenes !== undefined ? { scenes: s.scenes.map((x) => ({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}) })) } : {}),
+    ...(s.scenes !== undefined ? { scenes: s.scenes.map((x) => ({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}), ...(x.fade !== undefined ? { fade: x.fade } : {}), ...(x.fadeColor !== undefined ? { fadeColor: x.fadeColor } : {}) })) } : {}),
     ...(s.pause !== undefined ? { pause: s.pause } : {}),
     ...(s.status !== undefined ? { status: s.status } : {}),
   };

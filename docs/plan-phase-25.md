@@ -162,7 +162,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.24d | done 2026-09-28: pipelines built ahead of a present (`compileAsync` into the pass the frame draws, before the first present and after each scene attach, both backends; `precompile` stage and counters in diagnostics); automatic batches drawn through instance-matrix columns so batches of one material share one node program (three r186 built one per instanced mesh: 573 on the large bench); the shadow probe is the first frame, not an extra render; large first frame 7.1 → 3.7–3.9 s; after split in §6 |
 | 25.24c | done 2026-09-28: the bundle, worker and physics scripts at `/play-build/<digest>/`, a project's declared artifacts by digest under a stable per-project cache root (`immutable`, `ETag`, 304; the page still checks the bytes); blobs held once by digest; compiled behaviors cached by source, declaration, library and compiler digests; the closure's derivation of an unchanged capture reused, scene files hashed natively; large second Play 7.1 → 2.7 s (backend 1 s → 40–60 ms, bundle from the browser's caches); after split in §6 |
 | 25.24d (instance sets) | done 2026-09-28: instance-set chunks drawn through the same columns (one program per mesh of the model, not per chunk; picked per copy as before); the editor's first frame on the large bench 1.6 → 0.4 s of programs, so its first Play answers after 1.3 s (was 2.5–5 s); large second Play 2.4–2.5 s |
-| 25.7–25.23, 25.24e, f, h | — |
+| 25.24e | done 2026-09-28: scene loads prepared before the simulation gets them (file read, models parsed, instance buffers and textures decoded: `prepareScene`, the page's preloader); the next scenes read ahead (transition targets of the loaded scenes, the shell's next listed scene; at most 4); a transition's unloads leave in the step its scene arrives (never an empty world); optional `fade`/`fadeColor` on scene transitions, scene list entries and `ctx.scenes.load`; loading state in `ctx.scenes.loading()/transition()`, `$flow.scenes`, the observation; a large scene's entities copied over steps (4 ms a step); 2D/3D collider removal one pass (unload 54 → 17 ms); `scene-loads.e2e.ts` measures no empty frame (draw calls per frame, both renderers) |
+| 25.7–25.23, 25.24f, h | — |
 
 ## 6. Decision log
 
@@ -551,3 +552,61 @@ boundary it changes (Playwright for any editor surface).
   realization (~0.3 s), the precompile and the first draw with its shadow
   map (~0.8 s).
 
+- 2026-09-28 (25.24e): a scene transition never shows an empty world. Before,
+  a transition queued its unloads for the next step and its load for when
+  the file was read; the frames between drew the world without either scene,
+  and the new scene's models and textures were read and parsed on the frames
+  after it attached. Now:
+  - **The swap is one step.** A transition (a trigger's, a scene list move,
+    or `ctx.scenes.load(id, {unload})`) keeps the scenes it unloads until its
+    scene is in, then removes them in the step boundary that adds it (one
+    scene set revision). A scene that cannot be read cancels the transition
+    and keeps the world (logged); a transition to a scene already in unloads
+    at once. `ctx.scenes.unload` alone is unchanged.
+  - **Prepared before it attaches.** The page's scene loader (`createScene-
+    Preloader`, game-host, Play and the export) reads the file, then has the
+    render side prepare the scene — its declared assets read and checked (the
+    start scenes' scan, `startSceneAssets`, per scene), models parsed and kept
+    (`ModelsRealization.hold`), instance buffers and textures decoded
+    (`SceneAdapter.prepareScene`) — and only then answers the simulation. The
+    adapter lets go of the hold once it realized the scene (its entities hold
+    the assets then). The frame that attaches it is held for its precompile
+    (25.24d), so the old picture stays until the whole new one is drawn. A
+    preparation that takes over 30 s lets the scene go anyway (its assets then
+    stream in).
+  - **Read ahead:** the targets of the scene transitions in the loaded
+    scenes (and spawned copies) and the shell's next listed scene, at most 4,
+    unloaded ones only, re-named whenever the scene set changes; one no longer
+    named is let go. Every entry of the scene list was the plan's wording;
+    the next one is taken (the most generic sound choice: a 32-scene list
+    read ahead whole would hold every model of the game). A jump to another
+    entry still shows no empty world, only a longer wait (with the fade).
+  - **Loading state:** `ctx.scenes.loading()`, `ctx.scenes.transition()`
+    (`{scene, phase: out|loading, fade, seconds, color, unload}`), the
+    runtime's `sceneLoadingView` (mirrored from the worker), `$flow.scenes`
+    `{loading, scenes, transition}` for UI documents, `scenes.transition` /
+    `preloading` / `preloaded` in the observation.
+  - **Fade** (optional, 0–5 s, `fadeColor`): on `trigger.sceneTransition`,
+    shell scene list entries and `ctx.scenes.load`. The fade-out runs in
+    steps (the swap waits for it and for the scene), the fade-in on the page
+    once a presented frame drew the swap (`presentedSceneRevision`), both on
+    the host's fade overlay (the timeline fade's; the stronger wins). A
+    paused game finishes a fade-out at once (no steps).
+  - **Spread over steps:** measured in the headless simulation (perf `sim`
+    surface, large class, its last scene of 1 714 entities loaded later):
+    the attach step was ~40–90 ms on a loaded host, of which copying and
+    freezing the entities was 13–38 ms and the 2D port's collider removal on
+    unload 28 ms (it scanned every collider record per removed entity). The
+    copy now runs 4 ms per step boundary before the attach; the rest (adding
+    colliders, attaching, behaviors instantiated: ~11–18 ms) stays one step,
+    since a half-attached scene would be a partial world. Collider removal is
+    one pass in both ports (unload step 54–60 → 17–19 ms). In a worker these
+    run off the page, which keeps drawing.
+  - **Measured in a real browser** (`scene-loads.e2e.ts`, GPU host, auto =
+    WebGPU and the forced WebGL 2 variant): the start scene alone draws 21
+    calls, scene A 23; a door in A sends the character to B (a textured wall
+    and a model file) with a 0.4 s fade. Every frame from B's request to 10 s
+    after it attached drew at least 23 calls (no empty frame); B was
+    prepared 27 ms after its request and attached after the fade-out (~0.45 s)
+    in a 58–85 ms frame drawing its final 25 calls; no frame over 250 ms; the
+    fade overlay went 0 → 1 → 0.

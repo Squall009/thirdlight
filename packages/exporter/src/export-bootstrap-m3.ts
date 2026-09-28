@@ -65,6 +65,8 @@ import {
   threadingLogLine,
   createVerifiedAssetReader,
   startSceneAssets,
+  createScenePreloader,
+  pageScenePreparation,
   type RemoteSimulation,
 } from '@thirdlight/game-host';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
@@ -253,7 +255,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // Phase 12 (c): the scene catalog (start scenes read once for their
   // members; the others load on demand through the host).
   const io = { read: readArtifactBytes, sha256Hex };
-  const catalog = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io) : null;
+  const catalog0 = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io) : null;
+  // Phase 25.24e: scene loads are prepared (assets read, models parsed) before the simulation gets them; likely next scenes are read ahead.
+  const scenes = catalog0 === null ? null : createScenePreloader({ read: catalog0.loadScene });
+  const catalog = catalog0 === null || scenes === null ? null : { rows: catalog0.rows, loadScene: scenes.load };
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
@@ -512,6 +517,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     // Phase 25.24b: a declared asset (a sound, a glyph, a UI image) through the checked reader.
     readArtifact: (path: string) => assetReader.bytesAt(path) ?? readArtifactBytes(path),
     ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
+    ...(scenes !== null ? { scenes } : {}),
     container,
     buildId: manifest.buildId,
     assetPaths: assetPathsById,
@@ -535,8 +541,22 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   const mount = host.mount();
   if (!mount.ok) {
     void remote?.dispose();
+    scenes?.dispose();
     throw new Error(`host mount failed: ${JSON.stringify(mount.error)}`);
   }
+  scenes?.setPrepare(
+    pageScenePreparation({
+      adapter: () => adapterRef.current,
+      reader: assetReader,
+      sources: {
+        assets: manifest.assets ?? [],
+        ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
+        ...(manifest.materialFunctions !== undefined ? { materialFunctions: manifest.materialFunctions } : {}),
+        ...(manifest.effects !== undefined ? { effects: manifest.effects } : {}),
+        ...(manifest.lighting !== undefined ? { lighting: manifest.lighting } : {}),
+      },
+    }),
+  );
 
   // The model prepares run while the game plays and never block it
   // (delivery.md (M4) §2.8): a hard failure is a structured on-page error and

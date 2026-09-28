@@ -186,6 +186,9 @@ export interface FrameDrawnInfo {
   readonly firstCallAt: number;
   /** Phase 25.24d: the precompile this frame waited for (the first present, a scene attached): when it began (`performance.now()`) and how long it ran (ms). */
   readonly precompile?: { readonly startedAt: number; readonly ms: number };
+  /** Phase 25.24e: the frame's draw calls, and the scene set revision it drew (the runtime's; -1 without scenes). */
+  readonly draws?: number;
+  readonly sceneRevision?: number;
 }
 
 /** Adapter diagnostics block (runtime.md §8, separate block; the M3
@@ -305,6 +308,15 @@ export interface SceneAdapter {
    * host places world-anchored UI widgets with it.
    */
   projectToScreen?(target: { readonly entityId?: string; readonly point?: readonly number[]; readonly offset?: readonly number[] }, out: number[]): boolean;
+  /**
+   * Phase 25.24e: prepare a scene before it loads — its model files read
+   * and parsed, instance buffers decoded and the textures `textures` names
+   * decoded — and keep them until the scene is realized (or `release`), so
+   * the frame that attaches it draws it whole. `ready` never rejects.
+   */
+  prepareScene?(sceneId: string, entities: readonly { readonly id: string; readonly components: unknown }[], textures?: readonly string[]): { readonly ready: Promise<void>; release(): void };
+  /** Phase 25.24e: the runtime's scene set revision the last presented frame drew (-1: none drawn yet). */
+  presentedSceneRevision?(): number;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
@@ -1135,6 +1147,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
   /** Phase 25.24a: the scenes realized since the last drawn frame (for `onFrameDrawn`). */
   const frameRealized: string[] = [];
+  /** Phase 25.24e: scenes prepared ahead of their load (released once realized). */
+  const sceneHolds = new Map<string, { release(): void }>();
+  /** Phase 25.24e: the scene set revision the last presented frame drew. */
+  let presentedRevision = -1;
   function syncSceneSet(): void {
     const set = opts.runtime.sceneSet?.();
     if (set === undefined || set.revision === realizedRevision) return;
@@ -1155,6 +1171,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const e of entities) realizeEntity(e);
       realizedScenes.set(b.sceneId, new Set(entities.map((e) => e.id)));
       realization?.addEntities(modelRefsOf(entities));
+      // Phase 25.24e: its entities hold what the preparation held.
+      sceneHolds.get(b.sceneId)?.release();
+      sceneHolds.delete(b.sceneId);
       frameRealized.push(b.sceneId);
       // Phase 25.24d: the attached scene's programs are built before it is presented.
       precompileWanted ??= 'scene';
@@ -1630,12 +1649,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
     lastFrameDrawn = true;
+    presentedRevision = realizedRevision;
     if (opts.onFrameDrawn !== undefined) {
       const realized = frameRealized.splice(0);
       try {
         const pre = precompileSettled;
         precompileSettled = null;
-        opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}) });
+        opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}), draws: lastFrameCounts.drawCalls, sceneRevision: realizedRevision });
       } catch {
         /* a timing hook never breaks a frame */
       }
@@ -1808,6 +1828,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     animatorPlayers.clear();
     lightmaps?.dispose();
     runtimeMaterials?.dispose();
+    sceneHolds.clear();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();
     // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization
@@ -1901,6 +1922,29 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     previewEnvironmentBlend(view: EnvironmentBlendView | null): void {
       envPreview = view;
+    },
+    prepareScene(sceneId, entities, textures) {
+      sceneHolds.get(sceneId)?.release();
+      sceneHolds.delete(sceneId);
+      if (disposed) return { ready: Promise.resolve(), release: () => undefined };
+      const refs = modelRefsOf(entities);
+      const assets = new Set([...refs.models.values(), ...[...refs.instances.values()].map((r) => r.assetId)]);
+      const held = realization?.hold?.(assets, [...refs.instances.values()].map((r) => r.buffer)) ?? null;
+      const decoded = textures !== undefined && textures.length > 0 && materialLibrary?.preloadTextures !== undefined ? materialLibrary.preloadTextures(textures).catch(() => undefined) : Promise.resolve();
+      let released = false;
+      const handle = {
+        release: (): void => {
+          if (released) return;
+          released = true;
+          held?.release();
+          if (sceneHolds.get(sceneId) === handle) sceneHolds.delete(sceneId);
+        },
+      };
+      sceneHolds.set(sceneId, handle);
+      return { ready: Promise.all([held?.ready ?? Promise.resolve(), decoded]).then(() => undefined), release: handle.release };
+    },
+    presentedSceneRevision(): number {
+      return presentedRevision;
     },
     setEnvironmentLayer(layer: EnvironmentLayerLike | null): void {
       if (JSON.stringify(layer) === JSON.stringify(environmentLayer)) return;

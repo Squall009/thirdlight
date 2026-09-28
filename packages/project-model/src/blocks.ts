@@ -85,13 +85,19 @@ export interface SceneTransitionAction {
   scene: string;
   /** Where the character arrives: a player spawn in `scene` (or the trigger's own scene). */
   spawn?: string;
-  /** Scenes unloaded at the same time (absent: none). */
+  /** Scenes unloaded once `scene` is in, in the same step (absent: none). */
   unload?: string[];
+  /** Phase 25.24e: seconds the view fades out before the swap and back in after it (0–5; absent: no fade). */
+  fade?: number;
+  /** Phase 25.24e: the fade's colour (#rrggbb; absent: black). */
+  fadeColor?: string;
 }
 
 /** Phase 24.4e: at most this many scenes a transition unloads (the exit zone's limit). */
 export const MAX_TRANSITION_UNLOADS = 16;
-export const SCENE_TRANSITION_FIELDS = ['scene', 'spawn', 'unload'] as const;
+export const SCENE_TRANSITION_FIELDS = ['scene', 'spawn', 'unload', 'fade', 'fadeColor'] as const;
+/** Phase 25.24e: the longest transition fade (seconds, each way). */
+export const MAX_TRANSITION_FADE = 5;
 
 export interface SwitchComponent {
   mode: (typeof SWITCH_MODES)[number];
@@ -189,7 +195,7 @@ export const TRIGGER_FIELDS = ['size', 'signal', 'once', 'exitSignal', 'shape', 
 export const SWITCH_FIELDS = ['mode', 'signal', 'size', 'once', 'action'] as const;
 
 function validateSceneTransition(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'sceneTransition is an object { scene, spawn?, unload? }', value);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'sceneTransition is an object { scene, spawn?, unload?, fade?, fadeColor? }', value);
   fields(value, SCENE_TRANSITION_FIELDS, ['scene'], path, errors);
   if (value['scene'] !== undefined && (typeof value['scene'] !== 'string' || !SCENE_OR_ENTITY_RE.test(value['scene']))) err(errors, 'field_value', `${path}/scene`, 'scene names a scene (a scene id)', value['scene']);
   if (value['spawn'] !== undefined && (typeof value['spawn'] !== 'string' || !SCENE_OR_ENTITY_RE.test(value['spawn']))) err(errors, 'field_value', `${path}/spawn`, 'spawn names a player spawn (an entity id)', value['spawn']);
@@ -197,6 +203,10 @@ function validateSceneTransition(value: unknown, path: string, errors: ModelErro
   if (u !== undefined && (!Array.isArray(u) || u.length > MAX_TRANSITION_UNLOADS || !u.every((x) => typeof x === 'string' && SCENE_OR_ENTITY_RE.test(x)) || new Set(u).size !== u.length)) {
     err(errors, 'field_value', `${path}/unload`, `unload is up to ${MAX_TRANSITION_UNLOADS} different scene ids`, u);
   }
+  const f = value['fade'];
+  if (f !== undefined && !(typeof f === 'number' && Number.isFinite(f) && f >= 0 && f <= MAX_TRANSITION_FADE)) err(errors, 'field_value', `${path}/fade`, `fade is seconds (0–${MAX_TRANSITION_FADE})`, f);
+  const c = value['fadeColor'];
+  if (c !== undefined && !(typeof c === 'string' && /^#[0-9a-f]{6}$/.test(c))) err(errors, 'field_value', `${path}/fadeColor`, 'fadeColor is a colour #rrggbb (lower case)', c);
 }
 
 export function validateSwitchComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -244,7 +254,7 @@ export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
   ...(c.height !== undefined ? { height: c.height } : {}),
   // Phase 24.4e: last, so an existing trigger keeps its exact canonical bytes.
   ...(c.sceneTransition !== undefined
-    ? { sceneTransition: { scene: c.sceneTransition.scene, ...(c.sceneTransition.spawn !== undefined ? { spawn: c.sceneTransition.spawn } : {}), ...(c.sceneTransition.unload !== undefined ? { unload: [...c.sceneTransition.unload] } : {}) } }
+    ? { sceneTransition: { scene: c.sceneTransition.scene, ...(c.sceneTransition.spawn !== undefined ? { spawn: c.sceneTransition.spawn } : {}), ...(c.sceneTransition.unload !== undefined ? { unload: [...c.sceneTransition.unload] } : {}), ...(c.sceneTransition.fade !== undefined ? { fade: c.sceneTransition.fade } : {}), ...(c.sceneTransition.fadeColor !== undefined ? { fadeColor: c.sceneTransition.fadeColor } : {}) } }
     : {}),
 });
 // Phase 24.4f: `action` last (an existing switch keeps its exact canonical bytes).

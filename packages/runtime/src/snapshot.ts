@@ -79,7 +79,7 @@ export function validateRuntimeSnapshot(
       modes?: RuntimeModes;
       timelines?: readonly TimelineAsset[];
       eventCues?: readonly EventCue[];
-      sceneList?: readonly { readonly scene: string; readonly spawn?: string }[];
+      sceneList?: readonly import('./types').ListedScene[];
       environmentPresets?: readonly string[];
     }
   | { error: RuntimeError } {
@@ -336,12 +336,22 @@ export function validateRuntimeSnapshot(
     eventCues = canonicalEventCues((snap as { eventCues: EventCue[] }).eventCues);
   }
   // Phase 24.4j: the shell's ordered scene list (the `scene` UI event walks it).
-  let sceneList: readonly { readonly scene: string; readonly spawn?: string }[] | undefined;
+  let sceneList: readonly import('./types').ListedScene[] | undefined;
   if ((snap as { sceneList?: unknown }).sceneList !== undefined) {
     const list = (snap as { sceneList?: unknown }).sceneList;
-    const ok = Array.isArray(list) && list.length >= 1 && list.length <= 32 && list.every((x) => typeof x === 'object' && x !== null && !Array.isArray(x) && Object.keys(x).every((k) => k === 'scene' || k === 'spawn') && typeof (x as { scene?: unknown }).scene === 'string' && SCENE_ID_RE.test((x as { scene: string }).scene) && ((x as { spawn?: unknown }).spawn === undefined || (typeof (x as { spawn?: unknown }).spawn === 'string' && ((x as { spawn: string }).spawn.length > 0 && (x as { spawn: string }).spawn.length <= 128))));
-    if (!ok) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/sceneList', message: 'sceneList is 1–32 entries { scene, spawn? }' } };
-    sceneList = (list as { scene: string; spawn?: string }[]).map((x) => Object.freeze({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}) }));
+    const entryOk = (x: unknown): boolean => {
+      if (typeof x !== 'object' || x === null || Array.isArray(x)) return false;
+      const e = x as { scene?: unknown; spawn?: unknown; fade?: unknown; fadeColor?: unknown };
+      if (!Object.keys(e).every((k) => k === 'scene' || k === 'spawn' || k === 'fade' || k === 'fadeColor')) return false;
+      if (typeof e.scene !== 'string' || !SCENE_ID_RE.test(e.scene)) return false;
+      if (e.spawn !== undefined && !(typeof e.spawn === 'string' && e.spawn.length > 0 && e.spawn.length <= 128)) return false;
+      // Phase 25.24e: the fade of a move to the entry (seconds, colour).
+      if (e.fade !== undefined && !(typeof e.fade === 'number' && Number.isFinite(e.fade) && e.fade >= 0 && e.fade <= 5)) return false;
+      return e.fadeColor === undefined || (typeof e.fadeColor === 'string' && /^#[0-9a-f]{6}$/.test(e.fadeColor));
+    };
+    const ok = Array.isArray(list) && list.length >= 1 && list.length <= 32 && list.every(entryOk);
+    if (!ok) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/sceneList', message: 'sceneList is 1–32 entries { scene, spawn?, fade?, fadeColor? }' } };
+    sceneList = (list as import('./types').ListedScene[]).map((x) => Object.freeze({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}), ...(x.fade !== undefined ? { fade: x.fade } : {}), ...(x.fadeColor !== undefined ? { fadeColor: x.fadeColor } : {}) }));
   }
   // Phase 23.18: the optional environment preset ids (ctx.environment).
   let environmentPresets: readonly string[] | undefined;

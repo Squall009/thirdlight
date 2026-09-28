@@ -501,7 +501,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { shape: 'sphere', radius: 1.5, signal: 'enter' },
     { shape: 'capsule', radius: 0.025, height: 500, signal: 'enter' },
     // Phase 24.4e: a scene transition.
-    { size: [2, 2, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-0001', unload: ['scene-c'] } },
+    { size: [2, 2, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-0001', unload: ['scene-c'], fade: 0.5, fadeColor: '#101820' } },
   ],
   switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }, { mode: 'interact', signal: 'open', size: [1, 1], action: 'use' }],
   health: [{ max: 5, start: 3 }],
@@ -812,7 +812,7 @@ function runAllProbes(): void {
   // Phase 24.4i: the event → cue table (the shape validator; the sounds' kinds are the project's check).
   probe('eventCues', (v) => errorsOf((e) => validateEventCues(v, '', e)), [{ on: 'event', name: 'collected', entity: 'spawn-0001', assetId: 'cue-a', volume: 0.5, bus: 'ui' }, { on: 'signal', name: 'door', assetId: 'cue-a' }], '', block('eventCues'), 'eventCues:');
   // Phase 24.4j: the game shell (the shape validator; its documents, scenes and spawns are the project's check).
-  probe('shell', (v) => errorsOf((e) => validateShell(v, '', e)), { screens: { title: 'title', pause: 'pause', settings: 'settings', controls: 'controls', save: 'saves', load: 'saves' }, hud: ['hud'], scenes: [{ scene: 'main', spawn: 'spawn-0001' }], pause: false, status: true }, '', block('shell'), 'shell:');
+  probe('shell', (v) => errorsOf((e) => validateShell(v, '', e)), { screens: { title: 'title', pause: 'pause', settings: 'settings', controls: 'controls', save: 'saves', load: 'saves' }, hud: ['hud'], scenes: [{ scene: 'main', spawn: 'spawn-0001', fade: 1, fadeColor: '#000000' }], pause: false, status: true }, '', block('shell'), 'shell:');
   probe('behaviorGroups', contentErrors, contentDoc({ behaviorGroups: ['field', 'board'] }), '/behaviorGroups', block('behaviorGroups'), 'behaviorGroups:');
   // Phase 23.17: timelines (json items).
   probe('timelines', contentErrors, contentDoc({ timelines: [{ timelineId: 'intro', name: 'Intro', duration: 2, tracks: [{ trackId: 's', type: 'signal', keys: [{ time: 1, name: 'go' }] }] }] }), '/timelines', block('timelines'), 'timelines:');

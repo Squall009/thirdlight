@@ -95,6 +95,8 @@ import {
   createVerifiedAssetReader,
   startSceneAssets,
   AssetReadError,
+  createScenePreloader,
+  pageScenePreparation,
   type VerifiedAssetReader,
   type RemoteSimulation,
   type SimAccess,
@@ -450,25 +452,24 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     ? await prepareSceneCatalog(manifest.scenes, { read: readDeclared, sha256Hex })
     : null;
   timings?.end('startScenes');
-  // Phase 25.24a: each scene loaded during play is timed (request, read, the frame that attaches it).
-  const catalog = catalog0 === null || timings === undefined
-    ? catalog0
-    : {
-        rows: catalog0.rows,
-        loadScene: (sceneId: string) => {
-          timings.sceneRequested(sceneId);
-          return catalog0.loadScene(sceneId).then(
-            (entities) => {
-              timings.sceneRead(sceneId, entities.length);
-              return entities;
-            },
-            (e: unknown) => {
-              timings.sceneFailed(sceneId, e instanceof Error ? e.message : String(e));
-              throw e;
-            },
-          );
-        },
-      };
+  // Phase 25.24e: scene loads go through the preloader (read, then prepared on the render side before the
+  // simulation gets them; the scenes a game is likely to load next are read ahead). Phase 25.24a: each is timed.
+  const scenes = catalog0 === null
+    ? null
+    : createScenePreloader({
+        read: catalog0.loadScene,
+        ...(timings !== undefined
+          ? {
+              hooks: {
+                requested: (sceneId: string, preloaded: boolean) => timings.sceneRequested(sceneId, preloaded),
+                read: (sceneId: string, n: number) => timings.sceneRead(sceneId, n),
+                prepared: (sceneId: string, n: number) => timings.scenePrepared(sceneId, n),
+                failed: (sceneId: string, message: string) => timings.sceneFailed(sceneId, message),
+              },
+            }
+          : {}),
+      });
+  const catalog = catalog0 === null || scenes === null ? null : { rows: catalog0.rows, loadScene: scenes.load };
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   // Phase 9.7: the animator controllers come from the verified manifest.
@@ -526,7 +527,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // (the input listeners, the focus listener, the audio owner and its context,
   // the unlock listeners) — a new snapshot composes again on the same canvas —
   // and on every failure path below.
-  const releases: (() => void)[] = [() => browserInput.dispose(), focusGameSurface(cfg.canvas)];
+  const releases: (() => void)[] = [() => browserInput.dispose(), focusGameSurface(cfg.canvas), ...(scenes !== null ? [() => scenes.dispose()] : [])];
   const releaseAll = (): void => {
     for (const r of releases.splice(0).reverse()) {
       try {
@@ -723,6 +724,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Phase 25.24b: a declared asset (a sound, a glyph, a UI image) through the checked reader; other paths as they are.
       readArtifact: (path) => assetReader.bytesAt(path) ?? readDeclared(path),
       ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
+      ...(scenes !== null ? { scenes } : {}),
       container: cfg.container as unknown as HostDomNode,
       buildId: manifest.buildId,
       assetPaths: assetPathsById,
@@ -764,6 +766,20 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     if (!mount.ok) {
       throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
     }
+    // Phase 25.24e: a scene is prepared (assets read, models parsed, textures decoded) before the simulation gets it.
+    scenes?.setPrepare(
+      pageScenePreparation({
+        adapter: () => adapterRef.current,
+        reader: assetReader,
+        sources: {
+          assets: manifest.assets,
+          ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
+          ...(manifest.materialFunctions !== undefined ? { materialFunctions: manifest.materialFunctions } : {}),
+          ...(manifest.effects !== undefined ? { effects: manifest.effects } : {}),
+          ...(manifest.lighting !== undefined ? { lighting: manifest.lighting } : {}),
+        },
+      }),
+    );
     // Phase 23.19: a project save slot's picture (a data URL) for the page — a game's load screen, tests.
     (globalThis as { __thirdlightSaveThumbnail?: (slot: number) => Promise<string | null> }).__thirdlightSaveThumbnail = (slot: number) => host.projectSaves?.thumbnail(slot) ?? Promise.resolve(null);
 

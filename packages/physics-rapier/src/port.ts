@@ -1016,14 +1016,18 @@ function createAdapter(
     },
     removeStaticColliders(entityIds: readonly string[]): void {
       assertLive('removeStaticColliders');
+      // Phase 25.24e: one pass over the collider records for the whole batch (a scene's unload removed
+      // them per entity, over every record: 28 ms for 1 700 of 16 000).
+      const gone = new Set<unknown>();
       for (const id of entityIds) {
         const body = staticBodies.get(id);
         if (body === undefined) continue;
-        for (const [handle, info] of [...colliderInfo]) if (info.body === body) colliderInfo.delete(handle);
+        gone.add(body);
         // Removing the body frees its collider too.
         world.removeRigidBody(body);
         staticBodies.delete(id);
       }
+      if (gone.size > 0) for (const [handle, info] of [...colliderInfo]) if (gone.has(info.body)) colliderInfo.delete(handle);
       relist();
     },
     dispose(): void {

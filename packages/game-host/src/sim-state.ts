@@ -71,6 +71,8 @@ export class FrameEncoder {
   private socketsRef: readonly unknown[] | null = null;
   /** Phase 23.17: the timeline view last sent (the runtime keeps one object while nothing changes). */
   private timelineRef: unknown = null;
+  /** Phase 25.24e: the scene loading view last sent (the runtime keeps one object while nothing changes). */
+  private loadingRef: unknown = null;
   private shared: { sab: SharedArrayBuffer; slotFloats: number; slot: number; fresh: boolean } | null = null;
   private readonly useShared: boolean;
   private readonly visit: (id: string, p: readonly number[], r: readonly number[], s: readonly number[]) => void;
@@ -357,6 +359,12 @@ export class FrameEncoder {
       this.timelineRef = tl;
       out.tl = tl;
     }
+    // Phase 25.24e: scene loading (the scenes loading, a transition waiting, its swap) when it changed.
+    const sl = rt.sceneLoadingView?.();
+    if (sl !== undefined && sl !== this.loadingRef) {
+      this.loadingRef = sl;
+      out.sl = sl;
+    }
     if (typeof extra.memoryBytes === 'number' && extra.memoryBytes !== this.memoryBytes) {
       this.memoryBytes = extra.memoryBytes;
       out.memoryBytes = extra.memoryBytes;
@@ -446,6 +454,8 @@ export class FrameMirror {
   sockets: readonly { readonly entityId: string; readonly target: string; readonly node: string }[] = Object.freeze([]);
   /** Phase 23.17: the timelines' view. */
   timeline: import('@thirdlight/runtime').TimelineView | null = null;
+  /** Phase 25.24e: scene loading (absent until the worker sent it). */
+  loading: import('@thirdlight/runtime').SceneLoadingView | undefined = undefined;
   private sharedSab: SharedArrayBuffer | null = null;
   /** The previous full transform buffer (returned to the worker for reuse). */
   spare: ArrayBuffer | null = null;
@@ -542,6 +552,7 @@ export class FrameMirror {
     if (s.mode !== undefined) this.mode = s.mode;
     if (s.sockets !== undefined) this.sockets = deepFreeze(s.sockets);
     if (s.tl !== undefined) this.timeline = s.tl === null ? null : deepFreeze(s.tl);
+    if (s.sl !== undefined) this.loading = deepFreeze(s.sl);
   }
 }
 

@@ -128,6 +128,11 @@ export interface MaterialLibrary {
   setRuntimeData(meshes: readonly THREE.Object3D[], materialId: string, key: string, texture: THREE.Texture | undefined): void;
   /** Phase 23.12: the compiled graph materials alive (objects with different values share one). */
   graphMaterialCount(): number;
+  /**
+   * Phase 25.24e: decode texture assets ahead of the materials that use them
+   * (a scene about to load); resolves when each is decoded or unavailable.
+   */
+  preloadTextures?(textureAssetIds: Iterable<string>): Promise<void>;
   dispose(): void;
 }
 
@@ -655,6 +660,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   };
 
   return {
+    preloadTextures(ids) {
+      if (disposed) return Promise.resolve();
+      return Promise.all([...ids].map((id) => texture(id))).then(() => undefined);
+    },
     setMaterials(list, fns) {
       defs = new Map(list.map((d) => [d.materialId, d]));
       if (fns !== undefined) functions = new Map(fns.filter((f) => f.kind === 'material-function').map((f) => [f.graphId, f]));

@@ -320,6 +320,7 @@ export {
   // Phase 24.4e/f: scene transitions, switch actions, face-velocity models.
   FACE_MOVEMENT_MODES,
   MAX_TRANSITION_UNLOADS,
+  MAX_TRANSITION_FADE,
   SWITCH_DEFAULT_ACTION,
   type SceneTransitionAction,
   type PatrolComponent,

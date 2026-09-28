@@ -862,14 +862,17 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
 
     removeStaticColliders(entityIds: readonly string[]): void {
       assertLive('removeStaticColliders');
+      // Phase 25.24e: one pass over the collider records for the whole batch.
+      const gone = new Set<unknown>();
       for (const id of entityIds) {
         const body = bodies.get(id);
         if (body === undefined) continue;
-        for (const [handle, info] of [...infoByHandle]) if (info.body === body) infoByHandle.delete(handle);
+        gone.add(body);
         world.removeRigidBody(body);
         bodies.delete(id);
         kinematicAt.delete(id);
       }
+      if (gone.size > 0) for (const [handle, info] of [...infoByHandle]) if (gone.has(info.body)) infoByHandle.delete(handle);
       world.step();
     },
 

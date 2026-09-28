@@ -131,6 +131,8 @@ import {
   type RuntimeSceneRow,
   type SceneLoadOptions,
   type SceneLoadRequest,
+  type SceneLoadingView,
+  type SceneTransitionView,
   type SceneSetView,
   type SceneStatus,
   type EffectRequest,
@@ -1195,7 +1197,7 @@ interface RuntimeArgs {
   /** Phase 24.4i: the event → cue table. */
   eventCues?: readonly import('./types').RuntimeEventCue[];
   /** Phase 24.4j: the shell's ordered scene list. */
-  sceneList?: readonly { readonly scene: string; readonly spawn?: string }[];
+  sceneList?: readonly import('./types').ListedScene[];
   /** Phase 23.18: the environment preset ids (ctx.environment). */
   environmentPresets: readonly string[];
 }
@@ -1213,7 +1215,23 @@ interface SceneBatchState {
 }
 
 /** Phase 12 (c): one requested scene operation, committed with its step. */
-type SceneOp = { op: 'load'; sceneId: string; at?: readonly [number, number, number] } | { op: 'unload'; sceneId: string };
+/** Phase 25.24e: what a transition does once its scene is in: the scenes it unloads (in the same step), its fade (seconds, colour). */
+interface TransitionSpec {
+  readonly unload: readonly string[];
+  readonly fade: number;
+  readonly color: string;
+}
+type SceneOp = { op: 'load'; sceneId: string; at?: readonly [number, number, number]; transition?: TransitionSpec } | { op: 'unload'; sceneId: string };
+/**
+ * Phase 25.24e: the time a step boundary spends preparing loaded scenes'
+ * entities (copying and freezing them) before it attaches them; a large
+ * scene is prepared over several steps and attached in one.
+ */
+const SCENE_PREP_BUDGET_MS = 4;
+const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+/** Phase 25.24e: the longest fade a transition takes (seconds, each way). */
+const MAX_TRANSITION_FADE = 5;
+const FADE_COLOR_RE = /^#[0-9a-f]{6}$/;
 
 /** Phase 24.4f: the largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
 export const CHARACTER_IMPULSE_MAX = 100;
@@ -1369,7 +1387,18 @@ class RuntimeInstance implements Runtime {
   private fetchingLoads = new Map<string, { at?: readonly [number, number, number] }>();
   /** Fetched scenes waiting for the next step boundary. */
   private readyLoads = new Map<string, readonly EntityV3[]>();
+  /** Phase 25.24e: fetched scenes being prepared (copied and frozen, a budget per step boundary) before they attach. */
+  private preparedLoads = new Map<string, { readonly out: EntityV3[]; next: number }>();
   private pendingUnloads = new Set<string>();
+  /**
+   * Phase 25.24e: transitions waiting for their scene (keyed by it): the
+   * scenes they unload stay loaded (and drawn) until it is in, then both
+   * happen at one step boundary. `outLeft`: steps of fade-out still to go.
+   */
+  private transitions = new Map<string, TransitionSpec & { readonly fadeSteps: number; outLeft: number }>();
+  /** Phase 25.24e: the last swap a transition made (the page fades back in once it drew that revision). */
+  private lastSwap: { readonly scene: string; readonly revision: number; readonly seconds: number; readonly color: string } | null = null;
+  private loadingViewCache: { key: string; view: import('./types').SceneLoadingView } | null = null;
   /** Scene ops issued during the running step (committed with it). */
   private stepSceneOps: SceneOp[] = [];
   private sceneRevision = 0;
@@ -1422,7 +1451,7 @@ class RuntimeInstance implements Runtime {
   /** Phase 24.8: a loaded save's character placement, once the scenes it waits for are in. */
   private pendingRestore: { position: readonly [number, number, number]; velocity: readonly [number, number, number]; waitFor: readonly string[] } | null = null;
   /** Phase 24.4j: the shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
-  private readonly sceneList: readonly { readonly scene: string; readonly spawn?: string }[];
+  private readonly sceneList: readonly import('./types').ListedScene[];
   private listedScene: number | null = null;
   private pendingListedScene: number | null = null;
   /** Phase 24.4i: the event → cue table (empty: no event sounds). */
@@ -2686,6 +2715,8 @@ class RuntimeInstance implements Runtime {
     if (!this.fetchingLoads.has(sceneId)) return { ok: true };
     if (!result.ok) {
       this.fetchingLoads.delete(sceneId);
+      // Phase 25.24e: a transition to a scene that could not be read keeps the world it has.
+      this.transitions.delete(sceneId);
       this.setSceneStatus(sceneId, 'unloaded');
       this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" could not be loaded: ${result.message}`), stepIndex: this.stepIndex, reason: 'fetch' });
       return { ok: true };
@@ -2698,8 +2729,39 @@ class RuntimeInstance implements Runtime {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const problem = this.sceneOpProblem(op, sceneId, options);
     if (problem !== null) return { ok: false, error: fail('scene_invalid', problem, { reason: op }) };
-    this.enqueueSceneOp(op === 'load' ? { op, sceneId, ...(options?.at !== undefined ? { at: options.at } : {}) } : { op, sceneId });
+    this.enqueueSceneOp(op === 'load' ? this.loadOp(sceneId, options) : { op, sceneId });
     return { ok: true };
+  }
+
+  /** Phase 25.24e: a load op from (validated) load options: its offset, and a transition when it unloads or fades. */
+  private loadOp(sceneId: string, options: SceneLoadOptions | undefined): SceneOp {
+    const at = options?.at;
+    const unload = options?.unload ?? [];
+    const fade = options?.fade ?? 0;
+    return {
+      op: 'load',
+      sceneId,
+      ...(at !== undefined ? { at: Object.freeze([at[0], at[1], at[2]] as const) } : {}),
+      ...(unload.length > 0 || fade > 0 ? { transition: Object.freeze({ unload: Object.freeze([...unload]), fade, color: options?.fadeColor ?? '#000000' }) } : {}),
+    };
+  }
+
+  /** Phase 25.24e: the scenes being loaded, the transition waiting and the last swap (unchanged views are the same object). */
+  sceneLoadingView(): import('./types').SceneLoadingView {
+    const loading: string[] = [];
+    for (const [id, st] of this.sceneStatus) if (st === 'loading') loading.push(id);
+    let transition: import('./types').SceneTransitionView | null = null;
+    for (const [scene, t] of this.transitions) {
+      if (this.sceneStatus.get(scene) !== 'loading') continue;
+      const fade = t.fadeSteps === 0 ? 1 : Math.round((1 - t.outLeft / t.fadeSteps) * 1000) / 1000;
+      transition = { scene, phase: t.outLeft > 0 ? 'out' : 'loading', fade, seconds: t.fade, color: t.color, unload: t.unload };
+      break;
+    }
+    const key = `${loading.join(',')}|${transition === null ? '' : `${transition.scene}:${transition.phase}:${transition.fade}`}|${this.lastSwap?.revision ?? -1}`;
+    if (this.loadingViewCache !== null && this.loadingViewCache.key === key) return this.loadingViewCache.view;
+    const view = deepFreeze({ loading, transition, swap: this.lastSwap === null ? null : { ...this.lastSwap } });
+    this.loadingViewCache = { key, view };
+    return view;
   }
 
   /**
@@ -2838,7 +2900,7 @@ class RuntimeInstance implements Runtime {
       // Phase 14.5: scene loads/unloads still apply (a paused game's menu may
       // show another scene — the title background); this is the same step
       // boundary the next step would apply them at, so runs replay alike.
-      if (!this.applySceneOps()) return;
+      if (!this.applySceneOps(false)) return;
       this.anchor = { wall: t, simTime: this.simTime };
       this.lastAlpha = 0;
       this.onFrame?.();
@@ -3416,18 +3478,27 @@ class RuntimeInstance implements Runtime {
    * load (`runArrival`).
    */
   private beginSceneTransition(triggerId: string, t: SceneTransitionRequest): void {
-    const ops: SceneOp[] = [...t.unload.map((sceneId): SceneOp => ({ op: 'unload', sceneId })), { op: 'load', sceneId: t.scene }];
-    let loads = true;
-    for (const op of ops) {
-      const problem = this.sceneOpProblem(op.op, op.sceneId);
+    // Phase 25.24e: the unloads wait for the scene (they leave in the step it arrives), so the view is never empty.
+    const unload: string[] = [];
+    for (const sceneId of t.unload) {
+      const problem = sceneId === t.scene ? `it unloads the scene it loads (${JSON.stringify(sceneId)})` : this.sceneOpProblem('unload', sceneId);
       if (problem !== null) {
-        this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.stepIndex, reason: op.op });
-        if (op.op === 'load') loads = false;
+        this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.stepIndex, reason: 'unload' });
         continue;
       }
-      this.enqueueSceneOp(op);
+      unload.push(sceneId);
     }
-    if (t.spawn === null || !loads) return;
+    const problem = this.sceneOpProblem('load', t.scene);
+    if (problem !== null) {
+      this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.stepIndex, reason: 'load' });
+      // Nothing to wait for: the unloads go as before.
+      for (const sceneId of unload) this.enqueueSceneOp({ op: 'unload', sceneId });
+      return;
+    }
+    const fade = t.fade !== undefined && Number.isFinite(t.fade) ? Math.max(0, Math.min(MAX_TRANSITION_FADE, t.fade)) : 0;
+    const color = t.fadeColor !== undefined && FADE_COLOR_RE.test(t.fadeColor) ? t.fadeColor : '#000000';
+    this.enqueueSceneOp({ op: 'load', sceneId: t.scene, transition: Object.freeze({ unload: Object.freeze(unload), fade, color }) });
+    if (t.spawn === null) return;
     this.pendingArrival = { spawnId: t.spawn, waitFor: t.scene };
   }
 
@@ -3452,7 +3523,7 @@ class RuntimeInstance implements Runtime {
     this.listedScene = index;
     const unload = prev !== undefined && prev.scene !== entry.scene && !this.startBatchSource.has(prev.scene) && this.batches.has(prev.scene) ? [prev.scene] : [];
     if (!this.batches.has(entry.scene) && this.sceneStatus.get(entry.scene) !== 'loading') {
-      this.beginSceneTransition(`scene list ${index}`, { scene: entry.scene, spawn: entry.spawn ?? null, unload });
+      this.beginSceneTransition(`scene list ${index}`, { scene: entry.scene, spawn: entry.spawn ?? null, unload, ...(entry.fade !== undefined ? { fade: entry.fade } : {}), ...(entry.fadeColor !== undefined ? { fadeColor: entry.fadeColor } : {}) });
       return;
     }
     for (const sceneId of unload) {
@@ -3991,6 +4062,18 @@ class RuntimeInstance implements Runtime {
       if (at !== undefined && !(Array.isArray(at) && at.length === 3 && at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6))) {
         return 'load option "at" must be [x, y, z] (finite, |v| <= 1e6)';
       }
+      // Phase 25.24e: a transition's unloads and fade.
+      const o = options as { unload?: unknown; fade?: unknown; fadeColor?: unknown };
+      if (o.unload !== undefined) {
+        if (!Array.isArray(o.unload) || o.unload.length > 16 || !o.unload.every((x) => typeof x === 'string')) return 'load option "unload" must be up to 16 scene ids';
+        for (const u of o.unload as string[]) {
+          if (u === sceneId) return `load option "unload" names the scene it loads (${JSON.stringify(u)})`;
+          const p = this.sceneOpProblem('unload', u);
+          if (p !== null) return `load option "unload": ${p}`;
+        }
+      }
+      if (o.fade !== undefined && !(typeof o.fade === 'number' && Number.isFinite(o.fade) && o.fade >= 0 && o.fade <= MAX_TRANSITION_FADE)) return `load option "fade" must be seconds (0–${MAX_TRANSITION_FADE})`;
+      if (o.fadeColor !== undefined && !(typeof o.fadeColor === 'string' && FADE_COLOR_RE.test(o.fadeColor))) return 'load option "fadeColor" must be "#rrggbb" (lower case)';
     }
     if (op === 'unload') {
       const batch = this.batches.get(sceneId);
@@ -4009,7 +4092,15 @@ class RuntimeInstance implements Runtime {
     if (op.op === 'load') {
       if (status === 'loaded') {
         this.pendingUnloads.delete(op.sceneId); // load after unload in one step: stays loaded
+        // Phase 25.24e: a transition to a scene that is in: its unloads go now (nothing to wait for).
+        for (const u of op.transition?.unload ?? []) if (u !== op.sceneId && this.sceneOpProblem('unload', u) === null) this.enqueueSceneOp({ op: 'unload', sceneId: u });
         return;
+      }
+      // Phase 25.24e: a transition waits for its scene (a later one for the same scene replaces it).
+      if (op.transition !== undefined) {
+        const fadeSteps = Math.round(op.transition.fade * this.hz);
+        this.transitions.set(op.sceneId, { ...op.transition, fadeSteps, outLeft: fadeSteps });
+        this.loadingViewCache = null;
       }
       if (status === 'loading') return;
       this.requestedLoads.set(op.sceneId, op.at !== undefined ? { at: op.at } : {});
@@ -4024,6 +4115,8 @@ class RuntimeInstance implements Runtime {
       this.requestedLoads.delete(op.sceneId);
       this.fetchingLoads.delete(op.sceneId);
       this.readyLoads.delete(op.sceneId);
+      this.preparedLoads.delete(op.sceneId);
+      this.transitions.delete(op.sceneId);
       this.setSceneStatus(op.sceneId, 'unloaded');
     }
   }
@@ -4038,8 +4131,7 @@ class RuntimeInstance implements Runtime {
       load(sceneId: string, options?: SceneLoadOptions): void {
         const problem = rt.sceneOpProblem('load', sceneId, options);
         if (problem !== null) refuse(`ctx.scenes.load: ${problem}`);
-        const at = options?.at;
-        rt.stepSceneOps.push({ op: 'load', sceneId, ...(at !== undefined ? { at: Object.freeze([at[0], at[1], at[2]] as const) } : {}) });
+        rt.stepSceneOps.push(rt.loadOp(sceneId, options));
       },
       unload(sceneId: string): void {
         const problem = rt.sceneOpProblem('unload', sceneId);
@@ -4054,6 +4146,12 @@ class RuntimeInstance implements Runtime {
       loaded(): readonly string[] {
         return Object.freeze([...rt.batches.keys()]);
       },
+      loading(): readonly string[] {
+        return rt.sceneLoadingView().loading;
+      },
+      transition() {
+        return rt.sceneLoadingView().transition;
+      },
     });
   }
 
@@ -4061,18 +4159,46 @@ class RuntimeInstance implements Runtime {
    * The step boundary for scenes: pending unloads, then fetched loads.
    * Returns `false` after a fail-stop (a module refused a loaded scene).
    */
-  private applySceneOps(): boolean {
+  private applySceneOps(stepped = true): boolean {
     if (this.sceneRows === null) return true;
     if (this.pendingUnloads.size > 0) {
       for (const sceneId of this.pendingUnloads) this.removeBatch(sceneId);
       this.pendingUnloads.clear();
     }
+    // Phase 25.24e: fade-outs advance one step per step (a paused game draws no fade: it is done at once).
+    for (const t of this.transitions.values()) {
+      if (t.outLeft === 0) continue;
+      t.outLeft = stepped ? t.outLeft - 1 : 0;
+      this.loadingViewCache = null;
+    }
     if (this.readyLoads.size === 0) return true;
+    const deadline = nowMs() + SCENE_PREP_BUDGET_MS;
     for (const [sceneId, entities] of [...this.readyLoads]) {
+      // Phase 25.24e: copy and freeze its entities within the step's budget (a large scene over several steps).
+      let prep = this.preparedLoads.get(sceneId);
+      if (prep === undefined) this.preparedLoads.set(sceneId, (prep = { out: [], next: 0 }));
+      while (prep.next < entities.length) {
+        prep.out.push(deepFreeze(structuredClone(entities[prep.next]!)));
+        prep.next += 1;
+        if ((prep.next & 63) === 0 && nowMs() > deadline) break;
+      }
+      if (prep.next < entities.length) continue;
+      const t = this.transitions.get(sceneId);
+      if (t !== undefined && t.outLeft > 0) continue; // the view fades out first
       this.readyLoads.delete(sceneId);
+      this.preparedLoads.delete(sceneId);
       const at = this.fetchingLoads.get(sceneId)?.at;
       this.fetchingLoads.delete(sceneId);
-      if (!this.addBatch(sceneId, offsetEntities(entities, at), false)) return false;
+      // Phase 25.24e: a transition's unloads leave in the step its scene arrives (never an empty world between).
+      if (t !== undefined) {
+        this.transitions.delete(sceneId);
+        for (const u of t.unload) if (u !== sceneId && this.batches.has(u) && this.sceneOpProblem('unload', u) === null) this.removeBatch(u);
+      }
+      if (!this.addBatch(sceneId, offsetEntities(prep.out, at), false, at === undefined)) return false;
+      if (t !== undefined) {
+        this.lastSwap = { scene: sceneId, revision: this.sceneRevision, seconds: t.fade, color: t.color };
+        this.loadingViewCache = null;
+      }
     }
     return true;
   }
@@ -4082,7 +4208,7 @@ class RuntimeInstance implements Runtime {
    * entity, colliders without a capable port) is refused: logged, left
    * unloaded, the run continues. Returns `false` only after a fail-stop.
    */
-  private addBatch(sceneId: string, entities: readonly EntityV3[], start: boolean): boolean {
+  private addBatch(sceneId: string, entities: readonly EntityV3[], start: boolean, prepared = false): boolean {
     const refuse = (why: string): boolean => {
       this.setSceneStatus(sceneId, 'unloaded');
       this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" was not loaded: ${why}`), stepIndex: this.stepIndex, reason: 'refused' });
@@ -4095,7 +4221,8 @@ class RuntimeInstance implements Runtime {
         return refuse(`entity "${e.id}" belongs in a start scene (camera, player, lights)`);
       }
     }
-    const frozen = deepFreeze(entities.map((e) => structuredClone(e)));
+    // Phase 25.24e: a loaded scene's entities arrive copied and frozen (prepared over the steps before).
+    const frozen = prepared ? Object.freeze([...entities]) : deepFreeze(entities.map((e) => structuredClone(e)));
     const contribution = sceneContribution(frozen);
     if (this.physics3d !== undefined && !this.addColliders3D(frozen, (why) => refuse(why), `scene "${sceneId}"`)) return false;
     if (contribution.colliders.length > 0 && this.physics !== undefined) {
@@ -4437,7 +4564,12 @@ class RuntimeInstance implements Runtime {
     this.requestedLoads.clear();
     this.fetchingLoads.clear();
     this.readyLoads.clear();
+    this.preparedLoads.clear();
     this.pendingUnloads.clear();
+    // Phase 25.24e: transitions and their fades do not outlive the run.
+    this.transitions.clear();
+    this.lastSwap = null;
+    this.loadingViewCache = null;
     // Phase 24.4e/f: a scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
     this.pendingArrival = null;
     this.pendingRestore = null;

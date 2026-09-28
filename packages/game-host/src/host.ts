@@ -61,7 +61,9 @@ import {
   type LoadedSceneBatch,
   type ModeView,
   type ProjectSaveFile,
+  type SceneSetView,
 } from '@thirdlight/runtime';
+import type { ScenePreloader } from './scene-preload';
 import type { MenuSample } from '@thirdlight/input';
 import type { AudioObservation, AudioSpatialLike, GameAudioOwner } from './audio';
 import type { HostDom, HostDomNode, UiEdges } from './dom';
@@ -154,6 +156,8 @@ export interface HostRenderAdapter {
   captureThumbnail?(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
   /** Phase 23.9a: project an entity or world point through the rendered camera (world-anchored UI widgets). */
   projectToScreen?: UiProjector;
+  /** Phase 25.24e: the scene set revision the last presented frame drew (a transition fades in once it is on screen). */
+  presentedSceneRevision?(): number;
 }
 
 /** Phase 23.19: the project saves as observers see them (a project with a save schema). */
@@ -223,7 +227,15 @@ export interface GameHostObservation {
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
   /** Phase 12 (c), additive: the loaded scenes and the ones being loaded. */
-  readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
+  readonly scenes?: {
+    readonly loaded: readonly string[];
+    readonly loading: readonly string[];
+    /** Phase 25.24e: the transition waiting for its scene (phase out/loading, how far the view faded), when one is. */
+    readonly transition?: import('@thirdlight/runtime').SceneTransitionView;
+    /** Phase 25.24e: the scenes read ahead (being prepared, ready). */
+    readonly preloading?: readonly string[];
+    readonly preloaded?: readonly string[];
+  };
   /** Phase 9.10, additive: the audio sources' live loops (entity id → gain). */
   readonly loops?: Readonly<Record<string, number>>;
   /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
@@ -353,6 +365,12 @@ export interface GameHostConfig {
    * fail with a diagnostic and the game keeps its start scenes.
    */
   readonly loadScene?: (sceneId: string) => Promise<LoadedSceneBatch['entities']>;
+  /**
+   * Phase 25.24e: the page's scene preloader (its `load` answers the game's
+   * loads instead of `loadScene`; the host names the scenes to read ahead).
+   * The page sets its preparation once the adapter exists.
+   */
+  readonly scenes?: ScenePreloader;
   /** Phase 24.4j: the manifest's game shell (menus and HUD as UI documents, the scene list) — a game that plays as a scene. */
   readonly shell?: ShellConfigLike;
   /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
@@ -506,11 +524,46 @@ function validateConfig(config: GameHostConfig): string | null {
 }
 
 /** Phase 12 (c): the `scenes` observation block (absent without a scene catalog). */
-function scenesObservation(rt: Runtime): { scenes?: { loaded: readonly string[]; loading: readonly string[] } } {
+function scenesObservation(rt: Runtime, preload: ScenePreloader | undefined): { scenes?: NonNullable<GameHostObservation['scenes']> } {
   const set = rt.sceneSet?.();
   if (set === undefined || Object.keys(set.status).length === 0) return {};
   const loading = Object.entries(set.status).filter(([, st]) => st === 'loading').map(([id]) => id);
-  return { scenes: { loaded: set.batches.map((b) => b.sceneId), loading } };
+  const transition = rt.sceneLoadingView?.().transition ?? null;
+  const ahead = preload?.view();
+  return {
+    scenes: {
+      loaded: set.batches.map((b) => b.sceneId),
+      loading,
+      ...(transition !== null ? { transition } : {}),
+      ...(ahead !== undefined && ahead.preloading.length > 0 ? { preloading: ahead.preloading } : {}),
+      ...(ahead !== undefined && ahead.preloaded.length > 0 ? { preloaded: ahead.preloaded } : {}),
+    },
+  };
+}
+
+/** Phase 25.24e: `$flow.scenes` — whether a scene is loading, which, and the transition waiting (a loading screen binds these). */
+function sceneFlowValues(rt: Runtime): { loading: boolean; scenes: readonly string[]; transition: { scene: string; phase: string; fade: number } | null } {
+  const v = rt.sceneLoadingView!();
+  const t = v.transition;
+  return { loading: v.loading.length > 0, scenes: v.loading, transition: t === null ? null : { scene: t.scene, phase: t.phase, fade: t.fade } };
+}
+
+/**
+ * Phase 25.24e: the scenes a game is likely to load next — the targets of the
+ * scene transitions in its loaded scenes (in load order) and the shell's next
+ * listed scene — that are not loaded.
+ */
+export function scenesToReadAhead(set: SceneSetView, listed: readonly { readonly scene: string }[] | undefined, listedIndex: number): string[] {
+  const out: string[] = [];
+  const add = (id: unknown): void => {
+    if (typeof id === 'string' && set.status[id] === 'unloaded' && !out.includes(id)) out.push(id);
+  };
+  if (listed !== undefined && listed.length > 0) add(listed[Math.max(0, listedIndex + 1)]?.scene);
+  for (const b of set.batches) {
+    for (const e of b.entities as readonly { components?: { trigger?: { sceneTransition?: { scene?: unknown } } } }[]) add(e.components?.trigger?.sceneTransition?.scene);
+  }
+  for (const e of set.spawned as readonly { components?: { trigger?: { sceneTransition?: { scene?: unknown } } } }[]) add(e.components?.trigger?.sceneTransition?.scene);
+  return out;
 }
 
 function toControlError(error: RuntimeError): GameControlError {
@@ -857,14 +910,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
   };
   /** Phase 12 (c): hand the game's scene requests to the wrapper's loader. */
+  const sceneLoader = config.scenes !== undefined ? config.scenes.load : config.loadScene;
   const serviceSceneRequests = (rt: Runtime): void => {
     const requests = rt.takeSceneRequests?.() ?? [];
     for (const req of requests) {
-      if (config.loadScene === undefined) {
+      if (sceneLoader === undefined) {
         rt.provideScene?.(req.sceneId, { ok: false, message: 'this game page cannot load scenes' });
         continue;
       }
-      void config.loadScene(req.sceneId).then(
+      void sceneLoader(req.sceneId).then(
         (entities) => {
           if (!disposed && runtime === rt) rt.provideScene?.(req.sceneId, { ok: true, entities });
         },
@@ -873,6 +927,21 @@ export function createGameHost(config: GameHostConfig): GameHost {
         },
       );
     }
+  };
+
+  /** Phase 25.24e: name the scenes to read ahead whenever the scene set or the listed scene changes. */
+  let readAheadSet: unknown = null;
+  let readAheadListed = -2;
+  const serviceReadAhead = (rt: Runtime): void => {
+    const preload = config.scenes;
+    if (preload === undefined) return;
+    const set = rt.sceneSet?.();
+    if (set === undefined) return;
+    const listed = rt.listedSceneIndex?.() ?? -1;
+    if (set === readAheadSet && listed === readAheadListed) return;
+    readAheadSet = set;
+    readAheadListed = listed;
+    preload.want(scenesToReadAhead(set, config.shell?.scenes, listed), set.status);
   };
 
   /** Phase 21.2: one entity's interpolated transform into `out` (the allocation-free read when the runtime has it). */
@@ -995,9 +1064,45 @@ export function createGameHost(config: GameHostConfig): GameHost {
    * Made the first time a timeline fades; `data-tl-fade` carries the opacity.
    */
   let fadeNode: { readonly node: HostDomNode; shown: string } | null = null;
+  /** Phase 25.24e: a transition's fade back in — from the first presented frame that drew its swap (wall clock). */
+  let fadeIn: { revision: number; seconds: number; color: string; from: number | null } | null = null;
+  const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  /** Phase 25.24e: a scene transition's fade (out while it waits; in once the swap is on screen): opacity and colour. */
+  const transitionFade = (rt: Runtime): { opacity: number; color: string } | null => {
+    const view = rt.sceneLoadingView?.();
+    if (view === undefined) return null;
+    const t = view.transition;
+    if (t !== null && t.seconds > 0) {
+      fadeIn = null;
+      return { opacity: t.fade, color: t.color };
+    }
+    const swap = view.swap;
+    if (swap !== null && swap.seconds > 0 && (fadeIn === null || fadeIn.revision !== swap.revision)) {
+      // A swap already faded in (a new run keeps no swap) is not faded again.
+      if (fadeIn === null && swap.revision <= lastFadedRevision) return null;
+      fadeIn = { revision: swap.revision, seconds: swap.seconds, color: swap.color, from: null };
+    }
+    if (fadeIn === null) return null;
+    // Opaque until a presented frame drew the swap (the adapter may hold presents while it builds programs).
+    const presented = adapter?.presentedSceneRevision?.() ?? fadeIn.revision;
+    if (fadeIn.from === null) {
+      if (presented < fadeIn.revision) return { opacity: 1, color: fadeIn.color };
+      fadeIn.from = nowMs();
+    }
+    const k = (nowMs() - fadeIn.from) / (fadeIn.seconds * 1000);
+    if (k >= 1) {
+      lastFadedRevision = fadeIn.revision;
+      fadeIn = null;
+      return null;
+    }
+    return { opacity: 1 - k, color: fadeIn.color };
+  };
+  let lastFadedRevision = -1;
   const serviceFade = (rt: Runtime): void => {
     const screen = rt.timelineView?.()?.screen;
-    const opacity = screen === undefined || !Number.isFinite(screen.opacity) ? 0 : Math.max(0, Math.min(1, screen.opacity));
+    const timelineOpacity = screen === undefined || !Number.isFinite(screen.opacity) ? 0 : Math.max(0, Math.min(1, screen.opacity));
+    const tf = transitionFade(rt);
+    const opacity = Math.max(timelineOpacity, tf?.opacity ?? 0);
     if (fadeNode === null) {
       if (opacity <= 0 || hostDom === null) return;
       const node = hostDom.createElement('div');
@@ -1005,7 +1110,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       config.container.appendChild(node);
       fadeNode = { node, shown: '' };
     }
-    const color = screen !== undefined && /^#[0-9a-f]{6}$/.test(screen.fade) ? screen.fade : '#000000';
+    const color = tf !== null && tf.opacity >= timelineOpacity ? tf.color : screen !== undefined && /^#[0-9a-f]{6}$/.test(screen.fade) ? screen.fade : '#000000';
     const key = `${color}|${Math.round(opacity * 1000) / 1000}`;
     if (fadeNode.shown === key) return;
     fadeNode.shown = key;
@@ -1139,6 +1244,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
+    serviceReadAhead(runtime);
     debugConsole?.frame();
     serviceBindings(runtime);
     serviceUi(runtime);
@@ -1443,6 +1549,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
             ...(bindings !== null ? { input: inputUiValues() } : {}),
             ...(shellCtl !== null ? { shell: shellCtl.values() } : {}),
             counters: rtNow?.gameCounters?.().counters ?? {},
+            // Phase 25.24e: scene loading for a loading screen (`$flow.scenes.loading`, `.transition`).
+            ...(rtNow?.sceneLoadingView !== undefined ? { scenes: sceneFlowValues(rtNow) } : {}),
             health: rtNow?.healthsView?.() ?? {},
             prompts: promptsText(),
             promptList: currentActionPrompts(),
@@ -1586,7 +1694,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         sound: mapSoundStatus(config.audio),
         inputMode: 'physical',
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
-        ...scenesObservation(runtime),
+        ...scenesObservation(runtime, config.scenes),
         ...(liveLoops.size > 0 && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...cameraObservation(runtime),
         ...environmentObservation(runtime),

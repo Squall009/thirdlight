@@ -63,6 +63,8 @@ export interface SimResult {
   heapUsedMiB: number;
   state: string;
   counters: unknown;
+  /** Phase 25.24e: the last start scene (not the camera's) unloaded and loaded again: its entities, and the step that attached it. */
+  sceneLoad?: { sceneId: string; entities: number; unloadStepMs: number; attachStepMs: number; steps: number };
 }
 
 class FakeNode {
@@ -107,8 +109,12 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const dir = input.projectDir;
   const t0 = performance.now();
   const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')).content;
-  const start: string[] = content.startScenes;
   const scenes: Record<string, Any[]> = Object.fromEntries(content.scenes.map((s: Any) => [s.sceneId, JSON.parse(readFileSync(join(dir, 'scenes', `${s.sceneId}.json`), 'utf8')).scene.entities]));
+  // Phase 25.24e: the last of several start scenes starts unloaded and is loaded after the timed steps
+  // (a scene's load step, measured); its lights stay out (a later scene may not hold lights before 25.8).
+  const later: string | undefined = content.startScenes.length > 1 ? content.startScenes[content.startScenes.length - 1] : undefined;
+  const start: string[] = content.startScenes.filter((id: string) => id !== later);
+  if (later !== undefined) scenes[later] = scenes[later]!.filter((e: Any) => e.components?.light === undefined);
   const entities = start.flatMap((id) => scenes[id]!);
   const settings: Any = Object.fromEntries(M2_SETTINGS_KEYS.map((k: Any) => [k.key, k.default]));
   for (const [k, v] of Object.entries(content.settings ?? {})) if (typeof v === 'number') settings[k] = v;
@@ -239,6 +245,23 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const mean = times.reduce((a, b) => a + b, 0) / Math.max(1, times.length);
   times.sort();
   perStep.sort((a, b) => a - b);
+  // Phase 25.24e: a scene load's step cost (the scene is fetched at once here: only the simulation's part).
+  let sceneLoad: SimResult['sceneLoad'];
+  if (later !== undefined && rt.requestScene?.('load', later)?.ok === true) {
+    let attachStepMs = 0;
+    let steps = 0;
+    while (rt.sceneSet().status[later] !== 'loaded' && steps < 600) {
+      await new Promise((r) => setImmediate(r)); // the loader's promise answers
+      const b = performance.now();
+      tick();
+      attachStepMs = Math.max(attachStepMs, performance.now() - b);
+      steps += 1;
+    }
+    const a = performance.now();
+    const unloaded = rt.requestScene('unload', later).ok === true;
+    tick();
+    sceneLoad = { sceneId: later, entities: scenes[later]!.length, unloadStepMs: unloaded ? round(performance.now() - a) : -1, attachStepMs: round(attachStepMs), steps };
+  }
   const calibrationMs = cpuCalibration();
   gc();
   const diag = rt.getDiagnostics?.();
@@ -256,6 +279,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
     // Phase 24.7: the runtime's state (running while it steps; the deleted session's 'playing' before).
     state: String(diag?.ok === true ? diag.diagnostics.state : 'unknown'),
     counters: rt.gameCounters?.() ?? null,
+    ...(sceneLoad !== undefined ? { sceneLoad } : {}),
   };
 }
 

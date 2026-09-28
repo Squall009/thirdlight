@@ -248,6 +248,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     scale[2] = x[o + 9]!;
   };
   const gone = (): boolean => disposed || mirror.state === 'disposed';
+  const NO_LOADING: import('@thirdlight/runtime').SceneLoadingView = Object.freeze({ loading: Object.freeze([]), transition: null, swap: null });
   const emptySet: SceneSetView = Object.freeze({ revision: 0, batches: Object.freeze([]), status: Object.freeze({}), spawned: Object.freeze([]) }) as unknown as SceneSetView;
 
   const diagnostics = (): RuntimeDiagnostics => {
@@ -359,6 +360,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     socketAttachments: () => mirror.sockets,
     // Phase 23.17: the worker's timeline view (screen overlay, plays, last events).
     timelineView: () => (gone() ? null : mirror.timeline),
+    // Phase 25.24e: the worker's scene loading view.
+    sceneLoadingView: () => mirror.loading ?? NO_LOADING,
     // Phase 23.9a: the project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
     queueUiEvent: (event: UiEventRecord) => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };

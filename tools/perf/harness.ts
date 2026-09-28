@@ -313,8 +313,11 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
       }
       if (opts.surfaces.includes('sim')) {
         bench.sim = await runSimChild(join(dataRoot, 'projects', 'bench'), { steps: opts.simSteps });
-        if (bench.sim.ok) opts.log(`perf: ${cls} sim step p50 ${bench.sim.stepMs.p50} ms, ${bench.sim.bytesPerStep.median} B/step`);
-        else errors.push(`sim: ${bench.sim.error.slice(0, 400)}`);
+        if (bench.sim.ok) {
+          opts.log(`perf: ${cls} sim step p50 ${bench.sim.stepMs.p50} ms, ${bench.sim.bytesPerStep.median} B/step`);
+          const l = bench.sim.sceneLoad;
+          if (l !== undefined) opts.log(`perf: ${cls} sim scene load ${l.sceneId} (${l.entities} entities): unload step ${l.unloadStepMs} ms, attach step ${l.attachStepMs} ms`);
+        } else errors.push(`sim: ${bench.sim.error.slice(0, 400)}`);
       }
       benchmarks[cls] = bench;
       if (!opts.keep) {

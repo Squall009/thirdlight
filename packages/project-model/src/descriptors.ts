@@ -41,7 +41,7 @@ import { SHELL_LIMITS } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
-import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
+import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_ACTION_DEFAULTS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_HOLD_MIN, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS, MAX_INPUT_GLYPHS, POINTER_AXES, POINTER_BUTTONS } from './input';
@@ -1215,7 +1215,10 @@ const trigger: ComponentDescriptor = {
     obj('sceneTransition', 'Scene transition', 'Entering loads a scene and moves the character to a spawn in it (absent: no transition).', [
       scene('scene', 'Load scene', 'The scene loaded when the character enters.', { required: true }),
       entity('spawn', 'Arrive at', 'The player spawn the character is moved to once the scene is loaded (in that scene or this one; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
-      list('unload', 'Unload scenes', 'Scenes unloaded at the same time.', scene('*', 'Scene', 'A scene to unload.'), { maxItems: MAX_TRANSITION_UNLOADS, unique: true }),
+      list('unload', 'Unload scenes', 'Scenes unloaded once the loaded scene is in (they stay in view until then).', scene('*', 'Scene', 'A scene to unload.'), { maxItems: MAX_TRANSITION_UNLOADS, unique: true }),
+      // Phase 25.24e: an optional fade over the swap.
+      num('fade', 'Fade', 'Seconds the view fades out before the swap and back in after it (absent or 0: no fade; the old scene stays in view until the new one is drawn).', { min: 0, max: MAX_TRANSITION_FADE, step: 0.05 }),
+      color('fadeColor', 'Fade colour', 'The colour the view fades to (absent: black).'),
     ]),
   ]),
   // Phase 15.5: a 2 m square (the default 1.8 m character fits inside) sending the neutral signal name "trigger".
@@ -1876,6 +1879,9 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
       list('scenes', 'Scene list', `The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next (up to ${SHELL_LIMITS.scenes}).`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
         scene('scene', 'Scene', 'A scene of the project.', { required: true }),
         entity('spawn', 'Spawn', 'The player spawn the character starts at (in that scene; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
+        // Phase 25.24e: the fade of a move to this scene.
+        num('fade', 'Fade', 'Seconds the view fades out before a move to this scene and back in after it (absent or 0: no fade; the previous scene stays in view until this one is drawn).', { min: 0, max: MAX_TRANSITION_FADE, step: 0.05 }),
+        color('fadeColor', 'Fade colour', 'The colour the view fades to (absent: black).'),
       ]), { maxItems: SHELL_LIMITS.scenes }),
       bool('pause', 'Pause allowed', 'The pause input opens the pause screen.', { default: true }),
       bool('status', 'Status line', 'A small debug line: the shell screen, the listed scene and the input prompts.', { default: false }),

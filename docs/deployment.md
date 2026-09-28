@@ -555,6 +555,25 @@ eight at a time, each checked against the build. A scene loaded later reads
 its own when it loads, and a sound is read when it first plays. The
 diagnostics' `assetReads` counts what has been read so far.
 
+A scene loaded during play is prepared before it appears (phase 25.24e):
+its file, models, textures and instance buffers are read and parsed first,
+so the frame that shows it shows all of it. The scenes a game is likely to
+load next — the targets of the scene transitions in its loaded scenes and
+the shell's next listed scene — are read ahead in the background (at most
+four). A scene transition (a trigger's, a move along the shell's scene list,
+or `ctx.scenes.load(id, {unload: [...]})`) keeps the scenes it unloads in
+view until its scene is in, then swaps them in one step, so the view never
+shows an empty world. Its optional `fade` (seconds, 0–5; `fadeColor`) fades
+the view out before the swap and back in once the new scene is drawn; set it
+in the Inspector under the trigger's Scene transition or on a scene list
+entry. Scripts read the loading state with `ctx.scenes.loading()` and
+`ctx.scenes.transition()`; UI documents with `$flow.scenes.loading`,
+`$flow.scenes.scenes` and `$flow.scenes.transition.phase` (`out`, `loading`);
+`tl_game_observe` shows `scenes.transition`, `preloading` and `preloaded`.
+Each scene load in `startTimings.sceneLoads` also says whether it was read
+ahead, when it was prepared, and the draw calls before it, of the frame that
+attached it and the fewest in between.
+
 `tl_content_query {target:"game", includeDescriptors:true}` also returns the
 component and content descriptor registry: for every component and content
 block, each field's type, unit, range, step, default, group, label, tooltip,

@@ -205,6 +205,8 @@ export interface FrameState {
   readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
   /** Phase 23.17: the timelines' view (screen fade/letterbox, plays, last events) when it changed. */
   readonly tl?: import('@thirdlight/runtime').TimelineView | null;
+  /** Phase 25.24e: scene loading (the scenes loading, a transition waiting, the last swap) when it changed. */
+  readonly sl?: import('@thirdlight/runtime').SceneLoadingView;
   /** Phase 23.19: the save/load/delete/settings requests scripts made (the page owns storage). */
   readonly saveReq?: readonly import('@thirdlight/runtime').SaveRequest[];
 }

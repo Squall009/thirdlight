@@ -250,6 +250,13 @@ export interface ModelsRealization {
    * entity uses any more is disposed (its GPU data freed).
    */
   removeEntities(entityIds: ReadonlySet<string>): void;
+  /**
+   * Phase 25.24e: prepare model assets and instance-set buffers ahead of the
+   * entities that will use them (a scene about to load): they are read,
+   * parsed and kept until `release` (entities attached meanwhile keep them
+   * on). `ready` resolves once each has loaded or failed; never rejects.
+   */
+  hold?(assetIds: Iterable<string>, bufferDigests: Iterable<string>): { readonly ready: Promise<void>; release(): void };
   /** Phase 9.7: the entity's attached model instance (its asset id and root), or null. */
   instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
   /**
@@ -500,6 +507,17 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   /** Instance-set buffers by digest (decoded once, dropped when unused). */
   const buffers = new Map<string, Float32Array>();
   const bufferLoads = new Set<string>();
+  /** Phase 25.24e: assets and buffers held ahead of their entities, and the holds waiting for them. */
+  const holds = new Set<{ readonly assets: ReadonlySet<string>; readonly buffers: ReadonlySet<string> }>();
+  const holdWaiters = new Set<() => boolean>();
+  const notifyHolds = (): void => {
+    for (const check of [...holdWaiters]) if (check()) holdWaiters.delete(check);
+  };
+  const bufferInUse = (digest: string): boolean => {
+    for (const r of instanceEntities.values()) if (r.buffer === digest) return true;
+    for (const h of holds) if (h.buffers.has(digest)) return true;
+    return false;
+  };
   // The settle gate: the prepares started at creation (the start scenes).
   // An explicit pending count, decremented INSIDE each completion callback
   // BEFORE `settleIfComplete` — never the handle's `state()`: between a
@@ -568,6 +586,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   function assetInUse(assetId: string): boolean {
     if (clipAssets.has(assetId)) return true;
     if (blockAssets.has(assetId)) return true;
+    for (const h of holds) if (h.assets.has(assetId)) return true;
     for (const a of modelEntities.values()) if (a === assetId) return true;
     for (const r of instanceEntities.values()) if (r.assetId === assetId) return true;
     return false;
@@ -701,13 +720,15 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       (bytes) => {
         bufferLoads.delete(digest);
         if (disposed) return;
-        const inUse = [...instanceEntities.values()].some((r) => r.buffer === digest);
-        if (!inUse) return;
-        buffers.set(digest, new Float32Array(bytes.slice(0)));
-        for (const [entityId, ref] of instanceEntities) if (ref.buffer === digest) attachInstanceSet(entityId, ref);
+        if (bufferInUse(digest)) {
+          buffers.set(digest, new Float32Array(bytes.slice(0)));
+          for (const [entityId, ref] of instanceEntities) if (ref.buffer === digest) attachInstanceSet(entityId, ref);
+        }
+        notifyHolds();
       },
       () => {
         bufferLoads.delete(digest);
+        notifyHolds();
       },
     );
   }
@@ -778,6 +799,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         if (disposed || bytes.byteLength === 0) {
           done();
           if (!disposed) settleIfComplete();
+          notifyHolds();
           return;
         }
         const descriptor: AssetVersionDescriptor = {
@@ -814,6 +836,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
             for (const cb of waiting ?? []) cb();
           }
           settleIfComplete();
+          notifyHolds();
         });
       },
       (e: unknown) => {
@@ -824,6 +847,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         const message = e instanceof Error ? e.message : String(e);
         failedCodes.set(row.assetId, 'asset_missing');
         pendingHandles.delete(row.assetId);
+        notifyHolds();
         settle({
           ok: false,
           code: 'asset_missing',
@@ -944,8 +968,41 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       }
       for (const assetId of touched) releaseAssetIfUnused(assetId);
       for (const digest of [...buffers.keys()]) {
-        if (![...instanceEntities.values()].some((r) => r.buffer === digest)) buffers.delete(digest);
+        if (!bufferInUse(digest)) buffers.delete(digest);
       }
+    },
+
+    hold(assetIds, bufferDigests) {
+      const h = { assets: new Set([...assetIds].filter((a) => rowsByAsset.has(a))), buffers: new Set(bufferDigests) };
+      if (disposed) return { ready: Promise.resolve(), release: () => undefined };
+      holds.add(h);
+      for (const assetId of h.assets) ensureAsset(assetId);
+      for (const digest of h.buffers) ensureBuffer(digest);
+      const complete = (): boolean => {
+        if (disposed) return true;
+        for (const a of h.assets) if (loading.has(a)) return false;
+        for (const d of h.buffers) if (bufferLoads.has(d)) return false;
+        return true;
+      };
+      const ready = new Promise<void>((resolve) => {
+        const check = (): boolean => {
+          if (!complete()) return false;
+          resolve();
+          return true;
+        };
+        if (!check()) holdWaiters.add(check);
+      });
+      let released = false;
+      return {
+        ready,
+        release: () => {
+          if (released || disposed) return;
+          released = true;
+          holds.delete(h);
+          for (const assetId of h.assets) releaseAssetIfUnused(assetId);
+          for (const digest of h.buffers) if (!bufferInUse(digest)) buffers.delete(digest);
+        },
+      };
     },
 
     dispose(): void {
@@ -973,6 +1030,8 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       resources.clear();
       buffers.clear();
       liveControllers.clear();
+      holds.clear();
+      notifyHolds();
       if (!settled) {
         settle({
           ok: false,

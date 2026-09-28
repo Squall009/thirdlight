@@ -58,6 +58,7 @@ export {
   GAME_CONTROL_ACTIONS,
   GAME_HOST_MESSAGES,
   createGameHost,
+  scenesToReadAhead,
   composeGameRuntime,
   type GameRuntimeArgs,
   linkBehaviorModules,
@@ -108,6 +109,8 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
   type ManifestSceneRow,
   type SceneCatalogIo,
 } from './scene-catalog';
+// Phase 25.24e: scene loads prepared before they are handed to the simulation, and scenes read ahead.
+export { createScenePreloader, pageScenePreparation, SCENES_READ_AHEAD, SCENE_PREPARE_WAIT_MS, type ScenePreloader, type ScenePreparation, type ScenePreparingAdapter, type ScenePreloadHooks } from './scene-preload';
 // Phase 22.0: the simulation worker (runs the deterministic simulation off the page) and its page-side mirror.
 export { runSimWorker, type SimWorkerDeps } from './sim-worker';
 export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions } from './sim-remote';
