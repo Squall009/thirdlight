@@ -32,6 +32,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
 
+import { gpuAvailable } from './browser-env.mjs';
 import { type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
@@ -360,7 +361,8 @@ test('Scene view: an editor scene closed and opened 50×, instancing groups re-f
   };
   await setting(3, 'webgl2');
   await leakCheck(page, probe, 'Renderer backend swapped (setting webgpu ↔ webgl2)', cycles(10), async () => {
-    await setting(2, webgpuProject() ? 'webgpu' : 'webgl2');
+    // The webgpu setting draws with WebGPU where there is an adapter (the webgpu project, or a GPU host).
+    await setting(2, webgpuProject() || gpuAvailable() ? 'webgpu' : 'webgl2');
     await setting(3, 'webgl2');
   });
   await probe.detach();

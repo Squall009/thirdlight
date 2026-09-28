@@ -1,7 +1,7 @@
 /**
  * Phase 20.3: the Effect tab's preview pane against the real backend.
  *
- * - Per renderer (`auto` = WebGL 2 in `default`, the CPU executor; `webgpu`
+ * - Per renderer (`auto` in `default`: WebGL 2 and the CPU executor without a GPU, WebGPU compute on a GPU host; `webgpu`
  *   in `webgpu`, WebGPU compute): an effect tab shows particles in its
  *   preview (magenta pixels); pausing freezes the spawn counter; scrubbing
  *   re-simulates from the seed (t = 1 s → 40 spawned of a 40/s rate, 0.5 s
@@ -20,7 +20,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -123,7 +123,8 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   be = await startBackend('effect-editor-e2e');
-  const executor = variant === 'webgpu' ? 'webgpu' : 'cpu';
+  // The executor Play would use: WebGPU compute wherever the renderer is WebGPU (`auto` takes it on a GPU host).
+  const executor = backendOf(variant) === 'webgpu' ? 'webgpu' : 'cpu';
   await cmd('setEffect', { effect: streamEffect(40) });
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
