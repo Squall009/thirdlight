@@ -9,13 +9,13 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { STARTER, startBackend, type E2EBackend } from './backend';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('behaviors-e2e', 'beacon-reach');
+  be = await startBackend('behaviors-e2e', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();
@@ -72,22 +72,20 @@ async function publishSampleBehavior(behaviorId: string): Promise<void> {
 
 test('a script attached to the player runs in Play; the export ships it', async ({ page }) => {
   revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-  const game = await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} });
-  const playerId = String((game.game as { playerId: string }).playerId);
+  const playerId = STARTER.playerId;
   await publishSampleBehavior('behavior-drift');
   await command('setBehaviorProperties', { entityId: playerId, behaviorId: 'behavior-drift', values: { speed: 8 } });
 
-  // Play in the editor; start the run with no input: the script moves the player.
+  // Play in the editor (the starter has no game block: the scene runs at once); no input: the script moves the player.
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<{ state?: string; player?: { x: number } }> => (await api(`play/${psid}/observe`, {})).json as never;
-  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('awaitingStart');
+  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('scene');
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   // No input is ever sent: the player leaves its spawn (x = 3) under the script's control.
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeGreaterThan(4.5);
 
   // The export carries the compiled behavior module.
@@ -120,7 +118,10 @@ test('a script attached to the player runs in Play; the export ships it', async 
   exportPage.on('pageerror', (e) => errors.push(e.message));
   try {
     await exportPage.goto(url);
-    await expect(exportPage.locator('#hud-root')).toContainText('to start', { timeout: 15_000 });
+    // The exported scene runs and the shipped script moves the player there too.
+    const observed = (): Promise<{ state?: string; player?: { x: number } } | null> => exportPage.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string; player?: { x: number } } | null }).__thirdlightObserve?.() ?? null);
+    await expect.poll(async () => (await observed())?.state ?? null, { timeout: 15_000 }).toBe('scene');
+    await expect.poll(async () => (await observed())?.player?.x ?? 0, { timeout: 10_000 }).toBeGreaterThan(4.5);
     expect(loaded.some((l) => /^200 \/behaviors\/[0-9a-f]{64}\.js$/.test(l))).toBe(true);
     expect(errors).toEqual([]);
     await expect(exportPage.getByText(/error/i)).toHaveCount(0);

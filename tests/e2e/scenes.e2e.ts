@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, STARTER, startBackend, type E2EBackend } from './backend';
 import { createBox } from './ui';
 
 let be: E2EBackend;
@@ -166,8 +166,7 @@ async function playerScript(behaviorId: string, source: string): Promise<void> {
     requestId: `req-${'e'.repeat(32)}`,
   });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
-  const game = await query('queryGameConfig');
-  await cmd('setBehaviorProperties', { entityId: String((game.game as { playerId: string }).playerId), behaviorId, values: { speed: 1 } });
+  await cmd('setBehaviorProperties', { entityId: STARTER.playerId, behaviorId, values: { speed: 1 } });
 }
 
 /** The cave scene: a floor far to the right, a spawn on it and a magenta marker box. */
@@ -178,19 +177,19 @@ async function buildCave(): Promise<void> {
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'group', name: 'Cave spawn', transform: { position: [65, 0.91, 0] }, components: { playerSpawn: {} } });
 }
 
-async function startPlay(page: Page): Promise<{ psid: string; observe: () => Promise<{ state?: string; player?: { x: number; y: number }; scenes?: { loaded: string[]; loading: string[] } }> }> {
+async function startPlay(page: Page, firstState = 'awaitingStart'): Promise<{ psid: string; observe: () => Promise<{ state?: string; player?: { x: number; y: number }; scenes?: { loaded: string[]; loading: string[] } }> }> {
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async () => (await api(`play/${psid}/observe`, {})).json as never;
-  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('awaitingStart');
+  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe(firstState);
   return { psid, observe };
 }
 
 test('Play: a script loads a scene with ctx.scenes and acts once it is loaded', async ({ page }) => {
-  be = await startBackend('scenes-e2e', 'beacon-reach');
+  be = await startBackend('scenes-e2e', 'starter');
   await buildCave();
   // Idle until the cave is loaded, then run right.
   await playerScript('behavior-scene-loader', [
@@ -205,20 +204,17 @@ test('Play: a script loads a scene with ctx.scenes and acts once it is loaded', 
     '};',
     '',
   ].join('\n'));
-  const { psid, observe } = await startPlay(page);
+  // The starter has no game block: the scene plays at once (scene mode).
+  const { observe } = await startPlay(page, 'scene');
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-cave']);
-  expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeGreaterThan(4.5);
 });
 
 test('Play: an exit zone loads its scene and moves the player there; MCP unloads it', async ({ page }) => {
-  be = await startBackend('exits-e2e', 'beacon-reach');
+  be = await startBackend('exits-e2e', 'starter');
   await buildCave();
-  // An open world: the camera follows without bounds (Beacon Reach clamps it to its level).
-  const game = (await query('queryGameConfig')).game as { cameraId: string };
-  const camera = (await query('queryEntity', { entityId: game.cameraId })).entity as { components: { cameraFollow: { deadZone: unknown; smoothing: number } } };
-  await cmd('setComponent', { entityId: game.cameraId, component: 'cameraFollow', value: { deadZone: camera.components.cameraFollow.deadZone, smoothing: camera.components.cameraFollow.smoothing, bounds: null } });
-  expect(((await query('queryEntity', { entityId: game.cameraId })).entity as typeof camera).components.cameraFollow).not.toHaveProperty('bounds');
+  // Exit zones and the run start are the game session's (removed in phase 24.7 for a scene-transition trigger).
+  await addGameSession(be);
   // The exit sits on the start spawn: entering the run enters the exit.
   await cmd('createEntity', { kind: 'group', name: 'To the cave', transform: { position: [3, 1, 0] }, components: { gameZone: { role: 'exit', size: [1, 2], load: ['scene-cave'], spawnId: String(((await query('queryEntities', { sceneId: 'scene-cave' })).entities as { id: string; name?: string }[]).find((e) => e.name === 'Cave spawn')!.id) } } });
   const { psid, observe } = await startPlay(page);
@@ -241,7 +237,7 @@ test('Play: an exit zone loads its scene and moves the player there; MCP unloads
 });
 
 test('a project whose recent commands include scene edits and a checkpoint loads again after a backend restart', async () => {
-  be = await startBackend('scenes-restart', 'beacon-reach');
+  be = await startBackend('scenes-restart', 'starter');
   await cmd('createScene', { sceneId: 'scene-extra', name: 'Extra' });
   await cmd('renameScene', { sceneId: 'scene-extra', name: 'Extra room' });
   await cmd('setStartScenes', { sceneIds: ['scene-main', 'scene-extra'] });

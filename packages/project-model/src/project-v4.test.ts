@@ -2,7 +2,8 @@
  * Phase 12 (c): v4 scenes (instance sets, exit zones, optional camera-follow
  * bounds, at most one camera), the v4 content block (startScenes, game
  * configVersion 2 without level/killY), the cross-scene project rules and the
- * v3 → v4 migration (run on the real Beacon Reach sample).
+ * v3 → v4 migration (run on the neutral starter template; the kill-height
+ * case still on the Beacon Reach sample until phase 24.7 deletes both).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -15,6 +16,10 @@ import type { Manifest } from './types';
 
 // Package sources may not import Node builtins: the sample is read through Vite's raw import.
 const SAMPLE_RAW = Object.values(
+  import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
+)[0] as string;
+// Phase 24.2: the one test of a v3 game block's kill height (a game rule, deleted in 24.7).
+const BEACON_RAW = Object.values(
   import.meta.glob('../../../samples/beacon-reach/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
 )[0] as string;
 const SAMPLE = JSON.parse(SAMPLE_RAW) as { content: { assets: { assetId: string; kind: string }[] } };
@@ -111,8 +116,26 @@ describe('project v4', () => {
 });
 
 describe('migration v3 → v4', () => {
+  it('migrates the starter template: one scene "Main", startScenes, no game block, and the result validates', () => {
+    const captured = JSON.parse(SAMPLE_RAW) as { scene: SceneV3; content: ContentCatalogV3 };
+    const env = validateEnvelopeV3({ storageVersion: 3, type: 'authoring-state', projectId: 'starter', scene: captured.scene, content: captured.content, retry: { retention: 64, records: [] } });
+    expect(env.ok, JSON.stringify(!env.ok && env.errors)).toBe(true);
+    if (!env.ok) return;
+    const manifest: Manifest = { schemaVersion: 1, engineVersion: '0.1.0', id: 'starter', name: 'Starter', createdAt: '2026-09-23T00:00:00Z', scenes: [{ id: env.normalized.scene.sceneId, path: 'scenes/main.json' }] };
+    const { project, notes } = migrateProjectV3ToV4(manifest, env.normalized.scene, env.normalized.content);
+    expect(project.scenes).toHaveLength(1);
+    expect(project.scenes[0]).toMatchObject({ schemaVersion: 4, sceneId: env.normalized.scene.sceneId });
+    expect(project.scenes[0]!.entities.map((e) => e.id)).toEqual(env.normalized.scene.entities.map((e) => e.id));
+    expect(project.content.scenes).toEqual([{ sceneId: env.normalized.scene.sceneId, name: 'Main' }]);
+    expect(project.content.startScenes).toEqual([env.normalized.scene.sceneId]);
+    expect(project.content.game).toBeNull();
+    expect(notes).toEqual([]);
+    const v = validateProjectV4(project.manifest, project.content, project.scenes);
+    expect(v.ok, JSON.stringify(!v.ok && v.errors)).toBe(true);
+  });
+
   it('migrates the Beacon Reach sample: one scene "Main", startScenes, killY becomes a fall zone, and the result validates', () => {
-    const captured = JSON.parse(SAMPLE_RAW) as {
+    const captured = JSON.parse(BEACON_RAW) as {
       scene: SceneV3;
       content: ContentCatalogV3;
     };

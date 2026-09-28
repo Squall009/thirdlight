@@ -31,19 +31,19 @@ test('token once, then pick a project or create one from a template', async ({ p
   await expect(existing).toHaveCount(1);
   await expect(existing).toContainText('E2E Project');
 
-  // Create a Beacon Reach project from the template and land in the editor.
-  await page.getByLabel('Project id').fill('reach-copy');
-  await page.getByLabel('Name').fill('Reach copy');
-  await page.getByLabel('Template').selectOption('beacon-reach');
+  // Create a project from the starter template and land in the editor.
+  await page.getByLabel('Project id').fill('starter-copy');
+  await page.getByLabel('Name').fill('Starter copy');
+  await page.getByLabel('Template').selectOption('starter');
   await page.getByRole('button', { name: 'Create and open' }).click();
   await expect(status(page)).toContainText('connected');
   await expect(rows(page).filter({ hasText: 'Player' })).toHaveCount(1);
-  expect(new URL(page.url()).searchParams.get('project')).toBe('reach-copy');
+  expect(new URL(page.url()).searchParams.get('project')).toBe('starter-copy');
 
   // Back to the picker from the toolbar: both projects, then an empty one.
   await page.getByTitle('All projects').click();
   await expect(page.locator('.tl-projects__row')).toHaveCount(2);
-  await expect(page.locator('.tl-projects__row').filter({ hasText: 'Reach copy' })).toHaveCount(1);
+  await expect(page.locator('.tl-projects__row').filter({ hasText: 'Starter copy' })).toHaveCount(1);
   await page.getByLabel('Project id').fill('blank');
   await page.getByRole('button', { name: 'Create and open' }).click();
   await expect(status(page)).toContainText('connected');

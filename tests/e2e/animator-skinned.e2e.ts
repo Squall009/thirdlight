@@ -1,6 +1,6 @@
 /**
  * Phase 9.7 on a rigged character: a generated skinned GLB (skinned-glb.ts)
- * with idle, run, jump, fall and land clips rides on Beacon Reach's player; a
+ * with idle, run, jump, fall and land clips rides on the starter template's player; a
  * "Platformer" controller built from its clips in the Animator window gets
  * the player's speed, grounding and vertical velocity automatically. Driven
  * through the play relays, the observed animator state goes idle → run →
@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, startBackend, type E2EBackend } from './backend';
 import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';
 
 const shots = process.env['TL_ANIM_SHOTS'];
@@ -45,9 +45,11 @@ async function shot(page: Page, name: string): Promise<void> {
   writeFileSync(join(shots, `skinned-anim-${name}.png`), await page.locator('iframe.tl-app__preview-frame').screenshot());
 }
 
-test("a rigged character's clips play on Beacon Reach's player: idle, run, airborne", async ({ page }) => {
+test("a rigged character's clips play on the starter's player: idle, run, airborne", async ({ page }) => {
   test.setTimeout(240_000);
-  be = await startBackend('skinned-anim', 'beacon-reach');
+  be = await startBackend('skinned-anim', 'starter');
+  // The run start and the relays' test input go through the game session.
+  await addGameSession(be);
   const glb = join(mkdtempSync(join(tmpdir(), 'tl-skin-')), 'char_rigged.glb');
   writeFileSync(glb, skinnedGlb(LOCOMOTION_CLIPS));
   await page.goto(be.editorUrl);

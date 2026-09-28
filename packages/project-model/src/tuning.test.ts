@@ -13,7 +13,7 @@ import { validateSceneV4 } from './scene-v3';
 
 type Obj = Record<string, unknown>;
 const SAMPLE = JSON.parse(
-  Object.values(import.meta.glob('../../../samples/beacon-reach/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>)[0] as string,
+  Object.values(import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>)[0] as string,
 ) as { content: { assets: Obj[] } };
 const MODEL = SAMPLE.content.assets.find((a) => a['kind'] === 'model')!;
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };

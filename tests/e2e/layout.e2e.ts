@@ -9,7 +9,7 @@ import { startBackend, type E2EBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('layout-0001', 'beacon-reach');
+  be = await startBackend('layout-0001', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();
@@ -41,7 +41,7 @@ test('docks sit where Unity puts them and the bottom dock hosts the panels', asy
   expect(stage.width).toBeGreaterThan(page.viewportSize()!.width * 0.5);
 
   // Hierarchy is always visible; the panels live in the bottom dock.
-  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li.tl-row')).toHaveCount(18); // 17 + the "Fall zone" the v3→v4 upgrade makes from killY
+  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li.tl-row')).toHaveCount(10); // the starter template's ten objects
   await page.getByRole('tab', { name: 'Assets' }).click();
   await expect(page.locator('.tl-dock--bottom .tl-assets__list')).toBeVisible();
   // Tile and hierarchy icons are real image files that load.
@@ -50,7 +50,7 @@ test('docks sit where Unity puts them and the bottom dock hosts the panels', asy
   await expect.poll(() => page.locator('.tl-btn__icon').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await page.getByRole('tab', { name: /Problems/ }).click();
   await expect(page.locator('.tl-dock--bottom .tl-problems, .tl-dock--bottom .tl-panel').first()).toBeVisible();
-  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li.tl-row')).toHaveCount(18);
+  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li.tl-row')).toHaveCount(10);
 });
 
 test('Play opens in the Game tab; the Scene tab shows the viewport while the game keeps running', async ({ page }) => {
@@ -79,13 +79,13 @@ test('Play opens in the Game tab; the Scene tab shows the viewport while the gam
     });
     return ((await r.json()) as { state?: string }).state ?? null;
   };
-  await expect.poll(observe, { timeout: 15_000 }).toBe('awaitingStart');
+  await expect.poll(observe, { timeout: 15_000 }).toBe('scene');
 
   // Scene tab: the viewport is back; the game is still there (observable, hidden not unmounted).
   await page.getByRole('tab', { name: 'Scene' }).click();
   await expect(frame).toBeHidden();
   await expect(frame).toHaveCount(1);
-  expect(await observe()).toBe('awaitingStart');
+  expect(await observe()).toBe('scene');
   await page.getByRole('tab', { name: 'Game', exact: true }).click();
   await expect(frame).toBeVisible();
 

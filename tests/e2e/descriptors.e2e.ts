@@ -11,7 +11,7 @@ import { startBackend, type E2EBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('descriptors-e2e', 'beacon-reach');
+  be = await startBackend('descriptors-e2e', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();

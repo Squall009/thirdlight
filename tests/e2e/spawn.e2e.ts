@@ -1,6 +1,6 @@
 /**
  * Phase 14.1: a script spawns prefab copies into the running game, against a
- * real backend. On the engine sample (Beacon Reach) a neutral "Projectile"
+ * real backend. On the starter template a neutral "Projectile"
  * prefab is made by command from a small magenta box carrying its own script
  * (it owns "@self", flies right and counts "flown" 3 m out), and a script on
  * the player spawns one every second
@@ -17,12 +17,13 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('spawn-e2e', 'beacon-reach');
+  be = await startBackend('spawn-e2e', 'starter');
+  await addGameSession(be); // the run states come from the game session (phase 24.2)
 });
 test.afterEach(async () => {
   await be.stop();

@@ -2,7 +2,8 @@
  * Phase 22.0: the game's simulation runs in a worker in Play and in the
  * export by default, and in the page with `?threads=off`.
  *
- * On Beacon Reach (a coin with a pickup sound put just ahead of the player):
+ * On the starter template with the game session (a pickup with a sound put
+ * just ahead of the player):
  * - Play reports where its simulation runs (worker, transforms by messages —
  *   the editor is not cross-origin isolated by default) and logs it; a held
  *   key moves the player within a few frames; the pickup's sound request
@@ -21,7 +22,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 
 let be: E2EBackend | null = null;
@@ -47,14 +48,16 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
   expect(res['ok'], JSON.stringify(res)).toBe(true);
 }
 
-/** Beacon Reach, the start ground cleared, a coin that chimes (a Beacon Reach sound) 1.5 m ahead of the player. */
+/** The starter with the game session, its step and platform removed, a pickup that chimes (a fixture sound) 1.5 m ahead of the player. */
 async function setup(isolation: boolean): Promise<void> {
-  be = await startBackend('simw-e2e', 'beacon-reach', isolation ? { THIRDLIGHT_CROSS_ORIGIN_ISOLATION: '1' } : {});
+  be = await startBackend('simw-e2e', 'starter', isolation ? { THIRDLIGHT_CROSS_ORIGIN_ISOLATION: '1' } : {});
+  await addGameSession(be);
+  const chime = await publishWav(be, 'cue-start.wav', 'audio-chime', 'Chime');
   for (const entityId of ['box-0002', 'box-0003']) await cmd('deleteEntity', { entityId });
   const q = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 200, offset: 0 } })) as { entities?: { id: string; sceneId?: string; components: { transform?: { position: number[] } } }[] };
   const player = q.entities!.find((e) => e.id === 'model-0001')!;
   const [px, py] = player.components.transform!.position as [number, number];
-  await cmd('createEntity', { ...(player.sceneId !== undefined ? { sceneId: player.sceneId } : {}), kind: 'group', name: 'Chime coin', transform: { position: [px + 1.5, py, 0] }, components: { pickup: { kind: 'coin', value: 1, size: [0.8, 2], cue: 'br-audio-jump' } } });
+  await cmd('createEntity', { ...(player.sceneId !== undefined ? { sceneId: player.sceneId } : {}), kind: 'group', name: 'Chime pickup', transform: { position: [px + 1.5, py, 0] }, components: { pickup: { kind: 'custom', counter: 'items', value: 1, size: [0.8, 2], cue: chime } } });
 }
 
 /** Open the editor (with a page query) and start Play; returns the play session id. */
@@ -95,8 +98,8 @@ async function playChecks(page: Page, psid: string, expectMode: { mode: string; 
         return o.player!.x > x0 + 0.02;
       }, { timeout: 15_000 })
       .toBe(true);
-    // Walk on through the coin: counted in the simulation, its sound played by the page's audio owner.
-    await expect.poll(async () => (await observe()).counters?.['coins'] ?? 0, { timeout: 15_000 }).toBe(1);
+    // Walk on through the pickup: counted in the simulation, its sound played by the page's audio owner.
+    await expect.poll(async () => (await observe()).counters?.['items'] ?? 0, { timeout: 15_000 }).toBe(1);
   } finally {
     await page.keyboard.up('d');
   }

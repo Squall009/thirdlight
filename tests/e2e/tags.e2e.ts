@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, type E2EBackend, startBackend } from './backend';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -95,7 +95,8 @@ test('tags in project settings and the inspector: add, rename keeps the bit, fol
 });
 
 test('a script queries objects by tag in Play: folder tags count, inactive objects do not', async ({ page }) => {
-  be = await startBackend('tags-e2e', 'beacon-reach');
+  be = await startBackend('tags-e2e', 'starter');
+  await addGameSession(be); // the run states come from the game session (phase 24.2)
   const REPO_BOX = { size: [0.3, 0.3, 0.3], material: { color: '#ff00ff' } };
   await cmd('setTags', { tags: [{ name: 'hazard' }, { name: 'pickup' }] });
   const hazards = String((await cmd('createEntity', { kind: 'folder', name: 'Hazards' })).createdId);

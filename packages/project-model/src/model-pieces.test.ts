@@ -9,11 +9,26 @@ import { validateContentV4 } from './content';
 import { validateSceneV4 } from './scene-v3';
 
 const SAMPLE_RAW = Object.values(
-  import.meta.glob('../../../samples/beacon-reach/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
+  import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
 )[0] as string;
 const SAMPLE = JSON.parse(SAMPLE_RAW) as { content: { assets: { assetId: string; kind: string }[] } };
 const MODEL = SAMPLE.content.assets.find((a) => a.kind === 'model')!;
-const AUDIO = SAMPLE.content.assets.find((a) => a.kind === 'audio');
+/** A valid 220 ms mono PCM cue record (the starter template has no audio). */
+const AUDIO = {
+  assetId: 'audio-cue',
+  kind: 'audio',
+  displayName: 'Cue',
+  currentVersion: 1,
+  versions: [{
+    version: 1,
+    sourceDigest: 'cd'.repeat(32),
+    sourceByteLength: 21164,
+    importRecipe: { profile: 'pcm-wav', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } },
+    metrics: { container: 'riff-wave', encoding: 'pcm-s16le', channels: 1, sampleRate: 48000, bitsPerSample: 16, frames: 10560, durationMs: 220, pcmBytes: 21120, dataChunkBytes: 21120, riffChunkBytes: 21156 },
+    importedAt: '2026-09-21T00:00:00Z',
+    publishedRevision: 1,
+  }],
+};
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const scene = (entities: unknown[]) => ({ schemaVersion: 4, sceneId: 'scene-a', revision: 1, entities });
 const content = (assets: unknown[]) => ({
@@ -59,6 +74,7 @@ describe('asset vertexColors', () => {
   it('refuses any other value, and the field on an audio record', () => {
     expect(validateContentV4(content([{ ...MODEL, vertexColors: 'data' }])).ok).toBe(false);
     expect(validateContentV4(content([{ ...MODEL, vertexColors: true }])).ok).toBe(false);
-    if (AUDIO !== undefined) expect(validateContentV4(content([MODEL, { ...AUDIO, vertexColors: 'tint' }])).ok).toBe(false);
+    expect(validateContentV4(content([MODEL, AUDIO])).ok).toBe(true);
+    expect(validateContentV4(content([MODEL, { ...AUDIO, vertexColors: 'tint' }])).ok).toBe(false);
   });
 });

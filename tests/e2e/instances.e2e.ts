@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, startBackend, type E2EBackend } from './backend';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -45,20 +45,20 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 }
 
 test('the scatter dialog makes one entity that draws many copies; the buffer route refuses bad buffers', async ({ page }) => {
-  be = await startBackend('inst-e2e', 'beacon-reach');
+  be = await startBackend('inst-e2e', 'starter');
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
 
   await menu(page, 'GameObject', 'Instance set…');
   const dialog = page.getByRole('dialog', { name: 'Instance set' });
-  await dialog.getByLabel('instance model').selectOption({ label: 'Beacon pillar' });
+  await dialog.getByLabel('instance model').selectOption({ label: 'Pillar' });
   await dialog.getByLabel('Copies').fill('60');
   await dialog.getByLabel('Width (X, m)').fill('24');
   await dialog.getByLabel('Depth (Z, m)').fill('10');
   await dialog.getByRole('button', { name: 'Create instance set' }).click();
   await expect(dialog).toHaveCount(0);
 
-  const row = page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Beacon pillar ×60' });
+  const row = page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Pillar ×60' });
   await expect(row).toHaveCount(1);
   const id = String(await row.getAttribute('data-entity-id'));
   const entity = (await query('queryEntity', { entityId: id })).entity as { components: { instances: { asset: { assetId: string }; buffer: string; count: number } } };
@@ -96,7 +96,9 @@ test('the scatter dialog makes one entity that draws many copies; the buffer rou
 });
 
 test('an instance set in a scene loaded during Play is drawn once the scene loads', async ({ page }) => {
-  be = await startBackend('inst-load', 'beacon-reach');
+  be = await startBackend('inst-load', 'starter');
+  // The control route's loadScene answers only with a game session (D34: refused in scene mode).
+  await addGameSession(be);
   // A row of pillars along the start ground (x 2..14), published through the route MCP uses.
   const transforms: number[] = [];
   for (let i = 0; i < 25; i += 1) transforms.push(2 + i * 0.5, 0, -2 - (i % 3), 0, 0, 0, 1, 0.3, 0.3, 0.3);
@@ -104,7 +106,7 @@ test('an instance set in a scene loaded during Play is drawn once the scene load
   expect(published.status, JSON.stringify(published.json)).toBe(200);
   expect(published.json.count).toBe(25);
   const assets = (await query('queryAssets', { limit: 50, offset: 0 })).assets as { assetId: string; displayName: string }[];
-  const pillar = assets.find((a) => a.displayName === 'Beacon pillar')!.assetId;
+  const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
   await cmd('createScene', { sceneId: 'scene-grove', name: 'Grove' });
   await cmd('createEntity', { sceneId: 'scene-grove', kind: 'group', name: 'Grove', components: { instances: { asset: { assetId: pillar }, buffer: published.json.digest, count: 25 } } });
 

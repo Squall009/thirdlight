@@ -695,7 +695,7 @@ const ANIMATOR_BASES: J[] = [
 ];
 
 const SAMPLE = JSON.parse(
-  Object.values(import.meta.glob('../../../samples/beacon-reach/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>)[0] as string,
+  Object.values(import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>)[0] as string,
 ) as { content: { assets: Obj[] } };
 const MODEL_ASSET = SAMPLE.content.assets.find((a) => a['kind'] === 'model')!;
 

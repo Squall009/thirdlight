@@ -29,18 +29,20 @@ describe('template dependencies at creation', () => {
   let base: string;
   beforeAll(async () => {
     engineRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-templates-'));
-    // Two templates from the Beacon Reach capture: one declares a module
-    // nobody provides, one declares only what the engine has.
+    // Two templates from the neutral starter's capture: one declares a module
+    // nobody provides, one declares only what the engine has; plus the real
+    // starter template as it ships.
     for (const [id, requiredModules] of [
       ['needs-terrain', ['thirdlight.terrain:heightmap']],
       ['plain', ['thirdlight.platformer:controller']],
     ] as const) {
       const dir = join(engineRoot, 'templates', id);
       mkdirSync(join(dir, 'captured'), { recursive: true });
-      copyTree(join(REPO_ROOT, 'samples', 'beacon-reach', 'captured', 'project.json'), join(dir, 'captured', 'project.json'));
-      copyTree(join(REPO_ROOT, 'samples', 'beacon-reach', 'assets'), join(dir, 'assets'));
+      copyTree(join(REPO_ROOT, 'templates', 'starter', 'captured', 'project.json'), join(dir, 'captured', 'project.json'));
+      copyTree(join(REPO_ROOT, 'templates', 'starter', 'assets'), join(dir, 'assets'));
       writeFileSync(join(dir, 'template.json'), JSON.stringify({ name: id, description: 'test', requiredModules }));
     }
+    copyTree(join(REPO_ROOT, 'templates', 'starter'), join(engineRoot, 'templates', 'starter'));
     const t = await createTestBackend({
       authoringOrigin: AUTHORING_ORIGIN,
       previewOrigin: PREVIEW_ORIGIN,
@@ -83,5 +85,20 @@ describe('template dependencies at creation', () => {
   it('a template whose dependencies resolve is created', async () => {
     const res = await create('t2', 'plain');
     expect(res.status).toBe(201);
+  });
+
+  it('the starter template is listed and creates a project without game rules', async () => {
+    const res = await fetch(`${base}/api/v1/templates`, { headers: { authorization: `Bearer ${ADMIN}` } });
+    const body = (await res.json()) as { templates: Array<{ id: string; name: string; requiredModules: string[] }> };
+    expect(body.templates.find((t) => t.id === 'starter')).toMatchObject({ name: 'Starter', requiredModules: [] });
+    expect((await create('t3', 'starter')).status).toBe(201);
+    const q = await fetch(`${base}/api/v1/projects/t3/commands`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json', origin: AUTHORING_ORIGIN },
+      body: JSON.stringify({ op: 'queryGameConfig', projectId: 't3' }),
+    });
+    const game = (await q.json()) as { ok: boolean; game: unknown };
+    expect(game.ok, JSON.stringify(game).slice(0, 300)).toBe(true);
+    expect(game.game).toBeNull();
   });
 });

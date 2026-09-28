@@ -126,7 +126,7 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     const seen = ws.events.length;
     // Phase 12 (c): the backend upgrades the v3 fixture to v4 on open — the v4
     // game block has no kill height (a game rule for scripts / hazard zones).
-    const res = await command(mcp, 'setGameConfig', { game: { title: 'Beacon Reach v2', objective: 'Reach the far beacon' } }, before);
+    const res = await command(mcp, 'setGameConfig', { game: { title: 'Test game v2', objective: 'Reach the far marker' } }, before);
     expect(res.isError, JSON.stringify(res.body)).toBe(false);
     expect(res.body.revision).toBe(before + 1);
     const frame = await ws.waitFor((e) => e.type === 'mutation.applied' && e.revision === before + 1);
@@ -144,8 +144,8 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     const viaMcp = await mcp.call('tl_content_query', { target: 'game' });
     expect(viaMcp.isError, JSON.stringify(viaMcp.body)).toBe(false);
     const game = viaMcp.body.game as { title?: string; objective?: string; killY?: number } | null;
-    expect(game?.title).toBe('Beacon Reach v2');
-    expect(game?.objective).toBe('Reach the far beacon');
+    expect(game?.title).toBe('Test game v2');
+    expect(game?.objective).toBe('Reach the far marker');
     expect(game).not.toHaveProperty('killY');
     // Phase 15.0: the descriptor registry only when asked for.
     expect(viaMcp.body).not.toHaveProperty('descriptors');
@@ -163,7 +163,7 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     expect(viaHttp.status).toBe(200);
     const httpBody = viaHttp.body as { ok?: boolean; game?: { title?: string } | null; revision?: number };
     expect(httpBody.ok).toBe(true);
-    expect(httpBody.game?.title).toBe('Beacon Reach v2');
+    expect(httpBody.game?.title).toBe('Test game v2');
     expect(httpBody.revision).toBe(before + 1);
     // The v3 query result shape validates.
     // (the shared query surface returns the same envelope as the workspace)

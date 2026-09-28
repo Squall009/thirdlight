@@ -180,14 +180,14 @@ async function settle(page: Page, maxMs = 20_000): Promise<void> {
 async function scatter(page: Page, copies: number, seed: number, rowsAfter = 1): Promise<string[]> {
   await menu(page, 'GameObject', 'Instance set…');
   const dialog = page.getByRole('dialog', { name: 'Instance set' });
-  await dialog.getByLabel('instance model').selectOption({ label: 'Beacon pillar' });
+  await dialog.getByLabel('instance model').selectOption({ label: 'Pillar' });
   await dialog.getByLabel('Copies').fill(String(copies));
   await dialog.getByLabel('Width (X, m)').fill('200');
   await dialog.getByLabel('Depth (Z, m)').fill('200');
   await dialog.getByLabel('Seed').fill(String(seed));
   await dialog.getByRole('button', { name: 'Create instance set' }).click();
   await expect(dialog).toHaveCount(0, { timeout: 60_000 });
-  const rows = page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: `Beacon pillar ×${copies}` });
+  const rows = page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: `Pillar ×${copies}` });
   await expect(rows).toHaveCount(rowsAfter, { timeout: 60_000 });
   // Every set of this size (the newest last): their buffers.
   const ids = await rows.evaluateAll((els) => els.map((e) => String(e.getAttribute('data-entity-id'))));
@@ -203,7 +203,7 @@ async function scatter(page: Page, copies: number, seed: number, rowsAfter = 1):
 test('a scatter of 50 000 copies: the same buffer with and without workers; no long main-thread task above the bound', async ({ page }) => {
   defaultProjectOnly();
   test.setTimeout(300_000);
-  be = await startBackend('workers-scatter', 'beacon-reach', extraEnv());
+  be = await startBackend('workers-scatter', 'starter', extraEnv());
   await installLongTaskObserver(page);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -325,7 +325,7 @@ test('asset tile thumbnails render and are the same with and without workers (lo
   test.setTimeout(300_000);
   // WebGL 2 in the default project, WebGPU in the webgpu project (a snapshot of either canvas).
   const variant = test.info().project.name === 'webgpu' ? 'webgpu' : 'auto';
-  be = await startBackend('workers-thumbs', 'beacon-reach', extraEnv());
+  be = await startBackend('workers-thumbs', 'starter', extraEnv());
   await installLongTaskObserver(page);
   await page.goto(editorUrlFor(be.editorUrl, variant));
   const prof = await startProfile(page);
@@ -347,7 +347,7 @@ test('asset tile thumbnails render and are the same with and without workers (lo
   if (label === 'after') {
     // A fresh project (no cached thumbnails) with every job inline: the same PNGs.
     await be.stop();
-    be = await startBackend('workers-thumbs-inline', 'beacon-reach');
+    be = await startBackend('workers-thumbs-inline', 'starter');
     await page.goto(editorUrlFor(be.editorUrl, variant).replace('#', '&workers=off#'));
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     const inline = await thumbnails(page);

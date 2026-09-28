@@ -102,7 +102,7 @@ keeps the gate green.
 |---|---|
 | 24.0 | done 2026-09-27 |
 | 24.1 | done 2026-09-27: Sprout tests deleted; `animator-skinned`, `lightmaps-kit` on generated GLBs (browser bake always, Blender bake when Blender is there) |
-| 24.2 | — |
+| 24.2 | done 2026-09-28: `templates/starter` (no game block, plays as a scene); 35 e2e files, the template unit test and 5 project-model tests off `beacon-reach`; the rest listed below for 24.7 |
 | 24.3 | — |
 | 24.4 | — |
 | 24.5 | — |
@@ -126,3 +126,37 @@ keeps the gate green.
   "Phase 24.0" in code comments) are frozen, not reverted, because 24.7
   deletes the whole enemy block. The label is unrelated to this phase's
   24.0.
+- 2026-09-28 (24.2): the starter template (`templates/starter`, built by
+  `tools/build-template.mts` through `applyMutation`) has no game block: a
+  project from it plays in scene mode. A generated character (48 triangles,
+  7.8 KB, clips Idle/Run/Airborne) carries the controller; a generated
+  pillar (24 triangles, 3 KB) is the decoration model. The camera uses the
+  engine default field of view (60°).
+- 2026-09-28 (24.2): tests whose generic subject still runs through the
+  platformer session's run states (awaiting start, the HUD, counters in the
+  observation) call `addGameSession(be)` (`tests/e2e/backend.ts`): it adds
+  the v4 game block, a following camera and an out-of-reach goal zone (the
+  block requires one) by command. The template stays free of game rules and
+  the coupling is greppable. Twenty files use it: animator-skinned,
+  debug-entry, instances (D34), mcp, mcp-headless, memory, play-memory,
+  project-ui, rebind, scenes (exit zones), script-editor, script-libraries,
+  script-properties, sensors, sim-worker, spawn, tags, ui-editor,
+  visual-script, visual-script-debug. 24.6 rewrites them when the run states
+  go. Behaviors, backup, capsule, input, insecure-context, layout and one
+  scenes test now assert scene mode (`state: 'scene'`; the export's
+  `__thirdlightObserve`).
+- 2026-09-28 (24.2): "coin" as a counter name became neutral (`opened`,
+  `items`; a `custom` pickup with a counter in sim-worker); Beacon assets
+  became the starter's `Pillar`; audio comes from the WAV fixtures through
+  `publishWav` (the starter has none).
+- 2026-09-28 (24.2): left on `beacon-reach` for 24.7 because their subject is
+  the platformer or its game flow: `beacon-reach`, `score`, `blocks` (coins,
+  stomp), `flow` (levels, lives), `saves` (checkpoint run saves), `level-look`
+  and `pad-menus` (flow levels, title and menus), the pickup-effect test in
+  `effects-runtime`; `tests/integration/m3-sample/*`,
+  `tests/evaluations/m3-browser`, `tests/evaluations/m4-baseline/*`, and the
+  kill-height migration case in `project-v4.test.ts`.
+- 2026-09-28 (24.2): `effects-runtime` expected the CPU effect executor for
+  `auto`; on the GPU host `auto` is WebGPU (the compute executor). The test
+  now follows the backend (a stale test expectation since the gate moved to
+  the GPU, not a product bug).

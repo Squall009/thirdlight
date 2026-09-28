@@ -1,6 +1,6 @@
 /**
  * Phase 23.8: test and debug entry points against a real backend and a real
- * browser (the engine sample, a v4 game without levels, plus a neutral second
+ * browser (the starter template with the game session, a v4 game without levels, plus a neutral second
  * scene, "Cave": a floor far to the right, a player spawn on it and a marker).
  *
  * The player carries a script that adds the injected variable `bonus` (read
@@ -27,7 +27,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, startBackend, type E2EBackend } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config
 import { browserLibs } from './browser-env.mjs';
 
@@ -82,17 +82,16 @@ const SCRIPT = [
   '',
 ].join('\n');
 
-/** Beacon Reach + the Cave scene + the script on the player. */
+/** The starter + the game session + the Cave scene + the script on the player. */
 async function setUp(projectId: string, env: Record<string, string> = {}): Promise<void> {
-  be = await startBackend(projectId, 'beacon-reach', env);
+  be = await startBackend(projectId, 'starter', env);
   await cmd('createScene', { sceneId: 'scene-cave', name: 'Cave' });
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'box', name: 'Cave floor', transform: { position: [65, -0.2, 0] }, box: { size: [10, 0.4, 2], material: { color: '#4a3f5c' } }, components: { collider: { shape: { type: 'box', hx: 5, hy: 0.2 } } } });
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'box', name: 'Cave marker', transform: { position: [67, 1.2, 0] }, box: { size: [1.4, 1.4, 1.4], material: { color: '#ff00ff' } } });
   await cmd('createEntity', { sceneId: 'scene-cave', kind: 'group', name: 'Cave spawn', transform: { position: [65, 0.91, 0] }, components: { playerSpawn: {} } });
-  // An open world: the camera follows without bounds (Beacon Reach clamps it to its level).
+  // The run states (playing, the export's start prompt) come from the game session.
+  await addGameSession(be);
   const game = (await query('queryGameConfig')).game as { cameraId: string; playerId: string };
-  const camera = (await query('queryEntity', { entityId: game.cameraId })).entity as { components: { cameraFollow: { deadZone: unknown; smoothing: number } } };
-  await cmd('setComponent', { entityId: game.cameraId, component: 'cameraFollow', value: { deadZone: camera.components.cameraFollow.deadZone, smoothing: camera.components.cameraFollow.smoothing, bounds: null } });
 
   const behaviorId = 'behavior-debug-entry';
   const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: SCRIPT }] }, null, 2)}\n`);

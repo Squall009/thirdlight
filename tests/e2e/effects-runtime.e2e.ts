@@ -5,7 +5,7 @@
  *   walking the player over the coin plays it where the coin was — magenta
  *   particles appear in Play (the preview iframe) and in the static export
  *   (backend stopped), none before the coin is collected. Per renderer:
- *   `auto` in `default` (WebGL 2: the CPU executor), `webgpu` in `webgpu`
+ *   `auto` in `default` (the CPU executor on WebGL 2, the compute one where a GPU gives WebGPU), `webgpu` in `webgpu`
  *   (the WebGPU compute executor); the canvas reports the executor.
  * - The Scene view plays the selected object's effect in edit mode (Gizmos →
  *   "Play selected effects"), and stops when the toggle is off.
@@ -19,7 +19,7 @@ import { expect, test, type FrameLocator, type Locator, type Page } from '@playw
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -121,7 +121,8 @@ for (const variant of VARIANTS) test(`a burst effect on a pickup's collected hoo
   onlyInItsProject(variant);
   test.setTimeout(420_000);
   be = await startBackend('effects-runtime-e2e', 'beacon-reach');
-  const executor = variant === 'webgpu' ? 'webgpu' : 'cpu';
+  // The effect executor follows the backend (on a GPU host `auto` takes WebGPU: the compute executor).
+  const executor = backendOf(variant) === 'webgpu' ? 'webgpu' : 'cpu';
   // The template's first stretch (its camera keeps within the level): a coin just right of the start that plays the
   // burst when collected, and a wall before the first hazard so the player stays near the burst however slow the frames are.
   await cmd('setEffect', { effect: burstEffect('fx-burst', false) });
@@ -200,7 +201,7 @@ test('the Scene view plays the selected object\'s effect in edit mode (Gizmos to
   test.skip(test.info().project.name === 'webgpu', 'the edit-mode toggle is renderer-independent UI (the default project covers it)');
   test.setTimeout(180_000);
   // A v4 project (the template): the effect component is a v4 component.
-  be = await startBackend('effects-edit-e2e', 'beacon-reach');
+  be = await startBackend('effects-edit-e2e', 'starter');
   await cmd('setEffect', { effect: burstEffect('fx-loop', true) });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -221,7 +222,7 @@ test('the Scene view plays the selected object\'s effect in edit mode (Gizmos to
   // Toggle on: the effect plays around the selected object.
   await menu(page, 'Gizmos', 'Play selected effects: off');
   await expect.poll(async () => JSON.parse((await viewport.getAttribute('data-effects')) ?? '{}').particles ?? 0, { timeout: 30_000 }).toBeGreaterThan(50);
-  expect(JSON.parse((await viewport.getAttribute('data-effects')) ?? '{}').executor).toBe('cpu');
+  expect(JSON.parse((await viewport.getAttribute('data-effects')) ?? '{}').executor).toBe(backendOf('auto') === 'webgpu' ? 'webgpu' : 'cpu');
   let on = 0;
   await expect.poll(async () => (on = count(await shot(viewport), magenta)), { timeout: 30_000 }).toBeGreaterThan(off + 200);
   console.log(`[effects-runtime] scene view: magenta off ${off}, on ${on}`);

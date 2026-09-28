@@ -17,7 +17,7 @@ import { startBackend, type E2EBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('capsule-e2e', 'beacon-reach');
+  be = await startBackend('capsule-e2e', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();
@@ -107,9 +107,9 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   expect(perMetre).toBeGreaterThan(30);
 
   // Clicking the capsule outline (away from the handles) selects the player
-  // (the far-away beacon is selected first, so its gizmo is not in the way).
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="box-0009"]`).click();
-  await expect(page.locator('.tl-inspector__name')).toHaveValue('Beacon');
+  // (the far-away pillar is selected first, so its gizmo is not in the way).
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="model-0002"]`).click();
+  await expect(page.locator('.tl-inspector__name')).toHaveValue('Pillar');
   await page.mouse.click(side.x, side.y - Math.round(0.4 * perMetre));
   await expect(page.locator('.tl-inspector__name')).toHaveValue('Player');
 
@@ -144,8 +144,8 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<{ state: string; player?: { x: number; y: number } }> => (await relay(`${psid}/observe`, {})).json as never;
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(200);
-  expect((await relay(`${psid}/control`, { command: 'start' })).status).toBe(200);
-  await expect.poll(async () => (await observe()).state).toBe('playing');
+  // The starter has no game block: the scene plays at once.
+  await expect.poll(async () => (await observe()).state).toBe('scene');
   await page.waitForTimeout(400);
   for (let i = 0; i < 40 && ((await observe()).player?.x ?? 0) < 5.3; i++) {
     const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: Array.from({ length: 12 }, (_, k) => ({ stepOffset: k, moveX: 1, jump: 'none' })) });

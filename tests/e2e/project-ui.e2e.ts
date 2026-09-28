@@ -28,7 +28,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, type E2EBackend, startBackend } from './backend';
 import { makePng } from './png-make';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
@@ -37,7 +37,8 @@ const FONTS = join(REPO, 'fixtures', 'fonts');
 let be: E2EBackend;
 let dir: string;
 test.beforeEach(async () => {
-  be = await startBackend('project-ui-e2e', 'beacon-reach');
+  be = await startBackend('project-ui-e2e', 'starter');
+  await addGameSession(be); // the run states come from the game session (phase 24.2)
   dir = mkdtempSync(join(tmpdir(), 'tl-ui-e2e-'));
 });
 test.afterEach(async () => {

@@ -13,7 +13,7 @@ import { makePng } from './png-make';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('input-e2e', 'beacon-reach');
+  be = await startBackend('input-e2e', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();
@@ -54,9 +54,9 @@ test('jump rebound to W in the Input window: W jumps in Play, Space does not', a
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<Observation> => (await relay(`${psid}/observe`, {})).json as unknown as Observation;
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 15_000 }).toBe(200);
+  // The starter has no game block: the scene plays at once; a click focuses the game.
   await page.locator('iframe.tl-app__preview-frame').click();
-  await page.keyboard.press('Enter');
-  await expect.poll(async () => (await observe()).state).toBe('playing');
+  await expect.poll(async () => (await observe()).state).toBe('scene');
   await page.waitForTimeout(500); // settle on the ground
   const ground = (await observe()).player!.y;
 

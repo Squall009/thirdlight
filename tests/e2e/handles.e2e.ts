@@ -1,6 +1,6 @@
 /**
  * Phase 15.2: Scene-view handles for every descriptor handle kind, in a real
- * browser against a real backend. The engine sample (Beacon Reach) is only
+ * browser against a real backend. The starter template is only
  * the stage: every object a test edits is a neutral one added by command
  * away from the level. For each handle kind a grip of the selected object is
  * dragged; the stored value changes (snapped), in one command, and one undo
@@ -16,7 +16,7 @@ import { startBackend, type E2EBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('handles-e2e', 'beacon-reach');
+  be = await startBackend('handles-e2e', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();
@@ -105,7 +105,7 @@ test('sizes, ranges and radii: box3, box2, capsule, radius, segment1d, a chase b
   const sensor = await create('Sensor', [10, 30, 0], { trigger: { size: [1, 1], signal: 'hello' } });
   const ring = await create('Ring', [20, 30, 0], { trigger: { shape: 'circle', radius: 1, signal: 'ring' } });
   const walker = await create('Walker', [30, 30, 0], { enemy: { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1, chase: 3, chaseHeight: 1 } });
-  await mutate('setComponent', { entityId: 'br-cam-main', component: 'cameraFollow', value: { bounds: { minX: 37, maxX: 43, minY: 27, maxY: 33 } } });
+  await mutate('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: 37, maxX: 43, minY: 27, maxY: 33 } } });
   const marker = await create('Bounds marker', [40, 30, 0], {});
   await open(page);
   // The enemy's chase distance is drawn.
@@ -168,15 +168,15 @@ test('sizes, ranges and radii: box3, box2, capsule, radius, segment1d, a chase b
 
   // box2 world bounds: the camera follow's right edge (viewed from the marker in the middle of them).
   await select(page, marker);
-  await select(page, 'br-cam-main', false);
+  await select(page, 'cam-main', false);
   for (const h of ['left', 'right', 'bottom', 'top']) await grip(page, 'cameraFollow', 'box2', h);
   await drag(page, await grip(page, 'cameraFollow', 'box2', 'right'), 80, 0);
-  await expect.poll(async () => ((await comp('br-cam-main', 'cameraFollow'))!['bounds'] as { maxX: number }).maxX).toBeGreaterThan(43.1);
-  const b = (await comp('br-cam-main', 'cameraFollow'))!['bounds'] as { minX: number; maxX: number };
+  await expect.poll(async () => ((await comp('cam-main', 'cameraFollow'))!['bounds'] as { maxX: number }).maxX).toBeGreaterThan(43.1);
+  const b = (await comp('cam-main', 'cameraFollow'))!['bounds'] as { minX: number; maxX: number };
   expect(b.minX).toBe(37);
   expect(snapped(b.maxX, 0.25)).toBe(true);
   await undo(page);
-  await expect.poll(async () => (await comp('br-cam-main', 'cameraFollow'))!['bounds']).toEqual({ minX: 37, maxX: 43, minY: 27, maxY: 33 });
+  await expect.poll(async () => (await comp('cam-main', 'cameraFollow'))!['bounds']).toEqual({ minX: 37, maxX: 43, minY: 27, maxY: 33 });
 });
 
 test('lights: a direction, a spot cone (tip and angle) and a point light range — drag, stored, one undo', async ({ page }) => {
@@ -271,22 +271,22 @@ test('paths and polygons: drag a point, add one on an edge, Alt+click deletes; a
   await expect.poll(corners).toEqual([[-1, 0], [1, 0], [0, 1.5]]);
 
   // "Add collider → polygon / box from model outline" on a model (the pillar), each one command and one undo.
-  await select(page, 'model-0003');
+  await select(page, 'model-0002');
   const add = page.locator('.tl-inspector').getByLabel('add component', { exact: true });
   await expect.poll(async () => (await add.locator('option', { hasText: 'Collider: Polygon from model outline' }).count())).toBe(1);
   await expect.poll(async () => {
-    if ((await comp('model-0003', 'collider')) === undefined) await add.selectOption({ label: 'Collider: Polygon from model outline' });
-    return ((await comp('model-0003', 'collider'))?.['shape'] as { type?: string } | undefined)?.type;
+    if ((await comp('model-0002', 'collider')) === undefined) await add.selectOption({ label: 'Collider: Polygon from model outline' });
+    return ((await comp('model-0002', 'collider'))?.['shape'] as { type?: string } | undefined)?.type;
   }, { timeout: 30_000 }).toBe('polygon');
-  const outline = ((await comp('model-0003', 'collider'))!['shape'] as { vertices: number[][] }).vertices;
+  const outline = ((await comp('model-0002', 'collider'))!['shape'] as { vertices: number[][] }).vertices;
   expect(outline.length).toBeGreaterThanOrEqual(3);
   expect(outline.length).toBeLessThanOrEqual(8);
   await undo(page);
-  await expect.poll(async () => comp('model-0003', 'collider')).toBeUndefined();
+  await expect.poll(async () => comp('model-0002', 'collider')).toBeUndefined();
   await add.selectOption({ label: 'Collider: Box from model' });
-  await expect.poll(async () => ((await comp('model-0003', 'collider'))?.['shape'] as { type?: string } | undefined)?.type).toMatch(/box|polygon/);
+  await expect.poll(async () => ((await comp('model-0002', 'collider'))?.['shape'] as { type?: string } | undefined)?.type).toMatch(/box|polygon/);
   await undo(page);
-  await expect.poll(async () => comp('model-0003', 'collider')).toBeUndefined();
+  await expect.poll(async () => comp('model-0002', 'collider')).toBeUndefined();
 });
 
 test('a spawn\'s facing, the camera\'s real frustum, an animator\'s starting parameter values', async ({ page }) => {
@@ -295,16 +295,16 @@ test('a spawn\'s facing, the camera\'s real frustum, an animator\'s starting par
   const inspector = page.locator('.tl-inspector');
 
   // playerSpawn.facing: a select (none/left/right); none removes it.
-  await select(page, 'spawn-0002', false);
+  await select(page, 'spawn-0001', false);
   await inspector.getByLabel('playerSpawn facing', { exact: true }).selectOption('left');
-  await expect.poll(async () => comp('spawn-0002', 'playerSpawn')).toEqual({ facing: 'left' });
+  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({ facing: 'left' });
   await undo(page);
-  await expect.poll(async () => comp('spawn-0002', 'playerSpawn')).toEqual({});
+  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({});
   await expect(inspector.getByLabel('playerSpawn facing', { exact: true })).toHaveValue('none');
 
   // The camera's frustum follows its fields and the game's aspect.
-  const stored = (await comp('br-cam-main', 'camera'))! as { fovY: number; near: number; far: number };
-  await select(page, 'br-cam-main', false);
+  const stored = (await comp('cam-main', 'camera'))! as { fovY: number; near: number; far: number };
+  await select(page, 'cam-main', false);
   const frustumNow = async (): Promise<Record<string, number>> => JSON.parse((await view(page).getAttribute('data-camera-frustum')) || '{}') as Record<string, number>;
   await expect.poll(async () => (await frustumNow())['fovY']).toBe(stored.fovY);
   const frustum = await frustumNow();
@@ -317,7 +317,7 @@ test('a spawn\'s facing, the camera\'s real frustum, an animator\'s starting par
   await undo(page);
   await expect.poll(async () => (await frustumNow())['fovY']).toBe(stored.fovY);
   // Another selection hides it.
-  await select(page, 'spawn-0002', false);
+  await select(page, 'spawn-0001', false);
   await expect(view(page)).toHaveAttribute('data-camera-frustum', '');
 
   // animator.parameters: the player's controller parameters, each with its starting value.
@@ -344,7 +344,7 @@ test('instance copies: select one copy, delete it, move it with the gizmo, brush
   const res = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/buffers`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify({ transforms }) });
   const published = (await res.json()) as { digest: string; count: number };
   const assets = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; displayName: string }[];
-  const pillar = assets.find((a) => a.displayName === 'Beacon pillar')!.assetId;
+  const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
   const set = await create('Grove', [0, 0, -10], { instances: { asset: { assetId: pillar }, buffer: published.digest, count: 3 } });
   const copies = async (): Promise<number[][]> => {
     const inst = (await comp(set, 'instances'))! as { buffer: string; count: number };

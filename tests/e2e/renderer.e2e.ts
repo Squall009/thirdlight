@@ -165,8 +165,8 @@ test('by default everything draws with auto (WebGPU where it starts, else WebGL 
 
 test('the project setting picks the backend of the Scene view, Play (tl_game_observe, tl_diagnostics) and the export', async ({ page }) => {
   test.setTimeout(300_000);
-  // A game (Beacon Reach, the neutral template): tl_game_observe answers only for a game.
-  const be = await backend('beacon-reach');
+  // A playable project (the starter template, played as a scene): tl_game_observe answers while it plays.
+  const be = await backend('starter');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   // The setting is a select in the descriptor-built settings form.

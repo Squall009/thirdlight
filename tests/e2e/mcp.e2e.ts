@@ -15,14 +15,15 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, type E2EBackend, startBackend } from './backend';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
 let be: E2EBackend;
 let mcp: Client;
 test.beforeEach(async () => {
-  be = await startBackend('mcp-e2e', 'beacon-reach');
+  be = await startBackend('mcp-e2e', 'starter');
+  await addGameSession(be); // the run states come from the game session (phase 24.2)
   mcp = new Client({ name: 'thirdlight-e2e', version: '0.0.0' });
   await mcp.connect(
     new StdioClientTransport({

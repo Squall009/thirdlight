@@ -1,8 +1,8 @@
 /**
  * Phase 9.12: icons and gizmos. The generated icons load; a new point light's
  * hierarchy row shows the point-light icon; a moving platform's row the
- * mover icon; the Scene view draws a 2D outline for every collider (Beacon
- * Reach's grounds and steps) and the Gizmos menu turns the outlines, icons,
+ * mover icon; the Scene view draws a 2D outline for every collider (the
+ * starter template's ground and boxes) and the Gizmos menu turns the outlines, icons,
  * light ranges and gameplay helpers off and on. TL_GIZMO_SHOTS=<dir> saves
  * the Scene view with every helper on.
  */
@@ -13,7 +13,7 @@ import { menu } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('gizmos-e2e', 'beacon-reach');
+  be = await startBackend('gizmos-e2e', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();
@@ -47,9 +47,9 @@ test('the new icons load, rows use them, collider outlines are drawn and the Giz
   await menu(page, 'GameObject', 'Gameplay', 'Moving platform');
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Moving platform' })).toHaveCount(1);
 
-  // Collider outlines: Beacon Reach's grounds and steps plus the platform.
+  // Collider outlines: the starter's ground and three boxes plus the platform.
   const view = page.locator('canvas[data-collider-outlines]');
-  await expect.poll(async () => Number(await view.getAttribute('data-collider-outlines'))).toBeGreaterThanOrEqual(6);
+  await expect.poll(async () => Number(await view.getAttribute('data-collider-outlines'))).toBeGreaterThanOrEqual(5);
   await expect(view).toHaveAttribute('data-mover-paths', '1');
   await expect(view).toHaveAttribute('data-gizmos', 'icons lights colliders gameplay');
   if (process.env['TL_GIZMO_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_GIZMO_SHOTS']}/scene-gizmos.png` });

@@ -1,0 +1,5 @@
+{
+  "name": "Starter",
+  "description": "A neutral starting scene: ground, a few boxes, a character with the controller, a spawn point, a camera and lights. No game rules.",
+  "requiredModules": []
+}

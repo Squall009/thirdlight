@@ -92,7 +92,7 @@ test('one command starts the backend; the printed URL opens the picker; stop is 
     expect(res.status).toBe(200);
     // Create a project from the template through the picker and open it.
     await page.getByLabel('Project id').fill('first-game');
-    await page.getByLabel('Template').selectOption('beacon-reach');
+    await page.getByLabel('Template').selectOption('starter');
     await page.getByRole('button', { name: 'Create and open' }).click();
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     expect(existsSync(join(dataRoot, 'projects', 'first-game', 'project.json'))).toBe(true);
@@ -132,7 +132,7 @@ test('behind a reverse proxy: --origin/--preview-origin are the origins the brow
     expect(started.editorUrl).toBe(`${origin}/`);
     await page.goto(`${started.editorUrl}#token=${token}`);
     await page.getByLabel('Project id').fill('proxied');
-    await page.getByLabel('Template').selectOption('beacon-reach');
+    await page.getByLabel('Template').selectOption('starter');
     await page.getByRole('button', { name: 'Create and open' }).click();
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     await expect(page.locator('.tl-statusbar')).not.toContainText('bad_origin');

@@ -1,0 +1,431 @@
+{
+  "projectId": "starter",
+  "importedAt": "2026-09-28T00:00:00Z",
+  "commands": [
+    {
+      "op": "publishAsset",
+      "args": {
+        "mode": "create",
+        "assetId": "starter-character",
+        "kind": "model",
+        "displayName": "Character",
+        "sourceDigest": "8cc765270e1cc320f885ef1b6bbd1a9dbccb5a26217dc4b5ee38f062d5696556",
+        "sourceByteLength": 7800,
+        "importRecipe": {
+          "profile": "gltf-glb",
+          "recipeVersion": 1,
+          "toolchain": {
+            "three": "0.186.0"
+          },
+          "extensions": []
+        },
+        "metrics": {
+          "nodes": 5,
+          "meshes": 4,
+          "primitives": 4,
+          "materials": 4,
+          "images": 0,
+          "textures": 0,
+          "vertices": 96,
+          "triangles": 48,
+          "animations": 3,
+          "animationChannels": 5,
+          "clipDurationMs": 0,
+          "decodedGeometryBytes": 2784,
+          "decodedImageBytes": 0
+        },
+        "importedAt": "2026-09-28T00:00:00Z"
+      }
+    },
+    {
+      "op": "publishAsset",
+      "args": {
+        "mode": "create",
+        "assetId": "starter-pillar",
+        "kind": "model",
+        "displayName": "Pillar",
+        "sourceDigest": "6491376c34f960c168ff674f2c579a2ad8d412f278c567e4e6cb71435e4bf81c",
+        "sourceByteLength": 2980,
+        "importRecipe": {
+          "profile": "gltf-glb",
+          "recipeVersion": 1,
+          "toolchain": {
+            "three": "0.186.0"
+          },
+          "extensions": []
+        },
+        "metrics": {
+          "nodes": 3,
+          "meshes": 2,
+          "primitives": 2,
+          "materials": 2,
+          "images": 0,
+          "textures": 0,
+          "vertices": 48,
+          "triangles": 24,
+          "animations": 0,
+          "animationChannels": 0,
+          "clipDurationMs": 0,
+          "decodedGeometryBytes": 1296,
+          "decodedImageBytes": 0
+        },
+        "importedAt": "2026-09-28T00:00:00Z"
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "box",
+        "name": "Ground",
+        "transform": {
+          "position": [
+            8,
+            -0.2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            24,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#6f6f6f"
+          }
+        },
+        "components": {
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 12,
+              "hy": 0.2
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "box",
+        "name": "Step",
+        "transform": {
+          "position": [
+            6.5,
+            0.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            1,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#7d7d7d"
+          }
+        },
+        "components": {
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 0.5,
+              "hy": 0.2
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "box",
+        "name": "Platform",
+        "transform": {
+          "position": [
+            12,
+            1.6,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            3,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#7d7d7d"
+          }
+        },
+        "components": {
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 1.5,
+              "hy": 0.2
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "box",
+        "name": "Crate",
+        "transform": {
+          "position": [
+            -2,
+            0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "material": {
+            "color": "#8a7a62"
+          }
+        },
+        "components": {
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 0.5,
+              "hy": 0.5
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "model",
+        "name": "Player",
+        "transform": {
+          "position": [
+            3,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "starter-character"
+          }
+        },
+        "components": {
+          "controller": {},
+          "modelAnimation": {
+            "assetId": "starter-character",
+            "version": 1,
+            "roles": {
+              "idle": {
+                "clipIndex": 0,
+                "clipName": "Idle"
+              },
+              "run": {
+                "clipIndex": 1,
+                "clipName": "Run"
+              },
+              "airborne": {
+                "clipIndex": 2,
+                "clipName": "Airborne"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "group",
+        "name": "Spawn",
+        "transform": {
+          "position": [
+            3,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {
+          "playerSpawn": {}
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "group",
+        "name": "Key light",
+        "transform": {
+          "position": [
+            8,
+            10,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {
+          "light": {
+            "type": "directional",
+            "color": "#fff4e0",
+            "intensity": 1.6,
+            "direction": [
+              0.4,
+              -1,
+              -0.6
+            ],
+            "castShadow": true
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "group",
+        "name": "Ambient fill",
+        "transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {
+          "light": {
+            "type": "ambient",
+            "color": "#8a94b0",
+            "intensity": 0.9
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "model",
+        "name": "Pillar",
+        "transform": {
+          "position": [
+            17,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "starter-pillar"
+          }
+        }
+      }
+    }
+  ]
+}

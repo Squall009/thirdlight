@@ -32,7 +32,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
 
@@ -388,7 +388,8 @@ async function stopPlay(page: Page): Promise<void> {
 
 test('Play started and stopped 20× returns the editor page to its baseline (iframe, worker, renderer)', async ({ page }) => {
   test.setTimeout(600_000);
-  be = await startBackend('memory-play', 'beacon-reach');
+  be = await startBackend('memory-play', 'starter');
+  await addGameSession(be); // the run states come from the game session (phase 24.2)
   const probe = await openEditor(page);
   await leakCheck(page, probe, 'Play start/stop', cycles(20), async () => {
     const { relay } = await startPlay(page);
@@ -449,7 +450,8 @@ for (const threads of ['off', 'worker'] as const) {
     test.setTimeout(900_000);
     // The webgpu project runs the default mode (the worker) only: the page-thread composition is the same adapter.
     test.skip(webgpuProject() && threads === 'off', 'the webgpu project runs the worker mode');
-    be = await startBackend(`memory-play-scenes-${threads}`, 'beacon-reach');
+    be = await startBackend(`memory-play-scenes-${threads}`, 'starter');
+    await addGameSession(be); // the run states come from the game session (phase 24.2)
     // The side scene: a backdrop, crates, an effect emitter and (below, once uploaded) a model — behind the
     // player's start, in view (objects out of view are never uploaded, so their release would not show).
     await cmd('createScene', { sceneId: 'scene-side', name: 'Side' });

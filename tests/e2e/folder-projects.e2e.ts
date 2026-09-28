@@ -144,10 +144,10 @@ test('a project in a game folder: create, edit, reload, restart, backup/restore,
 });
 
 test('the MCP adapter finds the project from its working folder (no THIRDLIGHT_PROJECT_ID)', async () => {
-  const reach = join(games, 'reach');
-  const made = await be.admin('projects', { projectId: 'reach', name: 'Reach', folder: reach, template: 'beacon-reach' });
+  const mine = join(games, 'mine');
+  const made = await be.admin('projects', { projectId: 'mine', name: 'Mine', folder: mine, template: 'starter' });
   expect(made.status, JSON.stringify(made.json)).toBe(201);
-  const deep = join(reach, 'src', 'levels');
+  const deep = join(mine, 'src', 'levels');
   mkdirSync(deep, { recursive: true });
   const stray = join(games, 'stray');
   mkdirSync(stray);
@@ -173,7 +173,7 @@ test('the MCP adapter finds the project from its working folder (no THIRDLIGHT_P
     const project = await call(mcp, 'tl_inspect', { target: 'project' });
     const edit = await call(mcp, 'tl_command', { op: 'createEntity', expectedRevision: project.body.revision, args: { kind: 'box', name: 'From MCP' } });
     expect(edit.isError, JSON.stringify(edit.body)).toBe(false);
-    await expect.poll(() => readFileSync(join(reach, 'thirdlight', 'scenes', 'scene-main.json'), 'utf8')).toContain('From MCP');
+    await expect.poll(() => readFileSync(join(mine, 'thirdlight', 'scenes', 'scene-main.json'), 'utf8')).toContain('From MCP');
   } finally {
     await mcp.close();
   }
@@ -189,28 +189,28 @@ test('the MCP adapter finds the project from its working folder (no THIRDLIGHT_P
   }
 
   // A marker the backend does not know: says how to register it.
-  expect((await be.admin('projects/reach/unregister')).status).toBe(200);
+  expect((await be.admin('projects/mine/unregister')).status).toBe(200);
   const unknown = await connect(deep);
   try {
     const r = await call(unknown, 'tl_inspect', { target: 'project' });
     expect(r.isError).toBe(true);
     expect(JSON.stringify(r.body)).toContain('is not registered');
-    expect(JSON.stringify(r.body)).toContain(`project.mjs register ${reach}`);
+    expect(JSON.stringify(r.body)).toContain(`project.mjs register ${mine}`);
   } finally {
     await unknown.close();
   }
 
   // A marker pinned to another engine version is flagged, never refused.
-  const markerFile = join(reach, 'thirdlight.json');
+  const markerFile = join(mine, 'thirdlight.json');
   const m = JSON.parse(readFileSync(markerFile, 'utf8')) as { engine: { version: string } };
   m.engine.version = '0.0.0-other';
   writeFileSync(markerFile, JSON.stringify(m));
-  expect((await be.admin('projects/register', { folder: reach })).status).toBe(201);
+  expect((await be.admin('projects/register', { folder: mine })).status).toBe(201);
   const res = await fetch(`${be.origin}/api/v1/projects`, { headers: { authorization: `Bearer ${be.token}` } });
-  const row = ((await res.json()) as { projects: Array<{ projectId: string; loadable: boolean; enginePin?: { differences: string[] } }> }).projects.find((p) => p.projectId === 'reach')!;
+  const row = ((await res.json()) as { projects: Array<{ projectId: string; loadable: boolean; enginePin?: { differences: string[] } }> }).projects.find((p) => p.projectId === 'mine')!;
   expect(row.loadable).toBe(true);
   expect(row.enginePin?.differences.join()).toContain('0.0.0-other');
-  const check = tool(PROJECT_TOOL, ['check', reach]);
+  const check = tool(PROJECT_TOOL, ['check', mine]);
   expect(check.status).toBe(1);
   expect(check.stderr).toContain('MISMATCH');
 });

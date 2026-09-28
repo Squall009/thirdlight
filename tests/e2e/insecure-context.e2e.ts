@@ -14,7 +14,7 @@ import { startBackend, type E2EBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('lan-0001', 'beacon-reach');
+  be = await startBackend('lan-0001', 'starter');
 });
 test.afterEach(async () => {
   await be.stop();
@@ -70,7 +70,7 @@ test('Play works in a page without WebCrypto (editor + preview frames)', async (
       },
       { timeout: 15_000 },
     )
-    .toBe('awaitingStart');
+    .toBe('scene');
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   const problems = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/problems`, { headers: { authorization: `Bearer ${be.token}` } });
   expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
@@ -87,7 +87,8 @@ test('the exported game runs when served over plain http on a LAN address', asyn
   try {
     await page.goto(site!.url);
     expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
-    await expect(page.getByText('Press Enter or Space')).toBeVisible({ timeout: 15_000 });
+    // The starter plays as a scene: the export's own observation says it runs.
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null), { timeout: 15_000 }).toBe('scene');
     await expect(page.getByText(/export error/i)).toHaveCount(0);
     expect(errors).toEqual([]);
   } finally {

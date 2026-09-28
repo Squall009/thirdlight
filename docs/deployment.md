@@ -119,8 +119,12 @@ Open `http://127.0.0.1:8501/` for the picker: it lists every project under
 in a game's own folder"), and creates new ones, empty or from a template.
 Templates are directories under the engine's `templates/` or `samples/`
 holding `captured/project.json` (+ `assets/`, optional `template.json` with
-`name`, `description`, `requiredModules`). `samples/beacon-reach` is the
-one shipped today.
+`name`, `description`, `requiredModules`). `templates/starter` ("Starter")
+is the neutral one: a ground, three boxes, a character with the controller,
+a spawn point, a camera, two lights and a pillar model, with no game rules
+(no game block, so it plays as a scene). It is rebuilt by
+`templates/starter/tools/build-template.mts`. `samples/beacon-reach` is
+still shipped until phase 24.7 removes it.
 
 A project directory holds:
 
@@ -524,7 +528,7 @@ its files. A registered folder that goes missing is listed as "folder
 unavailable" until it is back. From the shell, with the backend running:
 
 ```sh
-node tools/project.mjs create ~/projects/my-game --id my-game --name "My game" [--template beacon-reach]
+node tools/project.mjs create ~/projects/my-game --id my-game --name "My game" [--template starter]
 node tools/project.mjs register ~/projects/my-game       # an existing folder
 node tools/project.mjs unregister my-game                 # files are kept
 node tools/project.mjs list

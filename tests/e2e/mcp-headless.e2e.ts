@@ -9,7 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, type E2EBackend, startBackend } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config
 import { browserLibs } from './browser-env.mjs';
 
@@ -19,7 +19,8 @@ let be: E2EBackend;
 let mcp: Client;
 test.beforeEach(async () => {
   const libs = browserLibs() as string | undefined;
-  be = await startBackend('mcp-headless', 'beacon-reach', { THIRDLIGHT_HEADLESS: 'on', ...(libs !== undefined ? { THIRDLIGHT_BROWSER_LIBS: libs } : {}) });
+  be = await startBackend('mcp-headless', 'starter', { THIRDLIGHT_HEADLESS: 'on', ...(libs !== undefined ? { THIRDLIGHT_BROWSER_LIBS: libs } : {}) });
+  await addGameSession(be); // the run states come from the game session (phase 24.2)
   mcp = new Client({ name: 'thirdlight-e2e', version: '0.0.0' });
   await mcp.connect(
     new StdioClientTransport({

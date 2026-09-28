@@ -12,7 +12,7 @@ import type { ModelErrorV2 } from './errors';
 import type { ContentCatalogV4, SceneV4 } from './types-v3';
 
 const SAMPLE_RAW = Object.values(
-  import.meta.glob('../../../samples/beacon-reach/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
+  import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
 )[0] as string;
 const SAMPLE = JSON.parse(SAMPLE_RAW) as { content: { assets: { assetId: string; kind: string; displayName: string }[] } };
 const MODEL = SAMPLE.content.assets.find((a) => a.kind === 'model')!;

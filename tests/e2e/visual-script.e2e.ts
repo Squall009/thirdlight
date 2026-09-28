@@ -1,6 +1,7 @@
 /**
  * Phase 19.0/19.1: visual scripts built in the editor against a real backend
- * (the engine sample with neutral additions).
+ * (the starter template with neutral additions; the run states and the HUD
+ * come from the game session the tests add).
  *
  * - Behaviors → "+ Visual script" creates a behavior whose source is a graph
  *   and opens it as a "Graph: <name>" centre tab (the generic graph editor
@@ -13,14 +14,14 @@
  *   publishes (source.kind "graph").
  * - Play runs it: the run's counter shows the amount (observed through the
  *   play observation route).
- * - 19.1: "on trigger enter → after a timer, hide the door, add a coin, play
+ * - 19.1: "on trigger enter → after a timer, hide the door, count it, play
  *   a sound" built from the catalogue search (an entity variable naming the
  *   trigger, On trigger, Start timer, On timer, Set visible, Add to counter,
  *   Play sound with the sound picked from the project's audio), published and
- *   played: the coin is counted and the magenta door disappears (pixels). The
+ *   played: the opening is counted and the magenta door disappears (pixels). The
  *   sound request itself is not observable headless (unverified).
  * - 19.3: the same project exported and served statically with the backend
- *   stopped: the door disappears (pixels) and the HUD shows "Coins 1".
+ *   stopped: the door disappears (pixels) and the HUD shows "Opened 1".
  */
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -29,12 +30,13 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { addGameSession, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
-  be = await startBackend('visual-script-e2e', 'beacon-reach');
+  be = await startBackend('visual-script-e2e', 'starter');
+  await addGameSession(be);
 });
 test.afterEach(async () => {
   await be.stop();
@@ -159,7 +161,7 @@ test('visual script: build On start → Add to counter in the Graph tab, publish
   await expect(node(page, addId)).toBeVisible();
 });
 
-/** Clearly magenta pixels (the door colour; nothing else in the sample is). */
+/** Clearly magenta pixels (the door colour; nothing else in the starter is). */
 async function magenta(target: Page | Locator): Promise<number> {
   const img = decodePng(await target.screenshot());
   let n = 0;
@@ -172,12 +174,12 @@ async function magenta(target: Page | Locator): Promise<number> {
   return n;
 }
 
-test('visual script from the catalogue search: on trigger enter → timer → hide the door, add a coin, play a sound', async ({ page }) => {
+test('visual script from the catalogue search: on trigger enter → timer → hide the door, count it, play a sound', async ({ page }) => {
   test.setTimeout(300_000);
   // The sensor on the player's start (3, 0.91: the player stands in it when the run begins) and a magenta door beside it.
   const trigger = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Door sensor', transform: { position: [3, 0.91, 0] }, components: { trigger: { size: [1, 1], signal: 'sensor' } } }))['createdId']);
   const door = String((await cmd('createEntity', { kind: 'box', name: 'Door', transform: { position: [5, 1.3, 0] }, box: { size: [0.5, 2.6, 1], material: { color: '#ff00ff' } } }))['createdId']);
-  const audio = ((await query('queryAssets', { limit: 100, offset: 0 }))['assets'] as { assetId: string; kind: string }[]).find((a) => a.kind === 'audio')!.assetId;
+  const audio = await publishWav(be, 'cue-start.wav', 'audio-cue', 'Cue');
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -227,7 +229,7 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   const timer = await add('start timer', 'Start timer', 'api.timers.after', 0.45, 0.35);
   await text(timer, 'timer', 'open', { name: 'open' });
   await expect(inspector.getByLabel('seconds', { exact: true })).toHaveValue('1');
-  // On timer "open" → Set visible (this object, false) → Add to counter "coins" → Play sound.
+  // On timer "open" → Set visible (this object, false) → Add to counter "opened" → Play sound.
   const fired = await add('on timer', 'On timer', 'event.timer', 0.12, 0.62);
   await text(fired, 'Timer', 'open', { timer: 'open' });
   const hide = await add('visible', 'Set visible', 'api.game.setVisible', 0.35, 0.62);
@@ -235,8 +237,8 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   await expect(visible).toBeChecked();
   await visible.click();
   await expect.poll(async () => (await nodes()).find((n) => n.id === hide)?.data, { timeout: 10_000 }).toEqual({ visible: false });
-  const coin = await add('counter', 'Add to counter', 'api.game.add', 0.58, 0.62);
-  await text(coin, 'counter', 'coins', { name: 'coins' });
+  const count = await add('counter', 'Add to counter', 'api.game.add', 0.58, 0.62);
+  await text(count, 'counter', 'opened', { name: 'opened' });
   const sound = await add('sound', 'Play sound', 'api.audio.play', 0.8, 0.62);
   await inspector.getByLabel('sound', { exact: true }).selectOption(audio);
   await expect.poll(async () => (await nodes()).find((n) => n.id === sound)?.data, { timeout: 10_000 }).toEqual({ assetId: audio });
@@ -244,8 +246,8 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   // The exec wires, port to port (keyboard).
   await wireUp(enter, 'then', timer, 'in');
   await wireUp(fired, 'then', hide, 'in');
-  await wireUp(hide, 'then', coin, 'in');
-  await wireUp(coin, 'then', sound, 'in');
+  await wireUp(hide, 'then', count, 'in');
+  await wireUp(count, 'then', sound, 'in');
   const status = view.getByLabel('compile status');
   await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 30_000 });
 
@@ -260,7 +262,7 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   expect(published[0]!.declaration).toEqual({ properties: [{ key: 'sensor', label: 'Sensor', type: 'entityRef', default: null }] });
   await cmd('setBehaviorProperties', { entityId: door, behaviorId: 'timed-door', values: { sensor: trigger } });
 
-  // Play: the player starts in the sensor; a second later the door disappears and the coin is counted.
+  // Play: the player starts in the sensor; a second later the door disappears and the opening is counted.
   const started = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
@@ -271,13 +273,13 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(40);
   const shut = await magenta(frame);
   expect((await api(`play/${psid}/control`, { command: 'start' })).status).toBe(200);
-  await expect.poll(async () => (await observe()).counters?.['coins'] ?? 0, { timeout: 30_000 }).toBe(1);
+  await expect.poll(async () => (await observe()).counters?.['opened'] ?? 0, { timeout: 30_000 }).toBe(1);
   await expect.poll(async () => magenta(frame), { timeout: 15_000 }).toBeLessThan(shut / 10);
   expect((await observe()).state).toBe('playing');
   await page.getByTitle('Stop the play preview').click();
 
   // 19.3: the export runs the same graph, served statically with the backend stopped:
-  // the door disappears (pixels) and the HUD counts the coin.
+  // the door disappears (pixels) and the HUD shows the counter.
   const exported = await be.admin(`projects/${be.projectId}/export`);
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);
   const dir = join(be.exportRoot, String(exported.json.outputDir));
@@ -295,11 +297,11 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
     await expect(hud).toContainText('to start', { timeout: 30_000 });
     await expect.poll(async () => magenta(game), { timeout: 20_000 }).toBeGreaterThan(40);
     const closed = await magenta(game);
-    expect(await hud.textContent()).not.toContain('Coins');
+    expect(await hud.textContent()).not.toContain('Opened');
     await game.locator('canvas#game').click();
     await game.keyboard.press('Enter');
     await expect(hud).toContainText('to jump', { timeout: 30_000 });
-    await expect(hud).toContainText('Coins 1', { timeout: 30_000 });
+    await expect(hud).toContainText('Opened 1', { timeout: 30_000 });
     await expect.poll(async () => magenta(game), { timeout: 15_000 }).toBeLessThan(closed / 10);
     // The graph behavior's module came from the static site (nothing else was contacted).
     expect(loaded.some((l) => /^200 .*\/behaviors\/[0-9a-f]{64}\.js$/.test(l)), loaded.join('\n')).toBe(true);
