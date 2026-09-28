@@ -147,9 +147,9 @@ export function composeV4(
   content.startScenes.forEach((id, i) => {
     if (!sceneIds.has(id)) errors.push(projectError(`/startScenes/${i}`, 'reference_missing', 'a start scene names no scene of the project', 'an existing scene id', { document: 'content', reason: 'scene' } as never, id));
   });
+  // Phase 25.8: lights belong to scenes — any light kind may sit in any scene (each scene's own limits:
+  // one directional, one ambient, one hemisphere, 16 point/spot). The camera and the controller stay start-scene only.
   let cameras = 0;
-  let directional = 0;
-  let ambient = 0;
   let controllers = 0;
   for (const s of scenes) {
     const inStart = start.has(s.sceneId);
@@ -160,8 +160,6 @@ export function composeV4(
       const oneOf: string[] = [];
       if (c.camera !== undefined) oneOf.push('camera');
       if (c.controller !== undefined) oneOf.push('controller');
-      // Phase 9.5: point and spot lights may sit in any scene (a torch in a level).
-      if (c.light !== undefined && c.light.type !== 'point' && c.light.type !== 'spot') oneOf.push(`${c.light.type} light`);
       if (oneOf.length === 0) return;
       if (!inStart) {
         errors.push(
@@ -169,7 +167,7 @@ export function composeV4(
             code: 'component_conflict',
             path: `/entities/${i}/components`,
             reason: 'start_scene_only',
-            message: `a ${oneOf.join(' / ')} belongs in a start scene (scenes loaded later hold level content only)`,
+            message: `a ${oneOf.join(' / ')} belongs in a start scene (scenes loaded later hold level content and lights only)`,
             expected: 'the entity in a scene listed in content.startScenes',
           }, oneOf)),
         );
@@ -177,14 +175,10 @@ export function composeV4(
       }
       if (c.camera !== undefined && flags.get(e.id)?.active !== false) cameras += 1;
       if (c.controller !== undefined) controllers += 1;
-      if (c.light?.type === 'directional') directional += 1;
-      if (c.light?.type === 'ambient') ambient += 1;
     });
   }
   if (cameras !== 1) errors.push(projectError('/startScenes', 'camera_count_invalid', 'the start scenes together hold exactly one active camera', 'exactly 1 camera', { document: 'content' } as never, cameras));
   if (controllers > 1) errors.push(projectError('/startScenes', 'controller_count_invalid', 'the start scenes hold at most one player controller', 'at most 1 controller', { document: 'content' } as never, controllers));
-  if (directional > 1) errors.push(projectError('/startScenes', 'limits_exceeded', 'the start scenes hold at most one directional light', '<= 1', { document: 'content', limit: 'lights_directional' as never, current: directional, max: 1 } as never));
-  if (ambient > 1) errors.push(projectError('/startScenes', 'limits_exceeded', 'the start scenes hold at most one ambient light', '<= 1', { document: 'content', limit: 'lights_ambient' as never, current: ambient, max: 1 } as never));
 
   // Phase 24.4j: the shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
   const shell = (content as { shell?: { scenes?: { scene: string; spawn?: string }[] } }).shell;
@@ -206,6 +200,11 @@ export function composeV4(
   const soundKinds = new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, a.kind]));
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
+      // Phase 25.8: a spot light's cookie is a texture asset of this project.
+      const cookie = (e.components as { light?: { cookie?: string } }).light?.cookie;
+      if (cookie !== undefined && soundKinds.get(cookie) !== 'texture') {
+        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/light/cookie`, message: 'a spot light\'s cookie is a texture asset of this project', expected: 'a texture assetId' }, cookie)));
+      }
       const src = (e.components as { audioSource?: { assetId: string } }).audioSource;
       if (src !== undefined && soundKinds.get(src.assetId) !== 'audio' && soundKinds.get(src.assetId) !== 'music') {
         errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/audioSource/assetId`, message: 'an audio source plays an audio or music asset of this project', expected: 'an audio or music assetId' }, src.assetId)));

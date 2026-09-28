@@ -1651,7 +1651,7 @@ class RuntimeInstance implements Runtime {
     },
   });
 
-  /** Entities that are never unloaded with their scene (camera, player, start spawn, lights). */
+  /** Entities that are never unloaded with their scene (camera, player, start spawn). Phase 25.8: lights go with their scene. */
   private readonly pinnedIds: ReadonlySet<string>;
   private readonly sceneControl: BehaviorSceneControl;
   // ---- Phase 14.1: spawned prefab copies ----
@@ -1724,9 +1724,6 @@ class RuntimeInstance implements Runtime {
     const pinned = new Set<string>([args.cameraInfo.id]);
     if (args.controllerEntityId !== undefined) pinned.add(args.controllerEntityId);
     for (const e of args.entities.values()) if (e.camera !== undefined) pinned.add(e.id);
-    for (const b of args.startBatches) {
-      for (const e of b.entities) if ((e.components as { light?: unknown }).light !== undefined) pinned.add(e.id);
-    }
     this.pinnedIds = pinned;
     if (args.sceneRows !== null) {
       for (const row of args.sceneRows) this.sceneStatus.set(row.sceneId, 'unloaded');
@@ -4079,7 +4076,7 @@ class RuntimeInstance implements Runtime {
       const batch = this.batches.get(sceneId);
       if (batch !== undefined) {
         for (const id of batch.ids) {
-          if (this.pinnedIds.has(id)) return `scene "${sceneId}" holds "${id}" (the camera, player, start spawn and lights stay loaded)`;
+          if (this.pinnedIds.has(id)) return `scene "${sceneId}" holds "${id}" (the camera, player and start spawn stay loaded)`;
         }
       }
     }
@@ -4217,8 +4214,9 @@ class RuntimeInstance implements Runtime {
     for (const e of entities) {
       if (this.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
       const c = e.components as unknown as Record<string, unknown>;
-      if (!start && (c['camera'] !== undefined || c['controller'] !== undefined || c['light'] !== undefined)) {
-        return refuse(`entity "${e.id}" belongs in a start scene (camera, player, lights)`);
+      // Phase 25.8: lights belong to their scene (any kind, any scene); the camera and the player stay start-scene only.
+      if (!start && (c['camera'] !== undefined || c['controller'] !== undefined)) {
+        return refuse(`entity "${e.id}" belongs in a start scene (camera, player)`);
       }
     }
     // Phase 25.24e: a loaded scene's entities arrive copied and frozen (prepared over the steps before).

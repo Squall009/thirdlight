@@ -542,7 +542,7 @@ function buildService(core: Core): WorkspaceService {
         details: errors.slice(0, 10),
         detailCount: errors.length,
         message: `the resulting project fails a rule across scenes: ${first.message}`,
-        hint: 'fix the request (ids are unique across scenes; the start scenes hold the camera, player and lights)',
+        hint: 'fix the request (ids are unique across scenes; the start scenes hold the camera and the player)',
       } as unknown as CommandError);
     }
     // Phase 12 (c): the acknowledgement names the edited scene (the editor

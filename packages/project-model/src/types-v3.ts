@@ -115,6 +115,8 @@ export interface LightComponent {
   groundColor?: string;
   /** Phase 9.5/9.6: `baked` lights only feed light baking; `mixed` bakes indirect light (absent = realtime). */
   mode?: 'baked' | 'mixed';
+  /** Phase 25.8, spot only: a texture asset projected through the cone (three's `SpotLight.map`). */
+  cookie?: string;
 }
 
 /** §23.3.5 copied surface value row (never a linked resource). */

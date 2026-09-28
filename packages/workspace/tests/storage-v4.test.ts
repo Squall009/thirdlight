@@ -89,9 +89,13 @@ describe('storage v4', () => {
     // One transaction touches one scene: a move across scenes is refused.
     const cross = send(svc, 'moveEntities', { entityIds: [caveBox.createdId], parentId: box.createdId });
     expect(cross.ok).toBe(false);
-    // A camera does not belong in a scene that is not a start scene.
-    const cam = send(svc, 'setComponent', { entityId: caveBox.createdId, component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 1 } });
-    expect(cam.ok).toBe(false);
+    // The player's controller does not belong in a scene that is not a start scene.
+    const player = send(svc, 'setComponent', { entityId: caveBox.createdId, component: 'controller', value: {} });
+    expect(player.ok).toBe(false);
+    expect(JSON.stringify(player)).toContain('start_scene_only');
+    // Phase 25.8: a light does (any kind, any scene); undone again.
+    ok(svc, 'setComponent', { entityId: caveBox.createdId, component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 1 } });
+    ok(svc, 'undo', {});
     // A non-empty scene cannot be deleted; undo of the create in the cave, then it can.
     expect(send(svc, 'deleteScene', { sceneId: 'scene-cave' }).ok).toBe(false);
     ok(svc, 'undo', {});

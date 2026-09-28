@@ -444,7 +444,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
   // Phase 24.4f: which way the character faces at this spawn (v4; phase 24.8: yaw only).
   playerSpawn: ['yaw'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
+  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   // Phase 12 (c) / 9.4 (v4 scenes).

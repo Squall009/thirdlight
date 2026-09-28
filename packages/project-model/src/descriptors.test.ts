@@ -447,7 +447,7 @@ const LIGHTS = [
   { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true, mode: 'mixed', shadowMapSize: 2048, shadowBias: -0.001, shadowNormalBias: 0.05, shadowExtent: 30 },
   { type: 'ambient', color: '#8a94b0', intensity: 0.9, mode: 'baked' },
   { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2, castShadow: true, mode: 'realtime' },
-  { type: 'spot', color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0], castShadow: false },
+  { type: 'spot', color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0], castShadow: false, cookie: 'tex-a' },
   { type: 'hemisphere', color: '#bcd7ff', groundColor: '#5a4a38', intensity: 0.8, mode: 'baked' },
 ];
 

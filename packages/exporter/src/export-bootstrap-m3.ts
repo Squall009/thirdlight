@@ -482,6 +482,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
               },
             }
           : {}),
+        // Phase 25.8: spot light cookies (textures from the verified bytes).
+        lights: { loadTexture: textureLoader },
         // Phase 9.6: lightmaps (atlases from the verified bytes).
         ...(manifest.lighting !== undefined
           ? {

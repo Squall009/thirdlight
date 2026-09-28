@@ -67,8 +67,10 @@ import {
   type AuthoredSurface,
   type ShadowRegion,
   type ShadowPlan,
+  type ShadowOutcome,
   type ShadowReason,
 } from './lighting';
+import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
 import {
   createRenderer,
@@ -121,6 +123,14 @@ export interface SceneAdapterOptions {
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
     /** A player's quality setting (null = the environment's). */
     readonly quality?: QualityLevel | null;
+  };
+  /**
+   * Phase 25.8: the texture decoder for spot light cookies (bytes from the
+   * wrapper's verified content). Absent: the materials' or the environment's
+   * decoder, else cookies are not drawn.
+   */
+  lights?: {
+    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   };
   /** Phase 9.6: the scenes' bakes (lightmaps; the manifest's `lighting`). */
   lighting?: {
@@ -217,6 +227,14 @@ export interface SceneAdapterDiagnostics {
   /** §41.1.4 — present iff `shadows === 'off'`; carries no path, token or
    *  device string. Recorded once per realized scene, never per frame. */
   shadowReason?: ShadowReason;
+  /**
+   * Phase 25.8 (v3/v4 scenes): the lights that are on — the directional,
+   * ambient and hemisphere light's entity (the most recently loaded scene's
+   * of each kind; null: none), the point and spot lights of the loaded
+   * scenes and how many of them are on (the budget), and the spot cookies
+   * drawn.
+   */
+  lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
   /** M4 (C64-4, delivery.md (M4) §2.5) — the bounded model-realization
    *  counters block; ABSENT when the `models` option is absent (or after
    *  dispose). Counters only: no paths, tokens, asset IDs or byte lengths.
@@ -500,8 +518,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The editor's preview of a blend (null: the running game's). */
   let envPreview: EnvironmentBlendView | null = null;
   let envBlendActive = false;
-  /** The key light's direction a preset gives (null: the authored one). */
-  let keyDirectionNow: [number, number, number] | null = null;
   const envPresets = new Map<string, PresetOf>();
   for (const p of (opts.environment?.value.presets ?? []) as unknown as readonly PresetOf[]) envPresets.set(p.presetId, p);
   const envTagBits = new Map<string, number>();
@@ -529,9 +545,33 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   /** Phase 9.5: point/spot lights casting shadows (the shadow map is enabled for them). */
   let localShadowLights = 0;
+  /** Phase 25.8: every realized light by entity, switched on and off by `selectLights` (scene-lights.ts). */
+  const switchable = new Map<string, { kind: SceneLightKind; light: THREE.Light }>();
+  /** Phase 25.8: the spot cookies drawn (their textures are the adapter's: disposed with the light). */
+  const cookies = new Map<THREE.SpotLight, THREE.Texture>();
+  const cookieLoader = opts.lights?.loadTexture ?? opts.materials?.loadTexture ?? opts.environment?.loadTexture ?? null;
+  const attachCookie = (s: THREE.SpotLight, assetId: string): void => {
+    if (cookieLoader === null) return;
+    void cookieLoader(assetId).then(
+      (tex) => {
+        if (tex === null) return;
+        // Released meanwhile (its scene unloaded, the adapter disposed): not drawn.
+        if (disposed || ![...switchable.values()].some((r) => r.light === s)) {
+          tex.dispose();
+          return;
+        }
+        tex.colorSpace = THREE.SRGBColorSpace;
+        s.map = tex;
+        cookies.set(s, tex);
+        // A cookie changes the light's shading: its programs are built before the next present.
+        precompileWanted ??= 'scene';
+      },
+      () => undefined,
+    );
+  };
   /** Phase 9.5 (v4): a point, spot or hemisphere light for an entity (null otherwise, or when a bake holds it). */
   const localLightOf = (e: { id?: string; components: unknown }): THREE.Light | null => {
-    const l = (e.components as { light?: { type: string; color: string; intensity: number; range?: number; decay?: number; angle?: number; penumbra?: number; direction?: readonly number[]; groundColor?: string; castShadow?: boolean; mode?: string } }).light;
+    const l = (e.components as { light?: { type: string; color: string; intensity: number; range?: number; decay?: number; angle?: number; penumbra?: number; direction?: readonly number[]; groundColor?: string; castShadow?: boolean; mode?: string; cookie?: string } }).light;
     if (l === undefined || bakedAway(e.id, l)) return null;
     const colour = new THREE.Color(l.color);
     if (l.type === 'hemisphere') return new THREE.HemisphereLight(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
@@ -543,10 +583,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (l.type === 'spot') {
       const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
+      // D49: three puts a new SpotLight at (0, 1, 0) (Object3D.DEFAULT_UP); at its entity's origin it shines along `direction`.
+      s.position.set(0, 0, 0);
       const d = l.direction ?? [0, -1, 0];
       s.target.position.set(d[0] ?? 0, d[1] ?? -1, d[2] ?? 0);
       s.castShadow = l.castShadow === true;
       if (s.castShadow) s.shadow.mapSize.set(1024, 1024);
+      // Phase 25.8: a cookie (three's SpotLight.map; the node lighting projects it through the cone on both backends).
+      if (typeof l.cookie === 'string') attachCookie(s, l.cookie);
       return s;
     }
     return null;
@@ -616,59 +660,74 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // structurally and never re-validates (the runtime already did).
   const sceneDoc = opts.snapshot.scene;
   const isV3 = sceneDoc.schemaVersion === 3 || sceneDoc.schemaVersion === 4;
-  const authoredLights: AuthoredLight[] = [];
-  if (isV3) {
-    for (const e of sceneDoc.entities) {
-      const l = (e.components as { light?: AuthoredLight }).light;
-      // Phase 9.5: point/spot/hemisphere lights are built per entity (realizeEntity).
-      if (l && (l.type === 'directional' || l.type === 'ambient') && !bakedAway(e.id, l as { type: string; mode?: string })) authoredLights.push(l);
-    }
-  }
-  const keyLight = isV3 ? (authoredLights.find((l) => l.type === 'directional') ?? null) : null;
-  /** Phase 23.18: the entities of the scene-level lights (the first directional and ambient light, as planSceneLights takes them). */
-  const sceneLightEntity = (type: 'directional' | 'ambient'): { id: string; tags: number } | null => {
-    if (!isV3) return null;
-    for (const e of sceneDoc.entities) {
-      const l = (e.components as { light?: AuthoredLight }).light;
-      if (l !== undefined && l.type === type && !bakedAway(e.id, l as { type: string; mode?: string })) return { id: e.id, tags: (e as { tags?: number }).tags ?? 0 };
-    }
-    return null;
-  };
-  /** Phase 17.4: the key light's shadow map settings (its data over the defaults). */
-  const keyShadow = directionalShadowSettings(keyLight);
   // Phase 12 (c): the shadow region is a square that follows the camera
   // (planned here around its start), half its side the light's
   // `shadowExtent` (phase 17.4; 24 m by default).
   const followShadow = isV3;
   const startCamera = sceneDoc.entities.find((e) => e.components.camera !== undefined)?.components.transform.position ?? [0, 0, 0];
-  const followHalf = keyShadow.extent;
-  const shadowRegion: ShadowRegion | null = followShadow
-    ? { minX: startCamera[0] - followHalf, maxX: startCamera[0] + followHalf, minY: startCamera[1] - followHalf, maxY: startCamera[1] + followHalf }
-    : null;
-  /** The planned shadow outcome (probeOk: true — the capability probe runs
-   *  at the first render; the webgl2 requirement is enforced at renderer
-   *  creation, where a WebGL-1 context for a v3 scene is a hard
-   *  `render_unsupported`). */
-  const planned = decideShadows({
-    webgl2: true,
-    castShadow: keyLight?.castShadow === true,
-    probeOk: true,
-    region: shadowRegion ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
-    direction: keyLight?.direction ?? [0, -1, 0],
-  });
-  // `planned` always resolves `ok: true` here (webgl2: true) — the hard
-  // outcome is unreachable on this planning path.
-  const keyPlan: ShadowPlan = planned.ok ? planned.plan : deriveShadowCamera(
-    shadowRegion ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
-    keyLight?.direction ?? [0, -1, 0],
-  );
-  /** The current shadow realization state; recorded once per realized
-   *  scene (never per frame) — the bounded §41.1.4 diagnostic. */
-  let shadowState: { shadows: 'on' | 'off'; reason?: ShadowReason } =
-    planned.ok && planned.shadows === 'on'
-      ? { shadows: 'on' }
-      : { shadows: 'off', reason: planned.ok ? planned.shadowReason : 'cast_shadow_false' };
+  /**
+   * Phase 25.8: the directional lights of the loaded scenes, each with its
+   * own shadow settings and planned outcome (probeOk: true — the capability
+   * probe runs at the first render with shadows; the webgl2 requirement is
+   * enforced at renderer creation). One is on: the key light.
+   */
+  type KeyRec = {
+    readonly id: string;
+    readonly light: THREE.DirectionalLight;
+    readonly authored: AuthoredLight;
+    readonly settings: { mapSize: number; bias: number; normalBias: number; extent: number };
+    readonly plan: ShadowPlan;
+    readonly outcome: ShadowOutcome;
+    /** The direction an environment preset gives (null: the authored one). */
+    directionNow: [number, number, number] | null;
+  };
+  const directionals = new Map<string, KeyRec>();
+  let keyRec: KeyRec | null = null;
+  /** The first frame with shadows failed (soft degradation): no light casts a shadow from then on. */
+  let shadowsUnsupported = false;
+  /** The current shadow realization state (the key light's); recorded when the key light changes (never per frame) — the bounded §41.1.4 diagnostic. */
+  let shadowState: { shadows: 'on' | 'off'; reason?: ShadowReason } = { shadows: 'off', reason: 'cast_shadow_false' };
   let shadowProbeDone = false;
+  const keyDirectionOf = (r: KeyRec | null): readonly [number, number, number] | undefined => r?.directionNow ?? r?.authored.direction;
+  /** A directional light for a v3/v4 light entity: at the derived position round the camera's start square (§41.1.2 rule 2). */
+  const directionalLightOf = (id: string, l: AuthoredLight): KeyRec => {
+    const settings = directionalShadowSettings(l);
+    const region: ShadowRegion = { minX: startCamera[0] - settings.extent, maxX: startCamera[0] + settings.extent, minY: startCamera[1] - settings.extent, maxY: startCamera[1] + settings.extent };
+    const direction = l.direction ?? [0, -1, 0];
+    const outcome = decideShadows({ webgl2: true, castShadow: l.castShadow === true, probeOk: true, region, direction });
+    // `outcome` always resolves `ok: true` here (webgl2: true).
+    const plan: ShadowPlan = outcome.ok ? outcome.plan : deriveShadowCamera(region, direction);
+    const [planned] = planSceneLights([l], region, outcome);
+    const light = new THREE.DirectionalLight(new THREE.Color(l.color), l.intensity);
+    if (planned !== undefined && planned.kind === 'directional') {
+      light.position.set(planned.position[0], planned.position[1], planned.position[2]);
+      light.target.position.set(planned.target[0], planned.target[1], planned.target[2]);
+    }
+    if (outcome.ok && outcome.shadows === 'on' && !shadowsUnsupported) {
+      // The shadow-camera parameters are set now; the shadow map is
+      // allocated only by the first-render probe (§41.1.4 rule 5).
+      light.castShadow = true;
+      // Phase 17.4: the light's shadow map settings (data; DIRECTIONAL_SHADOW_DEFAULTS when absent).
+      light.shadow.mapSize.set(settings.mapSize, settings.mapSize);
+      light.shadow.bias = settings.bias;
+      light.shadow.normalBias = settings.normalBias;
+      light.shadow.camera.left = plan.camera.left;
+      light.shadow.camera.right = plan.camera.right;
+      light.shadow.camera.top = plan.camera.top;
+      light.shadow.camera.bottom = plan.camera.bottom;
+      light.shadow.camera.near = plan.camera.near;
+      light.shadow.camera.far = plan.camera.far;
+      light.shadow.camera.updateProjectionMatrix();
+    }
+    return { id, light, authored: l, settings, plan, outcome, directionNow: null };
+  };
+  /** Phase 25.8: the shadow state follows the key light (a scene with a shadow-casting sun turns shadows on; the probe runs for it). */
+  const applyKeyShadow = (): void => {
+    const o = keyRec?.outcome;
+    if (keyRec === null || o === undefined || !o.ok) shadowState = { shadows: 'off', reason: 'cast_shadow_false' };
+    else if (shadowsUnsupported && keyRec.authored.castShadow === true) shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
+    else shadowState = o.shadows === 'on' ? { shadows: 'on' } : { shadows: 'off', reason: o.shadowReason ?? 'cast_shadow_false' };
+  };
 
   // --- scene graph construction (fixed M1 table; read-only over the
   // --- (deep-frozen, normalized) snapshot) ---------------------------------
@@ -792,9 +851,37 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           authored: { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0] ?? 0, d[1] ?? -1, d[2] ?? 0] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) },
         });
         envLightsRevision += 1;
-        obj.add(local);
+        // D49: a hemisphere light's sky is up (+Y) whatever its entity's transform (as the Scene view and the bake take it): it hangs off the scene.
+        if (l.type === 'hemisphere') scene.add(local);
+        else obj.add(local);
         if (local instanceof THREE.SpotLight) obj.add(local.target);
         if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
+        switchable.set(e.id, { kind: l.type as SceneLightKind, light: local });
+      } else if (isV3) {
+        // Phase 25.8: a directional or ambient light of any loaded scene. Its entity's transform is
+        // irrelevant (§41.1.2 rule 3): it hangs off the scene; `selectLights` switches it on or off.
+        const l = (e.components as { light?: AuthoredLight }).light;
+        if (l !== undefined && (l.type === 'directional' || l.type === 'ambient') && !bakedAway(e.id, l as { type: string; mode?: string })) {
+          const tags = (e as { tags?: number }).tags ?? 0;
+          if (l.type === 'ambient') {
+            // §41.1.2 rule 1: no shadow, no position dependence; the intensity is used exactly as authored.
+            const ambient = new THREE.AmbientLight(new THREE.Color(l.color), l.intensity);
+            scene.add(ambient);
+            switchable.set(e.id, { kind: 'ambient', light: ambient });
+            // Phase 23.18: environment presets may set its colour and intensity.
+            envLights.set(`entity:${e.id}`, { light: ambient, id: e.id, tags, type: 'ambient', authored: { color: l.color, intensity: l.intensity } });
+          } else {
+            const rec = directionalLightOf(e.id, l);
+            scene.add(rec.light);
+            scene.add(rec.light.target);
+            directionals.set(e.id, rec);
+            switchable.set(e.id, { kind: 'directional', light: rec.light });
+            // Phase 23.18: environment presets may set its colour, intensity and direction.
+            const kd = l.direction ?? [0, -1, 0];
+            envLights.set(`entity:${e.id}`, { light: rec.light, id: e.id, tags, type: 'directional', authored: { color: l.color, intensity: l.intensity, direction: [kd[0], kd[1], kd[2]] } });
+          }
+          envLightsRevision += 1;
+        }
       }
     }
     objects.set(e.id, obj);
@@ -832,6 +919,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
     if (envLights.delete(`entity:${id}`)) envLightsRevision += 1;
+    // Phase 25.8: its light (a directional or ambient light hangs off the scene; a cookie is the adapter's).
+    const lit = switchable.get(id);
+    if (lit !== undefined) {
+      switchable.delete(id);
+      const cookie = cookies.get(lit.light as THREE.SpotLight);
+      if (cookie !== undefined) {
+        cookies.delete(lit.light as THREE.SpotLight);
+        (lit.light as THREE.SpotLight).map = null;
+        cookie.dispose();
+      }
+      if (lit.kind === 'directional' || lit.kind === 'ambient' || lit.kind === 'hemisphere') {
+        lit.light.removeFromParent();
+        if (lit.kind === 'directional') (lit.light as THREE.DirectionalLight).target.removeFromParent();
+        lit.light.dispose();
+        directionals.delete(id);
+        if (keyRec?.id === id) keyRec = null;
+      }
+    }
     materialUndo.get(id)?.();
     materialUndo.delete(id);
     obj?.removeFromParent();
@@ -862,11 +967,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     scene.add(camera);
   }
   // Realized lights. M1 path (v1/v2): the accepted fixed pair, unchanged
-  // (presentation.md §41.10). M3 path (v3): the authored lights — exactly
-  // one directional node and one ambient node per realized scene
-  // (§41.1.2 rule 4; the model caps both at 1). The light entities' own
-  // `transform` is irrelevant (rule 3): only the component value is read.
-  const keyLights: THREE.DirectionalLight[] = [];
+  // (presentation.md §41.10). M3 path (v3/v4): the light entities' own lights
+  // (realizeEntity), switched on and off per loaded scene (phase 25.8,
+  // `selectLights` below).
   if (!isV3) {
     // Simple M1 lighting for the Lambert material (charter first-release
     // item; no shadow pipeline in M1): one directional + one ambient.
@@ -875,48 +978,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const ambient = new THREE.AmbientLight(0xffffff, 0.55);
     scene.add(dirLight);
     scene.add(ambient);
-  } else {
-    for (const plannedLight of planSceneLights(authoredLights, shadowRegion, planned)) {
-      if (plannedLight.kind === 'ambient') {
-        // §41.1.2 rule 1: no shadow, no position dependence; the
-        // intensity is used exactly as authored.
-        const ambient = new THREE.AmbientLight(new THREE.Color(plannedLight.color), plannedLight.intensity);
-        scene.add(ambient);
-        // Phase 23.18: environment presets may set its colour and intensity.
-        const who = sceneLightEntity('ambient');
-        if (who !== null) envLights.set(`scene:ambient`, { light: ambient, id: who.id, tags: who.tags, type: 'ambient', authored: { color: plannedLight.color, intensity: plannedLight.intensity } });
-      } else {
-        // §41.1.2 rule 2: the derived position `target − n ·
-        // SHADOW_DISTANCE` and the derived target (the shadow centre) —
-        // always derived, shadow state or not.
-        const light = new THREE.DirectionalLight(new THREE.Color(plannedLight.color), plannedLight.intensity);
-        light.position.set(plannedLight.position[0], plannedLight.position[1], plannedLight.position[2]);
-        light.target.position.set(plannedLight.target[0], plannedLight.target[1], plannedLight.target[2]);
-        if (plannedLight.castShadow) {
-          // The shadow-camera parameters are set now; the shadow map is
-          // allocated only by the first-render probe (§41.1.4 rule 5).
-          light.castShadow = true;
-          // Phase 17.4: the light's shadow map settings (data; DIRECTIONAL_SHADOW_DEFAULTS when absent).
-          light.shadow.mapSize.set(keyShadow.mapSize, keyShadow.mapSize);
-          light.shadow.bias = keyShadow.bias;
-          light.shadow.normalBias = keyShadow.normalBias;
-          light.shadow.camera.left = keyPlan.camera.left;
-          light.shadow.camera.right = keyPlan.camera.right;
-          light.shadow.camera.top = keyPlan.camera.top;
-          light.shadow.camera.bottom = keyPlan.camera.bottom;
-          light.shadow.camera.near = keyPlan.camera.near;
-          light.shadow.camera.far = keyPlan.camera.far;
-          light.shadow.camera.updateProjectionMatrix();
-        }
-        scene.add(light);
-        scene.add(light.target);
-        keyLights.push(light);
-        // Phase 23.18: environment presets may set its colour, intensity and direction.
-        const who = sceneLightEntity('directional');
-        const kd = keyLight?.direction ?? [0, -1, 0];
-        if (who !== null) envLights.set(`scene:directional`, { light, id: who.id, tags: who.tags, type: 'directional', authored: { color: plannedLight.color, intensity: plannedLight.intensity, direction: [kd[0], kd[1], kd[2]] } });
-      }
-    }
   }
 
   // --- M4 (C64-4, delivery.md (M4) §2): the model realization ------------
@@ -1157,6 +1218,34 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realizedRevision = set.revision;
     }
   }
+  /** Phase 25.8: the lights that are on (updated when the scene set changes). */
+  let lightSelection: SceneLightSelection | null = null;
+  /**
+   * Phase 25.8: switch the loaded scenes' lights: the most recently loaded
+   * scene's directional, ambient and hemisphere light (each kind on its own),
+   * point and spot lights within the budget (scene-lights.ts). The key light
+   * decides the shadow state.
+   */
+  function selectLights(): void {
+    if (!isV3) return;
+    const rank = new Map<string, number>();
+    let i = 0;
+    for (const ids of realizedScenes.values()) {
+      for (const id of ids) rank.set(id, i);
+      i += 1;
+    }
+    const entries: SceneLightEntry[] = [];
+    let order = 0;
+    for (const [id, r] of switchable) entries.push({ id, kind: r.kind, rank: rank.get(id) ?? -1, order: order++ });
+    lightSelection = selectSceneLights(entries);
+    for (const [id, r] of switchable) r.light.visible = lightSelection.active.has(id);
+    const next = lightSelection.directional !== null ? (directionals.get(lightSelection.directional) ?? null) : null;
+    if (next !== keyRec || keyRec === null) {
+      keyRec = next;
+      applyKeyShadow();
+    }
+  }
+  selectLights();
   /** Phase 25.24a: the scenes realized since the last drawn frame (for `onFrameDrawn`). */
   const frameRealized: string[] = [];
   /** Phase 25.24e: scenes prepared ahead of their load (released once realized). */
@@ -1168,6 +1257,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (set === undefined || set.revision === realizedRevision) return;
     realizedRevision = set.revision;
     const live = new Set(set.batches.map((b) => b.sceneId));
+    let removed = false;
     for (const [sceneId, ids] of [...realizedScenes]) {
       if (live.has(sceneId)) continue;
       for (const id of ids) lightmaps?.release(id);
@@ -1176,7 +1266,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // Children before parents (reverse document order).
       for (const id of [...ids].reverse()) releaseEntity(id);
       realizedScenes.delete(sceneId);
+      removed = true;
     }
+    let added = false;
     for (const b of set.batches) {
       if (realizedScenes.has(b.sceneId)) continue;
       const entities = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
@@ -1189,7 +1281,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       frameRealized.push(b.sceneId);
       // Phase 25.24d: the attached scene's programs are built before it is presented.
       precompileWanted ??= 'scene';
+      added = true;
     }
+    // Phase 25.8: the lights follow the scene set (a light switched on or off changes the shading programs too).
+    if (added || removed) selectLights();
+    if (removed && !added && isV3) precompileWanted ??= 'scene';
     syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
   }
 
@@ -1255,40 +1351,34 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       setLightValues(rec, v);
     }
   }
-  function setLightValues(rec: { light: THREE.Light; type: string }, v: EnvironmentLightValues): void {
+  function setLightValues(rec: { light: THREE.Light; id: string; type: string }, v: EnvironmentLightValues): void {
     rec.light.color.set(v.color);
     rec.light.intensity = v.intensity;
     if (v.groundColor !== undefined && (rec.light as THREE.HemisphereLight).isHemisphereLight === true) (rec.light as THREE.HemisphereLight).groundColor.set(v.groundColor);
     const d = v.direction;
     if (d === undefined) return;
     if (rec.type === 'directional') {
-      keyDirectionNow = [d[0], d[1], d[2]];
-      if (!followShadow) {
-        // A fixed shadow region (v3): the light keeps its target and moves round it.
-        const n = Math.hypot(d[0], d[1], d[2]) || 1;
-        for (const light of keyLights) {
-          light.position.set(light.target.position.x - (d[0] / n) * SHADOW_PROFILE.distance, light.target.position.y - (d[1] / n) * SHADOW_PROFILE.distance, light.target.position.z - (d[2] / n) * SHADOW_PROFILE.distance);
-        }
-      }
+      // The shadow square follows the camera (v3/v4): the direction is applied there each frame.
+      const key = directionals.get(rec.id);
+      if (key !== undefined) key.directionNow = [d[0], d[1], d[2]];
     } else if ((rec.light as THREE.SpotLight).isSpotLight === true) (rec.light as THREE.SpotLight).target.position.set(d[0], d[1], d[2]);
   }
   function restoreLights(): void {
     if (!envLightsTouched) return;
     envLightsTouched = false;
-    keyDirectionNow = null;
     for (const rec of envLights.values()) setLightValues(rec, rec.authored);
-    keyDirectionNow = null;
+    for (const key of directionals.values()) key.directionNow = null;
   }
 
   /** v4: the shadow square follows the camera, snapped to whole shadow texels (no shimmer). */
   function followCameraShadow(): void {
-    if (camera === null || keyLights.length === 0) return;
-    const texel = (2 * keyPlan.halfExtent) / keyShadow.mapSize;
+    if (camera === null || keyRec === null) return;
+    const texel = (2 * keyRec.plan.halfExtent) / keyRec.settings.mapSize;
     const cx = Math.round(camera.position.x / texel) * texel;
     const cy = Math.round(camera.position.y / texel) * texel;
-    const dir = keyDirectionNow ?? keyLight?.direction ?? [0, -1, 0];
+    const dir = keyDirectionOf(keyRec) ?? [0, -1, 0];
     const n = Math.hypot(dir[0], dir[1], dir[2]) || 1;
-    for (const light of keyLights) {
+    for (const light of [keyRec.light]) {
       light.target.position.set(cx, cy, 0);
       light.position.set(cx - (dir[0] / n) * SHADOW_PROFILE.distance, cy - (dir[1] / n) * SHADOW_PROFILE.distance, -(dir[2] / n) * SHADOW_PROFILE.distance);
       light.target.updateMatrixWorld();
@@ -1581,7 +1671,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       } catch {
         /* best effort */
       }
-      for (const l of keyLights) l.castShadow = false;
+      for (const r of directionals.values()) r.light.castShadow = false;
+      shadowsUnsupported = true;
       shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
     };
     // §41.1.4 shadow capability probe (packet 52), phase 25.24d: the first frame of a scene with shadows is
@@ -1614,8 +1705,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         applyEnvironmentBlend();
       }
       if (environmentRenderer !== null) {
-        const key = keyLight;
-        const keyDir = keyDirectionNow ?? key?.direction;
+        const keyDir = keyDirectionOf(keyRec);
         environmentRenderer.setKeyLightDirection(keyDir !== undefined ? [keyDir[0], keyDir[1], keyDir[2]] : null);
         environmentRenderer.setFogVolumes(fogVolumesNow());
         if (environmentSize === null || environmentSize[0] !== w || environmentSize[1] !== h) {
@@ -1792,6 +1882,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // §41.1.4: `shadowReason` is present iff `shadows === 'off'`.
     if (shadowState.shadows === 'off' && shadowState.reason !== undefined) {
       d.shadowReason = shadowState.reason;
+    }
+    // Phase 25.8: the lights that are on.
+    if (lightSelection !== null && !disposed) {
+      d.lights = { directional: lightSelection.directional, ambient: lightSelection.ambient, hemisphere: lightSelection.hemisphere, local: lightSelection.localTotal, localOn: lightSelection.localOn, cookies: cookies.size };
     }
     // M4 (C64-4): the `models` counters block — present iff the `models`
     // option was given and the adapter is not disposed (absent when

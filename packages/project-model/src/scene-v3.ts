@@ -156,7 +156,9 @@ export const DIRECTIONAL_SHADOW_LIMITS = {
 } as const;
 export const DIRECTIONAL_SHADOW_DEFAULTS = { mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 } as const;
 /** Phase 9.5 (v4): the local light fields. */
-const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode']);
+const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'cookie']);
+/** Phase 25.8: a spot light's cookie names a texture asset (the id pattern of every asset). */
+const COOKIE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** Phase 9.5: point/spot intensity is in candela (three's physical units). */
 export const MAX_LOCAL_INTENSITY = 1000;
 /** Phase 9.5: most point + spot lights per scene, and hemisphere lights per scene. */
@@ -383,7 +385,7 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
   if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
   else checkFiniteNumber(c['intensity'], `${path}/intensity`, { min: 0, absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
-  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode'];
+  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie'];
   for (const k of Object.keys(c)) {
     if (!allowed.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, allowed.join(', ')));
   }
@@ -400,6 +402,10 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   if (c['castShadow'] !== undefined && typeof c['castShadow'] !== 'boolean') errors.push(fieldType(`${path}/castShadow`, c['castShadow'], 'boolean'));
   if (c['mode'] !== undefined && c['mode'] !== 'realtime' && c['mode'] !== 'baked' && c['mode'] !== 'mixed') {
     errors.push(fieldValue(`${path}/mode`, c['mode'], '"realtime" | "baked" | "mixed"', 'mode is realtime, baked or mixed'));
+  }
+  // Phase 25.8: a spot light's cookie (a texture projected through the cone; which texture: a project-level rule).
+  if (type === 'spot' && c['cookie'] !== undefined && (typeof c['cookie'] !== 'string' || !COOKIE_ID_RE.test(c['cookie']))) {
+    errors.push(fieldValue(`${path}/cookie`, c['cookie'], 'a texture assetId', 'a cookie names a texture asset'));
   }
   if (type === 'spot') {
     const dir = c['direction'];
@@ -915,6 +921,7 @@ function canonicalLight(c: unknown): LightComponent {
   for (const k of ['range', 'decay', 'angle', 'penumbra'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
   if (typeof o['groundColor'] === 'string') out.groundColor = o['groundColor'].toLowerCase();
   if (o['mode'] === 'baked' || o['mode'] === 'mixed') out.mode = o['mode'];
+  if (out.type === 'spot' && typeof o['cookie'] === 'string') out.cookie = o['cookie'];
   return out;
 }
 
@@ -1223,21 +1230,22 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         limitsError('/entities', 'player_spawns', counts.spawns, SCENE_LIMITS_V3.playerSpawns, `scene exceeds the player-spawn limit of ${SCENE_LIMITS_V3.playerSpawns}`),
       );
     }
-    if (counts.directional > SCENE_LIMITS_V3.lightsDirectional) {
+    // Phase 25.8: light counts are per scene (a merged runtime scene holds several scenes' lights; the renderer picks).
+    if (!merged && counts.directional > SCENE_LIMITS_V3.lightsDirectional) {
       errors.push(
         limitsError('/entities', 'lights_directional', counts.directional, SCENE_LIMITS_V3.lightsDirectional, 'scene exceeds the directional-light limit'),
       );
     }
-    if (counts.ambient > SCENE_LIMITS_V3.lightsAmbient) {
+    if (!merged && counts.ambient > SCENE_LIMITS_V3.lightsAmbient) {
       errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, SCENE_LIMITS_V3.lightsAmbient, 'scene exceeds the ambient-light limit'));
     }
-    if (counts.local > MAX_LOCAL_LIGHTS) {
+    if (!merged && counts.local > MAX_LOCAL_LIGHTS) {
       errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} point and spot lights`));
     }
     if (counts.fogVolumes > MAX_FOG_VOLUMES) {
       errors.push(limitsError('/entities', 'zones', counts.fogVolumes, MAX_FOG_VOLUMES, `a scene holds at most ${MAX_FOG_VOLUMES} fog volumes`));
     }
-    if (counts.hemisphere > MAX_HEMISPHERE_LIGHTS) {
+    if (!merged && counts.hemisphere > MAX_HEMISPHERE_LIGHTS) {
       errors.push(limitsError('/entities', 'lights_ambient', counts.hemisphere, MAX_HEMISPHERE_LIGHTS, 'a scene holds at most one hemisphere light'));
     }
     checkDepthLimit(entities, idFirstIndex, errors);

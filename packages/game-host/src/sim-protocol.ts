@@ -131,7 +131,7 @@ export type MainToWorker =
 export interface SceneSetWire {
   readonly revision: number;
   readonly status: Readonly<Record<string, string>>;
-  /** Per loaded batch: `pinned` — it holds the camera, player, start spawn or a light, so an unload is refused. */
+  /** Per loaded batch: `pinned` — it holds the camera, player or start spawn, so an unload is refused. */
   readonly batches: readonly { sceneId: string; start: boolean; pinned?: string; entities?: SceneEntities }[];
   /**
    * The live spawned entities in order, each by a token that stays the same

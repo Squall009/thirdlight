@@ -48,6 +48,8 @@ import {
   BlockLayerView,
   blockLookFromObject,
   type BlockModelLook,
+  selectSceneLights,
+  type SceneLightKind,
 } from '@thirdlight/three-adapter';
 import type { BlockChunk, BlockLayerComponent, BlockType } from '@thirdlight/project-model';
 import * as THREE from 'three';
@@ -450,8 +452,7 @@ export class Viewport {
     this.loadAtlas = loadTexture;
     // The light set changes with the bakes (held lights leave realtime).
     for (const [id, have] of [...this.sceneLights]) {
-      have.parent.remove(have.light);
-      have.light.dispose();
+      this.dropSceneLight(have);
       this.sceneLights.delete(id);
     }
     this.syncSceneLights(this.projected);
@@ -689,8 +690,44 @@ export class Viewport {
     this.applyEnvironmentPreview();
     this.environment?.setQuality(this.editorQuality());
     for (const l of this.editorLights) l.visible = this.lighting === 'editor';
-    for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
+    for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false && light.userData['tlSwitchedOn'] !== false;
     this.render();
+  }
+  /** Phase 25.8: the project's texture loader (spot light cookies; null until the editor set it). */
+  private textureSource: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
+  setTextureSource(loadTexture: ((assetId: string) => Promise<THREE.Texture | null>) | null): void {
+    this.textureSource = loadTexture;
+  }
+  /** Phase 25.8: drop a scene light (its cookie texture is the viewport's). */
+  private dropSceneLight(have: { light: THREE.Light; parent: THREE.Object3D }): void {
+    have.parent.remove(have.light);
+    if (have.light instanceof THREE.SpotLight || have.light instanceof THREE.DirectionalLight) have.parent.remove(have.light.target);
+    if (have.light instanceof THREE.SpotLight && have.light.map !== null) {
+      have.light.map.dispose();
+      have.light.map = null;
+    }
+    have.light.dispose();
+  }
+  /** Phase 25.8: a spot light's cookie, drawn in the Scene view as in Play (three's SpotLight.map). */
+  private loadCookie(light: THREE.SpotLight, assetId: string): void {
+    const load = this.textureSource;
+    if (load === null) return;
+    void load(assetId).then(
+      (tex) => {
+        if (tex === null) return;
+        const live = [...this.sceneLights.values()].some((h) => h.light === light);
+        if (!live) {
+          tex.dispose();
+          return;
+        }
+        tex.flipY = false; // as the game decodes it
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.needsUpdate = true;
+        light.map = tex;
+        this.requestRender();
+      },
+      () => undefined,
+    );
   }
   private syncSceneLights(entities: readonly ProjectedEntity[]): void {
     const seen = new Set<string>();
@@ -704,9 +741,7 @@ export class Viewport {
       if (group === undefined) continue;
       let have = this.sceneLights.get(e.id);
       if (have !== undefined && have.key !== key) {
-        have.parent.remove(have.light);
-        if (have.light instanceof THREE.SpotLight || have.light instanceof THREE.DirectionalLight) have.parent.remove(have.light.target);
-        have.light.dispose();
+        this.dropSceneLight(have);
         this.sceneLights.delete(e.id);
         have = undefined;
       }
@@ -718,20 +753,31 @@ export class Viewport {
         if (made instanceof THREE.SpotLight || made instanceof THREE.DirectionalLight) parent.add(made.target);
         have = { key, light: made, parent };
         this.sceneLights.set(e.id, have);
+        if (made instanceof THREE.SpotLight && l.type === 'spot' && l.cookie !== undefined) this.loadCookie(made, l.cookie);
       }
       have.light.userData['tlActive'] = this.hierarchyFlags.get(e.id)?.active !== false;
     }
     for (const [id, have] of [...this.sceneLights]) {
       if (seen.has(id)) continue;
-      have.parent.remove(have.light);
-      have.light.dispose();
+      this.dropSceneLight(have);
       this.sceneLights.delete(id);
     }
+    // Phase 25.8: with several scenes open, the lights Play would have on with them loaded in that order
+    // (the last open scene's directional, ambient and hemisphere light; point and spot lights within the budget).
+    const sceneRank = new Map<string, number>();
+    for (const e of entities) if (e.sceneId !== undefined && !sceneRank.has(e.sceneId)) sceneRank.set(e.sceneId, sceneRank.size);
+    const byId = new Map(entities.map((e) => [e.id, e]));
+    let order = 0;
+    const picked = selectSceneLights([...this.sceneLights].map(([id]) => {
+      const e = byId.get(id);
+      return { id, kind: (e?.light?.type ?? 'point') as SceneLightKind, rank: e?.sceneId !== undefined ? (sceneRank.get(e.sceneId) ?? -1) : -1, order: order++ };
+    }));
+    for (const [id, have] of this.sceneLights) have.light.userData['tlSwitchedOn'] = picked.active.has(id);
     // Phase 23.18: a preset preview applies to the lights as they are now.
     this.lightTags = new Map(entities.filter((e) => e.light !== undefined).map((e) => [e.id, e.tags]));
     if (this.envPreview !== null) this.applyEnvironmentPreview();
     // The sun of a procedural sky sits opposite the scene's directional light.
-    const key = entities.find((e) => e.light?.type === 'directional' && e.light.direction !== undefined);
+    const key = (picked.directional !== null ? byId.get(picked.directional) : undefined) ?? entities.find((e) => e.light?.type === 'directional' && e.light.direction !== undefined);
     this.keyLightDirection = key?.light?.direction ?? null;
     this.environment?.setKeyLightDirection(this.keyLightDirection);
     this.fogVolumeData = new Map(entities.filter((e) => e.fogVolume !== undefined).map((e) => [e.id, e.fogVolume!]));
@@ -740,7 +786,7 @@ export class Viewport {
     if (lightingBefore !== this.lighting) this.applyLighting();
     else {
       for (const l of this.editorLights) l.visible = this.lighting === 'editor';
-      for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
+      for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false && light.userData['tlSwitchedOn'] !== false;
     }
   }
 
@@ -2383,6 +2429,8 @@ function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
       return new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
     case 'spot': {
       const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
+      // D49: at its entity's origin (three starts a SpotLight at (0, 1, 0)), shining along `direction`.
+      s.position.set(0, 0, 0);
       const d = l.direction ?? [0, -1, 0];
       s.target.position.set(d[0], d[1], d[2]);
       return s;

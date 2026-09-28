@@ -172,7 +172,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.7e | done 2026-09-28: `createEntity` takes `active`, `locked`, `static`, `tags`; `createEntities {entities: [createEntity args + ref?], sceneId?}` up to 1024 entities in one revision and one undo (a `pasteEntities` change, undone by removing them), validated once; workspace test and the MCP e2e |
 | 25.7d | done 2026-09-28: instance sets also chunked by extent: project setting `instance_chunk_m` (default 32 m), per-set `instances.chunkSize` (Inspector field); no chunk wider than it (≤ 256 chunks, cells grow past that), finer of the count and extent grids per axis; each chunk culled and LOD'd at its own centre, drawn through the shared instance-matrix columns (25.24d); Scene view, Play and export alike; `instances.e2e.ts` (the Inspector's chunk count follows the default, the per-set field and the setting), unit tests |
 | 25.7 | done 2026-09-28: (a)–(e) hold |
-| 25.8–25.23 | — |
+| 25.8 | done 2026-09-28: lights belong to scenes: any kind in any scene (model and runtime; per scene one directional, ambient, hemisphere, 16 point/spot); the most recently loaded scene's directional, ambient and hemisphere light on (each kind on its own), the previous back on unload; point/spot of all loaded scenes share the budget of 16 (most recent scenes first); the key light's own shadow settings follow the switch; spot cookies (`light.cookie`, a texture; `SpotLight.map`) in the Scene view, Play and export on both backends, Inspector field; `renderer.lights` in Play diagnostics; `scene-lights.e2e.ts` (pixels: 12 point lights, sun colours on load/unload, cookie; Play and export, auto/webgl2/webgpu), `lights.e2e.ts` (Inspector cookie, Scene view pixels); D49 fixed |
+| 25.9–25.23 | — |
 
 ## 6. Decision log
 
@@ -762,3 +763,39 @@ boundary it changes (Playwright for any editor surface).
   (their project has no content file blocks), buildId `6e8f2c6f…` →
   `e6a0968f…`. No replay or determinism pin changed (the runtime reads the
   same blocks).
+- 2026-09-28 (25.8): "the most recently loaded scene's light" is chosen per
+  kind: the most recently loaded scene that holds a directional light has
+  its sun on, and likewise for ambient and hemisphere lights, each on its
+  own. So a level that holds only a sun keeps the start scene's fill light,
+  and a level that wants no fill says so with an ambient light at 0.
+  (Taking all three kinds from one scene, the "one unit" wording above, would
+  drop the fill of every scene below a level that holds only a sun.) Start scenes count as loaded in their
+  listed order, so two start scenes may each hold a sun and the later one's
+  is on; the start-scene limit of one sun and one ambient is gone, the per
+  scene limits stay. A light that is off is not drawn (`visible = false`:
+  three leaves it out of the lights, so switching one sun for another keeps
+  the light count and the shading programs); the key light's shadow
+  settings, shadow square and the sky's sun direction follow it.
+- 2026-09-28 (25.8): the local-light budget is enforced by the renderer, not
+  by refusing loads: point and spot lights of all loaded scenes past 16 are
+  off, the most recently loaded scenes' first (document order within a
+  scene), and come back when a scene unloads; Play diagnostics count them
+  (`renderer.lights.local`/`localOn`). A refused load would stop a game for
+  a presentation limit. The Scene view applies the same selection to its
+  open scenes, in hierarchy order.
+- 2026-09-28 (25.8): cookies. The WebGPU path was checked in the r186
+  sources (`SpotLightNode.setupDirect`: `light.map` sampled at
+  `lightProjectionUV`, the spot's shadow matrix, which `lightShadowMatrix`
+  updates also without a shadow), so it works with and without
+  `castShadow`, unlike WebGLRenderer's documented "map needs castShadow";
+  the adapter draws with WebGPURenderer on both backends, so one path
+  covers both. A cookie that arrives after its light was drawn changes the
+  lights' cache key (three hashes `map.id`), so the adapter asks for a
+  precompile before the next present. The cookie is `light.cookie`, a
+  texture assetId on spot lights only (a directional light refuses it); it
+  is captured, read ahead with its scene and refused on delete like every
+  typed reference. Baked lights ignore cookies (the browser and Blender
+  bakes are unchanged).
+- 2026-09-28 (25.8): the pixel test found D49 (spot lights shone from 1 m
+  above their object and aimed wrongly unless pointing straight down;
+  hemisphere lights tilted by their object's position). Fixed in the item.

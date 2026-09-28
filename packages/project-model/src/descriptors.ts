@@ -884,6 +884,8 @@ const light: ComponentDescriptor = {
     num('decay', 'Decay', 'How fast it fades with distance (2: physically correct).', { when: when('type', 'point', 'spot'), min: 0, max: 4, step: 0.1, default: 2 }),
     num('angle', 'Angle', 'Half-angle of the spot cone.', { when: when('type', 'spot'), min: 1, max: 89, step: 1, unit: 'deg', default: 30, handle: 'cone' }),
     num('penumbra', 'Soft edge', 'How soft the cone edge is (0: hard).', { when: when('type', 'spot'), min: 0, max: 1, step: 0.05, default: 0.2 }),
+    // Phase 25.8: a spot light's cookie (directional lights get none).
+    asset('cookie', 'Cookie', 'A texture projected through the cone (the light is tinted and masked by it: a window frame, leaves, a logo).', ['texture'], { when: when('type', 'spot') }),
     color('groundColor', 'Ground colour', 'The colour from below.', { when: when('type', 'hemisphere'), default: '#444444' }),
     enm('mode', 'Mode', 'Realtime, baked into lightmaps, or both (mixed).', ['realtime', 'baked', 'mixed'], { default: 'realtime', omitDefault: true }),
   ]),
@@ -911,7 +913,11 @@ const light: ComponentDescriptor = {
   ],
   excludes: [{ component: 'instances', reason: 'an instance set is scenery' }],
   prefab: false,
-  rules: ['At most one directional, one ambient and one hemisphere light and 16 point/spot lights per scene.'],
+  rules: [
+    'At most one directional, one ambient and one hemisphere light and 16 point/spot lights per scene; any scene may hold any light.',
+    'With scenes loaded together, the most recently loaded scene\'s directional, ambient and hemisphere light is on (each kind on its own); the others come back when it unloads.',
+    'Point and spot lights of all loaded scenes share the budget of 16; past it the most recently loaded scenes\' lights are on.',
+  ],
 };
 
 const surface: ComponentDescriptor = {

@@ -169,9 +169,14 @@ function harness(opts: { exitAt?: [number, number]; loader?: (ctx: ScriptCtx) =>
     for (const r of reqs) rt.provideScene!(r.sceneId, { ok: true, entities: caveEntities() as never });
     return reqs.map((r) => r.sceneId);
   };
+  const serveWith = (entities: unknown[]): string[] => {
+    const reqs = rt.takeSceneRequests!();
+    for (const r of reqs) rt.provideScene!(r.sceneId, { ok: true, entities: entities as never });
+    return reqs.map((r) => r.sceneId);
+  };
   const ids = (): string[] => rt.getInterpolatedState().ok ? (rt.getInterpolatedState() as { state: { transforms: { id: string }[] } }).state.transforms.map((t) => t.id) : [];
   const diag = () => (rt.getDiagnostics() as { diagnostics: { errors: { code: string; message: string }[] } }).diagnostics;
-  return { rt, log, calls, tick, serve, ids, diag, now };
+  return { rt, log, calls, tick, serve, serveWith, ids, diag, now };
 }
 
 describe('runtime scene set (phase 12 c)', () => {
@@ -237,6 +242,34 @@ describe('runtime scene set (phase 12 c)', () => {
     h.tick();
     const rock = (h.rt.getInterpolatedState() as { state: { transforms: { id: string; position: number[] }[] } }).state.transforms.find((t) => t.id === 'box-rock');
     expect(rock?.position).toEqual([42, 11, 0]);
+  });
+
+  it('phase 25.8: a later-loaded scene may hold every light kind, and its lights leave with it; a camera stays refused', () => {
+    const h = harness();
+    const lights = [
+      { id: 'light-sun', components: { transform: at(0, 0), light: { type: 'directional', color: '#ff0000', intensity: 1, direction: [0, -1, 0] } } },
+      { id: 'light-fill', components: { transform: at(0, 0), light: { type: 'ambient', color: '#ffffff', intensity: 0.5 } } },
+      { id: 'light-sky', components: { transform: at(0, 0), light: { type: 'hemisphere', color: '#ffffff', groundColor: '#444444', intensity: 0.5 } } },
+      ...Array.from({ length: 12 }, (_, i) => ({ id: `light-p${i}`, components: { transform: at(i, 2), light: { type: 'point', color: '#ffffff', intensity: 30, range: 8 } } })),
+      { id: 'light-spot', components: { transform: at(0, 4), light: { type: 'spot', color: '#ffffff', intensity: 80, direction: [0, -1, 0], cookie: 'tex-cookie' } } },
+    ];
+    expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
+    h.serveWith([...caveEntities(), ...lights]);
+    h.tick();
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('loaded');
+    expect(h.ids()).toEqual(expect.arrayContaining(['light-sun', 'light-fill', 'light-sky', 'light-p11', 'light-spot']));
+    expect(h.diag().errors.filter((e) => e.code === 'scene_load_failed')).toEqual([]);
+    // Its lights do not pin it: it unloads, and they go.
+    expect(h.rt.requestScene!('unload', 'scene-cave').ok).toBe(true);
+    h.tick();
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
+    expect(h.ids()).not.toContain('light-sun');
+    // A camera still belongs in a start scene.
+    expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
+    h.serveWith([{ id: 'cam-two', components: { transform: at(0, 0), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } }]);
+    h.tick();
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
+    expect(h.diag().errors.some((e) => e.code === 'scene_load_failed' && e.message.includes('belongs in a start scene (camera, player)'))).toBe(true);
   });
 
   it('phase 14.5: a paused game still applies scene loads and unloads (no step runs)', () => {

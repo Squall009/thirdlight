@@ -80,6 +80,8 @@ describe('scene adapter surface (packet 08; Node unit/mock-level)', () => {
     // scene has no shadow-casting light, so it is `cast_shadow_false`.
     expect(Object.keys(d).sort()).toEqual([
       'canvasSize',
+      // Phase 25.8: the lights that are on (none here).
+      'lights',
       'pixelRatio',
       'renderBackend',
       'rendererInfo',

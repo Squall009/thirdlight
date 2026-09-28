@@ -100,6 +100,8 @@ export default defineConfig({
         '**/look-override.e2e.ts',
         // Phase 25.2: Play screenshots read back from WebGPU, image textures included.
         '**/screenshot.e2e.ts',
+        // Phase 25.8: scene lights on load and unload, 12 point lights, spot cookies on WebGPU.
+        '**/scene-lights.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

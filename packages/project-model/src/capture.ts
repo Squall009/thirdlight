@@ -116,6 +116,9 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     // Phase 9.10: an audio source's sound.
     const source = (e.components as { audioSource?: { assetId: string } }).audioSource;
     if (source) setRef(source.assetId);
+    // Phase 25.8: a spot light's cookie texture.
+    const cookie = (e.components as { light?: { cookie?: string } }).light?.cookie;
+    if (cookie !== undefined) setRef(cookie);
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);

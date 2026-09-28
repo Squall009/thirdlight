@@ -1014,6 +1014,8 @@ function EditorApp(): JSX.Element {
       return t;
     };
     loadTextureRef.current = loadTextureAsset;
+    // Phase 25.8: spot light cookies in the Scene view.
+    viewport.setTextureSource(loadTextureAsset);
     const materialLibrary = createMaterialLibrary({
       loadTexture: loadTextureAsset,
       onChange: () => viewport.requestRender(),

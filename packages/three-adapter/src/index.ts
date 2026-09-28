@@ -84,6 +84,8 @@ export {
   type ShadowPlan,
   type ShadowReason,
 } from './lighting';
+// Phase 25.8: which lights of the loaded scenes are on (the Scene view applies the same rule to its open scenes).
+export { LOCAL_LIGHT_BUDGET, selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 // Packet 53: the runtime role selector and the bounded crossfade
 // (presentation.md §41.3.6/§41.3.7/§41.9 — root subpath, no new subpath):
 // `createAnimationRoleController`/`AnimationRoleController` + the

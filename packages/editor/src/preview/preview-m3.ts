@@ -1353,15 +1353,18 @@ function animatorStates(runtime: unknown): { animators?: Record<string, string> 
 }
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
-function materialsOptionOf(manifest: PreviewManifestV2, reader: VerifiedAssetReader): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting'] } {
-  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return {};
+function materialsOptionOf(manifest: PreviewManifestV2, reader: VerifiedAssetReader): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
   const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) => {
     const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
-    // Phase 25.24b: read (once, checked) when a material, a bake or the sky first needs it.
+    // Phase 25.24b: read (once, checked) when a material, a bake, the sky or a spot cookie first needs it.
     return row !== undefined ? reader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : Promise.resolve(null);
   };
+  // Phase 25.8: spot light cookies (textures of any scene's lights).
+  const lights = { loadTexture };
+  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return { lights };
   const env = manifest.environment;
   return {
+    lights,
     // Phase 23.18: environment presets need the environment renderer too (scripts blend the look).
     ...(environmentHasLook(env) || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture } } : {}),
     ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture } } : {}),

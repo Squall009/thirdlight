@@ -115,11 +115,40 @@ describe('project v4', () => {
     if (r.ok) expect(r.normalized.scenes.map((s) => s.sceneId)).toEqual(['scene-core', 'scene-level']);
   });
 
+  it('phase 25.8: lights belong to scenes — any kind in any scene, each scene at most one directional; a spot cookie is a texture', () => {
+    const sun = (id: string, color: string) => ({ id, components: { transform: T, light: { type: 'directional', color, intensity: 1, direction: [0, -1, 0] } } });
+    const lit = scene('scene-level', [
+      sun('light-0010', '#ff0000'),
+      { id: 'light-0011', components: { transform: T, light: { type: 'ambient', color: '#ffffff', intensity: 1 } } },
+      { id: 'light-0012', components: { transform: T, light: { type: 'hemisphere', color: '#ffffff', groundColor: '#444444', intensity: 1 } } },
+      { id: 'light-0013', components: { transform: T, light: { type: 'point', color: '#ffffff', intensity: 30 } } },
+    ]);
+    const coreSun = scene('scene-core', [camera(), sun('light-0001', '#ffffff')]);
+    const both = validateProjectV4(MANIFEST, content({ scenes: [{ sceneId: 'scene-core', name: 'Core' }, { sceneId: 'scene-level', name: 'Level' }] }), [coreSun, lit]);
+    expect(both.ok, JSON.stringify(!both.ok && both.errors)).toBe(true);
+    // Two start scenes may each hold a directional light (the later one's is on).
+    const two = validateProjectV4(MANIFEST, content({ startScenes: ['scene-core', 'scene-level'], scenes: [{ sceneId: 'scene-core', name: 'Core' }, { sceneId: 'scene-level', name: 'Level' }] }), [coreSun, lit]);
+    expect(two.ok, JSON.stringify(!two.ok && two.errors)).toBe(true);
+    const twoSuns = scene('scene-level', [sun('light-0010', '#ff0000'), sun('light-0014', '#00ff00')]);
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, twoSuns]))).toContain('lights_directional');
+    const spot = (cookie: unknown) => scene('scene-level', [{ id: 'light-0015', components: { transform: T, light: { type: 'spot', color: '#ffffff', intensity: 80, direction: [0, -1, 0], cookie } } }]);
+    const v0 = (MODEL as unknown as { versions: Record<string, unknown>[] }).versions[0]!;
+    const texture = { ...MODEL, assetId: 'tex-cookie', kind: 'texture', versions: [{ ...v0, importRecipe: { profile: 'image', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } }, metrics: { format: 'png', width: 64, height: 64, decodedBytes: 16384 } }] };
+    const withTex = content({ assets: [MODEL, texture], scenes: [{ sceneId: 'scene-core', name: 'Core' }, { sceneId: 'scene-level', name: 'Level' }] });
+    const ok = validateProjectV4(MANIFEST, withTex, [core, spot('tex-cookie')]);
+    expect(ok.ok, JSON.stringify(!ok.ok && ok.errors)).toBe(true);
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, spot('tex-cookie')]))).toContain('/components/light/cookie');
+    expect(JSON.stringify(validateProjectV4(MANIFEST, withTex, [core, spot('Not An Id')]))).toContain('a cookie names a texture asset');
+    // Directional lights get no cookie.
+    const sunCookie = scene('scene-level', [{ id: 'light-0016', components: { transform: T, light: { type: 'directional', color: '#ffffff', intensity: 1, direction: [0, -1, 0], cookie: 'tex-cookie' } } }]);
+    expect(JSON.stringify(validateProjectV4(MANIFEST, withTex, [core, sunCookie]))).toContain('field_unexpected');
+  });
+
   it('refuses duplicate ids across scenes, one-per-game things outside the start set, and dangling references', () => {
     const dup = scene('scene-level', [{ id: 'cam-main', components: { transform: T } }]);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, dup]))).toContain('unique across the project');
-    const litLevel = scene('scene-level', [{ id: 'light-0009', components: { transform: T, light: { type: 'ambient', color: '#ffffff', intensity: 1 } } }]);
-    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, litLevel]))).toContain('start_scene_only');
+    const camLevel = scene('scene-level', [{ id: 'cam-0009', components: { transform: T, camera: { fovY: 60, near: 0.1, far: 100 } } }]);
+    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, camLevel]))).toContain('start_scene_only');
     expect(validateProjectV4(MANIFEST, content({ startScenes: ['scene-nope'] }), [core]).ok).toBe(false);
     const noCam = scene('scene-core', []);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [noCam]))).toContain('camera_count_invalid');

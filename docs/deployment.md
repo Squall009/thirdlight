@@ -399,8 +399,24 @@ A project has one or more scenes (up to 64), one file each. Entity ids are
 unique across the whole project. One command edits one scene.
 
 - **Start scenes.** The game starts with the scenes in the start set,
-  merged. The camera, the player, the lights and the start spawn live only
-  in start scenes.
+  merged. The camera, the player and the start spawn live only in start
+  scenes.
+- **Lights belong to scenes** (phase 25.8). Any scene may hold any light:
+  at most one directional, one ambient and one hemisphere light and 16
+  point/spot lights per scene. With scenes loaded together (start scenes in
+  their listed order, then loads in order), the most recently loaded
+  scene's directional light is on and the others are off; the same for
+  ambient and hemisphere lights, each kind on its own (a scene with only a
+  sun keeps the fill light below it). When that scene unloads, the previous
+  one's light comes back. Point and spot lights of all loaded scenes share
+  the budget of 16; past it the most recently loaded scenes' lights are on.
+  The Scene view applies the same rule to the open scenes, in hierarchy
+  order. Play diagnostics (`renderer.lights`) name the lights that are on.
+- **Spot light cookies** (phase 25.8): Inspector → Light → Cookie picks a
+  texture the spot projects through its cone (three's `SpotLight.map`;
+  white passes the light, black blocks it, colour tints it), in the Scene
+  view, Play and the export, on WebGPU and WebGL 2. Directional lights take
+  no cookie.
 - **In the editor.** Each open scene is a header in the hierarchy.
   - Click a header to make that scene active. New root objects go into the
     active scene; a child goes into its parent's scene.
@@ -425,8 +441,8 @@ unique across the whole project. One command edits one scene.
     An unload releases them: colliders leave the physics world, scripts get
     `dispose`, meshes and textures are freed, and a model no loaded object
     uses any more is released.
-  - A scene holding the camera, the player, the start spawn or a light
-    cannot be unloaded.
+  - A scene holding the camera, the player or the start spawn cannot be
+    unloaded (its lights go with it).
   - A replay returns to the start scenes.
 - **Scene transitions**: a trigger's scene transition loads and unloads
   scenes when the character enters it and can name a spawn it arrives at
