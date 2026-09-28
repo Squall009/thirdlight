@@ -1958,7 +1958,7 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
       map('materials', 'Default materials', 'Material slot → project material, for every placement.', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { when: when('kind', 'model'), keyFormat: 'materialSlot', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS }),
       asset('clipsFor', 'Clips for', 'An animation-only file: its clips play on this model\'s rig.', ['model'], { when: when('kind', 'model') }),
     ]), { required: true }),
-    ops: ['publishAsset', 'setAssetOptions'],
+    ops: ['publishAsset', 'setAssetOptions', 'deleteAsset'],
   },
   {
     key: 'prefabs',
@@ -1978,7 +1978,7 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
         { type: 'components', key: 'components', label: 'Components', tooltip: 'The prefab component vocabulary.', required: true, readOnly: true, allowed: ['transform', 'model', 'box', 'behavior', ...PREFAB_V4_COMPONENTS] },
       ]), { required: true, minItems: 1, maxItems: MAX_PREFAB_ENTITIES, readOnly: true }),
     ]), { required: true, maxItems: MAX_PREFABS }),
-    ops: ['createPrefab', 'instantiatePrefab'],
+    ops: ['createPrefab', 'instantiatePrefab', 'deletePrefab'],
   },
   {
     key: 'behaviors',

@@ -156,7 +156,12 @@ export type V3MutationOp =
   | 'deleteUiTheme'
   // phase 23.17: timelines
   | 'setTimeline'
-  | 'deleteTimeline';
+  | 'deleteTimeline'
+  // phase 25.7c: remove an asset record / a prefab definition (refused while anything references it)
+  | 'deleteAsset'
+  | 'deletePrefab'
+  // phase 25.7e: many entities in one transaction (one revision, one undo)
+  | 'createEntities';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -699,6 +704,16 @@ export interface PasteEntitiesChange {
   entities: EntityV3[];
 }
 
+/**
+ * Phase 25.7c: `deleteAsset` change data: the removed record (the undo puts it
+ * back as a `publishAsset` change with `previous: null`).
+ */
+export interface RemoveAssetChange {
+  type: 'removeAsset';
+  assetId: string;
+  previous: CommandAssetRecord;
+}
+
 /** `setAssetOptions` change data: the whole asset record before and after. */
 export interface SetAssetOptionsChange {
   type: 'setAssetOptions';
@@ -934,6 +949,7 @@ export type ChangeData =
   | AcknowledgeBehaviorTrustChange
   | CreatePrefabChange
   | RemovePrefabChange
+  | RemoveAssetChange
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
   | UpdateEntityChange
@@ -978,6 +994,8 @@ export type ForwardChange =
   | SetSettingsChange
   | AcknowledgeBehaviorTrustChange
   | CreatePrefabChange
+  | RemovePrefabChange
+  | RemoveAssetChange
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
   | UpdateEntityChange
@@ -1082,6 +1100,13 @@ export interface AcknowledgeBehaviorTrustInverse {
   kind: 'acknowledgeBehaviorTrust';
   sourceDigest: string;
   restore: readonly TrustEntry[];
+}
+
+/** Phase 25.7c: `deletePrefab` inverse: put the removed definition back (its undo is a `createPrefab` change). */
+export interface RestorePrefabInverse {
+  kind: 'restorePrefab';
+  prefabId: string;
+  definition: PrefabDefinition;
 }
 
 /** `createPrefab` inverse: remove the created definition (§9.1). */
@@ -1216,6 +1241,7 @@ export type InverseSpec =
   | SetSettingsInverse
   | AcknowledgeBehaviorTrustInverse
   | RemovePrefabInverse
+  | RestorePrefabInverse
 ;
 
 // ---- history model (§9.1) --------------------------------------------------------
@@ -1373,6 +1399,12 @@ export interface CreateEntityArgs {
   kind: 'group' | 'box' | 'model' | 'folder';
   parentId?: string | null;
   name?: string;
+  /** Phase 25.7e: the hierarchy flags and tags, as `updateEntity` sets them (absent: active, unlocked, not static, no tags). */
+  active?: boolean;
+  locked?: boolean;
+  static?: boolean;
+  /** Phase 25.7e: tag names of the project's registry. */
+  tags?: string[];
   transform?: PartialTransformArgs;
   /** Only when `kind` is `"box"`. */
   box?: BoxArgs;
@@ -1683,6 +1715,24 @@ export interface DeleteTimelineArgs {
   timelineId: string;
 }
 
+/** Phase 25.7c: `deleteAsset` removes one asset record (refused while anything references it; its stored bytes stay). */
+export interface DeleteAssetArgs {
+  assetId: string;
+}
+/** Phase 25.7c: `deletePrefab` removes one prefab definition (refused while a copy or anything else references it). */
+export interface DeletePrefabArgs {
+  prefabId: string;
+}
+/**
+ * Phase 25.7e: `createEntities` creates several entities in one transaction
+ * (one revision, one undo). Each item is a `createEntity` request's args
+ * without `children`; `ref` (unique in the batch) lets a later item name an
+ * earlier one as its `parentId`.
+ */
+export interface CreateEntitiesArgs {
+  entities: (CreateEntityArgs & { ref?: string })[];
+}
+
 /** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
   effect: EffectDef;
@@ -1762,6 +1812,9 @@ export type MutationArgs =
   | UpdateEntityArgs
   | MoveEntitiesArgs
   | CreateEntityArgs
+  | CreateEntitiesArgs
+  | DeleteAssetArgs
+  | DeletePrefabArgs
   | SetTransformArgs
   | DeleteEntityArgs
   | EmptyArgs

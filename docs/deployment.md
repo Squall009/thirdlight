@@ -346,6 +346,13 @@ listening to the project's sounds.
   - Static: stored and inherited; nothing uses it yet.
 - `updateEntity` with `parentId` keeps the world position too (it used to
   keep the local values).
+- **Bulk building** (phase 25.7e): `createEntity` also takes `active`,
+  `locked`, `static` and `tags` (tag names), so an object is made with its
+  flags in one step. `createEntities {entities: [createEntity args + ref?],
+  sceneId?}` makes up to 1024 objects (and folders with their children) in
+  one revision and one undo step; a later item's `parentId` may name an
+  earlier item's `ref`. One bad item refuses the whole batch, at its path
+  (`/args/entities/<i>/…`). The change lists the created objects in order.
 
 The game resolves folders and flags once, when a scene loads. Folders and
 inactive entities are removed, and each entity gets its effective `static`.
@@ -475,6 +482,22 @@ detail. Copies have no ids, colliders or scripts.
   to it. MCP does the same: `tl_instance_buffer {digest}` reads a set's
   copies (`{digest, count, transforms}`, sets of up to 4096 copies), edit the
   list, publish it, `setComponent`.
+
+## Deleting assets and prefabs (phase 25.7c)
+
+Assets → select an asset → **delete**, and Prefabs → **delete** on a
+definition (MCP: `deleteAsset {assetId}`, `deletePrefab {prefabId}`, the
+same commands). A delete is refused while anything uses the record: an
+object in any scene (a model, an instance set, an audio source, a pickup
+sound, a script property of type asset, a placed prefab copy, a block look),
+a prefab, another asset (clips for a rig), a material's texture, a UI
+document, dialogue, a timeline, the shell, or a script whose source names
+the id as a string literal (`ctx.spawn("crate")`). The refusal is
+`reference_in_use` and lists the uses (scene, path); the editor shows it under
+the button. Remove those first (a placed copy is deleted like any object).
+A deleted record's stored bytes stay in the project's content store, so one
+undo brings it back as it was; a file referenced in a game folder is never
+touched.
 
 ## MCP (coding harness)
 
@@ -2276,7 +2299,7 @@ These protect the runtime and are not tuning values:
 | Script physics queries | 32 per step |
 | Game-view events kept | 32 |
 | Sound voices | 32 at most (the `audio_voices` setting's range) |
-| Registered sound assets / music tracks | 16 / 64 |
+| Registered sound assets / music tracks | 64 / 64 (phase 25.7c: sound effects were 16; each file is bounded by its own PCM byte cap) |
 | Spawns | 64 per step, 1024 alive |
 | Timers | 64 per script instance |
 | Script intents (move, jump, transform, pose, respawn) | 5 per script instance per step; per step at most 64 or 5 × the running script instances, whichever is larger |

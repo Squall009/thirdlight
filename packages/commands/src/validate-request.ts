@@ -52,6 +52,7 @@ import {
 } from './errors';
 import { SURFACE_PRESET_NAMES } from './v3';
 import { validatePasteArgs } from './paste-ops';
+import { CREATE_ENTITIES_MAX } from './ops';
 import {
   isSetComponentName,
   validateAcknowledgeBehaviorTrustArgs,
@@ -178,6 +179,11 @@ const OPS: readonly MutationOp[] = [
   // phase 23.17: timelines
   'setTimeline',
   'deleteTimeline',
+  // phase 25.7c: asset and prefab deletion
+  'deleteAsset',
+  'deletePrefab',
+  // phase 25.7e: bulk creation
+  'createEntities',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -227,7 +233,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, createEntities',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -629,12 +635,16 @@ function validateCreateArgs(args: Record<string, unknown>):
   | { ok: true; args: CreateEntityArgs }
   | { ok: false; error: CommandError } {
   const KNOWN =
-    'kind, parentId (optional), name (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional), children (optional, folder only)';
+    'kind, parentId (optional), name (optional), active, locked, static, tags (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional), children (optional, folder only)';
   for (const key of Object.keys(args)) {
     if (
       key !== 'kind' &&
       key !== 'parentId' &&
       key !== 'name' &&
+      key !== 'active' &&
+      key !== 'locked' &&
+      key !== 'static' &&
+      key !== 'tags' &&
       key !== 'transform' &&
       key !== 'box' &&
       key !== 'model' &&
@@ -699,6 +709,21 @@ function validateCreateArgs(args: Record<string, unknown>):
       };
     }
     out.name = args['name'];
+  }
+  // Phase 25.7e: the hierarchy flags and tags, as updateEntity takes them.
+  for (const flag of ['active', 'locked', 'static'] as const) {
+    const v = args[flag];
+    if (v === undefined) continue;
+    if (typeof v !== 'boolean') return { ok: false, error: fieldType(`/args/${flag}`, v, 'boolean') };
+    out[flag] = v;
+  }
+  if (args['tags'] !== undefined) {
+    const tags = args['tags'];
+    if (!Array.isArray(tags) || tags.length > 32) return { ok: false, error: fieldType('/args/tags', tags, 'array of up to 32 tag names') };
+    for (let i = 0; i < tags.length; i++) {
+      if (typeof tags[i] !== 'string') return { ok: false, error: fieldType(`/args/tags/${i}`, tags[i], 'string (tag name)') };
+    }
+    out.tags = [...(tags as string[])];
   }
   if (args['transform'] !== undefined) {
     const t = args['transform'];
@@ -1252,7 +1277,10 @@ export type ValidatedOpArgs =
   | { op: 'setShell'; args: { shell: import('@thirdlight/project-model').GameShell | null } }
   | { op: 'deleteUiTheme'; args: { uiThemeId: string } }
   | { op: 'setTimeline'; args: { timeline: import('@thirdlight/project-model').TimelineAsset } }
-  | { op: 'deleteTimeline'; args: { timelineId: string } };
+  | { op: 'deleteTimeline'; args: { timelineId: string } }
+  | { op: 'deleteAsset'; args: { assetId: string } }
+  | { op: 'deletePrefab'; args: { prefabId: string } }
+  | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } };
 
 /** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1342,6 +1370,42 @@ export function validateOpArgs(
       const r = validateCreateArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'createEntity', args: r.args } };
+    }
+    case 'createEntities': {
+      // Phase 25.7e: createEntities {entities: [createEntity args + ref?]} (one transaction).
+      for (const k of Object.keys(args)) if (k !== 'entities') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'entities') };
+      const list = args['entities'];
+      if (list === undefined) return { ok: false, error: fieldMissing('/args/entities', 'entities') };
+      if (!Array.isArray(list)) return { ok: false, error: fieldType('/args/entities', list, 'array of createEntity args') };
+      if (list.length < 1 || list.length > CREATE_ENTITIES_MAX) {
+        return { ok: false, error: fieldValue('/args/entities', list.length, `1-${CREATE_ENTITIES_MAX} items`, `createEntities creates 1 to ${CREATE_ENTITIES_MAX} entities`) };
+      }
+      const refs = new Set<string>();
+      const entities: (CreateEntityArgs & { ref?: string })[] = [];
+      for (let i = 0; i < list.length; i += 1) {
+        const item = list[i];
+        const path = `/args/entities/${i}`;
+        if (!isPlainObject(item)) return { ok: false, error: fieldType(path, item, 'object (createEntity args)') };
+        const { ref, ...rest } = item;
+        if (ref !== undefined) {
+          if (typeof ref !== 'string' || !isValidName(ref)) return { ok: false, error: fieldValue(`${path}/ref`, ref, 'string, 1-128 chars, no control characters', 'ref names this item for a later parentId') };
+          if (refs.has(ref)) return { ok: false, error: fieldValue(`${path}/ref`, ref, 'a ref unique in the batch', 'two items share a ref') };
+        }
+        const r = validateCreateArgs(rest);
+        if (!r.ok) return { ok: false, error: { ...r.error, path: `${path}${(r.error.path ?? '').replace(/^\/args/, '')}` } as CommandError };
+        if (typeof ref === 'string') refs.add(ref);
+        entities.push(ref !== undefined ? { ...r.args, ref: ref as string } : r.args);
+      }
+      return { ok: true, validated: { op: 'createEntities', args: { entities } } };
+    }
+    case 'deleteAsset':
+    case 'deletePrefab': {
+      // Phase 25.7c: deleteAsset {assetId}; deletePrefab {prefabId}.
+      const key = op === 'deleteAsset' ? 'assetId' : 'prefabId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (typeof args[key] !== 'string') return { ok: false, error: fieldType(`/args/${key}`, args[key], `string (${key})`) };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setTransform': {
       const r = validateSetTransformArgs(args);

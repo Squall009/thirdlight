@@ -665,6 +665,9 @@ function EditorApp(): JSX.Element {
   const [captureName, setCaptureName] = useState('');
   const [captureError, setCaptureError] = useState<UiError | null>(null);
   const [copyError, setCopyError] = useState<UiError | null>(null);
+  // Phase 25.7c: why the last asset / prefab delete was refused.
+  const [assetDeleteError, setAssetDeleteError] = useState<string | null>(null);
+  const [prefabDeleteError, setPrefabDeleteError] = useState<string | null>(null);
   const [placementError, setPlacementError] = useState<UiError | null>(null);
   const [propertyError, setPropertyError] = useState<UiError | null>(null);
   const [componentError, setComponentError] = useState<UiError | null>(null);
@@ -2822,6 +2825,23 @@ function EditorApp(): JSX.Element {
     [reportFailure],
   );
 
+  // Phase 25.7c: delete an asset / a prefab definition (the backend refuses while anything uses it; one undo restores).
+  const deleteAsset = useCallback(async (assetId: string) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('deleteAsset', { assetId }, c.projection.revision);
+    const err = refusal(res);
+    setAssetDeleteError(err);
+    if (err === null) setSelectedAssetId((cur) => (cur === assetId ? null : cur));
+  }, []);
+  const deletePrefab = useCallback(async (prefabId: string) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const err = refusal(await c.command('deletePrefab', { prefabId }, c.projection.revision));
+    setPrefabDeleteError(err);
+    if (err === null) setSelectedPrefabId((cur) => (cur === prefabId ? null : cur));
+  }, []);
+
   const capturePrefab = useCallback(async () => {
     const c = clientRef.current;
     const sourceEntityId = selectedIdRef.current;
@@ -4280,7 +4300,10 @@ function EditorApp(): JSX.Element {
               placementMessage={placementError?.message ?? null}
               preview={assetPreview}
               onRefresh={() => void refreshAssets()}
-              onSelect={setSelectedAssetId}
+              onSelect={(id) => {
+                setSelectedAssetId(id);
+                setAssetDeleteError(null);
+              }}
               onImport={(f) => void importFile(f, 'create')}
               onReimport={(f) => void importFile(f, 'reimport')}
               folderImport={folderProject}
@@ -4303,6 +4326,8 @@ function EditorApp(): JSX.Element {
               thumbnails={assetThumbs}
               pieces={assetPieces}
               onVertexColors={(id, mode) => void setVertexColors(id, mode)}
+              onDelete={(id) => void deleteAsset(id)}
+              deleteError={assetDeleteError}
               sideExtra={
                 selectedAssetId !== null && assets.find((a) => a.assetId === selectedAssetId)?.kind === 'model' ? (
                   <>
@@ -4343,6 +4368,8 @@ function EditorApp(): JSX.Element {
                 setCopyError(null);
               }}
               onPlaceCopy={(id) => void placeCopy(id)}
+              onDelete={(id) => void deletePrefab(id)}
+              deleteError={prefabDeleteError}
               onOverrideCommit={commitOverride}
             />
           )}

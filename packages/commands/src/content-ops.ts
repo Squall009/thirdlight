@@ -13,6 +13,7 @@
 
 import {
   BEHAVIOR_GRAPH_KIND,
+  MAX_AUDIO_ASSETS,
   behaviorGraphContext,
   canonicalGraphData,
   validateGraphData,
@@ -150,7 +151,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
     const kind = args.kind;
-    const limit = kind === 'audio' ? 16 : kind === 'texture' ? 256 : kind === 'music' ? 64 : kind === 'font' ? 16 : 128;
+    const limit = kind === 'audio' ? MAX_AUDIO_ASSETS : kind === 'texture' ? 256 : kind === 'music' ? 64 : kind === 'font' ? 16 : 128;
     const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length;
     if (count + 1 > limit) {
       return {

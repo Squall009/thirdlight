@@ -335,7 +335,7 @@ describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
       lightsDirectional: 1,
       lightsAmbient: 1,
       entities: 1024,
-      audioAssets: 16,
+      audioAssets: 64,
       audioVersions: 8,
       animationProfileBytes: 4_096,
     });

@@ -68,8 +68,8 @@ export const AUDIO_MAX_VOICES = 8;
 export const AUDIO_VOICE_LIMIT = 32;
 /** The bounded diagnostic ring size (drop-oldest). */
 export const AUDIO_MAX_DIAGNOSTICS = 64;
-/** The bounded per-asset registration store cap (distinct cue assets ≤ 6, §41.4.5). */
-const AUDIO_MAX_REGISTERED_ASSETS = 16;
+/** The bounded per-asset registration store cap: the catalog's audio records (phase 25.7c: 64, project-model MAX_AUDIO_ASSETS). */
+const AUDIO_MAX_REGISTERED_ASSETS = 64;
 
 /**
  * One cue event: a registered sound to play at most once per run. The id is
@@ -997,7 +997,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         return error('audio_invalid_bytes', 'cue bytes must be a non-empty Uint8Array (bytes in only — rule 1)');
       }
       if (!assets.has(assetId) && assets.size >= AUDIO_MAX_REGISTERED_ASSETS) {
-        // §41.4.5: the catalog holds ≤ 16 audio records; the owner's store
+        // §41.4.5: the catalog holds ≤ 64 audio records; the owner's store
         // caps at the same bound (never grows unboundedly).
         return error('audio_invalid_bytes', `registered asset store full (cap ${AUDIO_MAX_REGISTERED_ASSETS}); re-register an existing asset instead`);
       }

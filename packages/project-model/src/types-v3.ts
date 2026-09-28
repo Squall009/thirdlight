@@ -506,7 +506,8 @@ export const SCENE_LIMITS_V3 = Object.freeze({
   lightsDirectional: 1,
   lightsAmbient: 1,
   entities: 1024,
-  audioAssets: 16,
+  // Phase 25.7c: 64 (was 16), MAX_AUDIO_ASSETS.
+  audioAssets: 64,
   audioVersions: 8,
   animationProfileBytes: 4_096,
 });

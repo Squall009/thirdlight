@@ -66,6 +66,10 @@ interface Props {
   sideExtra?: ReactNode;
   /** Phase 23.9b: create a UI document and open its tab. */
   onNewUiDocument?: () => void;
+  /** Phase 25.7c: delete the selected asset (`deleteAsset`; refused while anything uses it). */
+  onDelete?: (assetId: string) => void;
+  /** Phase 25.7c: why the last delete was refused (the uses it names), or null. */
+  deleteError?: string | null;
 }
 
 /** The tile-preview key of an asset (or one of its pieces). */
@@ -326,6 +330,23 @@ export function AssetBrowser(p: Props): JSX.Element {
             </label>
           )}
           {p.sideExtra}
+          {p.onDelete !== undefined && (
+            <div className="tl-assets__row">
+              <button
+                className="tl-btn tl-btn--small"
+                aria-label={`delete asset ${selected.displayName}`}
+                onClick={() => p.onDelete?.(selected.assetId)}
+                title="Remove this asset from the project (refused while an object, prefab, material, document or script still uses it; one undo brings it back)"
+              >
+                delete
+              </button>
+            </div>
+          )}
+          {p.deleteError != null && (
+            <div className="tl-assets__error" role="alert" data-testid="asset-delete-error" title={p.deleteError}>
+              {p.deleteError}
+            </div>
+          )}
           <canvas className="tl-assets__preview-canvas" ref={p.previewCanvasRef} />
           <button className="tl-btn tl-btn--small" onClick={() => p.onPreview(selected.assetId)} title="Realize the current version locally (play/pause/scrub)">
             load preview

@@ -41,6 +41,10 @@ export interface PrefabPanelProps {
   onCapture: () => void;
   onSelect: (prefabId: string) => void;
   onPlaceCopy: (prefabId: string) => void;
+  /** Phase 25.7c: delete a definition (`deletePrefab`; refused while a copy or anything else uses it). */
+  onDelete?: (prefabId: string) => void;
+  /** Phase 25.7c: why the last delete was refused, or null. */
+  deleteError?: string | null;
   onOverrideCommit: (localId: string, key: string, raw: string) => void;
 }
 
@@ -104,10 +108,28 @@ export function PrefabPanel(p: PrefabPanelProps): JSX.Element {
             >
               place copy
             </button>
+            {p.onDelete !== undefined && (
+              <button
+                className="tl-btn tl-btn--small"
+                aria-label={`delete prefab ${d.displayName}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  p.onDelete?.(d.prefabId);
+                }}
+                title="Remove this definition (refused while a placed copy, a block look or a script still uses it; one undo brings it back)"
+              >
+                delete
+              </button>
+            )}
           </li>
         ))}
         {p.definitions.length === 0 && <li className="tl-row tl-row--empty">no prefab definitions</li>}
       </ul>
+      {p.deleteError != null && (
+        <div className="tl-prop__error" role="alert" data-testid="prefab-delete-error" title={p.deleteError}>
+          {p.deleteError}
+        </div>
+      )}
 
       {selected && (
         <div className="tl-prefabs__override">

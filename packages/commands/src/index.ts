@@ -118,6 +118,11 @@ export type {
   QueryResult,
   RemovePrefabChange,
   RemovePrefabInverse,
+  RemoveAssetChange,
+  RestorePrefabInverse,
+  CreateEntitiesArgs,
+  DeleteAssetArgs,
+  DeletePrefabArgs,
   RestoreSubtreeChange,
   RestoreSubtreeEntry,
   RestoreSubtreeInverse,
@@ -221,3 +226,7 @@ export type {
 export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
 // Phase 16.1: graph commands (owner kinds and the shared apply used by undo/redo).
 export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, type GraphOwnerAdapter } from './graph-ops';
+
+// Phase 25.7c/e: asset and prefab deletion (the in-use refusal the workspace also raises), bulk creation.
+export { contentInUse } from './delete-content-ops';
+export { CREATE_ENTITIES_MAX } from './ops';

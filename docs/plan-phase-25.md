@@ -168,7 +168,9 @@ boundary it changes (Playwright for any editor surface).
 | 25.24 | done 2026-09-28: (a)–(h) resolved; targets fixed in §6 (large ≤ 3 s from the second Play, no frame > 250 ms; a scene transition never draws an empty world) |
 | 25.7a | done 2026-09-28: new entity ids `<kind>-N` with at least six digits (`box-000001`), N up to 1,048,576 (64 scenes × 16,384: no `id_exhaustion` below the entity limits), one allocator (`project-model/entity-ids.ts`) for create, paste, prefab copies and the v3 → v4 storage migration; `project.json` schemaVersion 4 (a 3 upgraded on open without a document change, written back; a 2 goes 2 → 3 → 4); four-digit ids load and stay (HTTP test on `fixtures/phase25/legacy-v3-ids`); limit in `docs/deployment.md` engine limits |
 | 25.7b | done 2026-09-28: runtime content manifest version 4: materials (only the used ones), material functions, UI documents, dialogue and the instance buffer table are content files (`content/sha256/<digest>`, the block's canonical bytes) listed in `contentFiles` and bound by the buildId; Play and the export read each once, check it against its row and put it back under its key (`expandManifestContentFiles`); `manifest-keys.e2e.ts` plays and exports (backend stopped) a project with all four, the material graph e2e checks pixels in Play and the export on both renderers |
-| 25.7c–25.23 | — |
+| 25.7c | done 2026-09-28: sound-effect records 16 → 64 (music's 64; the limits table), `deleteAsset {assetId}` and `deletePrefab {prefabId}` refused (`reference_in_use`, the uses listed by scene and path) while any typed reference in any scene or the content, or a script's string literal, names the record; the bytes stay, one undo restores it (`removeAsset` change; a prefab's undo is a `createPrefab` change); editor delete buttons (Assets, Prefabs) and MCP `tl_command` tested against the real backend (`delete-content.e2e.ts`), workspace test across scenes |
+| 25.7e | done 2026-09-28: `createEntity` takes `active`, `locked`, `static`, `tags`; `createEntities {entities: [createEntity args + ref?], sceneId?}` up to 1024 entities in one revision and one undo (a `pasteEntities` change, undone by removing them), validated once; workspace test and the MCP e2e |
+| 25.7d–25.23 | — |
 
 ## 6. Decision log
 
@@ -688,6 +690,35 @@ boundary it changes (Playwright for any editor surface).
   fixtures and the model-authoring messages by a fixed rename of the created
   ids (model-0003 → model-000001, box-0002 → box-000001, group-0002 →
   group-000001, …), verified by their replays.
+- 2026-09-28 (25.7c): the audio cap is a count, 64, not a byte budget. The
+  limits table already bounds each sound by its own PCM byte cap and lists
+  music at 64 records, so 64 sound effects is the consistent row (the game
+  host's registered-sound store follows it). A byte budget would add a second
+  kind of limit next to the per-file caps for no case that needs it.
+- 2026-09-28 (25.7c): "refused while anything references it" is decided by
+  the model's own reference rules, not a second list: the record is taken out
+  and the resulting project validated (the carrier scene and content in the
+  command layer, every other scene in the workspace's cross-scene check);
+  whatever no longer resolves is a use, reported as `reference_in_use` with
+  the model errors as `details`. So a new kind of reference is covered as
+  soon as the model checks it. Code is the one place the model cannot see: a
+  script (a published behavior's source container, a visual script's
+  generated source, a library file) that holds the id as a quoted literal
+  also refuses the delete (a textual check, so a mention in a comment inside
+  quotes counts too; the safe side). A placed prefab copy keeps its link, so
+  a prefab with copies cannot be deleted until they are. The record's bytes
+  are not removed (unreferenced blobs are kept, workspace §13.7), which is
+  what makes the undo exact. New change `removeAsset {assetId, previous}`;
+  `deletePrefab` reuses `removePrefab` (the undo of a capture) and its undo
+  is a `createPrefab` change (new inverse `restorePrefab`).
+- 2026-09-28 (25.7e): `createEntities` records a `pasteEntities` change
+  (the created entities, parents first) undone by `removeEntities`, so the
+  editor, the history and the stored records needed no new change type. The
+  batch is checked item by item like `createEntity` (errors at
+  `/args/entities/<i>/…`), ids come from one allocator pass, and the result
+  scene is validated once (a per-item gate would validate the scene N
+  times). 1024 entities per batch; the 64 KiB request cap usually bounds it
+  first. `ref` is batch-local and never stored.
 - 2026-09-28 (25.7b): the manifest split. The five blocks are written as
   their canonical bytes (`JSON.stringify(block, null, 2) + "\n"`, so a
   file's digest is the block digest) at `content/sha256/<digest>`, the path

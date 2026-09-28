@@ -80,6 +80,9 @@ export class ContentProjection {
     switch (change.type) {
       case 'publishAsset':
         return this.applyPublishAsset(change);
+      // Phase 25.7c: `deleteAsset` (and its redo) removes the record.
+      case 'removeAsset':
+        return this.assets.delete(change.assetId);
       case 'setAssetOptions': {
         const a = this.assets.get(change.assetId);
         if (a === undefined) return false;
@@ -101,8 +104,8 @@ export class ContentProjection {
   private applyPublishAsset(change: PublishAssetChange): boolean {
     const next = change.next;
     if (next === null) {
-      // An inverse (undo of a create) removes the record. M2 has no asset
-      // deletion, so this only occurs through undo/redo.
+      // An inverse (undo of a create) removes the record (phase 25.7c's
+      // `deleteAsset` sends its own `removeAsset` change).
       return this.assets.delete(change.assetId);
     }
     const previous = this.assets.get(change.assetId);

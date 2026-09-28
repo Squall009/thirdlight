@@ -30,6 +30,8 @@ import {
   type TransformComponent,
   type TagDefinition,
   nextFreeEntityIdOf,
+  entityIdAt,
+  ENTITY_ID_MAX,
 } from '@thirdlight/project-model';
 
 import {
@@ -122,18 +124,6 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 
 function entitiesById(scene: SceneDocument): Map<string, AnyEntity> {
   return new Map(scene.entities.map((e) => [e.id, e]));
-}
-
-/** Entity depth (root = 1). Valid scenes are acyclic with parents first. */
-function entityDepth(scene: SceneDocument, id: string): number {
-  const byId = entitiesById(scene);
-  let depth = 0;
-  let cur: AnyEntity | undefined = byId.get(id);
-  while (cur !== undefined) {
-    depth += 1;
-    cur = cur.parentId !== undefined ? byId.get(cur.parentId) : undefined;
-  }
-  return depth;
 }
 
 /**
@@ -426,20 +416,155 @@ export function applyCreateEntity(
   content?: ContentDocument,
   reservedIds?: ReadonlySet<string>,
 ): OpOutcome {
+  const work = createWork(scene, reservedIds);
+  const staged = stageCreate(work, scene, args, content, '/args');
+  if (!staged.ok) return staged;
+  const result = { ...scene, revision: scene.revision + 1, entities: [...scene.entities, ...work.created] };
+  const gate = gateResultState({ scene, content }, result, content);
+  if (!gate.ok) return gate;
+  // Canonical entity values (defaults filled, -0 normalized) from the validated result document.
+  const committed = committedOf(gate.scene, work.created);
+  const [root, ...children] = committed;
+  const change: CreateEntityChange = { type: 'createEntity', id: staged.id, entity: root as EntityV3, ...(children.length > 0 ? { children } : {}) };
+  return {
+    ok: true,
+    op: {
+      scene: gate.scene,
+      change,
+      inverse: { kind: 'delete', rootId: staged.id },
+      createdId: staged.id,
+    },
+  };
+}
+
+/** Phase 25.7e: the most entities one `createEntities` may create (folders' children included; the 64 KiB request cap bounds it too). */
+export const CREATE_ENTITIES_MAX = 1024;
+
+/**
+ * Phase 25.7e: `createEntities {entities}` — several creates in one
+ * transaction: one revision, one undo (the created entities go as a
+ * `pasteEntities` change, undone by removing them). Each item is checked like
+ * a `createEntity`; an item's `ref` lets a later item name it as `parentId`.
+ * The result is validated once, so a batch costs one scene validation.
+ */
+export function applyCreateEntities(
+  scene: SceneDocument,
+  args: { entities: (CreateEntityArgs & { ref?: string })[] },
+  content?: ContentDocument,
+  reservedIds?: ReadonlySet<string>,
+): OpOutcome {
+  const work = createWork(scene, reservedIds);
+  const refs = new Map<string, string>();
+  for (let i = 0; i < args.entities.length; i += 1) {
+    const item = args.entities[i] as CreateEntityArgs & { ref?: string };
+    const { ref, ...create } = item;
+    let parentId = create.parentId ?? null;
+    if (parentId !== null && refs.has(parentId)) parentId = refs.get(parentId) as string;
+    const staged = stageCreate(work, scene, { ...create, parentId }, content, `/args/entities/${i}`);
+    if (!staged.ok) return staged;
+    if (ref !== undefined) refs.set(ref, staged.id);
+    if (work.created.length > CREATE_ENTITIES_MAX) {
+      return { ok: false, error: limitsExceeded('entities', work.created.length, CREATE_ENTITIES_MAX, `one createEntities creates at most ${CREATE_ENTITIES_MAX} entities`) };
+    }
+  }
+  const result = { ...scene, revision: scene.revision + 1, entities: [...scene.entities, ...work.created] };
+  const gate = gateResultState({ scene, content }, result, content);
+  if (!gate.ok) return gate;
+  const committed = committedOf(gate.scene, work.created);
+  return {
+    ok: true,
+    op: {
+      scene: gate.scene,
+      change: { type: 'pasteEntities', entities: committed },
+      inverse: { kind: 'removeEntities', ids: committed.map((e) => e.id) },
+      createdId: (committed[0] as EntityV3).id,
+    },
+  };
+}
+
+/** The canonical values of the created entities in the validated result, in creation order. */
+function committedOf(result: SceneDocument, created: readonly Record<string, unknown>[]): EntityV3[] {
+  const ids = new Set(created.map((c) => c['id'] as string));
+  const byId = new Map<string, EntityV3>();
+  for (const e of result.entities) if (ids.has(e.id)) byId.set(e.id, e as unknown as EntityV3);
+  return created.map((c) => deepClone(byId.get(c['id'] as string) as EntityV3));
+}
+
+/**
+ * Phase 25.7e: what a create builds on: the scene's entities plus the ones
+ * created earlier in the same transaction (a folder's children, a batch).
+ */
+interface CreateWork {
+  readonly byId: Map<string, AnyEntity>;
+  readonly taken: Set<string>;
+  /** The next number to try per id prefix (ids are allocated in order). */
+  readonly nextN: Map<string, number>;
+  readonly created: Record<string, unknown>[];
+  readonly sceneCount: number;
+}
+
+function createWork(scene: SceneDocument, reservedIds?: ReadonlySet<string>): CreateWork {
   const byId = entitiesById(scene);
+  // Phase 12 (c): ids are unique across the project — the other scenes' ids are reserved.
+  const taken = new Set<string>([...byId.keys(), ...(reservedIds ?? [])]);
+  return { byId, taken, nextN: new Map(), created: [], sceneCount: scene.entities.length };
+}
+
+/** The smallest free `<prefix>-N` (phase 25.7a width), from where the last one of this prefix stopped. */
+function allocateId(work: CreateWork, prefix: string): string | undefined {
+  for (let n = work.nextN.get(prefix) ?? 1; n <= ENTITY_ID_MAX; n += 1) {
+    const id = entityIdAt(prefix, n);
+    if (work.taken.has(id)) continue;
+    work.taken.add(id);
+    work.nextN.set(prefix, n + 1);
+    return id;
+  }
+  return undefined;
+}
+
+function depthIn(work: CreateWork, id: string): number {
+  let depth = 0;
+  let cur = work.byId.get(id);
+  while (cur !== undefined) {
+    depth += 1;
+    cur = cur.parentId !== undefined ? work.byId.get(cur.parentId) : undefined;
+  }
+  return depth;
+}
+
+/** Re-root an `/args…` error path under `base` (a batch item's `/args/entities/i`). */
+function atBase(error: CommandError, base: string): CommandError {
+  if (base === '/args') return error;
+  const path = (error as { path?: string }).path;
+  return typeof path === 'string' && path.startsWith('/args') ? ({ ...error, path: `${base}${path.slice('/args'.length)}` } as CommandError) : error;
+}
+
+/**
+ * The §8.1 precondition checks of one create and its candidate entity (and,
+ * for a folder, its children's), added to `work.created`. Nothing is
+ * validated as a whole here: the caller gates the result once.
+ */
+function stageCreate(
+  work: CreateWork,
+  scene: SceneDocument,
+  args: CreateEntityArgs,
+  content: ContentDocument | undefined,
+  base: string,
+): { ok: true; id: string } | { ok: false; error: CommandError } {
+  const fail = (error: CommandError): { ok: false; error: CommandError } => ({ ok: false, error: atBase(error, base) });
   const parentId = args.parentId ?? null;
 
   // §8.1 precondition order: parentId resolves, then the model asset
   // reference resolves, then the v3 component VALUES (authoring §A3.1), the
   // limits, then the derived-ID scan.
-  if (parentId !== null && !byId.has(parentId)) {
-    return { ok: false, error: referenceMissing(parentId) };
+  if (parentId !== null && !work.byId.has(parentId)) {
+    return fail(referenceMissing(parentId));
   }
   if (args.kind === 'model') {
     const assetId = args.model?.asset.assetId;
     const assets = content?.assets ?? [];
     if (assetId === undefined || !assets.some((a) => a.assetId === assetId)) {
-      return { ok: false, error: assetReferenceMissing(assetId ?? '') };
+      return fail(assetReferenceMissing(assetId ?? ''));
     }
   }
   const provided = args.components ?? {};
@@ -448,65 +573,61 @@ export function applyCreateEntity(
     if (value === undefined) continue;
     const path = `/args/components/${component}`;
     const errors = validateV3ComponentValue(component, value, path, scene.schemaVersion === 4 ? 4 : 3);
-    if (errors.length > 0) return { ok: false, error: commandErrorFromModel(errors[0] as ModelErrorV3) };
+    if (errors.length > 0) return fail(commandErrorFromModel(errors[0] as ModelErrorV3));
     if (component === 'modelAnimation') {
       const roleError = animationRoleError(value, content, `${path}/roles`);
-      if (roleError !== null) return { ok: false, error: roleError };
+      if (roleError !== null) return fail(roleError);
     }
   }
   const maxEntities = scene.schemaVersion === 4 ? MAX_ENTITIES_SCENE_V4 : MAX_ENTITIES;
-  if (scene.entities.length + 1 > maxEntities) {
-    return {
-      ok: false,
-      error: limitsExceeded('entities', scene.entities.length + 1, maxEntities),
-    };
+  const total = work.sceneCount + work.created.length + 1;
+  if (total > maxEntities) {
+    return fail(limitsExceeded('entities', total, maxEntities));
   }
-  const newDepth = parentId === null ? 1 : entityDepth(scene, parentId) + 1;
+  const newDepth = parentId === null ? 1 : depthIn(work, parentId) + 1;
   if (newDepth > MAX_DEPTH) {
-    return { ok: false, error: limitsExceeded('depth', newDepth, MAX_DEPTH) };
+    return fail(limitsExceeded('depth', newDepth, MAX_DEPTH));
   }
+  // Phase 25.7e: the hierarchy flags and tags (named in the request, stored as the mask).
+  let tags = 0;
+  if (args.tags !== undefined) {
+    const mask = tagMaskOf(args.tags, content?.tags ?? []);
+    if (!mask.ok) return fail(mask.error);
+    tags = mask.mask;
+  }
+  const header = (): EntityHeader => ({
+    name: args.name ?? null,
+    parentId,
+    active: args.active ?? true,
+    locked: args.locked ?? false,
+    static: args.static ?? false,
+    tags,
+  });
+  const add = (entity: Record<string, unknown>): void => {
+    work.created.push(entity);
+    work.byId.set(entity['id'] as string, entity as unknown as AnyEntity);
+  };
 
   if (args.kind === 'folder') {
     // Phase 12: a folder is organisation only; it sits at the root or in a folder.
-    if (parentId !== null && !isFolder(byId.get(parentId))) return { ok: false, error: folderParentError('/args/parentId', parentId) };
-    const id = nextEntityId(scene, 'folder', reservedIds);
-    if (id === undefined) return { ok: false, error: idExhaustion('folder') };
-    const folder = {
-      id,
-      ...(args.name !== undefined ? { name: args.name } : {}),
-      ...(parentId !== null ? { parentId } : {}),
-      components: { folder: {} },
-    };
-    const folderResult = { ...scene, revision: scene.revision + 1, entities: [...scene.entities, folder] };
-    const folderGate = gateResultState({ scene, content }, folderResult, content);
-    if (!folderGate.ok) return folderGate;
-    const created = folderGate.scene.entities.find((e) => e.id === id) as unknown as EntityV3;
+    if (parentId !== null && !isFolder(work.byId.get(parentId))) return fail(folderParentError('/args/parentId', parentId));
+    const id = allocateId(work, 'folder');
+    if (id === undefined) return fail(idExhaustion('folder'));
+    add(writeHeader({ id, components: { folder: {} } }, header()));
     // A folder created with children (a multi-piece model drop): each child
     // goes through the same create path inside the new folder; the whole set
     // is one transaction whose undo deletes the folder subtree.
-    let sceneNow = folderGate.scene;
-    const children: EntityV3[] = [];
-    for (const child of args.children ?? []) {
-      const r = applyCreateEntity({ ...sceneNow, revision: scene.revision }, { ...child, parentId: id }, content, reservedIds);
+    const children = args.children ?? [];
+    for (let i = 0; i < children.length; i += 1) {
+      const r = stageCreate(work, scene, { ...(children[i] as CreateEntityArgs), parentId: id }, content, `${base}/children/${i}`);
       if (!r.ok) return r;
-      sceneNow = r.op.scene;
-      const change = r.op.change as CreateEntityChange;
-      children.push(deepClone(change.entity));
     }
-    return {
-      ok: true,
-      op: {
-        scene: sceneNow,
-        change: { type: 'createEntity', id, entity: deepClone(created), ...(children.length > 0 ? { children } : {}) },
-        inverse: { kind: 'delete', rootId: id },
-        createdId: id,
-      },
-    };
+    return { ok: true, id };
   }
 
   // §8.3: defaults per field; a provided field replaces that field only.
   // The candidate entity is a plain object: vector values are checked by
-  // the result-scene validation below (the model is the value authority).
+  // the result-scene validation (the model is the value authority).
   const transform = {
     position: [...(args.transform?.position ?? [0, 0, 0])],
     rotation: [...(args.transform?.rotation ?? [0, 0, 0, 1])],
@@ -534,38 +655,12 @@ export function applyCreateEntity(
   if (args.surfacePreset !== undefined && candidateComponents['surface'] === undefined) {
     candidateComponents['surface'] = deepClone(SURFACE_PRESETS[args.surfacePreset]);
   }
-
-  const id = nextEntityId(scene, derivedPrefix(candidateComponents), reservedIds);
-  if (id === undefined) return { ok: false, error: idExhaustion(derivedPrefix(candidateComponents)) };
-  const candidateEntity = {
-    id,
-    ...(args.name !== undefined ? { name: args.name } : {}),
-    ...(parentId !== null ? { parentId } : {}),
-    components: candidateComponents,
-  };
-
-  // §3.1 step 4: append at the END (leaf ⇒ parent-before-child preserved).
-  const result = {
-    ...scene,
-    revision: scene.revision + 1,
-    entities: [...scene.entities, candidateEntity],
-  };
-  const gate = gateResultState({ scene, content }, result, content);
-  if (!gate.ok) return gate;
-
-  // Canonical entity value (defaults filled, -0 normalized) from the
-  // validated result document.
-  const canonicalEntity = gate.scene.entities.find((e) => e.id === id) as EntityV3;
-  const change: CreateEntityChange = { type: 'createEntity', id, entity: deepClone(canonicalEntity) };
-  return {
-    ok: true,
-    op: {
-      scene: gate.scene,
-      change,
-      inverse: { kind: 'delete', rootId: id },
-      createdId: id,
-    },
-  };
+  const prefix = derivedPrefix(candidateComponents);
+  const id = allocateId(work, prefix);
+  if (id === undefined) return fail(idExhaustion(prefix));
+  // §3.1 step 4: appended at the END (leaf ⇒ parent-before-child preserved).
+  add(writeHeader({ id, components: candidateComponents }, header()));
+  return { ok: true, id };
 }
 
 /**

@@ -245,12 +245,12 @@ describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
     owner.dispose();
   });
 
-  it('the 16-asset store cap holds (the §41.4.5 catalog bound)', () => {
+  it('the 64-asset store cap holds (the catalog bound, phase 25.7c)', () => {
     const { owner } = makeEnv();
-    for (let i = 0; i < 16; i += 1) {
+    for (let i = 0; i < 64; i += 1) {
       expect(owner.registerCue(`a${i}`, new Uint8Array([i]))).toEqual({ ok: true });
     }
-    const over = owner.registerCue('a16', new Uint8Array([16])) as {
+    const over = owner.registerCue('a64', new Uint8Array([64])) as {
       ok: boolean;
       error?: { code: string };
     };

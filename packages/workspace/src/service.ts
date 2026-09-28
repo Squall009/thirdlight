@@ -35,7 +35,7 @@ import {
 import { mkdirSync, chmodSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
 
-import { applyMutation } from '@thirdlight/commands';
+import { applyMutation, contentInUse } from '@thirdlight/commands';
 import type {
   CommandError,
   CommandState,
@@ -189,6 +189,35 @@ import type {
 const SCENE_REL = join('scenes', 'main.json');
 /** A migration-copy marker left by an earlier version (the copy operators were removed in phase 9.3). */
 const MIGRATION_MARKER_REL = join('.thirdlight', 'migration.json');
+
+/**
+ * Phase 25.7c: the scripts whose source names `id` as a string literal
+ * (`'crate'`, `"crate"`, `` `crate` ``): each published behavior's source
+ * container (a visual script's generated source too) and each script
+ * library's files. A reference only code can hold, so a delete is refused
+ * while it is there. An unreadable source is skipped (the delete then rests on
+ * the model's references alone).
+ */
+function scriptsNaming(read: (digest: string) => Uint8Array | null, content: ContentDocument, id: string): { path: string; document: string }[] {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+  // The quote may be escaped inside the container's JSON text (`\"crate\"`).
+  const literal = new RegExp(`['"\`]${escaped}\\\\?['"\`]`);
+  const out: { path: string; document: string }[] = [];
+  const decoder = new TextDecoder();
+  content.behaviors.forEach((b, i) => {
+    const digest = b.source?.sourceDigest;
+    if (digest === undefined) return;
+    const bytes = read(digest);
+    if (bytes !== null && literal.test(decoder.decode(bytes))) out.push({ document: 'content', path: `/behaviors/${i} (script ${b.behaviorId})` });
+  });
+  const libraries = (content as { scriptLibraries?: { libraryId: string; files: { path: string; text: string }[] }[] }).scriptLibraries ?? [];
+  libraries.forEach((lib, i) => {
+    lib.files.forEach((f, j) => {
+      if (literal.test(f.text)) out.push({ document: 'content', path: `/scriptLibraries/${i}/files/${j} (library ${lib.libraryId}, ${f.path})` });
+    });
+  });
+  return out;
+}
 
 /** The session as the content-store operations need it. */
 function contentCtx(s: ProjectSession): ContentContext {
@@ -419,7 +448,7 @@ function buildService(core: Core): WorkspaceService {
     if (!target.ok) return failRequest(request, target.error);
     // `sceneId` on a create names the scene; the pure layer never sees it.
     let pureRequest = request;
-    if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') && 'sceneId' in args) {
+    if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities' || op === 'createEntities') && 'sceneId' in args) {
       const { sceneId: _s, ...rest } = args;
       pureRequest = { ...(request as object), args: rest };
     }
@@ -437,6 +466,15 @@ function buildService(core: Core): WorkspaceService {
           message: `scene "${String(args['sceneId'])}" still holds ${doomed.entities.length} entities; delete them (or move them out) first`,
         } as unknown as CommandError);
       }
+    }
+    // Phase 25.7c: an asset or prefab a script names as a string literal (`ctx.spawn("crate")`) is in use too.
+    if ((op === 'deleteAsset' || op === 'deletePrefab') && typeof args[op === 'deleteAsset' ? 'assetId' : 'prefabId'] === 'string') {
+      const id = args[op === 'deleteAsset' ? 'assetId' : 'prefabId'] as string;
+      const named = scriptsNaming((digest) => {
+        const r = readSourceBlob(core, contentCtx(s), { digest });
+        return r.ok ? r.bytes : null;
+      }, state.content as unknown as ContentDocument, id);
+      if (named.length > 0) return failRequest(request, contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', id, named));
     }
     const reserved = new Set<string>();
     for (const [id, sc] of state.scenes) if (id !== carrierId) for (const e of sc.entities) reserved.add(e.id);
@@ -491,6 +529,10 @@ function buildService(core: Core): WorkspaceService {
     }
     const errors: ModelErrorV3[] = [];
     composeV4([...nextScenes.values()], nextContent, errors, newRevision);
+    if (errors.length > 0 && (op === 'deleteAsset' || op === 'deletePrefab')) {
+      // Phase 25.7c: what no longer resolves in the other scenes names it.
+      return failRequest(request, contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', String(args[op === 'deleteAsset' ? 'assetId' : 'prefabId']), errors as unknown as { path?: string; document?: string; sceneId?: string }[]));
+    }
     if (errors.length > 0) {
       const first = errors[0] as ModelErrorV3;
       return failRequest(request, {
@@ -1651,6 +1693,21 @@ function targetSceneV4(
       return { ok: true, sceneId: explicit };
     }
     return { ok: true, sceneId: sceneOf(args['parentId']) ?? primarySceneIdV4(state) };
+  }
+  if (op === 'createEntities') {
+    // Phase 25.7e: every item lands in one scene: `sceneId`, else the scene of the items' existing parents, else the primary one.
+    const items = Array.isArray(args['entities']) ? (args['entities'] as unknown[]) : [];
+    const parents = new Set(items.map((it) => sceneOf((it as { parentId?: unknown } | null)?.parentId)).filter((x): x is string => x !== null));
+    const explicit = args['sceneId'];
+    if (explicit !== undefined) {
+      if (typeof explicit !== 'string' || !state.scenes.has(explicit)) {
+        return { ok: false, error: { code: 'reference_missing', cls: 'validation', path: '/args/sceneId', reason: 'scene', found: explicit, message: 'no such scene in this project' } as unknown as CommandError };
+      }
+      if ([...parents].some((p) => p !== explicit)) return cross('/args/entities');
+      return { ok: true, sceneId: explicit };
+    }
+    if (parents.size > 1) return cross('/args/entities');
+    return { ok: true, sceneId: [...parents][0] ?? primarySceneIdV4(state) };
   }
   if (op === 'moveEntities') {
     const ids = Array.isArray(args['entityIds']) ? (args['entityIds'] as unknown[]) : [];

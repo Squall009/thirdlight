@@ -613,6 +613,8 @@ export class Projection {
       case 'acknowledgeBehaviorTrust':
       case 'createPrefab':
       case 'removePrefab':
+      // Phase 25.7c: a deleted asset record.
+      case 'removeAsset':
         return true;
       // M2 (packet 28): a declared-property edit converges the projection
       // without a reload — an MCP-origin change is applied exactly like a

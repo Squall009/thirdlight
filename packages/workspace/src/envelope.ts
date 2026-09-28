@@ -453,7 +453,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities'];
 /** Phase 12 (c): the ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -495,7 +495,7 @@ function validateRecordResult(
   }
   const op = opRaw;
   let allowed: string[];
-  if (op === 'createEntity' || op === 'pasteEntities') allowed = [...base, 'createdId'];
+  if (op === 'createEntity' || op === 'pasteEntities' || op === 'createEntities') allowed = [...base, 'createdId'];
   else if (op === 'undo' || op === 'redo') allowed = [...base, 'appliedOf', 'originOfApplied'];
   else allowed = base;
   // Record version 2 (phase 14.8) also stores the acked scene id.
@@ -728,6 +728,8 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'setEventCues',
   'setShell',
   'setTimeline',
+  // Phase 25.7c: a deleted asset record.
+  'removeAsset',
 ];
 
 /** Required field names per change type (structural well-formedness). */
@@ -774,6 +776,7 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setEventCues: ['type', 'previous', 'next'],
   setShell: ['type', 'previous', 'next'],
   setTimeline: ['type', 'timelineId', 'previous', 'next'],
+  removeAsset: ['type', 'assetId', 'previous'],
 };
 
 /** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
@@ -841,6 +844,10 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   setShell: 'setShell',
   setTimeline: 'setTimeline',
   deleteTimeline: 'setTimeline',
+  // Phase 25.7c/e.
+  deleteAsset: 'removeAsset',
+  deletePrefab: 'removePrefab',
+  createEntities: 'pasteEntities',
 };
 
 /**

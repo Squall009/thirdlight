@@ -369,7 +369,8 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       type: 'publishAsset',
       // The mode records the FORWARD direction: a create is undone by removing
       // its record (`restore: null`); a reimport rolls one version back.
-      mode: inv.restore === null ? 'create' : 'reimport',
+      // Phase 25.7c: the undo of a deleteAsset brings the record back (none before it): a create.
+      mode: inv.restore === null || before === null ? 'create' : 'reimport',
       assetId: inv.assetId,
       previous: before === null ? null : deepClone(before),
       next: after,
@@ -400,6 +401,14 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       previous: before === null ? null : deepClone(before),
       next: after,
     };
+    return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  if (inv.kind === 'restorePrefab') {
+    // Phase 25.7c: undo of a deletePrefab puts the definition back verbatim.
+    if (content.prefabs.some((d) => d.prefabId === inv.prefabId)) return { ok: false, error: historyInvalid(entry.requestId) };
+    const nextContent: ContentDocument = { ...content, prefabs: sortedPrefabs([...content.prefabs, deepClone(inv.definition)]) };
+    const change: CreatePrefabChange = { type: 'createPrefab', prefabId: inv.prefabId, definition: deepClone(inv.definition) };
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
@@ -805,6 +814,22 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       prefabId: f.prefabId,
       definition: deepClone(f.definition),
     };
+    return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  if (f.type === 'removeAsset') {
+    // Phase 25.7c: redo of a deleteAsset.
+    if (!content.assets.some((a) => a.assetId === f.assetId)) return { ok: false, error: historyInvalid(entry.requestId) };
+    const nextContent: ContentDocument = { ...content, assets: content.assets.filter((a) => a.assetId !== f.assetId) };
+    const change: ChangeData = { type: 'removeAsset', assetId: f.assetId, previous: deepClone(f.previous) };
+    return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  if (f.type === 'removePrefab') {
+    // Phase 25.7c: redo of a deletePrefab.
+    if (!content.prefabs.some((d) => d.prefabId === f.prefabId)) return { ok: false, error: historyInvalid(entry.requestId) };
+    const nextContent: ContentDocument = { ...content, prefabs: content.prefabs.filter((d) => d.prefabId !== f.prefabId) };
+    const change: RemovePrefabChange = { type: 'removePrefab', prefabId: f.prefabId };
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 

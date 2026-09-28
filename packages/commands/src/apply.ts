@@ -35,6 +35,7 @@ import {
 } from './content-ops';
 import { createHistory, executeRedo, executeUndo, recordForwardEdit } from './history';
 import {
+  applyCreateEntities,
   applyCreateEntity,
   applyDeleteEntity,
   applyMoveEntities,
@@ -61,6 +62,7 @@ import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
 import { applyDeleteDialogueValue, applySetDialogue, applySetDialogueSettings, applySetSpeaker } from './dialogue-ops';
 import { applySetBehaviorGroups, applySetEventCues, applySetModes, applySetShell } from './mode-ops';
 import { applyDeleteTimeline, applySetTimeline } from './timeline-ops';
+import { applyDeleteAsset, applyDeletePrefab } from './delete-content-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -264,6 +266,19 @@ export function applyMutation<S extends SceneDocument>(
   if (state.reservedIds !== undefined) input.reservedIds = state.reservedIds;
 
   switch (va.validated.op) {
+    case 'createEntities': {
+      // Phase 25.7e: several creates, one transaction (one revision, one undo).
+      const r = applyCreateEntities(scene, va.validated.args, state.content, state.reservedIds);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'createEntities', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
+    case 'deleteAsset':
+    case 'deletePrefab': {
+      // Phase 25.7c: remove a catalog record (refused while anything references it).
+      const r = va.validated.op === 'deleteAsset' ? applyDeleteAsset(input, va.validated.args) : applyDeletePrefab(input, va.validated.args);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'createEntity': {
       const r = applyCreateEntity(scene, va.validated.args, state.content, state.reservedIds);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -627,7 +642,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, createEntities',
         }),
       };
     }

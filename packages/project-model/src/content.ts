@@ -103,8 +103,12 @@ export const MAX_ENUM_VALUES = 32;
 export const MAX_DECLARATION_BYTES = 32_768;
 export const MAX_SETTINGS_KEYS = 32;
 export const MAX_TRUST_ENTRIES = 64;
-/** §23.10 v3 content limits. */
-export const MAX_AUDIO_ASSETS = 16;
+/**
+ * §23.10 v3 content limits. Phase 25.7c: 64 sound-effect records (was 16),
+ * the same as music tracks: a game's many short cues (steps, hits, UI) need
+ * more than 16, and each record is bounded by its own PCM byte cap.
+ */
+export const MAX_AUDIO_ASSETS = 64;
 export const MAX_AUDIO_VERSIONS = 8;
 /** Phase 9.4: texture asset records (PNG/JPEG/WebP) and their versions. */
 export const MAX_TEXTURE_ASSETS = 256;
