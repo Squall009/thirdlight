@@ -506,6 +506,18 @@ as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,
 1 MiB bound is captured again at a smaller width; the reply's `width` says
 which. It works the same on the WebGPU and WebGL 2 renderers.
 
+A play that has ended says why. `tl_game_observe`, `tl_diagnostics`,
+`tl_game_control`, `tl_screenshot`, `tl_input_exercise` and `tl_play_stop`
+on it answer `play_not_found` with `ended {reason, presented, at, detail?}`
+(`request`, `preview_failed` with the preview's code and message,
+`preview_timeout`, `expired`, `session_lost` — the editor page that ran it
+closed, reloaded or lost its connection, or the owner's browser took the
+project over from the headless editor) and the reason in the message. A play
+that ended before it was presented (other than by a Stop or a reported
+preview failure) is also listed in the project's problems
+(`tl_diagnostics` without a play id). An id the backend never had (for
+example after a backend restart) stays a plain `play_not_found`.
+
 `tl_content_query {target:"game", includeDescriptors:true}` also returns the
 component and content descriptor registry: for every component and content
 block, each field's type, unit, range, step, default, group, label, tooltip,

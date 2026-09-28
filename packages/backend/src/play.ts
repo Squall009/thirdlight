@@ -143,6 +143,12 @@ export interface PlayRecord {
   gameRunId: string;
   state: PlayState;
   reason?: PlayStopReason;
+  /** Phase 25.5: why it ended, in words (a preview failure's code and message; who took the editor over). */
+  endDetail?: string;
+  /** Phase 25.5: ms — when the stop began. */
+  endedAt?: number;
+  /** Phase 25.5: the preview presented it (play.preview.ready) at some point. */
+  presented: boolean;
   stopUnconfirmed?: boolean;
   /** ms. */
   createdAt: number;
@@ -191,10 +197,48 @@ export interface PlayHooks {
   inputRelayTimeoutMs: () => number;
   /** A play became terminal (drives the locator grace window, §17.3). */
   onTerminal?: (playSessionId: string) => void;
+  /** Phase 25.5: a play ended (its record carries the reason, the detail and whether it was presented). */
+  onEnded?: (rec: PlayRecord) => void;
   nowMs: () => number;
 }
 
 const DATA_URL_PREFIX = 'data:image/png;base64,';
+
+/** Phase 25.5: how a play ended, as observe / diagnostics / control report it for an ended play. */
+export interface PlayEnd {
+  reason: PlayStopReason;
+  /** The preview presented the play before it ended. */
+  presented: boolean;
+  /** ISO time the stop began. */
+  at: string;
+  detail?: string;
+}
+
+/** Phase 25.5: the end record of a play that is stopping or stopped (null while it is live). */
+export function playEndOf(rec: PlayRecord): PlayEnd | null {
+  if ((rec.state !== 'stopping' && rec.state !== 'stopped') || rec.reason === undefined) return null;
+  return {
+    reason: rec.reason,
+    presented: rec.presented,
+    at: new Date(rec.endedAt ?? rec.lastActivityAt).toISOString(),
+    ...(rec.endDetail !== undefined ? { detail: rec.endDetail } : {}),
+  };
+}
+
+/** Phase 25.5: why a play ended, in one sentence (≤ 256 characters). */
+export function playEndMessage(end: PlayEnd, timeouts: { presentSeconds: number; ttlSeconds: number }): string {
+  const why =
+    end.reason === 'request'
+      ? 'it was stopped (the editor\'s Stop or tl_play_stop)'
+      : end.reason === 'preview_failed'
+        ? `the preview failed to start${end.detail !== undefined ? ` (${end.detail})` : ''}`
+        : end.reason === 'preview_timeout'
+          ? `the preview did not present it within ${timeouts.presentSeconds} s`
+          : end.reason === 'expired'
+            ? `it had no activity for ${Math.round(timeouts.ttlSeconds / 60)} min`
+            : (end.detail ?? 'the editor page that ran it closed, reloaded or lost its connection');
+  return `the play ended ${end.presented ? '' : 'before it was presented '}at ${end.at}: ${why}`.slice(0, 256);
+}
 
 export class PlayManager {
   private plays = new Map<string, PlayRecord>();
@@ -226,6 +270,7 @@ export class PlayManager {
       buildId,
       gameRunId: `${snapshot.snapshotId}#0`,
       state: 'active',
+      presented: false,
       createdAt: nowMs,
       lastActivityAt: nowMs,
       expiresAt: nowMs + this.hooks.ttlMs(),
@@ -239,6 +284,13 @@ export class PlayManager {
 
   get(playSessionId: string): PlayRecord | undefined {
     return this.plays.get(playSessionId);
+  }
+
+  /** Phase 25.5: an ended play's end record and its one-sentence reason (null while live). */
+  describeEnd(rec: PlayRecord): { end: PlayEnd; message: string } | null {
+    const end = playEndOf(rec);
+    if (end === null) return null;
+    return { end, message: playEndMessage(end, { presentSeconds: Math.round(this.hooks.presentTimeoutMs() / 1000), ttlSeconds: Math.round(this.hooks.ttlMs() / 1000) }) };
   }
 
   /**
@@ -267,6 +319,7 @@ export class PlayManager {
     const rec = this.plays.get(playSessionId);
     if (rec === undefined || rec.state !== 'active') return;
     rec.state = 'presented';
+    rec.presented = true;
     if (rec.presentTimer !== undefined) {
       clearTimeout(rec.presentTimer);
       rec.presentTimer = undefined;
@@ -275,11 +328,11 @@ export class PlayManager {
   }
 
   /** §10.3: a runtime failure reported by the preview path. */
-  previewFailed(playSessionId: string, code?: string): void {
+  previewFailed(playSessionId: string, code?: string, message?: string): void {
     const rec = this.plays.get(playSessionId);
     if (rec === undefined || rec.state === 'stopped' || rec.state === 'stopping') return;
     this.hooks.logPlay(rec.ownerSessionId, rec.playSessionId, code ?? 'preview_failed');
-    this.stop(rec, 'preview_failed');
+    this.stop(rec, 'preview_failed', `${code ?? 'preview_failed'}${message !== undefined && message !== '' ? `: ${message}` : ''}`);
   }
 
   /** An activity reset (presented / relay ack): re-arm the inactivity TTL. */
@@ -297,10 +350,12 @@ export class PlayManager {
    * owner WS is unreachable the play is marked `stopped` (unconfirmed)
    * directly.
    */
-  stop(rec: PlayRecord, reason: PlayStopReason): void {
+  stop(rec: PlayRecord, reason: PlayStopReason, detail?: string): void {
     if (rec.state !== 'active' && rec.state !== 'presented') return;
     rec.state = 'stopping';
     rec.reason = reason;
+    rec.endedAt = this.hooks.nowMs();
+    if (detail !== undefined && detail !== '') rec.endDetail = detail.slice(0, 160);
     if (rec.presentTimer !== undefined) {
       clearTimeout(rec.presentTimer);
       rec.presentTimer = undefined;
@@ -596,12 +651,12 @@ export class PlayManager {
    * The owner's WS dropped: terminate its live play via `session_lost`
    * (the termination is direct and unconfirmed — no relay path).
    */
-  onOwnerDisconnected(ownerSessionId: string): void {
+  onOwnerDisconnected(ownerSessionId: string, detail?: string): void {
     for (const rec of this.plays.values()) {
       if (rec.ownerSessionId !== ownerSessionId) continue;
       if (rec.state === 'active' || rec.state === 'presented') {
         this.hooks.logPlay(rec.ownerSessionId, rec.playSessionId, 'session_lost');
-        this.stop(rec, 'session_lost');
+        this.stop(rec, 'session_lost', detail);
       }
     }
   }
@@ -650,18 +705,19 @@ export class PlayManager {
     }
     rec.state = 'stopped';
     rec.stopUnconfirmed = unconfirmed;
-    // Fail any pending relays: the play is ending.
+    // Fail any pending relays: the play is ending (phase 25.5: the cause says why).
+    const cause = this.describeEnd(rec)?.message ?? 'play stopped';
     for (const p of rec.relays.values()) {
       clearTimeout(p.timer);
-      p.resolve({ ok: false, kind: p.kind, code: 'relay_failed', cause: 'play stopped' });
+      p.resolve({ ok: false, kind: p.kind, code: 'relay_failed', cause });
     }
     rec.relays.clear();
     if (rec.inputRelay !== undefined) {
-      rec.inputRelay.resolve({ ok: false, code: 'relay_failed', cause: 'play stopped' });
+      rec.inputRelay.resolve({ ok: false, code: 'relay_failed', cause });
       rec.inputRelay = undefined;
     }
     if (rec.gameRelay !== undefined) {
-      rec.gameRelay.resolve({ ok: false, kind: rec.gameRelay.kind, code: 'session_unavailable', cause: 'play stopped' });
+      rec.gameRelay.resolve({ ok: false, kind: rec.gameRelay.kind, code: 'session_unavailable', cause });
       rec.gameRelay = undefined;
     }
     const obj: Record<string, unknown> = {
@@ -672,6 +728,7 @@ export class PlayManager {
     if (unconfirmed) obj.stopUnconfirmed = true;
     this.hooks.sendToOwner(rec.ownerSessionId, JSON.stringify(obj));
     this.hooks.logPlay(rec.ownerSessionId, rec.playSessionId, rec.reason);
+    this.hooks.onEnded?.(rec);
     this.hooks.onTerminal?.(rec.playSessionId);
     this.releaseProjectOwnership(rec);
   }

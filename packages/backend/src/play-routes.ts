@@ -46,6 +46,24 @@ export interface PlayRoutesContext {
 export function makePlayRoutes(ctx: PlayRoutesContext) {
   const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless } = ctx;
 
+  /**
+   * The project's live (active or presented) play with this id, or null after
+   * sending `play_not_found`. Phase 25.5: for a play that ended, the error
+   * says why and when (`ended: {reason, presented, at, detail?}`), not only
+   * that there is no such play.
+   */
+  const livePlay = (res: ServerResponse, projectId: string, playSessionId: string): PlayRecord | null => {
+    const rec = plays.get(playSessionId);
+    if (rec !== undefined && rec.projectId === projectId && (rec.state === 'active' || rec.state === 'presented')) return rec;
+    const ended = rec !== undefined && rec.projectId === projectId ? plays.describeEnd(rec) : null;
+    if (ended !== null) {
+      sendError(res, sessionError('play_not_found', 'not_found', ended.message, { playSessionId, ended: ended.end }), 404);
+      return null;
+    }
+    sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
+    return null;
+  };
+
   /** The prebuilt play bundle bytes served as `game.js` (bounded read). */
   const readGameBundle = (file = 'preview-m3.js'): Uint8Array | null => {
     const path = join(config.previewStaticDir, file);
@@ -83,11 +101,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       sendError(res, authError);
       return;
     }
-    const rec = plays.get(playSessionId);
-    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
-      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
-      return;
-    }
+    const rec = livePlay(res, projectId, playSessionId);
+    if (rec === null) return;
     const bytes = snapshotBytesOf(rec);
     res.statusCode = 200;
     res.setHeader('content-type', 'application/json; charset=utf-8');
@@ -364,11 +379,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       sendError(res, noArgs.error);
       return;
     }
-    const rec = plays.get(playSessionId);
-    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
-      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
-      return;
-    }
+    const rec = livePlay(res, projectId, playSessionId);
+    if (rec === null) return;
     const owner = connectedOwner(rec);
     if (owner === undefined) {
       sendError(res, unavailableError(rec.playSessionId, 'the editor browser must be connected to stop this play'), 503);
@@ -418,11 +430,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     // Preconditions (§12 step 2), in order: exists → presented → owner WS
     // connected.
-    const rec = plays.get(playSessionId);
-    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
-      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
-      return;
-    }
+    const rec = livePlay(res, projectId, playSessionId);
+    if (rec === null) return;
     if (rec.state !== 'presented') {
       sendError(res, unavailableError(rec.playSessionId, 'the preview is not ready: the play is not yet presented'), 503);
       return;
@@ -528,11 +537,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       sendError(res, parsedReq.error, statusFor(parsedReq.error.cls));
       return;
     }
-    const rec = plays.get(playSessionId);
-    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
-      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
-      return;
-    }
+    const rec = livePlay(res, projectId, playSessionId);
+    if (rec === null) return;
     const owner = connectedOwner(rec);
     if (owner === undefined) {
       sendError(res, unavailableError(rec.playSessionId, 'the editor browser must be connected for the input relay'), 503);
@@ -610,11 +616,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     projectId: string,
     playSessionId: string,
   ): { rec: PlayRecord; owner: SessionRecord } | null => {
-    const rec = plays.get(playSessionId);
-    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
-      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
-      return null;
-    }
+    const rec = livePlay(res, projectId, playSessionId);
+    if (rec === null) return null;
     if (nowMs() > rec.expiresAt) {
       sendGameRelayFailure(res, 'play_locator_expired');
       return null;

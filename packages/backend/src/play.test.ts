@@ -505,6 +505,125 @@ describe('stop paths (§10.2/§10.3)', () => {
   });
 });
 
+describe('phase 25.5: an ended play says why', () => {
+  const post = (tb: TestBackend, psid: string, action: string) =>
+    api(`${tb.authUrl}/api/v1/projects/demo-0001/play/${psid}/${action}`, { body: action === 'control' ? { command: 'mute' } : {}, token: tb.authToken }) as Promise<{ status: number; json: { error: { code: string; message: string; ended?: { reason: string; presented: boolean; at: string; detail?: string } } } }>;
+  const problems = async (tb: TestBackend) =>
+    ((await api(`${tb.authUrl}/api/v1/projects/demo-0001/problems`, { method: 'GET', token: tb.authToken })).json as { problems: Array<{ source: string; code: string; message: string }> }).problems;
+
+  it('a play that timed out before it was presented: observe and diagnostics give the reason, the problems list has it', async () => {
+    const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 1, inactivityTtlSeconds: 300 } });
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      editor.presentOnStart = false;
+      const r = await playStart(tb);
+      const psid = r.json.playSessionId as string;
+      await editor.waitForEvent('play.stopped');
+      for (const action of ['observe', 'diagnostics', 'control', 'stop']) {
+        const res = await post(tb, psid, action);
+        expect(res.status, action).toBe(404);
+        expect(res.json.error.code).toBe('play_not_found');
+        expect(res.json.error.ended).toMatchObject({ reason: 'preview_timeout', presented: false });
+        expect(res.json.error.message).toMatch(/^the play ended before it was presented at .*: the preview did not present it within 1 s$/);
+      }
+      const list = await problems(tb);
+      expect(list.find((p) => p.source === 'play' && p.code === 'play_preview_timeout')?.message).toContain(psid);
+      // An id this backend never had stays a bare play_not_found.
+      const unknown = await post(tb, `play-${'0'.repeat(32)}`, 'observe');
+      expect(unknown.status).toBe(404);
+      expect(unknown.json.error.ended).toBeUndefined();
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  });
+
+  it('the editor page closing before the play was presented: session_lost, said in words', async () => {
+    const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      editor.presentOnStart = false;
+      const r = await playStart(tb);
+      const psid = r.json.playSessionId as string;
+      await editor.waitForEvent('play.started');
+      ws.close();
+      await sleep(100);
+      const res = await post(tb, psid, 'diagnostics');
+      expect(res.status).toBe(404);
+      expect(res.json.error.ended).toMatchObject({ reason: 'session_lost', presented: false });
+      expect(res.json.error.message).toContain('before it was presented');
+      expect(res.json.error.message).toContain('the editor page that ran it closed, reloaded or lost its connection');
+      expect((await problems(tb)).some((p) => p.code === 'play_session_lost' && p.message.includes(psid))).toBe(true);
+    } finally {
+      await tb.teardown();
+    }
+  });
+
+  it("the owner's browser taking a project over from the headless editor: the headless play's end names that", async () => {
+    const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
+    try {
+      const sid = mkSessionId();
+      const reg = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: 'demo-0001', sessionId: sid, clientInfo: { kind: 'browser', label: 'headless' } }, token: tb.authToken });
+      const ws = await upgrade(tb, sid, (reg.json as { wsToken: string }).wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      const r = await playStart(tb);
+      const psid = r.json.playSessionId as string;
+      await editor.waitUntil(() => tb.backend._test.plays.get(psid)?.state === 'presented');
+      await establish(tb, mkSessionId());
+      const res = await post(tb, psid, 'observe');
+      expect(res.status).toBe(404);
+      expect(res.json.error.ended).toMatchObject({ reason: 'session_lost', presented: true });
+      expect(res.json.error.message).toMatch(/^the play ended at .*: the owner's editor browser took the project over from the backend's headless editor that ran it$/);
+    } finally {
+      await tb.teardown();
+    }
+  });
+
+  it('a preview failure keeps its code and message; a presented play that was stopped says so', async () => {
+    const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      editor.presentOnStart = false;
+      const r1 = await playStart(tb);
+      await sleep(100);
+      ws.send({ type: 'play.preview.failed', playSessionId: r1.json.playSessionId, code: 'snapshot_invalid', message: 'the scene has no camera' });
+      await editor.waitForEvent('play.stopped');
+      const failed = await post(tb, r1.json.playSessionId as string, 'observe');
+      expect(failed.json.error.ended).toMatchObject({ reason: 'preview_failed', presented: false, detail: 'snapshot_invalid: the scene has no camera' });
+      expect(failed.json.error.message).toContain('the preview failed to start (snapshot_invalid: the scene has no camera)');
+
+      editor.presentOnStart = true;
+      editor.stoppedEvents.length = 0;
+      const r2 = await playStart(tb);
+      const psid = r2.json.playSessionId as string;
+      await editor.waitUntil(() => tb.backend._test.plays.get(psid)?.state === 'presented');
+      expect((await post(tb, psid, 'stop')).status).toBe(200);
+      await editor.waitForEvent('play.stopped');
+      const stopped = await post(tb, psid, 'observe');
+      expect(stopped.json.error.ended).toMatchObject({ reason: 'request', presented: true });
+      expect(stopped.json.error.message).toMatch(/^the play ended at .*: it was stopped/);
+      // A user's own Stop and a reported preview failure add no extra problem of this kind.
+      expect((await problems(tb)).filter((p) => p.code === 'play_request')).toEqual([]);
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  });
+});
+
 describe('screenshot / diagnostics relay (§12)', () => {
   async function startPresentedPlay(tb: TestBackend): Promise<{ psid: string; editor: FakeEditor; ws: TestWs }> {
     const sid = mkSessionId();

@@ -27,7 +27,7 @@ export interface SessionRoutesContext {
   /** Phase 11: the backend's headless editors (the owner's browser evicts them). */
   readonly headless: HeadlessEditors;
   /** The owner of a play went away (its play is stopped after the grace period). */
-  readonly onOwnerLost: (sessionId: string) => void;
+  readonly onOwnerLost: (sessionId: string, detail?: string) => void;
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
@@ -70,7 +70,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
     if (current !== undefined && current.sessionId !== sessionId && clientInfo?.label !== 'headless' && current.clientInfo?.label === 'headless') {
       const old = current.sessionId;
       sessions.evictProject(projectId);
-      onOwnerLost(old);
+      onOwnerLost(old, "the owner's editor browser took the project over from the backend's headless editor that ran it");
       await headless.evict(projectId);
     }
     const est = sessions.establish(projectId, sessionId, clientInfo, newConnId(), nowMs());

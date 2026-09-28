@@ -170,6 +170,13 @@ export function createBackend(
     presentTimeoutMs: () => timeouts.presentTimeoutSeconds * 1000,
     inputRelayTimeoutMs: () => 10_000,
     onTerminal: (playSessionId) => playContent.markTerminal(playSessionId),
+    // Phase 25.5: a play that ended before it was presented is a project problem saying why
+    // (a Stop is the user's own choice; a preview failure is recorded where it is reported).
+    onEnded: (rec) => {
+      if (rec.presented || rec.reason === 'request' || rec.reason === 'preview_failed') return;
+      const ended = plays.describeEnd(rec);
+      if (ended !== null) recordProblem(rec.projectId, 'play', `play_${rec.reason ?? 'ended'}`, `${rec.playSessionId}: ${ended.message}`);
+    },
     nowMs,
   });
 
@@ -641,7 +648,7 @@ export function createBackend(
         }
         if (inbound.type === 'play.preview.failed') {
           recordProblem(session.projectId, 'play', inbound.code, `Play failed: ${inbound.message ?? inbound.code}`);
-          plays.previewFailed(rec.playSessionId, inbound.code);
+          plays.previewFailed(rec.playSessionId, inbound.code, inbound.message);
           return;
         }
         plays.onStoppedAck(rec.playSessionId);
@@ -1549,7 +1556,7 @@ export function createBackend(
   const externalAnnounced = new Set<string>();
 
 
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost: (sessionId: string) => plays.onOwnerDisconnected(sessionId) });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
 
   const backend: Backend = {
     config,

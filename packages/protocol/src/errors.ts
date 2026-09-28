@@ -128,6 +128,8 @@ export interface SessionError {
   details?: unknown;
   /** `session_unavailable` (§11.3). */
   playSessionId?: string;
+  /** Phase 25.5, `play_not_found` for a play that ended: why and when, and whether it was presented first. */
+  ended?: { reason: string; presented: boolean; at: string; detail?: string };
   /** `play_locator_expired` (§17.2): the locator deadline (truthful UI). */
   expiresAt?: string;
   /** `screenshot_timeout` / `diagnostics_timeout` (§11.3). */

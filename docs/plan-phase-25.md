@@ -155,7 +155,7 @@ boundary it changes (Playwright for any editor surface).
 | 25.2 | done 2026-09-28: screenshots always answer (a throw or an over-bound PNG becomes `screenshot_failed` with the reason, relayed in the backend's message); WebGPU capture checked in pixels (GPU and headless SwiftShader), image textures in a GLB and a material upload there |
 | 25.3 | done 2026-09-28: blended skies re-bake their lighting only past a threshold (colour 0.01, 1 %, sun 0.5°), into the same target from a kept bake scene; `iblRebakes` in Play diagnostics; `environment-blend-cost.e2e.ts`: a new t every step at 120 Hz, 0 dropped steps in 10 s on WebGPU and WebGL 2 (GPU host), 0 re-bakes when only fog/exposure/lights change |
 | 25.4 | done 2026-09-28: static colliders sharing a face or overlapping act as one surface for the 2D character (no ground or hang at seams: port, integration and Play tests); D46 (left-wall hold) and D47 (polygon mover push fail-stop) fixed; replay fixtures unchanged |
-| 25.5 | — |
+| 25.5 | done 2026-09-28: `ended` reproduced as seen by scripts (main thread, worker, no physics/2D/3D, modes, real Play) — TL-17 did not reproduce, tests kept as guards; an ended play's routes answer `play_not_found` with `ended {reason, presented, at, detail?}`, unpresented ends listed in problems |
 | 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
 | 25.7–25.24 | — |
 
@@ -276,3 +276,22 @@ boundary it changes (Playwright for any editor surface).
   bit-for-bit unchanged. Checking §2's note found D47 (a polygon mover
   moving into the player fail-stopped); the runtime push now clips the
   polygon to the player's box, and a box keeps its old rule exactly.
+- 2026-09-28 (25.5): TL-17 did not reproduce. Scripts saw every `ended`
+  (finished, stopped, skipped; `ended(h)`, `events()`, `state(h)`) once, in
+  the step after it, for plays started by a script, on start, on a signal
+  and with a mode track handing a behavior group back, in the intent and
+  transform phases, on the main thread and in the sim worker, with no
+  physics, 2D and 3D (`tests/integration/m25-timeline-ended`), and in real
+  Play in the worker (`tests/e2e/play-end.e2e.ts`). The timeline code has not
+  changed since 23.17, so the report most likely came from the flow path
+  24.7 deleted; the Sprout repo is not read to confirm. The tests stay as
+  guards. Note for testers: an observation shows only the last step's
+  timeline events, so polling `tl_game_observe` rarely catches `ended`; a
+  script counter does.
+- 2026-09-28 (25.5): the play-end reason keeps the `play_not_found` code (a
+  closed set clients already handle) and adds `ended {reason, presented, at,
+  detail?}` plus the reason in the message, so no client breaks. No new
+  stop reason: `session_lost` carries a detail when the owner's browser
+  evicts the headless editor. Not done: a socket replaced by a re-attach
+  still leaves its play running (the backend can't tell a page reload from
+  the same page reconnecting); it ends by the present timeout or the TTL.
