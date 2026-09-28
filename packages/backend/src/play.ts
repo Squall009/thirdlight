@@ -130,7 +130,14 @@ export interface PlayRecord {
   ownerSessionId: string;
   revision: number;
   snapshotId: string;
-  snapshot: RuntimeSnapshotDoc;
+  /**
+   * The frozen runtime snapshot while the play runs. Phase 25.24 (D48): null
+   * once the play has stopped — an ended record keeps only its `ended`
+   * answer, not the scene.
+   */
+  snapshot: RuntimeSnapshotDoc | null;
+  /** Phase 21.4: the snapshot as JSON bytes, serialized once for the snapshot route (released with the snapshot). */
+  snapshotBytes?: Uint8Array;
   demo: boolean;
   /** The immutable runtime-content manifest `buildId` (sessions.md §10.5). */
   buildId: string;
@@ -240,11 +247,41 @@ export function playEndMessage(end: PlayEnd, timeouts: { presentSeconds: number;
   return `the play ended ${end.presented ? '' : 'before it was presented '}at ${end.at}: ${why}`.slice(0, 256);
 }
 
+/**
+ * Phase 25.24 (D48): how many ended plays keep their `ended` answer, and for
+ * how long. Past either bound the record is dropped and its id answers a bare
+ * `play_not_found`. 64 covers any realistic burst of test Plays; an hour
+ * covers a tool that polls a play it lost track of. Engine limits, not
+ * tuning values.
+ */
+export const ENDED_PLAYS_KEPT = 64;
+export const ENDED_PLAY_RETENTION_MS = 60 * 60 * 1000;
+
 export class PlayManager {
   private plays = new Map<string, PlayRecord>();
   private byProject = new Map<string, string>(); // projectId → active/presented playSessionId
+  /** Phase 25.24 (D48): the stopped plays still kept, oldest first. */
+  private ended: string[] = [];
 
   constructor(private readonly hooks: PlayHooks) {}
+
+  /** Phase 25.24 (D48): the records held (live and ended), for the retention test. */
+  counts(): { records: number; ended: number } {
+    return { records: this.plays.size, ended: this.ended.length };
+  }
+
+  /** Phase 25.24 (D48): drop ended records past the count or age bound. */
+  private pruneEnded(): void {
+    const cutoff = this.hooks.nowMs() - ENDED_PLAY_RETENTION_MS;
+    while (this.ended.length > 0) {
+      const id = this.ended[0]!;
+      const rec = this.plays.get(id);
+      const old = rec === undefined || (rec.endedAt ?? rec.lastActivityAt) < cutoff;
+      if (this.ended.length <= ENDED_PLAYS_KEPT && !old) break;
+      this.ended.shift();
+      if (rec !== undefined && rec.state === 'stopped') this.plays.delete(id);
+    }
+  }
 
   /**
    * Create the record in state `active` (preconditions checked by the
@@ -276,6 +313,7 @@ export class PlayManager {
       expiresAt: nowMs + this.hooks.ttlMs(),
       relays: new Map(),
     };
+    this.pruneEnded();
     this.plays.set(playSessionId, rec);
     this.byProject.set(projectId, playSessionId);
     rec.presentTimer = setTimeout(() => this.presentTimeoutFired(rec), this.hooks.presentTimeoutMs());
@@ -283,6 +321,7 @@ export class PlayManager {
   }
 
   get(playSessionId: string): PlayRecord | undefined {
+    this.pruneEnded();
     return this.plays.get(playSessionId);
   }
 
@@ -731,5 +770,10 @@ export class PlayManager {
     this.hooks.onEnded?.(rec);
     this.hooks.onTerminal?.(rec.playSessionId);
     this.releaseProjectOwnership(rec);
+    // Phase 25.24 (D48): an ended play keeps its end record, not its scene; the oldest ended records go.
+    rec.snapshot = null;
+    rec.snapshotBytes = undefined;
+    this.ended.push(rec.playSessionId);
+    this.pruneEnded();
   }
 }

@@ -173,6 +173,9 @@ export function createBackend(
     // Phase 25.5: a play that ended before it was presented is a project problem saying why
     // (a Stop is the user's own choice; a preview failure is recorded where it is reported).
     onEnded: (rec) => {
+      // Phase 25.24 (D48): a play.started held for a detached owner is dropped with its play (it carries the snapshot).
+      const owner = sessions.sessionForSessionId(rec.ownerSessionId);
+      if (owner?.pendingPlayStarted?.playSessionId === rec.playSessionId) owner.pendingPlayStarted = null;
       if (rec.presented || rec.reason === 'request' || rec.reason === 'preview_failed') return;
       const ended = plays.describeEnd(rec);
       if (ended !== null) recordProblem(rec.projectId, 'play', `play_${rec.reason ?? 'ended'}`, `${rec.playSessionId}: ${ended.message}`);

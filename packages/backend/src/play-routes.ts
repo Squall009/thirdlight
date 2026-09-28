@@ -77,15 +77,10 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
   };
 
-  /** Phase 21.4: each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play). */
-  const snapshotBytes = new WeakMap<PlayRecord, Uint8Array>();
+  /** Phase 21.4: each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play; 25.24: released when it ends). */
   const snapshotBytesOf = (rec: PlayRecord): Uint8Array => {
-    let b = snapshotBytes.get(rec);
-    if (b === undefined) {
-      b = new TextEncoder().encode(JSON.stringify(rec.snapshot));
-      snapshotBytes.set(rec, b);
-    }
-    return b;
+    if (rec.snapshotBytes === undefined) rec.snapshotBytes = new TextEncoder().encode(JSON.stringify(rec.snapshot));
+    return rec.snapshotBytes;
   };
 
   /**

@@ -615,6 +615,8 @@ describe('phase 25.5: an ended play says why', () => {
       const stopped = await post(tb, psid, 'observe');
       expect(stopped.json.error.ended).toMatchObject({ reason: 'request', presented: true });
       expect(stopped.json.error.message).toMatch(/^the play ended at .*: it was stopped/);
+      // Phase 25.24 (D48): the ended record no longer holds the scene.
+      expect(tb.backend._test.plays.get(psid)?.snapshot).toBeNull();
       // A user's own Stop and a reported preview failure add no extra problem of this kind.
       expect((await problems(tb)).filter((p) => p.code === 'play_request')).toEqual([]);
       editor.close();
