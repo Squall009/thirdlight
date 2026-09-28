@@ -139,6 +139,8 @@ const CORE_MATERIAL_FIELDS = new Set([
   'alphaCutoff',
   'doubleSided',
   'extensions',
+  // Phase 25.6: application data (glTF allows it on every object); accepted and ignored.
+  'extras',
 ]);
 
 const CORE_PBR_FIELDS = new Set([
@@ -147,6 +149,7 @@ const CORE_PBR_FIELDS = new Set([
   'metallicFactor',
   'roughnessFactor',
   'metallicRoughnessTexture',
+  'extras',
 ]);
 
 const SAMPLER_FILTERS = new Set([9728, 9729, 9984, 9985, 9986, 9987]);

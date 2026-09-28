@@ -152,7 +152,9 @@ boundary it changes (Playwright for any editor surface).
 | 25.0 | done 2026-09-28 |
 | Step 0 (reconcile with phase 24) | done 2026-09-28 |
 | 25.1 | done 2026-09-28: every-optional-key unit test (all 23 keys, strict reader) and `manifest-keys.e2e.ts` (Play and static export); found and fixed D45 |
-| 25.2–25.24 | — |
+| 25.2–25.5 | — |
+| 25.6 | done 2026-09-28: glTF extras accepted, import-scan hits located (line, comment/string/regex), createEntity refusal says how to add a setComponent-only component, cursor per any input map |
+| 25.7–25.24 | — |
 
 ## 6. Decision log
 
@@ -198,3 +200,21 @@ boundary it changes (Playwright for any editor surface).
   collisionLayers, input and uiDocuments) and plays and exports it. Keys
   that need imported models or bakes (rigs, lighting, buffers) stay in the
   unit test. The test found D45 (document key order), which is fixed.
+- 2026-09-28 (25.6): `input.cursor` is keyed by any map the project has.
+  During play without modes the gameplay map's setting applies, as before.
+  With a mode (or a focused document) the first active map that sets one
+  wins, and ui counts last. So a mode that doesn't activate gameplay no
+  longer inherits gameplay's lock. Removing a map in the Input window drops
+  its setting.
+- 2026-09-28 (25.6): the import scan stays textual, as specified. A small
+  lexer (comments, strings and template text, regex literals) only labels
+  where a hit sits. The diagnostic carries line and column, so the script
+  editor marks the line. A declaration is judged at its `from`, so
+  `x; // … from 'y'` reads as a comment hit. The regex-vs-division call is
+  a heuristic, and a wrong call only changes the note, never the verdict.
+- 2026-09-28 (25.6): createEntity's refusal of a component that only
+  setComponent adds keeps the code `component_unknown`, because clients key
+  on codes, and changes only the message. `box`/`model` point at the kind
+  argument. glTF `extras` were refused only by the material and PBR field
+  allowlists; both now accept them. The check is a unit test at the
+  inspector that the import route calls, covering every object kind.

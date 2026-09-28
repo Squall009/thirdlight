@@ -356,7 +356,7 @@ export interface GameHostConfig {
   /** Phase 24.4j: the manifest's game shell (menus and HUD as UI documents, the scene list) — a game that plays as a scene. */
   readonly shell?: ShellConfigLike;
   /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
-  readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { gameplay?: 'free' | 'locked'; ui?: 'free' | 'locked' } };
+  readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { [map: string]: 'free' | 'locked' | undefined } };
   /** Phase 9.10: each declared asset's kind (the host registers every audio asset for scripts, event cues and audio sources). */
   readonly assetKinds?: Readonly<Record<string, string>>;
   /** Phase 9.11: where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
@@ -902,12 +902,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
   /**
    * Phase 23.3: the cursor mode in effect, handed to the input owner every
    * frame: the ui map's setting while a menu is open or the game is paused,
-   * else a script's request or the gameplay map's setting.
+   * else a script's request or the setting of the active maps (phase 25.6:
+   * a focused document's or the game mode's maps; every map without modes).
    */
   const serviceCursor = (rt: Runtime): void => {
     if (config.input.applyCursor === undefined) return;
     const menu = rt.isPaused === true;
-    config.input.applyCursor(resolveCursorMode(config.inputConfig as InputConfigLike | undefined, menu ? 'ui' : 'gameplay', rt.cursorRequest?.() ?? null));
+    config.input.applyCursor(resolveCursorMode(config.inputConfig as InputConfigLike | undefined, menu ? 'menu' : (uiMaps ?? modeMaps), rt.cursorRequest?.() ?? null));
   };
 
   /** Phase 23.3: the pointer and cursor as an observer sees them, and the objects scripts hid. */

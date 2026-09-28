@@ -15,18 +15,29 @@ export interface InputActionLike {
 export interface InputConfigLike {
   readonly actions: readonly InputActionLike[];
   /** Phase 23.3: the cursor while each map is active (absent: free). */
-  readonly cursor?: { readonly gameplay?: 'free' | 'locked'; readonly ui?: 'free' | 'locked' };
+  readonly cursor?: { readonly [map: string]: 'free' | 'locked' | undefined };
 }
 
 /**
- * Phase 23.3: the cursor mode in effect — while a menu is open (the `ui` map)
+ * Phase 23.3: the cursor mode in effect — while a menu is open (`'menu'`)
  * the project's `ui` setting; during play a script's request
- * (`ctx.input.setCursor`), else the project's `gameplay` setting; free when
- * nothing says otherwise (a pointer-driven game needs a visible cursor).
+ * (`ctx.input.setCursor`), else the project's setting for the active maps;
+ * free when nothing says otherwise (a pointer-driven game needs a visible
+ * cursor).
+ *
+ * Phase 25.6: any map may set the cursor. `active` is the input's active
+ * maps in order (a game mode's, or a focused document's); null means every
+ * map is active (no game mode), which reads the `gameplay` setting as before.
+ * Otherwise the first active map with a setting wins, `ui` after the others
+ * (it is active beside most modes' gameplay maps).
  */
-export function resolveCursorMode(config: InputConfigLike | undefined, map: 'gameplay' | 'ui', request: 'free' | 'locked' | null): 'free' | 'locked' {
-  if (map === 'ui') return config?.cursor?.ui ?? 'free';
-  return request ?? config?.cursor?.gameplay ?? 'free';
+export function resolveCursorMode(config: InputConfigLike | undefined, active: 'menu' | readonly string[] | null, request: 'free' | 'locked' | null): 'free' | 'locked' {
+  const cursor = config?.cursor;
+  if (active === 'menu') return cursor?.['ui'] ?? 'free';
+  if (request !== null) return request;
+  if (active === null) return cursor?.['gameplay'] ?? 'free';
+  for (const m of active) if (m !== 'ui' && cursor?.[m] !== undefined) return cursor[m]!;
+  return (active.includes('ui') ? cursor?.['ui'] : undefined) ?? 'free';
 }
 
 const kindOf = (b: unknown): string | undefined => (typeof b === 'object' && b !== null ? (b as { kind?: unknown }).kind as string | undefined : undefined);

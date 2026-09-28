@@ -72,7 +72,7 @@ export function canonicalContainerText(container: SourceGraphContainer): string 
 export function containerFailure(
   code: string,
   reason: string,
-  extra: { limit?: string; current?: number; max?: number; detail?: string; path?: string; message?: string } = {},
+  extra: { limit?: string; current?: number; max?: number; detail?: string; path?: string; line?: number; column?: number; message?: string } = {},
 ): { ok: false; failure: BehaviorCompileFailure } {
   const diag: CompileDiagnostic = {
     code,
@@ -80,6 +80,8 @@ export function containerFailure(
     message: (extra.message ?? `${code} (${reason})`).slice(0, 256),
   };
   if (extra.path !== undefined) diag.path = extra.path;
+  if (extra.line !== undefined) diag.line = extra.line;
+  if (extra.column !== undefined) diag.column = extra.column;
   const failure: BehaviorCompileFailure = { ok: false, code, reason, diagnostics: [diag] };
   if (extra.limit !== undefined) failure.limit = extra.limit;
   if (extra.current !== undefined) failure.current = extra.current;

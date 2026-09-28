@@ -53,6 +53,7 @@ import {
 import { SURFACE_PRESET_NAMES } from './v3';
 import { validatePasteArgs } from './paste-ops';
 import {
+  isSetComponentName,
   validateAcknowledgeBehaviorTrustArgs,
   validateApplySurfacePresetArgs,
   validatePublishAssetArgs,
@@ -807,6 +808,9 @@ function validateCreateArgs(args: Record<string, unknown>):
     }
     for (const key of keys) {
       if (!CREATE_COMPONENTS.includes(key)) {
+        // Phase 25.6: a component setComponent takes is not unknown — say how to add it.
+        const settable = isSetComponentName(key);
+        const made = key === 'box' || key === 'model';
         return {
           ok: false,
           error: {
@@ -815,7 +819,11 @@ function validateCreateArgs(args: Record<string, unknown>):
             path: `/args/components/${pointerSegment(key)}`,
             found: components[key],
             expected: CREATE_COMPONENTS.map((c) => `"${c}"`).join(', '),
-            message: 'unknown component name (the registry is closed)',
+            message: !settable
+              ? 'unknown component name (the registry is closed)'
+              : made
+                ? `"${key}" is not added through components: createEntity makes it from kind "${key}" and its ${key} argument (or add it afterwards with setComponent)`
+                : `"${key}" cannot be added by createEntity: create the entity, then add it with setComponent`,
           },
         };
       }

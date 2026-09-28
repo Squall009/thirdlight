@@ -1,7 +1,12 @@
 /**
  * Phase 9.8: the Input window. Jump is rebound from Space to W by listening
  * for the key; in Play the player jumps with W and no longer with Space.
+ *
+ * Phase 25.6: a project map's cursor, set in the Input window, is stored
+ * and applies in Play while a game mode activates that map; removing the
+ * map drops its setting.
  */
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,4 +114,41 @@ test('phase 23.14: a hold time on a binding and a project glyph image, edited in
   await page.getByLabel('hold seconds for Space of jump', { exact: true }).fill('');
   await page.getByLabel('hold seconds for Space of jump', { exact: true }).blur();
   await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[0]).toEqual({ kind: 'key', code: 'Space' });
+});
+
+test('phase 25.6: a project map\'s cursor, set in the Input window, applies in Play while a game mode activates the map', async ({ page }) => {
+  test.setTimeout(120_000);
+  const config = async (): Promise<{ input: { maps?: string[]; cursor?: Record<string, string> } | null; modes?: unknown }> => (await be.command({ op: 'queryGameConfig', projectId: be.projectId })) as never;
+  const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
+    const rev = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']);
+    const r = await be.command({ op, projectId: be.projectId, expectedRevision: rev, requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-input-cursor' }, args });
+    expect(r['ok'], JSON.stringify(r)).toBe(true);
+  };
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await page.getByRole('tab', { name: 'Input' }).click();
+  await page.getByLabel('new input map name', { exact: true }).fill('tactical');
+  await page.getByRole('button', { name: 'Add map', exact: true }).click();
+  await expect.poll(async () => (await config()).input?.maps).toEqual(['tactical']);
+  // The project map has its own cursor select (before 25.6 only gameplay and ui had one, and the backend refused others).
+  await page.getByLabel('cursor while tactical', { exact: true }).selectOption('locked');
+  await expect.poll(async () => (await config()).input?.cursor).toEqual({ tactical: 'locked' });
+
+  // Play: the start mode activates only the tactical and ui maps; the cursor is the tactical map's (gameplay's is free).
+  await run('setModes', { modes: [{ modeId: 'board', name: 'Board', inputMaps: ['tactical', 'ui'] }] });
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+  await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  type Obs = { state?: string; mode?: { current: string }; cursor?: { mode: string } };
+  const observe = async (): Promise<Obs> => (await relay(`${psid}/observe`, {})).json as Obs;
+  await expect.poll(async () => (await observe()).mode?.current ?? null, { timeout: 30_000 }).toBe('board');
+  await expect.poll(async () => (await observe()).cursor?.mode ?? null, { timeout: 15_000 }).toBe('locked');
+  await page.getByTitle('Stop the play preview').click();
+  await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
+
+  // Removing the map (once no mode names it) drops its cursor setting in the same edit.
+  await run('setModes', { modes: [] });
+  await page.getByRole('tab', { name: 'Input' }).click();
+  await page.getByRole('button', { name: 'remove input map tactical', exact: true }).click();
+  await expect.poll(async () => JSON.stringify([(await config()).input?.maps ?? null, (await config()).input?.cursor ?? null])).toBe('[null,null]');
 });

@@ -107,7 +107,8 @@ export function InputPanel(p: Props): JSX.Element {
   // Phase 23.3: an edit keeps the cursor settings.
   // Phase 23.14: … and the glyph images.
   const save = (actions: InputAction[]): void => p.onSave({ actions, ...(config.maps !== undefined ? { maps: config.maps } : {}), ...(config.cursor !== undefined ? { cursor: config.cursor } : {}), ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
-  const setCursor = (map: 'gameplay' | 'ui', mode: CursorMode): void => {
+  // Phase 25.6: any map (gameplay, ui or the project's own) sets its cursor.
+  const setCursor = (map: string, mode: CursorMode): void => {
     const cursor = { ...(config.cursor ?? {}), [map]: mode };
     p.onSave({ actions: config.actions, ...(config.maps !== undefined ? { maps: config.maps } : {}), cursor, ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
   };
@@ -121,7 +122,11 @@ export function InputPanel(p: Props): JSX.Element {
     put(a.name, { ...a, bindings });
   };
   /** Phase 23.10: add or remove one of the project's own maps (an edit keeps the actions and the cursor). */
-  const setMaps = (next: string[]): void => p.onSave({ actions: config.actions, ...(next.length > 0 ? { maps: next } : {}), ...(config.cursor !== undefined ? { cursor: config.cursor } : {}), ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
+  // Phase 25.6: a removed map's cursor setting goes with it.
+  const setMaps = (next: string[]): void => {
+    const cursor = config.cursor === undefined ? undefined : Object.fromEntries(Object.entries(config.cursor).filter(([m]) => m === 'gameplay' || m === 'ui' || next.includes(m)));
+    p.onSave({ actions: config.actions, ...(next.length > 0 ? { maps: next } : {}), ...(cursor !== undefined && Object.keys(cursor).length > 0 ? { cursor } : {}), ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
+  };
   const mapNameOk = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name) && name !== 'gameplay' && name !== 'ui' && !maps.includes(name) && maps.length < 8;
   const put = (name: string, next: InputAction): void => save(config.actions.map((a) => (a.name === name ? next : a)));
   const addBinding = (name: string, b: InputBinding): void => {
@@ -182,15 +187,14 @@ export function InputPanel(p: Props): JSX.Element {
     <div className="tl-input-map" aria-label={`${map} actions`} key={map}>
       <div className="tl-panel__title">
         {map === 'gameplay' ? 'Gameplay' : map === 'ui' ? 'Menus (ui)' : map}{' '}
-        {map === 'gameplay' || map === 'ui' ? (
-          <label className="tl-hint">
-            cursor{' '}
-            <select className="tl-input" aria-label={`cursor while ${map}`} value={config.cursor?.[map] ?? 'free'} onChange={(e) => setCursor(map, e.target.value as CursorMode)}>
-              <option value="free">free</option>
-              <option value="locked">locked</option>
-            </select>
-          </label>
-        ) : (
+        <label className="tl-hint">
+          cursor{' '}
+          <select className="tl-input" aria-label={`cursor while ${map}`} value={config.cursor?.[map] ?? 'free'} onChange={(e) => setCursor(map, e.target.value as CursorMode)}>
+            <option value="free">free</option>
+            <option value="locked">locked</option>
+          </select>
+        </label>{' '}
+        {map === 'gameplay' || map === 'ui' ? null : (
           <button
             type="button"
             className="tl-button"

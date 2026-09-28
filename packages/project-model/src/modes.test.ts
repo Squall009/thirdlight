@@ -84,6 +84,17 @@ describe('game modes (data)', () => {
     expect(canonicalInput(input as never).maps).toEqual(['tactical']);
   });
 
+  it('phase 25.6: input.cursor takes every map of input.maps (and only the project\'s maps); canonical order gameplay, ui, own maps', () => {
+    const input = { actions: [], maps: ['tactical', 'board'], cursor: { board: 'locked', tactical: 'free', ui: 'free', gameplay: 'locked' } };
+    expect(errs((e) => validateInput(input, '/input', e))).toEqual([]);
+    const bad = errs((e) => validateInput({ ...input, cursor: { ghost: 'free', tactical: 'sideways' } }, '/input', e));
+    expect(bad.map((x) => [x.code, x.path])).toEqual([['field_unexpected', '/input/cursor/ghost'], ['field_value', '/input/cursor/tactical']]);
+    expect(bad[0]!.message).toBe('"ghost" is not an input map of this project');
+    // Without its map, a project map's cursor is refused.
+    expect(errs((e) => validateInput({ actions: [], cursor: { tactical: 'free' } }, '/input', e)).map((x) => x.path)).toEqual(['/input/cursor/tactical']);
+    expect(Object.keys(canonicalInput(input as never).cursor!)).toEqual(['gameplay', 'ui', 'tactical', 'board']);
+  });
+
   it('behavior groups and the behaviorGroup component', () => {
     expect(errs((e) => validateBehaviorGroups(['field', 'board'], '/behaviorGroups', e))).toEqual([]);
     expect(errs((e) => validateBehaviorGroups(['a', 'a', 'b c'], '/behaviorGroups', e)).map((x) => x.path)).toEqual(['/behaviorGroups/1', '/behaviorGroups/2']);

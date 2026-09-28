@@ -53,12 +53,26 @@ describe('pointer samples across ticks and steps', () => {
 describe('the cursor mode in effect', () => {
   it('free by default; each map\'s setting; a script\'s request during play only', () => {
     const cfg = { actions: [], cursor: { gameplay: 'locked' as const } };
-    expect(resolveCursorMode(undefined, 'gameplay', null)).toBe('free');
-    expect(resolveCursorMode(cfg, 'gameplay', null)).toBe('locked');
-    expect(resolveCursorMode(cfg, 'ui', null)).toBe('free');
-    expect(resolveCursorMode(cfg, 'gameplay', 'free')).toBe('free');
+    expect(resolveCursorMode(undefined, null, null)).toBe('free');
+    expect(resolveCursorMode(cfg, null, null)).toBe('locked');
+    expect(resolveCursorMode(cfg, 'menu', null)).toBe('free');
+    expect(resolveCursorMode(cfg, null, 'free')).toBe('free');
     // A menu frees the cursor whatever a script asked for (the ui map decides).
-    expect(resolveCursorMode(cfg, 'ui', 'locked')).toBe('free');
-    expect(resolveCursorMode({ actions: [], cursor: { ui: 'locked' } }, 'ui', null)).toBe('locked');
+    expect(resolveCursorMode(cfg, 'menu', 'locked')).toBe('free');
+    expect(resolveCursorMode({ actions: [], cursor: { ui: 'locked' } }, 'menu', null)).toBe('locked');
+  });
+
+  it('phase 25.6: a project map sets the cursor while a game mode activates it', () => {
+    const cfg = { actions: [], cursor: { gameplay: 'locked' as const, tactical: 'free' as const, ui: 'locked' as const } };
+    // The mode's maps in order: the first with a setting wins, ui after the others.
+    expect(resolveCursorMode(cfg, ['gameplay', 'ui'], null)).toBe('locked');
+    expect(resolveCursorMode(cfg, ['tactical', 'ui'], null)).toBe('free');
+    expect(resolveCursorMode(cfg, ['ui', 'tactical'], null)).toBe('free');
+    // A mode whose maps set nothing: ui's setting when ui is active, else free.
+    expect(resolveCursorMode(cfg, ['board', 'ui'], null)).toBe('locked');
+    expect(resolveCursorMode(cfg, ['board'], null)).toBe('free');
+    // A script's request still wins during play; a menu still reads ui.
+    expect(resolveCursorMode(cfg, ['tactical', 'ui'], 'locked')).toBe('locked');
+    expect(resolveCursorMode(cfg, 'menu', null)).toBe('locked');
   });
 });

@@ -108,6 +108,20 @@ describe('createEntity with v3 components (authoring §A3.1/§A4.1)', () => {
     }
   });
 
+  it('phase 25.6: a component only setComponent adds is refused with how to add it, not as unknown', () => {
+    const refusal = (components: Record<string, unknown>): { code: string; message: string } => {
+      const r = applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components }, 0));
+      expect(r.ok).toBe(false);
+      return r.ok ? { code: '', message: '' } : { code: r.result.error.code, message: r.result.error.message };
+    };
+    expect(refusal({ nope: {} }).message).toBe('unknown component name (the registry is closed)');
+    const path = refusal({ cameraPath: { points: [[0, 0, 0], [1, 0, 0]] } });
+    expect(path.code).toBe('component_unknown');
+    expect(path.message).toBe('"cameraPath" cannot be added by createEntity: create the entity, then add it with setComponent');
+    expect(refusal({ materialParams: {} }).message).toContain('then add it with setComponent');
+    expect(refusal({ box: {} }).message).toBe('"box" is not added through components: createEntity makes it from kind "box" and its box argument (or add it afterwards with setComponent)');
+  });
+
   it('rejects unknown keys, nullable values, preset/surface coexistence and illegal targets', () => {
     expect(fail(applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components: { nope: {} } }, 0)))).toBe('component_unknown');
     expect(fail(applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components: { light: null } }, 0)))).toBe('field_value');

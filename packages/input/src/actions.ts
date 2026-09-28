@@ -41,7 +41,7 @@ export interface InputActionLike {
 export interface InputConfigLike {
   readonly actions: readonly InputActionLike[];
   /** Phase 23.3: the cursor while each map is active (absent: free). */
-  readonly cursor?: { readonly gameplay?: 'free' | 'locked'; readonly ui?: 'free' | 'locked' };
+  readonly cursor?: { readonly [map: string]: 'free' | 'locked' | undefined };
 }
 
 /**

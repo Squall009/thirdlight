@@ -75,10 +75,11 @@ export interface InputConfig {
    */
   glyphs?: Record<string, string>;
   /**
-   * Phase 23.3: the cursor while each map is active (absent: free for both —
+   * Phase 23.3: the cursor while each map is active (absent: free —
    * a pointer-driven game needs a visible cursor; mouse-look opts in to locked).
+   * Phase 25.6: keyed by any map — gameplay, ui or one of `maps`.
    */
-  cursor?: { gameplay?: CursorMode; ui?: CursorMode };
+  cursor?: { gameplay?: CursorMode; ui?: CursorMode; [map: string]: CursorMode | undefined };
 }
 
 /**
@@ -203,10 +204,11 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
   }
   const cursor = value['cursor'];
   if (cursor !== undefined) {
-    if (!isPlainObject(cursor)) err(errors, 'field_type', `${path}/cursor`, 'cursor is { gameplay?, ui? }', cursor);
+    if (!isPlainObject(cursor)) err(errors, 'field_type', `${path}/cursor`, 'cursor maps input maps (gameplay, ui or the project\'s own) to free or locked', cursor);
     else
       for (const [k, v] of Object.entries(cursor)) {
-        if (!(INPUT_MAPS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/cursor/${k}`, `unknown field "${k}"`, k, 'gameplay, ui');
+        // Phase 25.6: any map the project has (the engine's and its own).
+        if (!mapNames.has(k)) err(errors, 'field_unexpected', `${path}/cursor/${k}`, `"${k}" is not an input map of this project`, k, [...mapNames].join(', '));
         else if (!(CURSOR_MODES as readonly unknown[]).includes(v)) err(errors, 'field_value', `${path}/cursor/${k}`, 'the cursor is free or locked', v);
       }
   }
@@ -266,7 +268,8 @@ export function canonicalInput(c: InputConfig): InputConfig {
       ...(a.scale !== undefined ? { scale: a.scale } : {}),
     })),
     ...(c.maps !== undefined && c.maps.length > 0 ? { maps: [...c.maps] } : {}),
-    ...(c.cursor !== undefined ? { cursor: { ...(c.cursor.gameplay !== undefined ? { gameplay: c.cursor.gameplay } : {}), ...(c.cursor.ui !== undefined ? { ui: c.cursor.ui } : {}) } } : {}),
+    // Phase 25.6: gameplay, ui, then the project's own maps in their order.
+    ...(c.cursor !== undefined ? { cursor: Object.fromEntries([...INPUT_MAPS, ...(c.maps ?? [])].filter((m) => c.cursor![m] !== undefined).map((m) => [m, c.cursor![m]!])) } : {}),
     // Phase 23.14: glyph images by key (sorted, so the canonical bytes do not depend on insertion order).
     ...(c.glyphs !== undefined ? { glyphs: Object.fromEntries(Object.keys(c.glyphs).sort().map((k) => [k, c.glyphs![k]!])) } : {}),
   };

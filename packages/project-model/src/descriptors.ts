@@ -1595,11 +1595,9 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
   ]), { required: true, maxItems: MAX_INPUT_ACTIONS }),
   // Phase 23.10: the project's own input maps (a game mode activates maps; gameplay and ui always exist).
   list('maps', 'Project maps', `Up to ${MAX_INPUT_MAPS} input maps besides gameplay and ui (game modes activate maps).`, str('*', 'Map', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_INPUT_MAPS, unique: true }),
-  // Phase 23.3: free by default for both maps — a pointer-driven game needs a visible cursor; mouse-look opts in to locked.
-  obj('cursor', 'Cursor', 'The cursor while each map is active (absent: free). It is hidden while a gamepad drives the game.', [
-    enm('gameplay', 'Gameplay', 'The cursor during play: free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre).', CURSOR_MODES, { default: 'free' }),
-    enm('ui', 'Menus (ui)', 'The cursor while a menu is open.', CURSOR_MODES, { default: 'free' }),
-  ]),
+  // Phase 23.3: free by default — a pointer-driven game needs a visible cursor; mouse-look opts in to locked.
+  // Phase 25.6: keyed by any map (gameplay, ui or the project's own).
+  map('cursor', 'Cursor', 'The cursor while each map is active (absent: free): free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre). The ui map\'s applies while a menu is open; during play the first of the active maps that sets one (a game mode\'s maps in their order). It is hidden while a gamepad drives the game.', 'Map', enm('*', 'Cursor', 'Free or locked while this map is active.', CURSOR_MODES, { default: 'free' }), { keyRef: 'inputMap', maxEntries: MAX_INPUT_MAPS + 2 }),
   // Phase 23.14: the project's own glyph images (absent: the engine's generic icons).
   map('glyphs', 'Glyphs', 'Glyph key → an image shown instead of the engine\'s generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space).', 'Glyph', asset('*', 'Image', 'The texture shown for this glyph.', ['texture']), { maxEntries: MAX_INPUT_GLYPHS }),
 ], { default: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as DescriptorJson, rules: ['Action names are unique.'] });

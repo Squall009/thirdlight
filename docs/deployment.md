@@ -2830,8 +2830,11 @@ amounts per step (a second step in the same frame sees 0). A binding of the
 right button keeps the browser's context menu off the view; a wheel binding
 keeps the wheel from scrolling the page.
 
-**Cursor.** Each map has a **cursor** setting (free or locked; default free).
-While a menu is open the ui map's setting applies; during play a script may
+**Cursor.** Each map has a **cursor** setting (free or locked; default free),
+the project's own maps included. While a menu is open the ui map's setting
+applies. During play, without game modes, the gameplay map's applies; with
+modes, the first of the current mode's maps that sets one (ui after the
+others). A script may
 ask for another with `ctx.input.setCursor('free' | 'locked' | 'auto')`
 (`auto` = the map's setting; a new run starts with none). Locked uses the
 browser's pointer lock — browsers want a click in the view first, so the

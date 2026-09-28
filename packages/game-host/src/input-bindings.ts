@@ -27,7 +27,7 @@ export interface ActionData {
 }
 export interface ConfigData {
   readonly actions: readonly ActionData[];
-  readonly cursor?: { readonly gameplay?: 'free' | 'locked'; readonly ui?: 'free' | 'locked' };
+  readonly cursor?: { readonly [map: string]: 'free' | 'locked' | undefined };
   readonly glyphs?: Readonly<Record<string, string>>;
 }
 

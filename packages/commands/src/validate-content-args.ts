@@ -545,6 +545,11 @@ const REMOVABLE: readonly OwnedComponent[] = [
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
+
+/** Phase 25.6: whether `setComponent` takes this component (createEntity's refusal names it). */
+export function isSetComponentName(name: string): boolean {
+  return (OWNED as readonly string[]).includes(name);
+}
 const COMPONENT_EXPECTED =
   'one of "box", "camera", "model", "collider", "controller", "playerSpawn", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
 

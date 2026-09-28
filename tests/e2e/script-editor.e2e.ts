@@ -12,6 +12,8 @@
  * - Publish: the trust acknowledgment for the new digest, then the source
  *   route (one publishBehavior command); the backend stores both files.
  * - Play runs it: the script adds its property to a run counter (observed).
+ * - Phase 25.6: a forbidden construct the textual import scan finds in a
+ *   comment is marked on its line, and the problem says it is in a comment.
  */
 import { createHash } from 'node:crypto';
 
@@ -181,4 +183,25 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
   await expect(view.locator('.cm-content')).toContainText('amountOf(ctx.properties.amount));');
   await expect(view.getByText('published', { exact: true })).toBeVisible();
   await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
+});
+
+test('phase 25.6: an import-scan hit in a comment is marked on its line and says it is in a comment', async ({ page }) => {
+  test.setTimeout(120_000);
+  const made = await cmd('createEntity', { kind: 'box', name: 'Scan box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  await cmd('publishBehavior', { behaviorId: 'scanned', displayName: 'Scanned', mode: 'declaration-create', declaration: { properties: [] } });
+  await cmd('setBehaviorProperties', { entityId: String(made.createdId), behaviorId: 'scanned', values: {} });
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Scanned' }).dblclick();
+  const view = page.getByRole('tabpanel', { name: 'Script: Scanned' });
+  const status = view.getByLabel('compile status');
+  await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
+  await replaceCode(page, ['export default {', '  step() {},', "  // never require('fs') here", '};', ''].join('\n'));
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(status).toHaveAttribute('data-status', 'errors', { timeout: 20_000 });
+  const problems = view.getByLabel('script problems');
+  await expect(problems).toContainText('src/index.ts:3');
+  await expect(problems).toContainText('inside a comment');
+  await expect(view.locator('.cm-lint-marker-error').first()).toBeVisible();
 });
