@@ -103,6 +103,7 @@ export {
   PHYSICS_DIMENSIONS,
   audioSpatialOf,
   depthBufferOf,
+  instanceChunkSizeOf,
   physicsDimensionOf,
   type PhysicsDimension,
   MAX_SOURCE_PATH_LENGTH,

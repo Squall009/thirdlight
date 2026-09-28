@@ -397,7 +397,7 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
     const comps = e.components as {
       model?: { asset?: { assetId?: unknown }; piece?: unknown };
       modelAnimation?: { assetId?: unknown; version?: unknown };
-      instances?: { asset?: { assetId?: unknown; piece?: unknown }; buffer?: unknown; count?: unknown };
+      instances?: { asset?: { assetId?: unknown; piece?: unknown }; buffer?: unknown; count?: unknown; chunkSize?: unknown };
     };
     if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') {
       models.set(e.id, comps.model.asset.assetId);
@@ -409,7 +409,7 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
     const inst = comps.instances;
     if (inst !== undefined && typeof inst.asset?.assetId === 'string' && typeof inst.buffer === 'string' && Number.isInteger(inst.count)) {
       const piece = typeof inst.asset.piece === 'string' ? inst.asset.piece : undefined;
-      instances.set(e.id, { assetId: inst.asset.assetId, ...(piece !== undefined ? { piece } : {}), buffer: inst.buffer, count: inst.count as number });
+      instances.set(e.id, { assetId: inst.asset.assetId, ...(piece !== undefined ? { piece } : {}), buffer: inst.buffer, count: inst.count as number, ...(typeof inst.chunkSize === 'number' ? { chunkSize: inst.chunkSize } : {}) });
     }
   }
   return { models, pieces, animations, instances };

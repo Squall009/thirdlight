@@ -44,7 +44,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
-  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow'],
+  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize'],
   // Phase 9.4: free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],

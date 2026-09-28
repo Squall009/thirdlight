@@ -68,6 +68,8 @@ export interface InstancesComponent {
   castShadow?: boolean;
   /** Phase 17.4: the copies show realtime shadows falling on them (absent: true). */
   receiveShadow?: boolean;
+  /** Phase 25.7d: this set's chunk size (m), 1–4096 (absent: the project's `instance_chunk_m`, else 32). */
+  chunkSize?: number;
 }
 
 /** Floats per instance in an instance buffer. */

@@ -41,6 +41,22 @@ export const INSTANCE_BUFFER_FLOATS = 10;
 export const INSTANCE_CHUNK_COPIES = 2048;
 /** Most chunks per set (bounds the draws of a very large set; 64 chunks × a few meshes stays well under any draw budget). */
 export const INSTANCE_MAX_CHUNKS = 64;
+/**
+ * Phase 25.7d: most chunks per set when it is also chunked by spatial extent.
+ * Chunks out of view are culled, so more of them cost draws only where they
+ * are seen; 256 cells keep a set seen whole (from above) at a few hundred
+ * draws per mesh. A set larger than 256 cells of its chunk size gets larger
+ * cells.
+ */
+export const INSTANCE_MAX_SPATIAL_CHUNKS = 256;
+/**
+ * Phase 25.7d: the engine default chunk size (m) of an instance set (the
+ * project's `instance_chunk_m`, overridable per set). 32 m: a few seconds'
+ * walk for the default 1.8 m character and small next to a typical view
+ * distance, so a chunk out of view is culled, and a chunk's level of detail
+ * (picked at its centre) is off by at most its half diagonal (~23 m).
+ */
+export const INSTANCE_CHUNK_METERS = 32;
 
 export interface BuiltInstanceSet {
   /** Holds the instanced meshes; attach it under the entity's node. */
@@ -55,6 +71,8 @@ export interface BuiltInstanceSet {
   copyBox(index: number): THREE.Box3 | null;
   /** Copies drawn (the buffer's count, bounded by its length). */
   readonly count: number;
+  /** Phase 25.7d: how many chunks the copies were split into (each culled and LOD'd on its own). */
+  readonly chunks: number;
   /** Release the instance matrices and detach (the model resource is untouched). */
   dispose(): void;
 }
@@ -67,8 +85,14 @@ interface Part {
   readonly level: number;
 }
 
-/** The chunk grid for copy positions: cells along the two widest axes. Pure (unit-tested). */
-export function chunkCopies(positions: Float32Array | readonly number[], count: number, target = INSTANCE_CHUNK_COPIES, maxChunks = INSTANCE_MAX_CHUNKS): Int32Array {
+/**
+ * The chunk grid for copy positions: cells along the two widest axes. Pure (unit-tested).
+ * By count (about `target` copies per chunk, at most `maxChunks`) and,
+ * phase 25.7d, with `chunkSize` (m) also by extent: no cell is wider than
+ * `chunkSize` along either axis (at most {@link INSTANCE_MAX_SPATIAL_CHUNKS}
+ * cells; past that the cells grow). The finer of the two grids wins per axis.
+ */
+export function chunkCopies(positions: Float32Array | readonly number[], count: number, target = INSTANCE_CHUNK_COPIES, maxChunks = INSTANCE_MAX_CHUNKS, chunkSize?: number): Int32Array {
   const out = new Int32Array(count);
   if (count === 0) return out;
   const min = [Infinity, Infinity, Infinity];
@@ -81,17 +105,44 @@ export function chunkCopies(positions: Float32Array | readonly number[], count: 
     }
   }
   const chunks = Math.max(1, Math.min(maxChunks, Math.ceil(count / target)));
-  if (chunks === 1) return out;
   const ext = [0, 1, 2].map((a) => Math.max(1e-6, max[a]! - min[a]!));
   const axes = [0, 1, 2].sort((p, q) => ext[q]! - ext[p]!);
   const a0 = axes[0]!;
   const a1 = axes[1]!;
-  const n0 = Math.max(1, Math.min(chunks, Math.round(Math.sqrt((chunks * ext[a0]!) / ext[a1]!))));
-  const n1 = Math.max(1, Math.floor(chunks / n0));
+  let n0 = chunks === 1 ? 1 : Math.max(1, Math.min(chunks, Math.round(Math.sqrt((chunks * ext[a0]!) / ext[a1]!))));
+  let n1 = chunks === 1 ? 1 : Math.max(1, Math.floor(chunks / n0));
+  if (chunkSize !== undefined && Number.isFinite(chunkSize) && chunkSize > 0) {
+    // Phase 25.7d: no cell wider than chunkSize (the cells grow when the set would need more than the cap).
+    let size = chunkSize;
+    const cells = (s: number): [number, number] => [Math.max(1, Math.ceil(ext[a0]! / s - 1e-9)), Math.max(1, Math.ceil(ext[a1]! / s - 1e-9))];
+    let [s0, s1] = cells(size);
+    while (s0 * s1 > INSTANCE_MAX_SPATIAL_CHUNKS) {
+      size *= Math.sqrt((s0 * s1) / INSTANCE_MAX_SPATIAL_CHUNKS) * 1.001;
+      [s0, s1] = cells(size);
+    }
+    n0 = Math.max(n0, s0);
+    n1 = Math.max(n1, s1);
+    while (n0 * n1 > INSTANCE_MAX_SPATIAL_CHUNKS) {
+      if (n0 >= n1) n0 -= 1;
+      else n1 -= 1;
+    }
+  }
+  if (n0 * n1 === 1) return out;
   for (let i = 0; i < count; i += 1) {
     const c0 = Math.min(n0 - 1, Math.floor(((positions[i * 3 + a0]! - min[a0]!) / ext[a0]!) * n0));
     const c1 = Math.min(n1 - 1, Math.floor(((positions[i * 3 + a1]! - min[a1]!) / ext[a1]!) * n1));
     out[i] = c0 * n1 + c1;
+  }
+  // Only the cells that hold copies become chunks: number them densely.
+  const dense = new Map<number, number>();
+  for (let i = 0; i < count; i += 1) {
+    const c = out[i]!;
+    let d = dense.get(c);
+    if (d === undefined) {
+      d = dense.size;
+      dense.set(c, d);
+    }
+    out[i] = d;
   }
   return out;
 }
@@ -101,7 +152,7 @@ export function chunkCopies(positions: Float32Array | readonly number[], count: 
  * attached anywhere; it stays alive while the set is shown) for the first
  * `count` copies of `floats`.
  */
-export function buildInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances'): BuiltInstanceSet {
+export function buildInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: { readonly chunkSize?: number } = {}): BuiltInstanceSet {
   template.glbRoot.updateMatrixWorld(true);
   const rootInverse = new THREE.Matrix4().copy(template.glbRoot.matrixWorld).invert();
   const group = new THREE.Group();
@@ -136,7 +187,8 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     positions[i * 3 + 1] = floats[o + 1]!;
     positions[i * 3 + 2] = floats[o + 2]!;
   }
-  const chunkOf = chunkCopies(positions, n);
+  // Phase 25.7d: also by extent when a chunk size is given (each chunk culled and LOD'd on its own).
+  const chunkOf = chunkCopies(positions, n, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, options.chunkSize);
   let chunkCount = 0;
   for (let i = 0; i < n; i += 1) if (chunkOf[i]! + 1 > chunkCount) chunkCount = chunkOf[i]! + 1;
   interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: AttributeInstancedMesh[] }
@@ -208,6 +260,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     group,
     meshes,
     count: n,
+    chunks: chunks.filter((c) => c.copies.length > 0).length,
     setCopy(index: number, t: readonly number[]): void {
       if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) return;
       const chunk = chunks[chunkOf[index]!]!;

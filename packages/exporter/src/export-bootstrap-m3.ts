@@ -38,7 +38,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -337,6 +337,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       animation: (manifest.media?.animation ?? []).map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
       // Phase 15.3: the project's idle/run/airborne blend time.
       ...(settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: settings.animation_crossfade_s } : {}),
+      // Phase 25.7d: the project's instance-set chunk size.
+      ...(instanceChunkSizeOf(settings) !== undefined ? { instanceChunkSize: instanceChunkSizeOf(settings) } : {}),
       resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => assetReader.bytes(assetId, version),
       ...(manifest.buffers !== undefined ? { resolveBuffer: bufferResolver(manifest.buffers, io) } : {}),
     };

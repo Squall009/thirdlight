@@ -64,7 +64,7 @@
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { PREVIEW_MODULE_SPECS } from './module-specs';
 import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { audioSpatialOf, depthBufferOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
@@ -345,6 +345,8 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
     animation: manifest.media.animation.map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
     // Phase 15.3: the project's idle/run/airborne blend time.
     ...(manifest.settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: manifest.settings.animation_crossfade_s } : {}),
+    // Phase 25.7d: the project's instance-set chunk size.
+    ...(instanceChunkSizeOf(manifest.settings) !== undefined ? { instanceChunkSize: instanceChunkSizeOf(manifest.settings) } : {}),
     // Phase 25.24b: read (once, checked) when the model is first needed — at start for the start scenes' models.
     resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => reader.bytes(assetId, version),
     ...(manifest.buffers !== undefined

@@ -448,7 +448,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   // Phase 12 (c) / 9.4 (v4 scenes).
-  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow'],
+  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize'],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],

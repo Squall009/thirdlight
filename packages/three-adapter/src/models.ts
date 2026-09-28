@@ -64,7 +64,7 @@ import {
   type VisualResourceStore,
   createVisualResourceStore,
 } from './visual';
-import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
+import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet } from './instancing';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
 import { releaseEmissiveLooks, SHARED_MATERIAL_KEY } from './node-materials';
 import {
@@ -126,6 +126,8 @@ export interface SceneAdapterModels {
   readonly resolveBuffer?: (digest: string) => Promise<ArrayBuffer>;
   /** Phase 15.3: the idle/run/airborne blend time (the project's `animation_crossfade_s`; absent: 0.2 s). */
   readonly crossfadeSeconds?: number;
+  /** Phase 25.7d: the project's instance-set chunk size (m, `instance_chunk_m`; absent: INSTANCE_CHUNK_METERS). */
+  readonly instanceChunkSize?: number;
 }
 
 /** The bounded `models` diagnostics block (delivery.md (M4) §2.5 —
@@ -286,6 +288,8 @@ export interface InstanceSetRef {
   /** SHA-256 of the transform buffer. */
   readonly buffer: string;
   readonly count: number;
+  /** Phase 25.7d: the set's own chunk size (m); absent: the project's (`SceneAdapterModels.instanceChunkSize`). */
+  readonly chunkSize?: number;
 }
 
 
@@ -692,7 +696,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const created = resource.createInstance(instanceOptions(ref.assetId, ref.piece));
     if (created.ok === false) return;
     const template = created.instance;
-    const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`);
+    const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`, { chunkSize: ref.chunkSize ?? ctx.models.instanceChunkSize ?? INSTANCE_CHUNK_METERS });
     holder.add(built.group);
     attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group) });
     ctx.onAttached?.(entityId, built.group);

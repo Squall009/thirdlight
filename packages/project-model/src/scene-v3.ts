@@ -229,6 +229,9 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
  * buffer stored by SHA-256 (asset and buffer existence are checked against
  * the content block and the blob store elsewhere).
  */
+/** Phase 25.7d: the largest instance-set chunk size (m). */
+export const MAX_INSTANCE_CHUNK_SIZE = 4096;
+
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
@@ -255,8 +258,13 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
     errors.push(fieldValue(`${path}/count`, count, `integer 1-${MAX_INSTANCES}`, 'an instance set holds 1 to 65536 copies'));
   }
   validateShadowFlags(c, path, errors);
+  // Phase 25.7d: the set's own spatial chunk size (m).
+  const chunkSize = c['chunkSize'];
+  if (chunkSize !== undefined && (typeof chunkSize !== 'number' || !Number.isFinite(chunkSize) || chunkSize < 1 || chunkSize > MAX_INSTANCE_CHUNK_SIZE)) {
+    errors.push(fieldValue(`${path}/chunkSize`, chunkSize, `a number 1-${MAX_INSTANCE_CHUNK_SIZE}`, 'chunkSize is the chunk width in metres'));
+  }
   for (const k of Object.keys(c)) {
-    if (k !== 'asset' && k !== 'buffer' && k !== 'count' && k !== 'castShadow' && k !== 'receiveShadow') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count, castShadow, receiveShadow'));
+    if (k !== 'asset' && k !== 'buffer' && k !== 'count' && k !== 'castShadow' && k !== 'receiveShadow' && k !== 'chunkSize') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count, castShadow, receiveShadow, chunkSize'));
   }
 }
 
@@ -1000,7 +1008,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   // Phase 23.10: after that (existing entities keep their bytes).
   if (comps['behaviorGroup'] !== undefined) (components as { behaviorGroup?: BehaviorGroupComponent }).behaviorGroup = canonicalBehaviorGroup(comps['behaviorGroup'] as BehaviorGroupComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1008,6 +1016,8 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       // Phase 17.4: kept only when set (an existing set keeps its exact canonical bytes).
       ...(typeof i.castShadow === 'boolean' ? { castShadow: i.castShadow } : {}),
       ...(typeof i.receiveShadow === 'boolean' ? { receiveShadow: i.receiveShadow } : {}),
+      // Phase 25.7d: kept only when set.
+      ...(typeof i.chunkSize === 'number' ? { chunkSize: i.chunkSize } : {}),
     };
   }
   const name = e['name'];

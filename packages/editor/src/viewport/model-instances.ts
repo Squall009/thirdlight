@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import {
   buildInstanceSet,
+  INSTANCE_CHUNK_METERS,
   disposeObjectTree,
   createVisualResourceStore,
   markBatchable,
@@ -67,6 +68,10 @@ export interface ModelInstancesOptions {
   /** Phase 9.4: project materials, and an asset's default material mapping. */
   materialLibrary?: MaterialLibrary;
   assetMaterialsFor?: (assetId: string) => Readonly<Record<string, string>> | null;
+  /** Phase 25.7d: the project's instance-set chunk size (m; `instance_chunk_m`, absent: the engine default). */
+  instanceChunkSize?: () => number | undefined;
+  /** Phase 25.7d: an instance set was (re)built with this many chunks (the Inspector shows it). */
+  onSetBuilt?: (entityId: string, chunks: number) => void;
 }
 
 interface LiveInstance {
@@ -303,14 +308,15 @@ export class ModelInstances {
       const res = this.resources.get(ref.assetId);
       const floats = this.buffers.get(ref.buffer);
       const mapping = this.mappingFor(e);
-      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}:${mapping === null ? '' : JSON.stringify([mapping, materialOverridesOf(e)])}`;
+      const chunkSize = ref.chunkSize ?? this.options.instanceChunkSize?.() ?? INSTANCE_CHUNK_METERS;
+      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}:${chunkSize}:${mapping === null ? '' : JSON.stringify([mapping, materialOverridesOf(e)])}`;
       const current = this.sets.get(e.id);
       if (current !== undefined && current.key === key) continue;
       if (res === undefined || floats === undefined) continue;
       this.detachSet(e.id);
       const created = res.resource.createInstance(this.instanceOptions(e));
       if (!created.ok) continue;
-      const built = buildInstanceSet(created.instance, floats, ref.count, `instances:${e.id}`);
+      const built = buildInstanceSet(created.instance, floats, ref.count, `instances:${e.id}`, { chunkSize });
       (built.group as { entityId?: string }).entityId = e.id;
       for (const m of built.meshes) (m as { entityId?: string }).entityId = e.id;
       const parent = this.options.parentFor?.(e.id) ?? null;
@@ -319,12 +325,18 @@ export class ModelInstances {
       const lib = this.options.materialLibrary;
       const undoMaterials = lib !== undefined && mapping !== null ? lib.apply(built.group, mapping, materialOverridesOf(e)) : null;
       this.sets.set(e.id, { key, template: created.instance, built, undoMaterials });
+      this.options.onSetBuilt?.(e.id, built.chunks);
       this.options.onChanged?.();
     }
     for (const id of [...this.sets.keys()]) if (!wanted.has(id)) this.detachSet(id);
     for (const digest of [...this.buffers.keys()]) {
       if (!this.entities.some((e) => e.instances?.buffer === digest)) this.buffers.delete(digest);
     }
+  }
+
+  /** Phase 25.7d: rebuild the sets whose chunk size changed (the project's `instance_chunk_m` was edited). */
+  refreshSets(): void {
+    if (!this.disposed) this.syncSets();
   }
 
   /** Phase 15.2: the drawn copies of an instance set (picking one copy). */

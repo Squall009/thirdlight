@@ -983,6 +983,8 @@ const instances: ComponentDescriptor = {
     // Phase 17.4: true by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
     bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off for decals, glows, backdrops).', { default: true, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
+    // Phase 25.7d: absent = the project's Instance chunk size (32 m unless set).
+    num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view and given its level of detail on its own (absent: the project\'s Instance chunk size).', { min: 1, max: 4096, step: 1, unit: 'm' }),
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],

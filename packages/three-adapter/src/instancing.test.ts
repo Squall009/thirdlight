@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
-import { buildInstanceSet, chunkCopies, INSTANCE_BUFFER_FLOATS } from './instancing';
+import { buildInstanceSet, chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
 import type { ModelInstance } from './visual';
 
 function copies(n: number, spread: number): Float32Array {
@@ -67,6 +67,43 @@ describe('instance chunks', () => {
     // Neighbours share a chunk; far copies do not.
     expect(chunks[0]).toBe(chunks[1]);
     expect(chunks[0]).not.toBe(chunks[19_999]);
+  });
+
+  it('phase 25.7d: with a chunk size, no chunk is wider than it (a few copies over a wide area still split); the cells grow past the cap', () => {
+    const pos = (f: Float32Array, n: number): Float32Array => {
+      const p = new Float32Array(n * 3);
+      for (let i = 0; i < n; i += 1) p.set([f[i * 10]!, f[i * 10 + 1]!, f[i * 10 + 2]!], i * 3);
+      return p;
+    };
+    // 500 copies over 99 × 8 m (spread 1: x 0..99, z 0..4): by count one chunk, by a 10 m extent 10 × 1 cells.
+    const few = pos(copies(500, 1), 500);
+    expect(new Set(chunkCopies(few, 500)).size).toBe(1);
+    const spatial = chunkCopies(few, 500, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, 10);
+    expect(new Set(spatial).size).toBe(10);
+    // Each chunk spans at most 10 m along x, and chunk numbers are dense.
+    const span = new Map<number, [number, number]>();
+    for (let i = 0; i < 500; i += 1) {
+      const c = spatial[i]!;
+      const x = few[i * 3]!;
+      const s = span.get(c) ?? [Infinity, -Infinity];
+      span.set(c, [Math.min(s[0], x), Math.max(s[1], x)]);
+    }
+    for (const [lo, hi] of span.values()) expect(hi - lo).toBeLessThanOrEqual(10);
+    expect([...span.keys()].sort((a, b) => a - b)).toEqual([...Array(10).keys()]);
+    // A huge set with a tiny chunk size stays within the cap.
+    const huge = pos(copies(20_000, 5), 20_000);
+    expect(new Set(chunkCopies(huge, 20_000, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, 1)).size).toBeLessThanOrEqual(INSTANCE_MAX_SPATIAL_CHUNKS);
+    // buildInstanceSet reports its chunks and places each chunk's LOD at the chunk's own centre.
+    const { template } = lodTemplate();
+    const set = buildInstanceSet(template, copies(500, 1), 500, 'spatial', { chunkSize: 10 });
+    expect(set.chunks).toBe(10);
+    expect(buildInstanceSet(lodTemplate().template, copies(500, 1), 500).chunks).toBe(1);
+    const lods: THREE.LOD[] = [];
+    set.group.traverse((o) => {
+      if ((o as THREE.LOD).isLOD === true) lods.push(o as THREE.LOD);
+    });
+    expect(lods.length).toBe(10);
+    set.dispose();
   });
 
   it('each chunk is a LOD with the template levels; the copy is found again from any level', () => {

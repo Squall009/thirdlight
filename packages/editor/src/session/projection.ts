@@ -85,7 +85,7 @@ export interface ProjectedEntity {
   /** M3 (packet 57): the model-animation profile, when present (project-model §23.3.6). */
   modelAnimation?: ModelAnimationComponent;
   /** Phase 12 (c): the instance set (one model, many placements from a buffer). */
-  instances?: { assetId: string; piece?: string; buffer: string; count: number };
+  instances?: { assetId: string; piece?: string; buffer: string; count: number; chunkSize?: number };
   /** Phase 12 (c): the scene the entity is in (v4 projects; absent for older ones). */
   sceneId?: string;
   /**
@@ -187,7 +187,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     light?: LightComponent;
     surface?: SurfaceComponent;
     modelAnimation?: ModelAnimationComponent;
-    instances?: { asset?: { assetId?: string; piece?: string }; buffer?: string; count?: number };
+    instances?: { asset?: { assetId?: string; piece?: string }; buffer?: string; count?: number; chunkSize?: number };
     materials?: Record<string, string>;
     fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number };
     animator?: { controller: string; parameters?: Record<string, number | boolean> };
@@ -225,7 +225,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     ...(c.light !== undefined ? { light: { ...c.light, ...(c.light.direction ? { direction: [...c.light.direction] as [number, number, number] } : {}) } } : {}),
     ...(c.surface !== undefined ? { surface: { ...c.surface } } : {}),
     ...(c.instances?.asset?.assetId !== undefined && typeof c.instances.buffer === 'string' && typeof c.instances.count === 'number'
-      ? { instances: { assetId: c.instances.asset.assetId, ...(typeof c.instances.asset.piece === 'string' ? { piece: c.instances.asset.piece } : {}), buffer: c.instances.buffer, count: c.instances.count } }
+      ? { instances: { assetId: c.instances.asset.assetId, ...(typeof c.instances.asset.piece === 'string' ? { piece: c.instances.asset.piece } : {}), buffer: c.instances.buffer, count: c.instances.count, ...(typeof c.instances.chunkSize === 'number' ? { chunkSize: c.instances.chunkSize } : {}) } }
       : {}),
     ...(c.modelAnimation !== undefined ? { modelAnimation: { assetId: c.modelAnimation.assetId, version: c.modelAnimation.version, roles: { idle: { ...c.modelAnimation.roles.idle }, run: { ...c.modelAnimation.roles.run }, airborne: { ...c.modelAnimation.roles.airborne } } } } : {}),
   };
@@ -593,9 +593,9 @@ export class Projection {
           if (change.next === null) delete p.surface;
           else p.surface = { ...(change.next as SurfaceComponent) };
         } else if (change.component === 'instances') {
-          const next = change.next as { asset: { assetId: string; piece?: string }; buffer: string; count: number } | null;
+          const next = change.next as { asset: { assetId: string; piece?: string }; buffer: string; count: number; chunkSize?: number } | null;
           if (next === null) delete p.instances;
-          else p.instances = { assetId: next.asset.assetId, ...(next.asset.piece !== undefined ? { piece: next.asset.piece } : {}), buffer: next.buffer, count: next.count };
+          else p.instances = { assetId: next.asset.assetId, ...(next.asset.piece !== undefined ? { piece: next.asset.piece } : {}), buffer: next.buffer, count: next.count, ...(typeof next.chunkSize === 'number' ? { chunkSize: next.chunkSize } : {}) };
         } else if (change.component === 'modelAnimation') {
           if (change.next === null) delete p.modelAnimation;
           else {

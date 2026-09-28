@@ -123,3 +123,45 @@ test('an instance set in a scene loaded during Play is drawn once the scene load
   await page.screenshot({ path: 'test-results/instances-after-load.png' });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });
+
+test('phase 25.7d: a set is chunked by extent (the project default, overridden per set in the Inspector)', async ({ page }) => {
+  be = await startBackend('inst-chunks', 'starter');
+  // 200 copies in a 99.5 m row (x 0..99.5) near the ground.
+  const transforms: number[] = [];
+  for (let i = 0; i < 200; i += 1) transforms.push(i * 0.5, 0, -3 - (i % 2), 0, 0, 0, 1, 0.3, 0.3, 0.3);
+  const published = await api('content/buffers', { transforms });
+  expect(published.status, JSON.stringify(published.json)).toBe(200);
+  const assets = (await query('queryAssets', { limit: 50, offset: 0 })).assets as { assetId: string; displayName: string }[];
+  const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
+  const made = await cmd('createEntity', { kind: 'group', name: 'Row', components: { instances: { asset: { assetId: pillar }, buffer: published.json.digest, count: 200 } } });
+  const id = String(made.createdId);
+
+  await page.goto(be.editorUrl);
+  await expect(status(page)).toContainText('connected');
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Row' }).click();
+  const chunks = page.locator('.tl-inspector [data-chunks]');
+  // The engine default, 32 m: a 99.5 m row is 4 chunks (by count alone it was one).
+  await expect(chunks).toHaveAttribute('data-chunks', '4', { timeout: 15_000 });
+  await expect(chunks).toContainText('at most 32 m');
+
+  // The set's own size, in the Inspector: 10 m → 10 chunks, stored on the component.
+  const f = page.locator('.tl-inspector').getByLabel('instances chunkSize', { exact: true });
+  await f.fill('10');
+  await f.press('Enter');
+  await expect.poll(async () => ((await query('queryEntity', { entityId: id })).entity as { components: { instances: { chunkSize?: number } } }).components.instances.chunkSize).toBe(10);
+  await expect(chunks).toHaveAttribute('data-chunks', '10');
+
+  // Back to the project default, then the project's own size (setSettings instance_chunk_m) rebuilds it: 50 m → 2 chunks.
+  const current = (await query('queryEntity', { entityId: id })).entity as { components: { instances: Record<string, unknown> } };
+  await cmd('setComponent', { entityId: id, component: 'instances', value: { ...current.components.instances, chunkSize: null } });
+  expect(((await query('queryEntity', { entityId: id })).entity as { components: { instances: Record<string, unknown> } }).components.instances.chunkSize).toBeUndefined();
+  await expect(chunks).toHaveAttribute('data-chunks', '4');
+  await cmd('setSettings', { settings: { instance_chunk_m: 50 } });
+  await expect(chunks).toHaveAttribute('data-chunks', '2');
+
+  // Play draws the set (with the project's chunk size) without a notice.
+  await page.getByTitle('Start an isolated play preview').click();
+  await page.waitForTimeout(2500);
+  await expect(page.locator('.tl-notice')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/instances-chunks-play.png' });
+});

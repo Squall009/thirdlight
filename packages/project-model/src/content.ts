@@ -1596,6 +1596,13 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // panning) so every existing project sounds exactly as before; a 3D project
   // gets a panner per source with the listener on the active camera. 1 and 2
   // force one or the other (a 2D game may want stereo panning).
+  // Phase 25.7d: the size (m) of an instance set's spatial chunks, each culled and
+  // given its level of detail on its own (a set's own chunkSize overrides it).
+  // 32 m: a few seconds' walk for the default 1.8 m character and small next
+  // to a usual view distance, so chunks out of view are culled and a chunk's
+  // level of detail (picked at its centre) is off by at most ~23 m (three-adapter
+  // INSTANCE_CHUNK_METERS, the same value).
+  { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: 'Rendering', label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view and given its level of detail on its own. Smaller: finer culling and LOD, more draw calls. A set can set its own.' },
   { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
 ];
 
@@ -1625,6 +1632,12 @@ export function audioSpatialOf(settings: unknown): 'legacy' | 'panner' {
   if (v === 1) return 'legacy';
   if (v === 2) return 'panner';
   return physicsDimensionOf(settings) === 3 ? 'panner' : 'legacy';
+}
+
+/** Phase 25.7d: the project's instance-set chunk size (m) when it sets `instance_chunk_m`, else undefined (the engine default, 32 m). */
+export function instanceChunkSizeOf(settings: unknown): number | undefined {
+  const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['instance_chunk_m'] : undefined;
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
 export function physicsDimensionOf(settings: unknown): PhysicsDimension {

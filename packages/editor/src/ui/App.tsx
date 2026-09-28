@@ -478,6 +478,8 @@ function EditorApp(): JSX.Element {
   // ---- packet 56: M3 gameplay authoring (game config / camera / settings) ---
   const [gameplayError, setGameplayError] = useState<GameplayBackendError | null>(null);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
+  // Phase 25.7d: the chunks each drawn instance set was split into (by entity id).
+  const [instanceChunks, setInstanceChunks] = useState<Record<string, number>>({});
   /** Phase 12 (b): the project tag registry and the last setTags error. */
   const [tags, setTags] = useState<{ bit: number; name: string }[]>([]);
   /** Phase 12 (c): the open scenes' headers and the closed scenes (a v4 project with scenes). */
@@ -1034,6 +1036,12 @@ function EditorApp(): JSX.Element {
       vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
       materialLibrary,
       assetMaterialsFor: (assetId) => client.content.getAsset(assetId)?.materials ?? null,
+      // Phase 25.7d: the project's instance chunk size; the Inspector shows each set's chunk count.
+      instanceChunkSize: () => {
+        const v = client.getSettings()?.['instance_chunk_m'];
+        return typeof v === 'number' && v > 0 ? v : undefined;
+      },
+      onSetBuilt: (entityId, chunks) => setInstanceChunks((prev) => (prev[entityId] === chunks ? prev : { ...prev, [entityId]: chunks })),
       onFailuresChanged: (failures) =>
         setViewFailures([...failures].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message }))),
     });
@@ -1068,6 +1076,12 @@ function EditorApp(): JSX.Element {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Phase 25.7d: a changed project chunk size rebuilds the instance sets that use it.
+  const instanceChunkSetting = settings?.['instance_chunk_m'];
+  useEffect(() => {
+    modelInstancesRef.current?.refreshSets();
+  }, [instanceChunkSetting]);
 
   // Phase 17.1: the project's render_backend setting (under the page's ?renderer= flag) picks the
   // Scene view's backend and the one previews and thumbnails create their renderer with.
@@ -4725,6 +4739,11 @@ function EditorApp(): JSX.Element {
                   // Phase 15.2: one copy of an instance set, and the copy brush.
                   instances: (
                     <div className="tl-inspector__copies" data-copy={selectedCopy ?? ''}>
+                      {instanceChunks[selected.id] !== undefined && (
+                        <p className="tl-inspector__hint" data-chunks={instanceChunks[selected.id]}>
+                          Drawn in {instanceChunks[selected.id]} chunk{instanceChunks[selected.id] === 1 ? '' : 's'} of at most {String((selected.components['instances'] as { chunkSize?: number } | undefined)?.chunkSize ?? settings?.['instance_chunk_m'] ?? 32)} m, each hidden out of view and given its level of detail on its own.
+                        </p>
+                      )}
                       {selectedCopy !== null && (
                         <>
                           <p className="tl-inspector__hint">Copy {selectedCopy + 1} selected: move, turn or scale it with the gizmo (W/E/R); Del deletes it.</p>

@@ -170,7 +170,9 @@ boundary it changes (Playwright for any editor surface).
 | 25.7b | done 2026-09-28: runtime content manifest version 4: materials (only the used ones), material functions, UI documents, dialogue and the instance buffer table are content files (`content/sha256/<digest>`, the block's canonical bytes) listed in `contentFiles` and bound by the buildId; Play and the export read each once, check it against its row and put it back under its key (`expandManifestContentFiles`); `manifest-keys.e2e.ts` plays and exports (backend stopped) a project with all four, the material graph e2e checks pixels in Play and the export on both renderers |
 | 25.7c | done 2026-09-28: sound-effect records 16 → 64 (music's 64; the limits table), `deleteAsset {assetId}` and `deletePrefab {prefabId}` refused (`reference_in_use`, the uses listed by scene and path) while any typed reference in any scene or the content, or a script's string literal, names the record; the bytes stay, one undo restores it (`removeAsset` change; a prefab's undo is a `createPrefab` change); editor delete buttons (Assets, Prefabs) and MCP `tl_command` tested against the real backend (`delete-content.e2e.ts`), workspace test across scenes |
 | 25.7e | done 2026-09-28: `createEntity` takes `active`, `locked`, `static`, `tags`; `createEntities {entities: [createEntity args + ref?], sceneId?}` up to 1024 entities in one revision and one undo (a `pasteEntities` change, undone by removing them), validated once; workspace test and the MCP e2e |
-| 25.7d–25.23 | — |
+| 25.7d | done 2026-09-28: instance sets also chunked by extent: project setting `instance_chunk_m` (default 32 m), per-set `instances.chunkSize` (Inspector field); no chunk wider than it (≤ 256 chunks, cells grow past that), finer of the count and extent grids per axis; each chunk culled and LOD'd at its own centre, drawn through the shared instance-matrix columns (25.24d); Scene view, Play and export alike; `instances.e2e.ts` (the Inspector's chunk count follows the default, the per-set field and the setting), unit tests |
+| 25.7 | done 2026-09-28: (a)–(e) hold |
+| 25.8–25.23 | — |
 
 ## 6. Decision log
 
@@ -719,6 +721,19 @@ boundary it changes (Playwright for any editor surface).
   scene is validated once (a per-item gate would validate the scene N
   times). 1024 entities per batch; the 64 KiB request cap usually bounds it
   first. `ref` is batch-local and never stored.
+- 2026-09-28 (25.7d): extent chunking is added to the count chunking, not
+  put in its place: per axis the finer of the two grids is used, so a dense
+  small set still splits by count and a sparse wide one by extent. Default
+  32 m (three-adapter `INSTANCE_CHUNK_METERS`, the setting's default): a few
+  seconds' walk for the default character and a LOD error of at most the
+  half diagonal (~23 m), genre-neutral. The cap rises from 64 to 256 chunks
+  for extent chunking (only chunks in view draw); past it the cells grow
+  rather than the set being refused. Only cells holding copies become chunks.
+  The chunk size is rendering data: it does not enter the simulation, so
+  replays and the determinism pins are unchanged; the setting is optional
+  (stored only when set) and the component field kept only when set, so
+  existing documents and buildIds stay byte-identical. It is not
+  `runtimeWritable` (sets are built once when their scene loads).
 - 2026-09-28 (25.7b): the manifest split. The five blocks are written as
   their canonical bytes (`JSON.stringify(block, null, 2) + "\n"`, so a
   file's digest is the block digest) at `content/sha256/<digest>`, the path

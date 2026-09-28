@@ -482,6 +482,17 @@ detail. Copies have no ids, colliders or scripts.
   to it. MCP does the same: `tl_instance_buffer {digest}` reads a set's
   copies (`{digest, count, transforms}`, sets of up to 4096 copies), edit the
   list, publish it, `setComponent`.
+- **Chunks** (phase 25.7d): a set is drawn in chunks, each hidden when out of
+  view and given its level of detail at its own centre. The copies are split
+  by count (about 2048 per chunk) and by extent: no chunk is wider than the
+  chunk size, 32 m unless the project sets **Rendering → Instance chunk
+  size** (`setSettings {instance_chunk_m}`, 1–4096 m) or the set its own
+  (Inspector → Instance set → **Chunk size**, `instances.chunkSize`; `null`
+  puts it back to the project's). A set needs at most 256 chunks; a wider one
+  gets larger chunks. The Inspector says how many chunks the selected set is
+  drawn in. Smaller chunks cull and pick levels of detail more finely at the
+  cost of more draw calls where many are in view. Play, the export and the
+  Scene view chunk alike.
 
 ## Deleting assets and prefabs (phase 25.7c)
 
