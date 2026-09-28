@@ -32,9 +32,9 @@ test('lights, spawns and empties show as icons that can be clicked to select', a
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   // Put a spawn and an empty at known spots (the menu creates at the focus point; move them by the inspector).
-  await menu(page, 'GameObject', 'Player spawn');
+  await menu(page, 'GameObject', 'Spawn point');
   const rows = page.locator('.tl-hierarchy__list li.tl-row');
-  await expect(rows.filter({ hasText: 'Player spawn' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'Spawn point' })).toHaveCount(1);
   await page.getByLabel('position x').fill('2');
   await page.getByLabel('position x').press('Enter');
   await page.getByLabel('position y').fill('0.5');
@@ -52,7 +52,7 @@ test('lights, spawns and empties show as icons that can be clicked to select', a
 
   // Clicking the icon selects the spawn.
   await page.mouse.click(at.x, at.y);
-  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toContainText('Player spawn');
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toContainText('Spawn point');
 
   // Lights are icons too: the ambient light of the starter scene is pickable at its position.
   const q = await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 64, offset: 0 } });

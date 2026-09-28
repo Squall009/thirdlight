@@ -228,6 +228,8 @@ const CREATE_COMPONENTS: readonly string[] = [
   'collectible',
   'patrol',
   'hitbox',
+  // Phase 24.5: v4 scenes only (the GameObject menu's camera track is one createEntity).
+  'virtualCamera',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */

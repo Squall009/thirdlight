@@ -328,6 +328,37 @@ export type ComponentAdd =
   | { readonly kind: 'tool'; readonly tool: string }
   | { readonly kind: 'never'; readonly reason: string };
 
+/**
+ * Phase 24.5: the icon an object carrying the component shows in the Scene
+ * view and the hierarchy (the editor draws the artwork). When an object
+ * carries several components with icons, the one earliest in this list wins
+ * (the most specific first).
+ */
+export const COMPONENT_ICONS = ['camera', 'spawn', 'audio', 'fog', 'patrol', 'mover', 'switch', 'collectible', 'sensor', 'hitbox', 'health'] as const;
+export type ComponentIcon = (typeof COMPONENT_ICONS)[number];
+
+/**
+ * Phase 24.5: a GameObject menu entry that creates a new object carrying the
+ * component (the menus render from these; no hard-coded list).
+ */
+export interface CreateEntryDescriptor {
+  readonly label: string;
+  /** The GameObject submenu it sits in (absent: the menu itself). An existing submenu of that name gains it. */
+  readonly menu?: string;
+  /** The new object's name (absent: the label). */
+  readonly name?: string;
+  /** A placeholder box of this size (m) and colour (absent: an empty object). */
+  readonly box?: { readonly size: readonly [number, number, number]; readonly color: string };
+  /** The component's value (absent: its "+ Add component" value). */
+  readonly value?: DescriptorJson;
+  /** Other components the new object carries (a platform's collider). */
+  readonly with?: { readonly [component: string]: DescriptorJson };
+  /** The project physics dimension the entry fits (absent: both). */
+  readonly dimension?: 2 | 3;
+  /** Pointers into `value` set to another scene of the project when created (the entry needs a second scene). */
+  readonly otherScene?: readonly string[];
+}
+
 export interface ComponentRelation {
   readonly component: string;
   readonly reason: string;
@@ -355,6 +386,10 @@ export interface ComponentDescriptor {
   readonly legacy?: boolean;
   /** Placement rules the validator enforces (a physics body is a root at unit scale…). */
   readonly rules?: readonly string[];
+  /** Phase 24.5: the GameObject menu entries that create an object with it. */
+  readonly create?: readonly CreateEntryDescriptor[];
+  /** Phase 24.5: the object's icon (see `COMPONENT_ICONS`). */
+  readonly icon?: ComponentIcon;
 }
 
 export interface ContentBlockDescriptor {
@@ -377,6 +412,8 @@ export interface DescriptorRegistry {
   readonly entity: ObjectFieldDescriptor;
   /** Every v4 component, in "+ Add component" order within its category. */
   readonly components: readonly ComponentDescriptor[];
+  /** Phase 24.5: the component icons, most specific first (an object shows the first its components name). */
+  readonly icons?: readonly ComponentIcon[];
   /** Every v4 content block. */
   readonly content: readonly ContentBlockDescriptor[];
   /** Phase 23.9b: the fields of a UI document, a widget, a style and a tween (the UI document editor's Inspector). */
@@ -591,6 +628,8 @@ const collider: ComponentDescriptor = {
     list('layers', 'Collision layers', `The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers.`, str('*', 'Layer', 'A collision layer: "default" or one the project names.', { format: 'identifier', minLength: 1, maxLength: 32 }), { minItems: 1, maxItems: 16, unique: true }),
   ]),
   add: { kind: 'menu', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
+  // Phase 24.5: a 3 × 0.2 m shelf (a platform to land on, thin enough to jump up through), 2D only (a 3D project has no one-way colliders).
+  create: [{ label: 'One-way platform', menu: 'Gameplay', box: { size: [3, 0.2, 2], color: '#8fb573' }, value: { shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true }, dimension: 2 }],
   presets: [
     { label: 'Box', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, dimension: 2 },
     { label: 'Polygon', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } }, dimension: 2 },
@@ -701,7 +740,7 @@ const gameZone: ComponentDescriptor = {
     int('damage', 'Damage', 'Health taken per hit (0: instant death).', { when: when('role', 'hazard'), min: 0, max: 1000, default: 0 }),
     entity('safeSpawnId', 'Respawn at', 'The player spawn used after a death once this checkpoint is reached.', { required: true, when: when('role', 'checkpoint'), component: 'playerSpawn' }),
     obj('activation', 'Activation look', 'How the checkpoint looks once reached.', [
-      // Phase 15.5: a new checkpoint glows plain white at 1 (reads as "lit" in any palette; was Beacon Reach's cyan at 1.2).
+      // Phase 15.5: a new checkpoint glows plain white at 1 (reads as "lit" in any palette).
       color('emissive', 'Glow colour', 'The glow when reached.', { required: true, default: '#ffffff' }),
       num('emissiveIntensity', 'Glow strength', 'How strongly it glows.', { required: true, min: 0, max: MAX_EMISSIVE_INTENSITY, step: 0.1, default: 1 }),
       asset('cueAssetId', 'Sound', 'Played when reached (none: the game\'s checkpoint cue).', ['audio'], { required: true, nullable: true, default: null }),
@@ -712,13 +751,8 @@ const gameZone: ComponentDescriptor = {
     // Phase 20.2: a visual effect where the zone is when it is reached (visual only).
     ref('effect', 'Effect when reached', 'A project effect played where the zone is when the player reaches it (none: no effect).', 'effect', { when: when('role', 'checkpoint', 'goal') }),
   ], { rules: ['An exit loads or unloads at least one scene.'] }),
-  // Phase 15.5: a hazard is a 1.5 × 0.5 m strip (a stride wide, low enough for the default 1.25 m jump); a goal 2 m square
-  // (easy to walk into for the default 1.8 m character) — the editor's zone defaults (`DEFAULT_ZONE_SIZE`).
-  add: { kind: 'menu', value: { role: 'hazard', size: [1.5, 0.5] } },
-  presets: [
-    { label: 'Hazard', value: { role: 'hazard', size: [1.5, 0.5] } },
-    { label: 'Goal', value: { role: 'goal', size: [2, 2] } },
-  ],
+  add: { kind: 'never', reason: 'removed in phase 24: build it as project scripts over the generic primitives (kept for old data until phase 24.7)' },
+  legacy: true,
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [
     { component: 'collider', reason: 'a zone never blocks movement' },
@@ -742,6 +776,8 @@ const playerSpawn: ComponentDescriptor = {
     num('yaw', 'Yaw', 'The way the character faces on arrival, degrees about +Y (0: facing +Z; absent: as it was).', { min: -360, max: 360, step: 5, unit: 'deg' }),
   ]),
   add: { kind: 'menu', value: {} },
+  create: [{ label: 'Spawn point' }],
+  icon: 'spawn',
   handles: [],
   excludes: [
     { component: 'gameZone', reason: 'a spawn is a separate marker' },
@@ -775,7 +811,7 @@ const cameraFollow: ComponentDescriptor = {
     num('maxSpeed', 'Max speed', 'The fastest the smoothed camera moves per axis (a safety cap; smoothing shapes the motion).', { ...CAMERA_FOLLOW_LIMITS.maxSpeed, step: 10, unit: 'm/s', default: CAMERA_FOLLOW_DEFAULTS.maxSpeed }),
   ]),
   // Phase 15.5: a 0.5 m dead zone (small steps and landings do not move the view) and light smoothing 0.2 (a short lag, no
-  // swim) — generic follow-camera values; Beacon Reach happens to use the same numbers in its own data.
+  // swim) — generic follow-camera values.
   add: { kind: 'menu', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } },
   handles: [{ kind: 'box2', label: 'Bounds', bind: { minX: 'bounds/minX', maxX: 'bounds/maxX', minY: 'bounds/minY', maxY: 'bounds/maxY' }, space: 'world' }],
   requiresAnyOf: { components: ['camera'], reason: 'the follow settings belong to the camera' },
@@ -850,6 +886,9 @@ const virtualCamera: ComponentDescriptor = {
     // Phase 24.4g: frames its target as placed, following once it leaves a 2 × 1 m box (about a body's reach), with a short 0.2 s lag.
     { label: 'Track (dead zone)', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } },
   ],
+  // Phase 24.5: the track rig's shot as its own object (the target is picked in the Inspector; without one it frames where it is placed).
+  create: [{ label: 'Camera track', menu: 'Cameras', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } }],
+  icon: 'camera',
   handles: [{ kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') }],
   excludes: [
     { component: 'camera', reason: 'a virtual camera is a shot; the scene camera draws whichever shot is live' },
@@ -928,7 +967,6 @@ const light: ComponentDescriptor = {
   // - directional and ambient = a new project's starter lights: a white key from
   //   above-front at 1.2 casting shadows (a lone key without shadows flattens any
   //   scene) over a cool fill at 0.6 (shadowed sides stay readable, not black).
-  //   They were Beacon Reach's key and fill (#fff4e0 1.6, #8a94b0 0.9).
   // - point: a warm lamp (most placed point lights stand for a lamp, torch or
   //   candle), 30 cd reaching 8 m (a room); spot: white 80 cd, a 30° cone 12 m
   //   long pointing down (a ceiling spot or a stage light).
@@ -1099,6 +1137,8 @@ const fogVolume: ComponentDescriptor = {
   // Phase 15.5: a room-sized 6 × 3 × 4 m box of light grey-blue haze at a quarter density with soft edges — visible
   // at once, easy to resize; no setting assumed (valley mist, room smoke, steam).
   add: { kind: 'menu', value: { size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5 } },
+  create: [{ label: 'Fog volume', menu: 'Light' }],
+  icon: 'fog',
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],
   prefab: false,
@@ -1216,6 +1256,15 @@ const mover: ComponentDescriptor = {
   ]),
   // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
+  // Phase 24.5: placeholder boxes against the engine's default 1.8 m character: a 2 m platform to stand on and a 3 m door
+  // to walk through (it rises 3 m when "open" is sent — the switch's default signal); each with its box collider.
+  create: [
+    { label: 'Moving platform', menu: 'Gameplay', box: { size: [2, 0.4, 2], color: '#c9a36a' }, with: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } } }, dimension: 2 },
+    { label: 'Moving platform', menu: 'Gameplay', box: { size: [2, 0.4, 2], color: '#c9a36a' }, with: { collider: { shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } } }, dimension: 3 },
+    { label: 'Door (opens on "open")', name: 'Door', menu: 'Gameplay', box: { size: [0.6, 3, 2], color: '#7a5230' }, value: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' }, with: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5 } } }, dimension: 2 },
+    { label: 'Door (opens on "open")', name: 'Door', menu: 'Gameplay', box: { size: [0.6, 3, 2], color: '#7a5230' }, value: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' }, with: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5, hz: 1 } } }, dimension: 3 },
+  ],
+  icon: 'mover',
   handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', loop: when('mode', 'loop') }],
   excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }, { component: 'socketAttach', reason: 'a socket poses the object every step; a mover follows its waypoints' }, { component: 'patrol', reason: 'a mover and a patrol would both move it' }],
   prefab: true,
@@ -1252,6 +1301,14 @@ const trigger: ComponentDescriptor = {
     { label: 'Sphere', value: { shape: 'sphere', radius: 1, signal: 'trigger' }, dimension: 3 },
     { label: 'Capsule', value: { shape: 'capsule', radius: 0.5, height: 2, signal: 'trigger' }, dimension: 3 },
   ],
+  // Phase 24.5: an area, and an area that moves the character to another scene (its first spawn picked in the Inspector).
+  create: [
+    { label: 'Trigger', menu: 'Gameplay', dimension: 2 },
+    { label: 'Trigger', menu: 'Gameplay', value: { size: [2, 2, 2], signal: 'trigger' }, dimension: 3 },
+    { label: 'Scene transition', menu: 'Gameplay', value: { size: [2, 2], signal: 'transition', sceneTransition: { scene: '' } }, otherScene: ['sceneTransition/scene'], dimension: 2 },
+    { label: 'Scene transition', menu: 'Gameplay', value: { size: [2, 2, 2], signal: 'transition', sceneTransition: { scene: '' } }, otherScene: ['sceneTransition/scene'], dimension: 3 },
+  ],
+  icon: 'sensor',
   handles: [
     { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', when: when('shape', 'box') },
     { kind: 'radius', label: 'Radius', bind: { radius: 'radius' }, space: 'local', when: when('shape', 'circle') },
@@ -1278,6 +1335,9 @@ const switchC: ComponentDescriptor = {
   ]),
   // Phase 15.5: a 1 m square pressed with the interact action, sending "open" (the door preset waits for it).
   add: { kind: 'menu', value: { mode: 'interact', signal: 'open', size: [1, 1] } },
+  // Phase 24.5: a 0.6 m pad (2D plane only: a 3D project refuses switches).
+  create: [{ label: 'Switch', menu: 'Gameplay', box: { size: [0.6, 0.2, 0.6], color: '#d9534f' }, dimension: 2 }],
+  icon: 'switch',
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],
   prefab: true,
@@ -1303,6 +1363,9 @@ const health: ComponentDescriptor = {
   // Phase 15.5: 3 hits (the common small health pool) with 1 s of grace after each (the grace applies to the game
   // session's player only; the add value stays as it was until 24.7 removes the session fields).
   add: { kind: 'menu', value: { max: 3, invulnerableSeconds: 1 } },
+  // Phase 24.5: a 1 m box that can be damaged (scripts or a hitbox with damage take its health).
+  create: [{ label: 'Object with health', menu: 'Gameplay', box: { size: [1, 1, 1], color: '#b0b7c3' }, value: { max: 3 } }],
+  icon: 'health',
   handles: [],
   excludes: [],
   prefab: true,
@@ -1323,8 +1386,9 @@ const pickup: ComponentDescriptor = {
     // Phase 20.2: a visual effect where it was when it is collected.
     ref('effect', 'Effect', 'A project effect played where it was when it is collected (none: no effect).', 'effect'),
   ]),
-  // Phase 15.5: a coin worth 1; no size, so it collects over its model's bounds (else 1 × 1 m).
-  add: { kind: 'menu', value: { kind: 'coin', value: 1 } },
+  add: { kind: 'never', reason: 'removed in phase 24: build it as project scripts over the generic primitives (kept for old data until phase 24.7)' },
+  legacy: true,
+  icon: 'collectible',
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],
   prefab: true,
@@ -1350,6 +1414,9 @@ const collectible: ComponentDescriptor = {
   ]),
   // A neutral counter name; one of something over the default 1 m area.
   add: { kind: 'menu', value: { counter: 'items' } },
+  // Phase 24.5: a 0.4 m token (small enough to read as an item next to the default 1.8 m character).
+  create: [{ label: 'Collectible', menu: 'Gameplay', box: { size: [0.4, 0.4, 0.4], color: '#f2c230' } }],
+  icon: 'collectible',
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [{ component: 'controller', reason: 'the character collects; it is not collected' }],
   prefab: true,
@@ -1373,6 +1440,9 @@ const patrol: ComponentDescriptor = {
   ]),
   // 1.5 m/s: an unhurried walk; edge to edge needs no further setup.
   add: { kind: 'menu', value: { mode: 'edges', speed: 1.5 } },
+  // Phase 24.5: a 0.8 m body walking edge to edge.
+  create: [{ label: 'Patrolling object', menu: 'Gameplay', box: { size: [0.8, 0.8, 0.8], color: '#8e3fb0' } }],
+  icon: 'patrol',
   presets: [
     { label: 'Edge to edge', value: { mode: 'edges', speed: 1.5 } },
     { label: 'Waypoints', value: { mode: 'waypoints', waypoints: [[4, 0, 0]], speed: 1.5 } },
@@ -1404,6 +1474,11 @@ const hitbox: ComponentDescriptor = {
   ]),
   // A 1 m box: about a person-sized object's reach.
   add: { kind: 'menu', value: { size: [1, 1] } },
+  create: [
+    { label: 'Hitbox', menu: 'Gameplay', dimension: 2 },
+    { label: 'Hitbox', menu: 'Gameplay', value: { size: [1, 1, 1] }, dimension: 3 },
+  ],
+  icon: 'hitbox',
   // The 2D plane's box has no depth; a 3D box a 1 m depth; a sphere (a circle on the 2D plane) fits both.
   presets: [
     { label: 'Box', value: { size: [1, 1] }, dimension: 2 },
@@ -1450,9 +1525,9 @@ const enemy: ComponentDescriptor = {
     ref('hitEffect', 'Hit effect', 'A project effect played where it is when a stomp hurts it (none: no effect).', 'effect', { group: 'Defeat' }),
     ref('defeatEffect', 'Defeat effect (particles)', 'A project effect played where it is when it is defeated (none: no effect).', 'effect', { group: 'Defeat' }),
   ]),
-  // Phase 15.5: a 0.8 m body the default 1.8 m character jumps on with its 1.25 m jump, walking edge to edge at
-  // 1.5 m/s (slower than the 4 m/s run, so it can be escaped), one hit of damage, one stomp.
-  add: { kind: 'menu', value: { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 } },
+  add: { kind: 'never', reason: 'removed in phase 24: build it as project scripts over the generic primitives (kept for old data until phase 24.7)' },
+  legacy: true,
+  icon: 'patrol',
   handles: [
     { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', anchor: 'bottom' },
     { kind: 'segment1d', label: 'Patrol range', bind: { range: 'range' }, space: 'local', when: when('patrol', 'points') },
@@ -1482,6 +1557,7 @@ const audioSource: ComponentDescriptor = {
   ]),
   // Phase 15.5: 0.8 volume (headroom under the effects) heard within 12 m (about a screen width at the default camera).
   add: { kind: 'pick', value: { volume: 0.8, range: 12 }, pick: ['assetId'] },
+  icon: 'audio',
   handles: [{ kind: 'radius', label: 'Range', bind: { radius: 'range' }, space: 'local', along: 'x' }],
   excludes: [],
   prefab: true,
@@ -2222,6 +2298,7 @@ export const DESCRIPTORS: DescriptorRegistry = deepFreeze({
   handleRoles: HANDLE_ROLES,
   entity: { ...ENTITY, fields: ENTITY.fields.map((f) => (f.key === 'components' ? { ...f, allowed: COMPONENTS.map((c) => c.name) } : f)) },
   components: COMPONENTS,
+  icons: [...COMPONENT_ICONS],
   content: CONTENT,
   ui: UI_DESCRIPTORS,
 });

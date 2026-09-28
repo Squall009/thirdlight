@@ -9,7 +9,6 @@
  * the editor's boundary row keeps project-model types-only, so the frozen
  * numbers are mirrored here exactly as in `session/gameplay.ts` (packet 56).
  */
-import type { GameConfigLike } from './gameplay';
 import type { ProjectedEntity } from './projection';
 import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
 
@@ -87,42 +86,6 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
   }
   const displayName = trimmed.slice(0, trimmed.length - ext.length).slice(0, 128) || trimmed.slice(0, 128);
   return { ok: true, kind, displayName };
-}
-
-// ---------------------------------------------------------------------------
-// Cue assignment (row 5): `setGameConfig` partial edit — the `cues` field
-// replaces WHOLE (each present top-level field replaces the whole field), so
-// the draft sends the full merged block with only the picked slots changed.
-// ---------------------------------------------------------------------------
-
-export const CUE_SLOTS = ['start', 'jump', 'checkpoint', 'death', 'goal'] as const;
-export type CueSlot = (typeof CUE_SLOTS)[number];
-
-/**
- * Plan the `setGameConfig` partial edit for the cue picker. `picks` maps each
- * slot to an assetId or `null`; slots absent from `picks` keep the current
- * value (a missing current block = all null). `noop` when nothing changes.
- */
-export function planCueEdit(
-  current: Pick<GameConfigLike, 'cues'> | null,
-  picks: Partial<Record<CueSlot, string | null>>,
-): { kind: 'noop' } | { kind: 'commit'; args: { cues: Record<CueSlot, string | null> } } {
-  const before = current?.cues ?? { start: null, jump: null, checkpoint: null, death: null, goal: null };
-  const next: Record<CueSlot, string | null> = {
-    start: before.start,
-    jump: before.jump,
-    checkpoint: before.checkpoint,
-    death: before.death,
-    goal: before.goal,
-  };
-  for (const slot of CUE_SLOTS) {
-    const pick = picks[slot];
-    if (pick !== undefined) next[slot] = pick;
-  }
-  let changed = false;
-  for (const slot of CUE_SLOTS) if (next[slot] !== before[slot]) changed = true;
-  if (!changed) return { kind: 'noop' };
-  return { kind: 'commit', args: { cues: next } };
 }
 
 // ---------------------------------------------------------------------------
@@ -457,86 +420,4 @@ export function planAnimatedReimport(
   if (referencingEntityIds.length === 0) return null;
   if (!referencingEntityIds.includes(chosenEntityId)) return null;
   return { entityId: chosenEntityId, roles };
-}
-
-// ---------------------------------------------------------------------------
-// Checkpoint activation appearance (row 11: the §23.3.2 rules)
-// ---------------------------------------------------------------------------
-
-export const ACTIVATION_INTENSITY_MAX = 4;
-
-export interface ActivationView {
-  emissive: string;
-  emissiveIntensity: number;
-  cueAssetId: string | null;
-}
-
-export interface ActivationForm {
-  emissive: string;
-  emissiveIntensity: string;
-  cueAssetId: string; // '' = null (use content.game.cues.checkpoint)
-}
-
-/**
- * Parse + validate the activation appearance form: a `#hex` emissive (canonical
- * lowercase), `0 <= intensity <= 4`, a cue reference that is either empty
- * (null — the run uses `content.game.cues.checkpoint`) or an asset ID. The
- * reference's audio-kind resolution is the backend's (the preflight below
- * checks it against the catalog view).
- */
-export function parseActivationForm(form: ActivationForm): { ok: true; value: ActivationView } | { ok: false; errors: string[] } {
-  const errors: string[] = [];
-  const emissive = canonicalColor(form.emissive);
-  if (emissive === null) errors.push(`emissive must be #rrggbb (got "${form.emissive}")`);
-  const intensity = Number(form.emissiveIntensity);
-  if (!Number.isFinite(intensity) || intensity < 0 || intensity > ACTIVATION_INTENSITY_MAX) {
-    errors.push(`emissiveIntensity must be a finite number in [0, ${ACTIVATION_INTENSITY_MAX}]`);
-  }
-  const cueAssetId = form.cueAssetId.trim();
-  if (cueAssetId !== '' && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(cueAssetId)) {
-    errors.push('the cue reference must be empty or an asset ID');
-  }
-  if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, value: { emissive: emissive as string, emissiveIntensity: intensity, cueAssetId: cueAssetId === '' ? null : cueAssetId } };
-}
-
-/**
- * The activation preflight against the catalog view: a non-null cue reference
- * must resolve to an `audio`-kind record (the `asset_reference_missing` /
- * `asset_kind_mismatch` the backend raises, mirrored as a panel error before
- * the command is sent).
- */
-export function validateActivationCue(
-  cueAssetId: string | null,
-  assets: readonly { assetId: string; kind: string }[],
-): string[] {
-  if (cueAssetId === null) return [];
-  const record = assets.find((a) => a.assetId === cueAssetId);
-  if (record === undefined) return [`the cue reference "${cueAssetId}" resolves to no catalog record`];
-  if (record.kind !== 'audio') return [`the cue reference "${cueAssetId}" must resolve to a kind "audio" asset (found ${record.kind})`];
-  return [];
-}
-
-/**
- * Plan the `setComponent(gameZone, { activation })` partial edit (the merge
- * keeps the zone's role/size/safeSpawnId). `noop` when the form equals the
- * current activation.
- */
-export function planSetActivation(
-  entityId: string,
-  current: ActivationView | null,
-  form: ActivationForm,
-): { kind: 'noop' } | { kind: 'commit'; args: { entityId: string; component: 'gameZone'; value: { activation: ActivationView } } } {
-  const parsed = parseActivationForm(form);
-  if (!parsed.ok) return { kind: 'noop' };
-  const next = parsed.value;
-  if (
-    current !== null &&
-    current.emissive === next.emissive &&
-    current.emissiveIntensity === next.emissiveIntensity &&
-    current.cueAssetId === next.cueAssetId
-  ) {
-    return { kind: 'noop' };
-  }
-  return { kind: 'commit', args: { entityId, component: 'gameZone', value: { activation: next } } };
 }

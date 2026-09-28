@@ -38,7 +38,7 @@ import {
   type EffectiveEntityFlags,
 } from '../session/hierarchy';
 import type { ProjectedEntity } from '../session/projection';
-import { ICON_FILES, iconKindFor } from '../viewport/icons';
+import { iconKindFor, iconSrc, type IconTable } from '../viewport/icons';
 import { ASSET_DRAG_TYPE, parseAssetDrag, type AssetDragPayload } from '../session/placement';
 
 interface Props {
@@ -69,7 +69,11 @@ interface Props {
    * the root (of the row's scene).
    */
   onAssetDrop?: (asset: AssetDragPayload, parentId: string | null, sceneId: string | null) => void;
+  /** Phase 24.5: which component shows which row icon (from the descriptors; absent: none yet). */
+  icons?: IconTable;
 }
+
+const NO_ICONS: IconTable = [];
 
 /** Phase 12 (c): one open scene's header. */
 export interface SceneHeaderView {
@@ -157,11 +161,12 @@ interface RowProps {
   /** The rename draft while this row is being renamed. */
   draft: string | null;
   dropClass: string;
+  icons: IconTable;
   handlers: { current: RowHandlers };
 }
 
 /** One entity row; memoised on its data (the handlers are a stable ref). */
-const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, selected, primary, collapsed: isCollapsed, draft, dropClass, handlers }: RowProps): JSX.Element {
+const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, selected, primary, collapsed: isCollapsed, draft, dropClass, icons, handlers }: RowProps): JSX.Element {
   const inactive = f !== undefined && !f.active;
   const locked = f?.locked === true;
   return (
@@ -197,7 +202,7 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
       {e.kind === 'folder' ? (
         <span className="tl-row__folder" aria-hidden="true" />
       ) : (
-        <img className="tl-row__icon" src={e.kind === 'box' || e.kind === 'model' ? `./icons/${ROW_ICON[e.kind]}.png` : ICON_FILES[iconKindFor(e)]} alt="" aria-hidden="true" />
+        <img className="tl-row__icon" src={e.kind === 'box' || e.kind === 'model' ? `./icons/${ROW_ICON[e.kind]}.png` : iconSrc(iconKindFor(e, icons))} alt="" aria-hidden="true" />
       )}
       <span className={`tl-row__kind tl-row__kind--${e.kind}`}>{e.kind}</span>
       {draft !== null ? (
@@ -230,7 +235,7 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
   );
 });
 
-export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop }: Props): JSX.Element {
+export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop, icons = NO_ICONS }: Props): JSX.Element {
   const [filter, setFilter] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [renamingScene, setRenamingScene] = useState<{ sceneId: string; draft: string } | null>(null);
@@ -469,6 +474,7 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
         collapsed={collapsed.has(r.id)}
         draft={renaming?.id === r.id ? renaming.draft : null}
         dropClass={dropClass(r.id)}
+        icons={icons}
         handlers={handlers}
       />
     );

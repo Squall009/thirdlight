@@ -162,7 +162,7 @@ describe('ZoneGesture — create', () => {
     if (out.kind !== 'commit') return;
     const args = out.command.op === 'createEntity' ? out.command.args : null;
     expect(args?.transform.position).toEqual([1, 2, 0]);
-    expect(args?.components.gameZone).toEqual({ role: 'hazard', size: [1.5, 0.5] }); // the hazard default
+    expect(args?.components.gameZone).toEqual({ role: 'hazard', size: [1.5, 1.5] }); // the default size
   });
 
   it('an unplannable create (a checkpoint without a safe spawn) decides zero commands', () => {

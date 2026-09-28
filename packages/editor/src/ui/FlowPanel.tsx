@@ -1,17 +1,18 @@
 /**
  * Phase 9.10: the Game window — the game flow in one place: the levels in
- * order (the scenes each loads, the spawn it starts at, its music), lives,
- * the title screen, the HUD layout, the menu look, menu texts, default
- * volumes, (phase 14.3) the score rules and (phase 14.5) the menu sounds,
- * each level's ambience and the title background and pan. Every edit is one `setFlow` with
- * the whole flow (text fields commit on Enter or when they lose focus);
- * "Remove game flow" goes back to one level with unlimited lives and no
- * title screen.
+ * order (the scenes each loads, the spawn it starts at, its music), the
+ * title screen, the HUD layout, the menu look, menu texts, default volumes,
+ * (phase 14.5) the menu sounds, each level's ambience and the title
+ * background and pan. Every edit is one `setFlow` with the whole flow (text
+ * fields commit on Enter or when they lose focus); "Remove game flow" goes
+ * back to one level and no title screen. Phase 24.5: lives and score are no
+ * longer offered (game rules; a flow that has them keeps them until phase
+ * 24.7). A game without levels uses the Game shell tab.
  *
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { FlowLevel, FlowScore, FlowScreenKey, GameFlow, MenuSounds } from '@thirdlight/project-model';
+import type { FlowLevel, FlowScreenKey, GameFlow, MenuSounds } from '@thirdlight/project-model';
 
 interface Props {
   flow: GameFlow | null;
@@ -27,8 +28,6 @@ interface Props {
   gameSpawnId: string | null;
   onSave: (flow: GameFlow | null) => void;
   error: string | null;
-  /** Phase 14.3: counter names the game counts (the engine's and the open scenes' custom pickup counters), offered for score rules. */
-  counters?: readonly string[];
   /** Phase 9.11: forget the running Play's saves (null: no Play running). */
   onClearPlaySave?: (() => void) | null;
   /** Phase 14.4: open the Environment window on this level's look. */
@@ -52,98 +51,6 @@ function Text(p: { label: string; value: string; onCommit: (v: string) => void; 
   );
 }
 
-const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
-/** A new time bonus: a minute's target and 10 points a second — round starting figures the designer tunes. */
-const DEFAULT_TIME_BONUS = { targetSeconds: 60, perSecond: 10 };
-
-/** Phase 14.3: the Score section — points per counter and a time bonus. */
-function ScoreSection(p: { score: FlowScore | undefined; counters: readonly string[]; onChange: (score: FlowScore | undefined) => void }): JSX.Element {
-  const [name, setName] = useState('');
-  const [points, setPoints] = useState('10');
-  const sc = p.score;
-  const rows = Object.entries(sc?.points ?? {});
-  const withPoints = (next: Record<string, number>): FlowScore => {
-    const { points: _p, ...rest } = sc ?? {};
-    return Object.keys(next).length > 0 ? { ...rest, points: next } : rest;
-  };
-  const addName = name.trim();
-  const addPoints = Number(points);
-  const canAdd = sc !== undefined && COUNTER_RE.test(addName) && !(sc.points !== undefined && Object.prototype.hasOwnProperty.call(sc.points, addName)) && Number.isInteger(addPoints) && Math.abs(addPoints) <= 1_000_000;
-  return (
-    <>
-      <div className="tl-panel__title">Score</div>
-      <label className="tl-flag">
-        <input type="checkbox" aria-label="keep score" checked={sc !== undefined} onChange={(e) => p.onChange(e.target.checked ? {} : undefined)} />
-        keep score (shown on the HUD and the level complete and end screens; the best per level is saved)
-      </label>
-      {sc !== undefined && (
-        <div className="tl-flow-panel__score" aria-label="score rules">
-          {rows.length === 0 && <p className="tl-hint">No counter scores points yet: add one below.</p>}
-          {rows.map(([k, v]) => (
-            <div className="tl-animator__row" key={k}>
-              <span className="tl-field__label">{k}</span>
-              <label className="tl-field">
-                <span className="tl-field__label">points each</span>
-                <Text label={`points per ${k}`} value={String(v)} onCommit={(t) => Number.isInteger(Number(t)) && t.trim() !== '' && p.onChange(withPoints({ ...sc.points, [k]: Number(t) }))} />
-              </label>
-              <button type="button" className="tl-button" aria-label={`stop scoring ${k}`} onClick={() => p.onChange(withPoints(Object.fromEntries(rows.filter(([x]) => x !== k))))}>
-                remove
-              </button>
-            </div>
-          ))}
-          <div className="tl-animator__row">
-            <label className="tl-field">
-              <span className="tl-field__label">counter</span>
-              <input className="tl-input" aria-label="scored counter" list="tl-flow-score-counters" value={name} placeholder="coins" onChange={(e) => setName(e.target.value)} />
-              <datalist id="tl-flow-score-counters">
-                {p.counters.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </label>
-            <label className="tl-field">
-              <span className="tl-field__label">points each</span>
-              <input className="tl-input" aria-label="points for the new counter" value={points} onChange={(e) => setPoints(e.target.value)} />
-            </label>
-            <button
-              type="button"
-              className="tl-button"
-              disabled={!canAdd}
-              title={canAdd ? undefined : 'a counter name (letters, digits, _) not scored yet, and whole points'}
-              onClick={() => {
-                p.onChange(withPoints({ ...(sc.points ?? {}), [addName]: addPoints }));
-                setName('');
-              }}
-            >
-              Add counter
-            </button>
-          </div>
-          <label className="tl-flag">
-            <input
-              type="checkbox"
-              aria-label="time bonus"
-              checked={sc.timeBonus !== undefined}
-              onChange={(e) => p.onChange(e.target.checked ? { ...sc, timeBonus: { ...DEFAULT_TIME_BONUS } } : (({ timeBonus: _t, ...rest }) => rest)(sc))}
-            />
-            time bonus (points for every second under a target time)
-          </label>
-          {sc.timeBonus !== undefined && (
-            <div className="tl-animator__row">
-              <label className="tl-field">
-                <span className="tl-field__label">target seconds</span>
-                <Text label="time bonus target seconds" value={String(sc.timeBonus.targetSeconds)} onCommit={(t) => Number(t) >= 1 && p.onChange({ ...sc, timeBonus: { ...sc.timeBonus!, targetSeconds: Number(t) } })} />
-              </label>
-              <label className="tl-field">
-                <span className="tl-field__label">points per second</span>
-                <Text label="time bonus points per second" value={String(sc.timeBonus.perSecond)} onCommit={(t) => t.trim() !== '' && Number(t) >= 0 && p.onChange({ ...sc, timeBonus: { ...sc.timeBonus!, perSecond: Number(t) } })} />
-              </label>
-            </div>
-          )}
-        </div>
-      )}
-    </>
-  );
-}
 
 /** Phase 14.5: a new title pan — 4 m out and back over 20 s each way: a slow drift at human scale. */
 const DEFAULT_TITLE_PAN = { distance: 4, seconds: 20 };
@@ -198,13 +105,13 @@ export function FlowPanel(p: Props): JSX.Element {
     const start = p.scenes.filter((s) => s.start).map((s) => s.sceneId);
     return (
       <div className="tl-panel tl-flow-panel" aria-label="game flow">
-        <p className="tl-hint">This game has one level (the start scenes), unlimited lives and no title screen.</p>
+        <p className="tl-hint">This game has one level (the start scenes) and no title screen.</p>
         <button
           type="button"
           className="tl-button"
           disabled={p.gameSpawnId === null || start.length === 0}
           title={p.gameSpawnId === null ? 'set up the game (Gameplay tab) first' : undefined}
-          onClick={() => p.onSave({ levels: [{ id: 'level-1', name: 'Level 1', scenes: start, spawnId: p.gameSpawnId! }], lives: { start: 3, max: 9 }, title: {}, hud: { preset: 'classic' } })}
+          onClick={() => p.onSave({ levels: [{ id: 'level-1', name: 'Level 1', scenes: start, spawnId: p.gameSpawnId! }], title: {}, hud: { preset: 'classic' } })}
         >
           Set up levels and menus
         </button>
@@ -339,24 +246,6 @@ export function FlowPanel(p: Props): JSX.Element {
         Add level
       </button>
 
-      <div className="tl-panel__title">Lives</div>
-      <label className="tl-flag">
-        <input type="checkbox" aria-label="limited lives" checked={f.lives !== undefined} onChange={(e) => (e.target.checked ? save({ lives: { start: 3, max: 9 } }) : p.onSave((({ lives: _l, ...rest }) => rest)(f)))} />
-        limited lives (game over at 0)
-      </label>
-      {f.lives !== undefined && (
-        <div className="tl-animator__row">
-          <label className="tl-field">
-            <span className="tl-field__label">start with</span>
-            <Text label="lives at start" value={String(f.lives.start)} onCommit={(v) => save({ lives: { start: Math.round(Number(v)), max: Math.max(f.lives!.max, Math.round(Number(v))) } })} />
-          </label>
-          <label className="tl-field">
-            <span className="tl-field__label">at most</span>
-            <Text label="most lives" value={String(f.lives.max)} onCommit={(v) => save({ lives: { start: f.lives!.start, max: Math.round(Number(v)) } })} />
-          </label>
-        </div>
-      )}
-
       <div className="tl-panel__title">Title screen</div>
       <div className="tl-animator__row">
         <label className="tl-field">
@@ -477,8 +366,6 @@ export function FlowPanel(p: Props): JSX.Element {
           </label>
         ))}
       </div>
-
-      <ScoreSection score={f.score} counters={p.counters ?? []} onChange={(score) => p.onSave(score !== undefined ? { ...f, score } : (({ score: _s, ...rest }) => rest)(f))} />
 
       <div className="tl-panel__title">Screens</div>
       <p className="tl-hint">Replace a built-in screen with a UI document (its buttons use engine actions: resume, quit to title, save, load, a setting…). Built-in: the engine's own panel.</p>

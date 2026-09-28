@@ -264,12 +264,12 @@ box, camera and model are added and removed like any other component
 (`setComponent` with a complete value / `null`).
 
 Some sections have extra tools next to the generic fields: the player
-controller's capsule (**Fit to model**, **Default**), an exit zone
-(**Edit exit…**), a surface (presets), an object's materials (the mapping
+controller's capsule (**Fit to model**, **Default**), a surface (presets), an object's materials (the mapping
 editor, which knows the model's own material names) and a script (its
-declared properties). The game block (Gameplay → Game: texts, the player,
-camera and start spawn, and the sound cues as sound pickers) is built the
-same way, and so is Gameplay → Settings (every project setting, the engine
+declared properties). A project that still has a game block (Gameplay →
+game session: texts, the player, camera and start spawn, and the sound cues
+as sound pickers; phase 24.5: the editor no longer creates one) sees it
+built the same way, and so is Gameplay → Settings (every project setting, the engine
 settings included; the step rate is a choice of 60, 120 or 240 Hz; each
 change is saved at once); the Gameplay tab's Camera page points to the camera object, whose
 lens and follow settings are Inspector sections. The Media tab is for
@@ -385,8 +385,8 @@ unique across the whole project. One command edits one scene.
     cannot be unloaded.
   - A replay returns to the start scenes.
   - A checkpoint whose scene was unloaded no longer counts.
-- **Exit zones** (GameObject → Zone → Exit zone…; the inspector's
-  "Edit exit…"). An exit zone lists scenes to load and scenes to unload
+- **Exit zones** (phase 24.5: no longer created in the editor; a scene
+  transition trigger does this generically). An exit zone lists scenes to load and scenes to unload
   when the player enters it. It can also name a spawn: once those scenes are
   loaded, the player is moved there.
 - **Game rules in scripts.** There are no level bounds or kill heights any
@@ -686,8 +686,9 @@ controllers**: parameters (float, int, bool, trigger), states that play a
 clip or a 1D blend tree, transitions with conditions, crossfade and exit
 time, an entry state, and clip events. Bottom dock → **Animator** lists the
 controllers: pick the model whose clips a new controller uses, then **New
-controller** or **New from clips: Platformer** (idle/run/jump/fall/land
-states from a model's clips); a controller opens as the centre tab
+controller** or **New from clips: Character locomotion** (idle/run/jump/fall/land
+states from a model's clips, driven by the character's speed, grounded,
+velocityY and landed); a controller opens as the centre tab
 **Animator: <controller>** with a double-click, Enter or **Open in tab**
 (a new one opens by itself). The Inspector's "+ Add component" →
 **Animator** puts a controller on a model object.
@@ -1425,9 +1426,18 @@ frames may carry `actions: {name: {v, p}}`.
 
 ## Gameplay blocks
 
-GameObject → Gameplay places ready-made pieces (v4 projects): a moving
-platform, a one-way platform, a switch, a door (opens on the signal `open`),
-a coin, an enemy and a trigger. Any object can get these in the Inspector
+The GameObject menu's create entries come from the component descriptors
+(phase 24.5: each component's `create` list; MCP reads them with the
+descriptors). In a v4 project: **Spawn point**; **Gameplay** → a one-way
+platform (2D plane), a moving platform, a door (opens on the signal
+`open`), a trigger, a scene transition (a trigger that moves the character
+to another scene; needs a second scene), a switch (2D plane), an object
+with health, a collectible, a patrolling object and a hitbox; **Cameras**
+→ a camera track; **Light** → a fog volume. A 3D project gets the 3D forms
+(colliders, hitboxes and triggers with a depth). The hierarchy and Scene
+view icons come from the descriptors too. Zones, pickups and enemies are no
+longer offered (game rules; a project that has them still edits them in
+the Inspector until phase 24.7). Any object can get these in the Inspector
 ("+ Add component", Gameplay):
 
 - **Mover** — a path of offsets from where the object stands (waypoints, x/y/z each),
@@ -1787,9 +1797,10 @@ then:
   camera — usually the start scene) and starts at the chosen player spawn. A
   closed scene's spawns appear once the scene is opened in the Hierarchy.
   Each level can loop a music track.
-- **Lives**: a death costs one, an extra-life pickup gives one (up to the
-  maximum); at 0 the game shows *Game over* (retry the level or quit to the
-  title). Without limited lives a death only respawns.
+- **Lives** (no longer offered in the editor since phase 24.5; a flow that
+  has them keeps them until phase 24.7): a death costs one, an extra-life
+  pickup gives one (up to the maximum); at 0 the game shows *Game over*.
+  Without limited lives a death only respawns.
 - **Title screen** (always shown with a flow): the game title, a subtitle,
   the instructions and title music; *New game*, *Settings*.
 - **HUD and menus**: layout (classic, minimal, corners), a level timer, the
@@ -2001,8 +2012,10 @@ Run one from:
 
 ## Score
 
-**Game flow → Score**: tick *keep score*, then add the counters that earn
-points and how many each (*counter*, *points each*, *Add counter*). The
+Score rules are a flow field (`setFlow` `score`; phase 24.5: the Game flow
+window no longer offers them, and phase 24.7 removes them — a game keeps
+score in its own scripts over named counters): the counters that earn
+points and how many each. The
 names are the game's own counters: pickups count into `coins`, `gems`,
 `keys`, `lives` or a custom pickup's counter, stomped enemies into
 `defeated` (the field suggests these and the open scenes' custom counters);
@@ -2123,9 +2136,10 @@ surfaces (a light a bake holds is not realtime at all). Give such presets a
 ## Icons and gizmos
 
 The Scene view and the hierarchy show what an object is: its light type
-(directional, ambient, point, spot, hemisphere), a fog volume, an audio
-source, a gameplay piece (mover or door, switch, trigger, pickup, enemy) or
-a player spawn. The **Gizmos** menu turns the helpers on and off: icons,
+(directional, ambient, point, spot, hemisphere), a camera, or the icon its
+components' descriptors name (phase 24.5: a spawn, an audio source, a fog
+volume, a patrol, a mover, a switch, a collectible, a trigger, a hitbox or
+health; the most specific wins). The **Gizmos** menu turns the helpers on and off: icons,
 light ranges (point spheres, spot cones), **collider outlines** (every box
 and polygon collider on the game plane — a kit piece's `_COL` shape too;
 one-way platforms in a softer green), and gameplay paths and areas (an

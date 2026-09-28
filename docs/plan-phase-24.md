@@ -115,7 +115,7 @@ keeps the gate green.
 | 24.4h | done 2026-09-28: `ctx.look.set/clear/get` (emissive, intensity, tint), both renderers |
 | 24.4i | done 2026-09-28: `content.eventCues` (`setEventCues`; signal or event name → sound), Media tab |
 | 24.4j | done 2026-09-28: `content.shell {screens?: {title, pause, settings, controls, save, load}, hud?, scenes?: [{scene, spawn?}], pause?, status?}` (`setShell`, Game shell tab); engine actions `open`, `nextScene`; `$flow.counters/health/prompts/shell`; counters in the `components` save section |
-| 24.5 | — |
+| 24.5 | done 2026-09-28: descriptor `create` entries and `icon`s drive the GameObject menu, the hierarchy and Scene-view icons; zone/pickup/enemy no longer offered; Gameplay panel = settings, camera (+ an existing game block); no lives/score UI; "Character locomotion" preset; MCP wording generic |
 | 24.6 | — |
 | 24.7 | — |
 | 24.8 | — |
@@ -337,3 +337,58 @@ keeps the gate green.
   the session fail-stopped) was found and fixed on the way. In the shell
   integration test the two threading modes are compared by outcome: the
   menus are live input there, so each mode sees them at its own step.
+- 2026-09-28 (24.5): a component descriptor may carry `create` entries
+  (label, submenu, a placeholder box, the component value, extra
+  components, a physics dimension, scene pointers filled with another
+  scene) and an `icon` (`COMPONENT_ICONS`, most specific first; the
+  registry carries the order as `icons`). The GameObject menu renders them
+  (a submenu of an existing name, Light, gains its entries: the fog
+  volume); the hierarchy and Scene-view icons come from the registry
+  (`iconTableOf`, no hard-coded component list). Entries: Spawn point;
+  Gameplay → one-way platform and switch (2D plane only: 3D refuses both),
+  moving platform, door, trigger, scene transition (disabled until the
+  project has a second scene), object with health, collectible, patrolling
+  object, hitbox (3D entries with a depth); Cameras → camera track.
+  `createEntity` now also takes `virtualCamera` (so the camera track is one
+  command, one undo).
+- 2026-09-28 (24.5): gameZone, pickup and enemy are `legacy` with
+  `add: never` ("removed in phase 24"): not offered in "+ Add component" or
+  the Component menu; existing objects still show and edit them in the
+  descriptor Inspector (and the Scene view's zone gesture still moves and
+  resizes existing zones) until 24.7. The exit-zone dialog and the
+  Inspector's exit special case are gone (a scene transition trigger does
+  it generically). The pickup and enemy objects show the collectible and
+  patrol icons; the enemy and door artwork was deleted (a door is a mover),
+  `pickup.png` became `collectible.png`; patrol, hitbox and health are SVG
+  glyphs (no artwork file yet).
+- 2026-09-28 (24.5): the Gameplay panel keeps Settings (descriptor-built;
+  the six-key fallback form is gone) and Camera; a project that still has a
+  game block sees it under "game session" (descriptor-built, no Create
+  button: the editor never makes one). The v3 game-config form with its
+  goal-required/one-checkpoint validation, the Zones tab and the zone
+  placement tool, the cue slots (`planCueEdit`) and the checkpoint
+  activation planner are deleted; `gameplay.ts` keeps the game block's wire
+  shape and the zone gesture's placement planning for 24.7. The Game flow
+  window drops Lives and Score (a flow that has them keeps them; a new flow
+  has no lives) and the `coins, gems, keys, lives, defeated` counter seeds.
+- 2026-09-28 (24.5): the Animator preset is "Character locomotion"
+  (`locomotionController`). Its parameters stay `speed`, `grounded`,
+  `velocityY` and `landed`: these are the names the character controller
+  writes on its animators, and they describe motion, not a genre (renaming
+  them would break the automatic feed).
+- 2026-09-28 (24.5): the MCP adapter may not import project-model (its
+  boundary row), so its descriptions are generic wording that points to the
+  descriptors (`tl_content_query target="game" includeDescriptors`: fields,
+  create entries, icons) instead of text generated at build time; the
+  pickup/enemy/zone fields, lives, score rules, levelId and the effect hooks
+  of removed components are no longer taught.
+- 2026-09-28 (24.5): tests. No test was deleted: every test that drove a
+  removed menu or section still has a live subject until 24.7, so the
+  removed UI step became a command — `blocks` (coins and the enemy by
+  `createEntity`), `flow` (lives by `setFlow`), `score` (score rules by
+  `setFlow`), `inspector` (the game block by `setGameConfig`; its menu list
+  now adds a collectible, a patrol and a hitbox instead of a zone, a pickup
+  and an enemy). `menus` and `placeholders` use "Spawn point",
+  `animator-skinned` the new preset, `gizmos` the renamed artwork. New e2e
+  `create-menu` (2D and 3D). `DEFAULT_ZONE_SIZE` is one 1.5 m square for
+  every role (the per-role sizes were fitted to the default jump).

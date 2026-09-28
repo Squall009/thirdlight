@@ -21,6 +21,8 @@
  * - `addEntries`: the "+ Add component" list with the descriptor defaults and
  *   presets; components that cannot be added say why (already present,
  *   excluded by another component, needs another component, made by a tool).
+ * - `createEntries` (phase 24.5): the GameObject menu's create entries, from
+ *   the descriptors' `create` lists.
  *
  * Types only from project-model (the editor never imports its values); no
  * DOM, no React — unit-tested in `descriptor-fields.test.ts` and against the
@@ -516,6 +518,61 @@ export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>
     }
   }
   return out;
+}
+
+/** Phase 24.5: a GameObject menu entry that creates an object, from a component's descriptor. */
+export interface CreateMenuEntry {
+  readonly id: string;
+  readonly component: string;
+  readonly label: string;
+  /** The submenu (null: the GameObject menu itself). */
+  readonly menu: string | null;
+  /** The `createEntity` args (without the transform). */
+  readonly args: Obj;
+  /** Pointers into the component's value that take another scene of the project. */
+  readonly otherScene: readonly string[];
+}
+
+/**
+ * Phase 24.5: the GameObject menu's create entries — every component's
+ * `create` list (descriptor order) that fits the project's physics dimension:
+ * a box or an empty object carrying the component (its entry value, else its
+ * "+ Add component" value) and the entry's other components.
+ */
+export function createEntries(reg: DescriptorRegistry, opts: { dimension?: 2 | 3 } = {}): CreateMenuEntry[] {
+  const dimension = opts.dimension ?? 2;
+  const out: CreateMenuEntry[] = [];
+  for (const c of reg.components) {
+    (c.create ?? []).forEach((e, i) => {
+      if (e.dimension !== undefined && e.dimension !== dimension) return;
+      const base = e.value ?? (c.add.kind === 'menu' || c.add.kind === 'pick' ? c.add.value : {});
+      const value = JSON.parse(JSON.stringify(base ?? {})) as Obj;
+      const args: Obj = {
+        kind: e.box !== undefined ? 'box' : 'group',
+        name: e.name ?? e.label,
+        ...(e.box !== undefined ? { box: { size: [...e.box.size], material: { color: e.box.color } } } : {}),
+        components: { ...(JSON.parse(JSON.stringify(e.with ?? {})) as Obj), [c.name]: value },
+      };
+      out.push({ id: `${c.name}:${i}`, component: c.name, label: e.label, menu: e.menu ?? null, args, otherScene: e.otherScene ?? [] });
+    });
+  }
+  return out;
+}
+
+/** Phase 24.5: an entry's args with its scene pointers set to `sceneId` (a copy). */
+export function withOtherScene(entry: CreateMenuEntry, sceneId: string): Obj {
+  const args = JSON.parse(JSON.stringify(entry.args)) as Obj;
+  const value = (args['components'] as Obj)[entry.component] as Obj;
+  for (const p of entry.otherScene) {
+    const keys = p.split('/');
+    let at = value;
+    for (const k of keys.slice(0, -1)) {
+      if (typeof at[k] !== 'object' || at[k] === null) at[k] = {};
+      at = at[k] as Obj;
+    }
+    at[keys[keys.length - 1]!] = sceneId;
+  }
+  return args;
 }
 
 /**

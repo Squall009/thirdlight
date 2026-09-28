@@ -44,7 +44,7 @@ test('GameObject menu creates lights, spawns, empties; one camera and one light 
   await menu(page, 'GameObject', 'Light', 'Directional light');
   await expect(rows(page).filter({ hasText: 'Directional light' })).toHaveCount(1);
   await menu(page, 'GameObject', 'Light', 'Ambient light');
-  await menu(page, 'GameObject', 'Player spawn');
+  await menu(page, 'GameObject', 'Spawn point');
   await menu(page, 'GameObject', 'Create empty');
   await expect(rows(page)).toHaveCount(base + 2);
   // The new light is selected and the inspector shows it.

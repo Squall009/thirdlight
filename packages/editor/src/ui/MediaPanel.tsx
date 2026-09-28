@@ -2,10 +2,9 @@
  * The Media tab: asset-level sound work — listen to the project's sounds.
  *
  * Phase 15.1: the object and game settings that lived here moved to where
- * the data is edited: game cues are fields of the game block (Gameplay →
- * Game), a checkpoint's activation look, a surface (with its presets), lights
- * and the old model-animation roles are Inspector sections built from their
- * descriptors. What stays is per asset: the preview of an audio asset.
+ * the data is edited: a surface (with its presets), lights and the old
+ * model-animation roles are Inspector sections built from their descriptors
+ * (phase 24.4i: sounds for events are the event sounds table below). What stays is per asset: the preview of an audio asset.
  *
  * The PREVIEW plays committed bytes through the injected preview-audio owner
  * (explicit local gesture; the authoring token stays the session credential of
@@ -134,7 +133,7 @@ export function MediaPanel(props: Props): JSX.Element {
     <div className="tl-panel tl-media" aria-label="media">
       <div className="tl-panel__title">Media</div>
       <p className="tl-note">
-        Listen to the project's sounds. Where they are used is set in the Inspector (a pickup's sound, a checkpoint's cue, an audio source), in Gameplay → Game (the game's cues) and in the event sounds below.
+        Listen to the project's sounds. Where they are used is set in the Inspector (an audio source, a component's sound field) and in the event sounds below (a sound for a signal or an event).
       </p>
       {sounds.length === 0 ? (
         <p className="tl-note">No sounds yet: import a WAV in the Assets tab.</p>

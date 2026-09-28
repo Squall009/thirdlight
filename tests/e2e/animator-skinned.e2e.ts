@@ -1,7 +1,7 @@
 /**
  * Phase 9.7 on a rigged character: a generated skinned GLB (skinned-glb.ts)
  * with idle, run, jump, fall and land clips rides on the starter template's player; a
- * "Platformer" controller built from its clips in the Animator window gets
+ * "Character locomotion" controller built from its clips in the Animator window gets
  * the player's speed, grounding and vertical velocity automatically. Driven
  * through the play relays, the observed animator state goes idle → run →
  * airborne. TL_ANIM_SHOTS saves the Play frames for a look.
@@ -67,9 +67,9 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
 
   await page.getByRole('tab', { name: 'Animator', exact: true }).click();
   await page.getByLabel('animator model').selectOption(character);
-  await page.getByRole('button', { name: 'New from clips: Platformer' }).click();
+  await page.getByRole('button', { name: 'New from clips: Character locomotion' }).click();
   // Phase 16.2: the new controller opens as a centre tab (its state graph).
-  const graph = page.getByRole('tabpanel', { name: 'Animator: Platformer' }).getByLabel('animator graph');
+  const graph = page.getByRole('tabpanel', { name: 'Animator: Character locomotion' }).getByLabel('animator graph');
   for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('group', { name: new RegExp(`^State ${s} node `) })).toBeVisible();
   await page.getByRole('tab', { name: 'Scene', exact: true }).click();
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${model}"]`).click();
@@ -77,10 +77,10 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
   const inspector = page.locator('.tl-inspector');
   if ((await inspector.locator('[data-component="animator"]').count()) === 0) {
     await inspector.getByLabel('add component', { exact: true }).selectOption({ label: 'Animator' });
-    await inspector.getByLabel('animator controller', { exact: true }).selectOption({ label: 'Platformer' });
+    await inspector.getByLabel('animator controller', { exact: true }).selectOption({ label: 'Character locomotion' });
     await inspector.getByRole('button', { name: 'Add', exact: true }).click();
   } else {
-    await inspector.getByLabel('animator controller', { exact: true }).selectOption({ label: 'Platformer' });
+    await inspector.getByLabel('animator controller', { exact: true }).selectOption({ label: 'Character locomotion' });
   }
   await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: model } }))['entity'] as { components: { animator?: unknown } }).components.animator).toBeTruthy();
 

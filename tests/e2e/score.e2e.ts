@@ -1,7 +1,8 @@
 /**
  * Phase 14.3: score rules. Beacon Reach gets a short level (a new scene:
- * three coins on the way to a goal) and a one-level flow; the Game flow
- * window's Score section sets 10 points per coin and a time bonus. In the
+ * three coins on the way to a goal) and a one-level flow with 10 points per
+ * coin and a time bonus (phase 24.5: set by command; the editor no longer
+ * offers score rules). In the
  * export served statically, from the keyboard: a new game, the three coins
  * collected (the HUD shows "Score 30"), the goal reached (the level complete
  * screen shows the time bonus, the score and a new best). After a reload the
@@ -43,7 +44,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 
 const storedScore = async (): Promise<unknown> => ((await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} }))['flow'] as { score?: unknown } | undefined)?.score;
 
-test('score rules set in the Game flow window: the HUD and the level complete screen show the score, a reload keeps the best', async ({ page }) => {
+test('score rules: the HUD and the level complete screen show the score, a reload keeps the best', async ({ page }) => {
   test.setTimeout(240_000);
   const x = 200;
   await cmd('createScene', { sceneId: 'scene-s', name: 'Score level' });
@@ -55,24 +56,9 @@ test('score rules set in the Game flow window: the HUD and the level complete sc
   await cmd('createEntity', { sceneId: 'scene-s', kind: 'group', name: 'Score goal', transform: { position: [x + 8, 1, 0] }, components: { gameZone: { role: 'goal', size: [1, 2] } } });
   await cmd('setFlow', { flow: { levels: [{ id: 'score-1', name: 'Score level', scenes: ['scene-main', 'scene-s'], spawnId: spawn }] } });
 
-  // The Game flow window's Score section.
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Game flow', exact: true }).click();
-  const keep = page.getByLabel('keep score', { exact: true });
-  await expect(keep).not.toBeChecked();
-  await keep.click();
-  await expect.poll(storedScore).toEqual({});
-  await page.getByLabel('scored counter', { exact: true }).fill('coins');
-  await page.getByLabel('points for the new counter', { exact: true }).fill('10');
-  await page.getByRole('button', { name: 'Add counter' }).click();
-  await expect.poll(storedScore).toEqual({ points: { coins: 10 } });
-  await expect(page.getByLabel('points per coins', { exact: true })).toHaveValue('10');
-  await page.getByLabel('time bonus', { exact: true }).click();
-  await expect.poll(storedScore).toEqual({ points: { coins: 10 }, timeBonus: { targetSeconds: 60, perSecond: 10 } });
-  const perSecond = page.getByLabel('time bonus points per second', { exact: true });
-  await perSecond.fill('5');
-  await perSecond.press('Enter');
+  // Phase 24.5: the Game window no longer offers score rules (a game rule); this platformer test
+  // (removed in phase 24.7) sets them by command.
+  await cmd('setFlow', { flow: { levels: [{ id: 'score-1', name: 'Score level', scenes: ['scene-main', 'scene-s'], spawnId: spawn }], score: { points: { coins: 10 }, timeBonus: { targetSeconds: 60, perSecond: 5 } } } });
   await expect.poll(storedScore).toEqual({ points: { coins: 10 }, timeBonus: { targetSeconds: 60, perSecond: 5 } });
 
   // The export, served statically with the backend stopped.

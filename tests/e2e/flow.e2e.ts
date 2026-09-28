@@ -150,7 +150,7 @@ test('two levels through the title screen, game over, pause and music volume —
   await expect(page.getByLabel('audioSource assetId', { exact: true })).toHaveValue(music);
   await expect(page.getByLabel('audioSource range', { exact: true })).toHaveValue('10');
 
-  // The Game window: two levels, two lives, a subtitle, the music, credits.
+  // The Game window: two levels, a subtitle, the music, credits (two lives by command below).
   await page.getByRole('tab', { name: 'Game flow', exact: true }).click();
   await page.getByRole('button', { name: 'Set up levels and menus' }).click();
   const level1 = page.getByLabel('level Level 1', { exact: true });
@@ -176,9 +176,6 @@ test('two levels through the title screen, game over, pause and music volume —
     await box.click();
     await expect(box).not.toBeChecked();
   }
-  const lives = page.getByLabel('lives at start', { exact: true });
-  await lives.fill('2');
-  await lives.press('Enter');
   const subtitle = page.getByLabel('title subtitle', { exact: true });
   await subtitle.fill('Two tiny levels');
   await subtitle.press('Enter');
@@ -186,6 +183,9 @@ test('two levels through the title screen, game over, pause and music volume —
   await credits.fill('Thanks for playing');
   await credits.blur();
   await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} }))['flow'])).toContain('Thanks for playing');
+  // Phase 24.5: the Game window no longer offers lives (a game rule); this platformer test (removed in
+  // phase 24.7) sets them by command.
+  await cmd('setFlow', { flow: { ...((await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} }))['flow'] as Record<string, unknown>), lives: { start: 2, max: 9 } } });
   const flow = (await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} }))['flow'] as { levels: { scenes: string[]; spawnId: string; music?: string }[]; lives: unknown; title: unknown };
   expect(flow.levels.map((l) => l.scenes.sort())).toEqual([['scene-a', 'scene-main'], ['scene-b', 'scene-main']]);
   expect(flow.levels[0]!.music).toMatch(/.+/);

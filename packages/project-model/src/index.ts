@@ -775,6 +775,7 @@ export {
 // Phase 15.0: the component and content descriptor registry (pure data).
 export {
   ASSET_KINDS,
+  COMPONENT_ICONS,
   DESCRIPTORS,
   HANDLE_KINDS,
   HANDLE_ROLES,
@@ -783,6 +784,8 @@ export {
   type ColorFieldDescriptor,
   type ComponentAdd,
   type ComponentDescriptor,
+  type ComponentIcon,
+  type CreateEntryDescriptor,
   type ComponentRelation,
   type ComponentsFieldDescriptor,
   type ContentBlockDescriptor,

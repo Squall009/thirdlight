@@ -178,7 +178,7 @@ describe('the generic Inspector over the real registry', () => {
       expect(componentsOf(back, target)[entry.component]).toEqual(kept);
     }
     // The edits reached the fields a designer tunes.
-    for (const k of ['box.size', 'camera.fovY', 'camera.near', 'camera.far', 'light.type', 'light.intensity', 'trigger.shape', 'enemy.patrol', 'controller.capsule.radius', 'fogVolume.density', 'cameraFollow.deadZone.x', 'gameZone.role'])
+    for (const k of ['box.size', 'camera.fovY', 'camera.near', 'camera.far', 'light.type', 'light.intensity', 'trigger.shape', 'patrol.mode', 'hitbox.shape', 'collectible.counter', 'controller.capsule.radius', 'fogVolume.density', 'cameraFollow.deadZone.x'])
       expect(edited, k).toContain(k);
   });
 });

@@ -1,7 +1,9 @@
 /**
  * Phase 9.9: gameplay blocks built in the editor and played. On Beacon
- * Reach's start ground the GameObject → Gameplay menu places two coins, an
- * enemy, a pressure plate and a door, a one-way shelf, a lift and a trigger;
+ * Reach's start ground the GameObject → Gameplay menu places a pressure
+ * plate and a door, a one-way shelf, a lift and a trigger (phase 24.5: the
+ * two coins and the enemy, which the menu no longer offers, are created by
+ * command; this platformer test goes in phase 24.7);
  * the Inspector sets them up (positions, enemy speed, lift path and signal,
  * the player's health). In Play, driven by exclusive test input: the player
  * collects the coins (HUD counter), stomps the enemy, opens the door by
@@ -9,6 +11,8 @@
  * rides it up.
  */
 import { expect, test, type Page } from '@playwright/test';
+
+import { randomUUID } from 'node:crypto';
 
 import { startBackend, type E2EBackend } from './backend';
 import { menu } from './ui';
@@ -52,6 +56,16 @@ async function create(page: Page, item: string, x: number, y: number): Promise<v
   await place(page, x, y);
 }
 
+/** Phase 24.5: an object the editor menus no longer offer, created by command and selected. */
+async function createByCommand(page: Page, name: string, box: number[], color: string, components: Record<string, unknown>, x: number, y: number): Promise<void> {
+  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
+  const r = await be.command({ op: 'createEntity', projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-blocks' }, args: { kind: 'box', name, transform: { position: [x, y, 0] }, box: { size: box, material: { color } }, components } });
+  expect(r['ok'], JSON.stringify(r)).toBe(true);
+  const row = page.locator(`.tl-hierarchy__list li[data-entity-id="${String(r['createdId'])}"]`);
+  await row.click();
+  await expect(page.locator('.tl-inspector__name')).toHaveValue(name);
+}
+
 async function removeEntity(page: Page, id: string): Promise<void> {
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
   await menu(page, 'Edit', 'Delete');
@@ -74,9 +88,9 @@ test('a level built from gameplay blocks plays: coins, stomp, plate and door, on
   await field(page, 'health max', '3');
   await field(page, 'health start', '3');
 
-  await create(page, 'Coin', 4, 0.5);
-  await create(page, 'Coin', 4.6, 0.5);
-  await create(page, 'Enemy', 7.5, 0.4);
+  await createByCommand(page, 'Coin', [0.4, 0.4, 0.1], '#f2c230', { pickup: { kind: 'coin', value: 1 } }, 4, 0.5);
+  await createByCommand(page, 'Coin', [0.4, 0.4, 0.1], '#f2c230', { pickup: { kind: 'coin', value: 1 } }, 4.6, 0.5);
+  await createByCommand(page, 'Enemy', [0.8, 0.8, 0.8], '#8e3fb0', { enemy: { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 } }, 7.5, 0.4);
   await field(page, 'enemy speed', '0');
   await field(page, 'enemy chase', '3');
   await create(page, 'Switch', 9.5, 0.5);

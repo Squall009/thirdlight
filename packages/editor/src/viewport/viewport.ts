@@ -63,7 +63,7 @@ import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { ZoneOverlay, type ZoneTool } from './zone-overlay';
 import { commitValue, type HandleShape } from '../session/handles';
 import { BRUSH_SPACING_M, copyAt, type CopyTransform } from '../session/instance-copies';
-import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
+import { fitSprite, iconKindFor, iconTableOf, makeIconSprite, setSpriteSelected, type IconKind, type IconTable } from './icons';
 import { materialOverridesOf, type ModelInstances } from './model-instances';
 import { planSync, removedIds, zoneRelevant } from './sync-plan';
 import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
@@ -1579,7 +1579,7 @@ export class Viewport {
         g.visible = this.gizmos.lights;
         group.add(g);
       }
-      this.addIcon(group, e.id, iconKindFor(e));
+      this.addIcon(group, e.id, iconKindFor(e, this.iconTable));
     } else if (e.kind === 'camera') {
       // A camera is an icon billboard plus a small wire frustum showing where it looks (-Z).
       const w = 0.42;
@@ -1599,7 +1599,7 @@ export class Viewport {
       this.addIcon(group, e.id, 'camera');
     } else {
       // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
-      this.addIcon(group, e.id, iconKindFor(e));
+      this.addIcon(group, e.id, iconKindFor(e, this.iconTable));
       // Phase 15.2: a spawn's facing, as an arrow along X.
       const facing = e.playerSpawn === true ? (e.components['playerSpawn'] as { facing?: string } | undefined)?.facing : undefined;
       if (facing === 'left' || facing === 'right') {
@@ -1668,7 +1668,7 @@ export class Viewport {
   private refreshIcon(obj: THREE.Object3D, e: ProjectedEntity): void {
     const old = obj.children.find((c) => c instanceof THREE.Sprite && c.userData['iconKind'] !== undefined) as THREE.Sprite | undefined;
     if (old === undefined) return;
-    const kind = iconKindFor(e);
+    const kind = iconKindFor(e, this.iconTable);
     if (old.userData['iconKind'] === kind) return;
     obj.remove(old);
     this.sprites.delete(old);
@@ -2119,14 +2119,21 @@ export class Viewport {
   // ---- Phase 15.2: descriptors, the game's aspect, instance copies, model outlines ----
 
   private gameAspect = DEFAULT_GAME_ASPECT;
+  /** Phase 24.5: which component shows which icon (from the descriptors). */
+  private iconTable: IconTable = [];
   private brush: string | null = null;
   private copySel: { entityId: string; index: number } | null = null;
   private readonly copyProxy = new THREE.Object3D();
   private copyHighlight: THREE.Box3Helper | null = null;
 
-  /** The component descriptors: the handles come from them. */
+  /** The component descriptors: the handles (and, phase 24.5, the objects' icons) come from them. */
   setDescriptors(reg: DescriptorRegistry | null): void {
     this.zones.setHandleSources(reg, (id) => this.meshes.get(id) ?? null);
+    this.iconTable = iconTableOf(reg);
+    for (const e of this.projected) {
+      const m = this.meshes.get(e.id);
+      if (m !== undefined) this.refreshIcon(m, e);
+    }
     this.requestRender();
   }
 

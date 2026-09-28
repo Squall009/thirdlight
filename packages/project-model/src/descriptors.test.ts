@@ -25,6 +25,7 @@ import { BLOCK_COMPONENTS } from './blocks';
 import { CAPSULE_LIMITS } from './components';
 import { PREFAB_V4_COMPONENTS, validateContentV4, validateGameConfig, validatePrefabDefinitions, validateTagRegistry } from './content';
 import {
+  COMPONENT_ICONS,
   DESCRIPTORS,
   HANDLE_KINDS,
   HANDLE_ROLES,
@@ -944,7 +945,8 @@ describe('descriptor registry (phase 15.0)', () => {
     // repeat the sky/fog/post descriptors, about 9 KB; phase 24.4: + collectible, patrol and hitbox, about 6 KB,
     // until 24.7 removes the pickup and enemy blocks)
     // (phase 24.4e–i: + scene transitions, the track rig, face velocity, event sounds, about 4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(246_000);
+    // (phase 24.5: + the create menu entries and icons, about 3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(250_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
@@ -1002,6 +1004,33 @@ describe('descriptor registry (phase 15.0)', () => {
     }
     // the input block's default is the engine's default actions, and it validates
     expect(errorsOf((e) => validateInput(block('input').default, '', e))).toEqual([]);
+  });
+
+  it('phase 24.5: create menu entries fit their descriptors, validate and name known icons', () => {
+    let entries = 0;
+    for (const c of DESCRIPTORS.components) {
+      if (c.icon !== undefined) expect(COMPONENT_ICONS, `${c.name} icon`).toContain(c.icon);
+      for (const e of c.create ?? []) {
+        entries += 1;
+        expect(c.add.kind === 'menu' || e.value !== undefined, `${c.name} ${e.label}: a value`).toBe(true);
+        const v = JSON.parse(JSON.stringify(e.value ?? (c.add.kind === 'menu' ? c.add.value : {}))) as Obj;
+        // The scene pointers the editor fills with another scene of the project.
+        for (const p of e.otherScene ?? []) {
+          const keys = p.split('/');
+          let at = v as Obj;
+          for (const k of keys.slice(0, -1)) at = at[k] as Obj;
+          expect(at[keys[keys.length - 1]!], `${c.name} ${e.label} ${p}`).toBe('');
+          at[keys[keys.length - 1]!] = 'scene-other';
+        }
+        expect(fits(c.value, v), `${c.name} ${e.label} fits`).toBeNull();
+        const extra: Obj = { ...((e.with ?? {}) as Obj), ...(e.box !== undefined ? { box: { size: [...e.box.size], material: { color: e.box.color } } } : {}) };
+        for (const [name, value] of Object.entries(e.with ?? {})) expect(fits(DESCRIPTORS.components.find((x) => x.name === name)!.value, value as J), `${c.name} ${e.label} with ${name}`).toBeNull();
+        if (e.dimension !== 3) expect(sceneErrors(entityScene(c.name, v, extra)), `${c.name} ${e.label} validates`).toEqual([]);
+      }
+    }
+    expect(entries).toBeGreaterThanOrEqual(12);
+    // No genre entries: the removed game components offer none.
+    for (const n of ['gameZone', 'pickup', 'enemy']) expect(DESCRIPTORS.components.find((c) => c.name === n)!.create, n).toBeUndefined();
   });
 
   it('exclusions and requirements match the scene validator', () => {

@@ -18,7 +18,7 @@ import { createRoot } from 'react-dom/client';
 import { forgetToken, readEditorConfig } from '../config';
 import { ProjectsScreen, TokenForm } from './Projects';
 import { resetLayout, useDockSizes } from './layout';
-import { MenuBar, type Menu, type MenuEntry } from './MenuBar';
+import { MenuBar, type Menu, type MenuEntry, type MenuItem } from './MenuBar';
 import { Dialog } from './Dialog';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
 import { mergeDocumentEdit } from '../session/own-commands';
@@ -57,7 +57,7 @@ import {
   parseControlInput,
   planSetBehaviorProperties,
 } from '../session/property-controls';
-import { addEntries, collectSignals, presetValue } from '../session/descriptor-fields';
+import { addEntries, collectSignals, createEntries, presetValue, withOtherScene } from '../session/descriptor-fields';
 import type { FieldContext } from './DescriptorFields';
 import type { PrefabSummaryView } from '../session/prefab-projection';
 import type { BehaviorDeclarationView } from '../session/prefab-projection';
@@ -75,17 +75,10 @@ import { fitCapsule } from '../session/size-handles';
 import { maxPolygonCorners } from '../session/handles';
 import { boxFromBounds3D, boxFromOutline, polygonFromOutline } from '../session/outline';
 import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../session/instance-copies';
-import {
-  DEFAULT_ZONE_SIZE,
-  planCreateSpawn,
-  planCreateZone,
-  planEditZone,
-  type GameConfigLike,
-  type ZoneRole,
-} from '../session/gameplay';
+import type { GameConfigLike } from '../session/gameplay';
 import type { ZonePose } from '../session/zone-gesture';
 import { Viewport } from '../viewport/viewport';
-import type { ZoneTool } from '../viewport/zone-overlay';
+import { iconTableOf } from '../viewport/icons';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
@@ -157,20 +150,6 @@ import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/prev
 import { SURFACE_PRESET_NAMES, validateMediaDrop, type AnimationRoleKey, type SurfacePresetName } from '../session/media';
 import type { GizmoMode } from '../viewport/viewport';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
-
-/**
- * Phase 14.3: the counter names a game counts, for the Score section — the
- * engine's (pickup kinds, stomped enemies) and every custom pickup counter in
- * the open scenes.
- */
-function scoreCounterNames(entities: readonly { blocks?: Partial<Record<string, Record<string, unknown>>> }[]): string[] {
-  const names = new Set(['coins', 'gems', 'keys', 'lives', 'defeated']);
-  for (const e of entities) {
-    const c = e.blocks?.['pickup']?.['counter'];
-    if (typeof c === 'string') names.add(c);
-  }
-  return [...names];
-}
 
 /** A bounded, actionable error the panels display. */
 interface UiError {
@@ -426,11 +405,9 @@ function EditorApp(): JSX.Element {
   /** A dismissible message over the viewport (e.g. why Play failed). */
   const [notice, setNotice] = useState<string | null>(null);
   /** The open modal (File → Export…, Help → Shortcuts / About). */
-  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | 'playFrom' | 'snapping' | null>(null);
+  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'playFrom' | 'snapping' | null>(null);
   /** Phase 23.8: the "Play from…" form (a scene, script variables as JSON, a save slot). */
   const [playFromForm, setPlayFromForm] = useState({ sceneId: '', variables: '', saveSlot: '', mode: '', busy: false, error: null as string | null });
-  /** Phase 12 (c): the exit-zone dialog (a new exit, or the zone being edited). */
-  const [exitForm, setExitForm] = useState<{ entityId: string | null; load: string[]; unload: string[]; spawnId: string; error: string | null }>({ entityId: null, load: [], unload: [], spawnId: '', error: null });
   /**
    * Phase 12 (c): the scatter dialog's form (an instance set of one model).
    * Phase 15.5: a 20 × 20 m square (it was a 40 × 8 m side-scroller strip) —
@@ -556,11 +533,9 @@ function EditorApp(): JSX.Element {
       window.clearInterval(timer);
     };
   }, [playing, playInfo, playDiagnostics]);
-  // ---- packet 56: M3 gameplay authoring (game config / zones / camera / settings) ---
-  const [gameplayTool, setGameplayTool] = useState<ZoneTool | null>(null);
+  // ---- packet 56: M3 gameplay authoring (game config / camera / settings) ---
   const [gameplayError, setGameplayError] = useState<GameplayBackendError | null>(null);
   const [gameConfig, setGameConfig] = useState<GameConfigLike | null>(null);
-  const [gameConfigLoaded, setGameConfigLoaded] = useState(false);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   /** Phase 12 (b): the project tag registry and the last setTags error. */
   const [tags, setTags] = useState<{ bit: number; name: string }[]>([]);
@@ -606,7 +581,7 @@ function EditorApp(): JSX.Element {
     };
   }, [playing, playInfo, playDiagnostics, modes.length]);
 
-  const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
+  const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number } } | null>(null);
 
   // ---- packet 27: content browser + local snapping -------------------------
   const [assets, setAssets] = useState<AssetView[]>([]);
@@ -898,7 +873,6 @@ function EditorApp(): JSX.Element {
     // state (full states + the applied change records — the backend stays
     // the sole authority).
     setGameConfig(stable('gameConfig', c.getGameConfig()));
-    setGameConfigLoaded(c.getGameConfigLoaded());
     setRegistry(c.getDescriptors());
     setSettings(stable('settings', c.getSettings()));
     setTags(stable('tags', c.getTags()));
@@ -1073,21 +1047,11 @@ function EditorApp(): JSX.Element {
       // The overlay (viewport) reports the pointer's game-plane WORLD hits;
       // the pure ZoneGesture decides the single commit; the client issues it
       // (zero commands during the gesture, one on release, none on cancel).
+      // Phase 24.5: zones are no longer placed from the editor (no placement tool is armed); an
+      // existing zone object still moves and resizes here until phase 24.7 removes the component.
       onZoneGestureBegin: (g) => {
         setGameplayError(null);
-        if (g.kind === 'create') {
-          const tool = g.tool;
-          const role: ZoneRole = tool.kind === 'zone' ? tool.role : 'hazard';
-          zoneGestureRef.current = {
-            gesture: new ZoneGesture('create', client.projection.revision, { position: [g.anchor.x, g.anchor.y, 0], size: [1, 1] }, {
-              role,
-              ...(tool.kind === 'zone' && tool.safeSpawnId ? { safeSpawnId: tool.safeSpawnId } : {}),
-            }),
-            anchor: { x: g.anchor.x, y: g.anchor.y },
-            tool,
-          };
-          return;
-        }
+        if (g.kind === 'create') return;
         const e = client.projection.getEntity(g.entityId);
         if (!e) return;
         zoneGestureRef.current = {
@@ -1098,47 +1062,23 @@ function EditorApp(): JSX.Element {
             { entityId: g.entityId },
           ),
           anchor: { x: g.anchor.x, y: g.anchor.y },
-          tool: null,
         };
       },
       onZoneGestureFrame: (hit) => {
         const zg = zoneGestureRef.current;
         if (!zg) return;
         const pose = zg.gesture.preview({ dx: hit.x - zg.anchor.x, dy: hit.y - zg.anchor.y });
-        const isSpawn = zg.tool !== null && zg.tool.kind === 'spawn';
-        const role = zg.tool !== null && zg.tool.kind === 'zone' ? zg.tool.role : undefined;
-        viewportRef.current?.previewZonePose(pose, isSpawn, role);
+        viewportRef.current?.previewZonePose(pose);
       },
       onZoneGestureEnd: (hit) => {
         const zg = zoneGestureRef.current;
         if (!zg) return;
         zg.gesture.preview({ dx: hit.x - zg.anchor.x, dy: hit.y - zg.anchor.y });
         const outcome = zg.gesture.decideCommit();
-        const tool = zg.tool;
         zoneGestureRef.current = null;
-        if (outcome.kind !== 'commit') {
-          // A finished (noop/cancelled) placement clears the one-shot tool.
-          if (tool !== null) setGameplayTool(null);
-          return;
-        }
-        // The spawn tool rides the same create gesture for position tracking;
-        // the entity it creates is a spawn marker, not a zone (row 10).
-        if (tool !== null && tool.kind === 'spawn' && outcome.command.op === 'createEntity') {
-          const pos = outcome.command.args.transform.position;
-          const args = planCreateSpawn([pos[0] ?? 0, pos[1] ?? 0, pos[2] ?? 0]);
-          void client.createGameEntity(args as unknown as Record<string, unknown>, zg.gesture.expectedRevision).then((res) => {
-            if (res.ok) {
-              setGameplayTool(null);
-              refreshEntities();
-              return;
-            }
-            setGameplayError(commandError(res));
-          });
-          return;
-        }
+        if (outcome.kind !== 'commit') return;
         void issueZoneCommand(client, zg.gesture, outcome.command).then((r) => {
           if (r.ok) {
-            if (tool !== null) setGameplayTool(null);
             refreshEntities();
             return;
           }
@@ -1281,12 +1221,6 @@ function EditorApp(): JSX.Element {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
-  // A ref mirror of the armed zone tool (stable-closure Esc handler, packet 56).
-  const gameplayToolRef = useRef<ZoneTool | null>(null);
-  useEffect(() => {
-    gameplayToolRef.current = gameplayTool;
-  }, [gameplayTool]);
-
   // Push the projection into the viewport (packet 27: placements must be
   // visible; the viewport renders the projection, never the reverse). The
   // first non-empty scene is framed so a large level is in view on open.
@@ -1422,17 +1356,11 @@ function EditorApp(): JSX.Element {
             viewportRef.current?.focus(selectedIdRef.current);
             return;
           }
-          if (e.key === 'Escape' && gameplayToolRef.current === null && selectedIdRef.current !== null) {
+          if (e.key === 'Escape' && selectedIdRef.current !== null) {
             setSelectedId(null);
             return;
           }
         }
-      }
-      // M3 (packet 56): with no gesture in flight, Esc clears the armed zone
-      // placement tool (nothing is sent either way).
-      if (e.key === 'Escape' && gameplayToolRef.current !== null) {
-        setGameplayTool(null);
-        viewportRef.current?.setZoneTool(null);
       }
     };
     const onKeyUp = (e: KeyboardEvent): void => {
@@ -1467,6 +1395,8 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setDescriptors(registry);
   }, [registry]);
+  // Phase 24.5: the hierarchy's row icons come from the descriptors too.
+  const iconTable = useMemo(() => iconTableOf(registry), [registry]);
   // Phase 23.2: handles of one physics dimension (a 3D character's heights) follow the project's.
   const physicsDimension = settings?.['physics_dimension'] === 3 ? 3 : 2;
   useEffect(() => {
@@ -1712,8 +1642,7 @@ function EditorApp(): JSX.Element {
   );
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
   // Phase 15.5: the camera and the lights are the descriptor's add value and
-  // presets (one table for this menu and "+ Add component"; they were copies
-  // of Beacon Reach's camera and key/fill lights).
+  // presets (one table for this menu and "+ Add component").
   const createCamera = useCallback(() => {
     const camera = presetValue(registry, 'camera');
     if (camera === null) return setNotice('Create camera failed: the component defaults have not arrived yet');
@@ -1745,7 +1674,6 @@ function EditorApp(): JSX.Element {
     },
     [createEntityAt, registry],
   );
-  const createSpawn = useCallback(() => createEntityAt('Create player spawn', { kind: 'group', name: 'Player spawn', components: { playerSpawn: {} } }), [createEntityAt]);
 
   /** The full values of the selection's subtrees (parents first), read from the backend. */
   const selectionValues = useCallback(async (): Promise<Record<string, unknown>[] | null> => {
@@ -1887,31 +1815,6 @@ function EditorApp(): JSX.Element {
     if (!res.ok && (res.response as { code?: string }).code === 'no_change') return;
     reportFailure('Move', res);
   }, [reportFailure]);
-  /** Phase 12 (c): create or edit an exit zone (scenes to load/unload, the spawn to move the player to). */
-  const saveExit = useCallback(async () => {
-    const c = clientRef.current;
-    if (!c) return;
-    if (exitForm.load.length === 0 && exitForm.unload.length === 0) {
-      setExitForm((f) => ({ ...f, error: 'choose at least one scene to load or unload' }));
-      return;
-    }
-    const fields = { load: exitForm.load, unload: exitForm.unload };
-    if (exitForm.entityId === null) {
-      await createEntityAt('Exit zone', {
-        kind: 'group',
-        name: 'Exit',
-        components: { gameZone: { role: 'exit', size: [...DEFAULT_ZONE_SIZE.exit], ...fields, ...(exitForm.spawnId !== '' ? { spawnId: exitForm.spawnId } : {}) } },
-      });
-      setDialog(null);
-      return;
-    }
-    const res = await c.setComponent(exitForm.entityId, 'gameZone', { ...fields, spawnId: exitForm.spawnId !== '' ? exitForm.spawnId : null }, c.projection.revision);
-    if (!res.ok) {
-      setExitForm((f) => ({ ...f, error: (res.response as { message?: string }).message ?? 'the exit could not be saved' }));
-      return;
-    }
-    setDialog(null);
-  }, [exitForm, createEntityAt]);
   /** Phase 12 (c): scatter copies of one model into a new instance set at the point the camera looks at. */
   const createInstanceSet = useCallback(async () => {
     const c = clientRef.current;
@@ -2232,12 +2135,6 @@ function EditorApp(): JSX.Element {
   // ---- packet 56: M3 gameplay authoring actions (all delegated to the
   // backend through the ordinary command path; one command per action) ------
 
-  const armZoneTool = useCallback((tool: ZoneTool | null) => {
-    setGameplayTool(tool);
-    setGameplayError(null);
-    viewportRef.current?.setZoneTool(tool);
-  }, []);
-
   const saveGameConfig = useCallback(
     async (game: Record<string, unknown> | null) => {
       const c = clientRef.current;
@@ -2257,85 +2154,6 @@ function EditorApp(): JSX.Element {
     },
     [refreshEntities],
   );
-
-  const addZone = useCallback(
-    async (role: ZoneRole, safeSpawnId: string | null) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setGameplayError(null);
-      const plan = planCreateZone({ role, size: DEFAULT_ZONE_SIZE[role], position: [0, 0, 0], safeSpawnId: safeSpawnId ?? undefined });
-      if (!plan.ok) {
-        setGameplayError({ code: plan.error.code, message: plan.error.message });
-        return;
-      }
-      const res = await c.createGameEntity(plan.args as unknown as Record<string, unknown>, c.projection.revision);
-      if (res.ok) {
-        refreshEntities();
-        return;
-      }
-      setGameplayError(commandError(res));
-    },
-    [refreshEntities],
-  );
-
-  const editZone = useCallback(
-    async (entityId: string, next: { role?: ZoneRole; size?: [number, number]; safeSpawnId?: string }) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setGameplayError(null);
-      const zone = c.projection.getEntity(entityId)?.gameZone;
-      if (!zone) return;
-      const plan = planEditZone(entityId, zone, next);
-      if (plan.kind === 'noop') return;
-      // The steps are issued sequentially (the two-step checkpoint role
-      // switch advances the revision between them); each step is one
-      // undoable command.
-      let rev = c.projection.revision;
-      for (const step of plan.steps) {
-        const res = await c.setComponent(step.args.entityId, step.args.component, step.args.value, rev);
-        if (!res.ok) {
-          setGameplayError(commandError(res));
-          return;
-        }
-        rev = res.revision;
-      }
-      refreshEntities();
-    },
-    [refreshEntities],
-  );
-
-  const deleteZone = useCallback(
-    async (entityId: string) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setGameplayError(null);
-      const res = await c.deleteEntityCommand(entityId, c.projection.revision);
-      if (res.ok) {
-        refreshEntities();
-        return;
-      }
-      setGameplayError(commandError(res));
-    },
-    [refreshEntities],
-  );
-
-  const addSpawn = useCallback(
-    async () => {
-      const c = clientRef.current;
-      if (!c) return;
-      setGameplayError(null);
-      const args = planCreateSpawn([0, 0, 0]);
-      const res = await c.createGameEntity(args as unknown as Record<string, unknown>, c.projection.revision);
-      if (res.ok) {
-        refreshEntities();
-        return;
-      }
-      setGameplayError(commandError(res));
-    },
-    [refreshEntities],
-  );
-
-  const deleteSpawn = useCallback(deleteZone, [deleteZone]);
 
   const saveSettings = useCallback(
     async (settings: Record<string, number>) => {
@@ -4100,11 +3918,6 @@ function EditorApp(): JSX.Element {
   const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
-  /** Phase 15.1: a component's "+ Add component" value (the descriptor's; the GameObject presets use it too). */
-  const addValueOf = (name: string): Record<string, unknown> => {
-    const add = registry?.components.find((c) => c.name === name)?.add;
-    return add !== undefined && (add.kind === 'menu' || add.kind === 'pick') ? (JSON.parse(JSON.stringify(add.value)) as Record<string, unknown>) : {};
-  };
   // The play loads from its own content locator on the preview origin.
   // Phase 17.1: the editor page's ?renderer= flag is passed on to the play page (phase 21.3: and ?batching=off; phase 22.0: and ?threads=).
   const previewSrc =
@@ -4124,6 +3937,41 @@ function EditorApp(): JSX.Element {
   // Phase 12: a folder carries no components.
   const noComponentTarget = noSelection || selected?.kind === 'folder';
   const needObject = noSelection ? need : 'a folder has no components';
+  /**
+   * Phase 24.5: the GameObject menu's create entries come from the component
+   * descriptors (`create`): top-level items, and one submenu per `menu` name
+   * (an existing submenu of that name, such as Light, takes its entries).
+   */
+  const createMenu = ((): { top: MenuEntry[]; into: Map<string, MenuEntry[]> } => {
+    const into = new Map<string, MenuEntry[]>();
+    const top: MenuEntry[] = [];
+    if (registry === null) return { top, into };
+    const scenesAll = [...(sceneHeaders ?? []), ...closedScenes];
+    const other = scenesAll.find((sc) => sc.sceneId !== (sceneHeaders?.find((h) => h.active)?.sceneId ?? null))?.sceneId ?? null;
+    const own = new Set(['Light']);
+    const order: string[] = [];
+    for (const entry of createEntries(registry, { dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 })) {
+      const needsScene = entry.otherScene.length > 0;
+      const reason = sceneHeaders === null ? v4Reason : needsScene && (scenesAll.length < 2 || other === null) ? 'it moves the character to another scene: the project needs a second scene' : null;
+      const item: MenuItem = {
+        label: entry.label,
+        disabled: reason !== null,
+        reason: reason ?? '',
+        onSelect: () => void createEntityAt(`Create ${entry.label.toLowerCase()}`, needsScene && other !== null ? withOtherScene(entry, other) : entry.args),
+      };
+      if (entry.menu === null) {
+        top.push(item);
+        continue;
+      }
+      if (!into.has(entry.menu)) {
+        into.set(entry.menu, []);
+        if (!own.has(entry.menu)) order.push(entry.menu);
+      }
+      into.get(entry.menu)!.push(item);
+    }
+    for (const m of order) top.push({ label: m, items: into.get(m)! });
+    return { top: top.length > 0 ? ['separator', ...top] : top, into };
+  })();
   const menus: Menu[] = [
     {
       label: 'File',
@@ -4164,34 +4012,12 @@ function EditorApp(): JSX.Element {
           { label: 'Directional light', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void createLight('directional') },
           { label: 'Ambient light', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void createLight('ambient') },
           { label: 'Point light', onSelect: () => void createLight('point') },
-          { label: 'Fog volume', onSelect: () => void createEntityAt('Create fog volume', { kind: 'group', name: 'Fog volume', components: { fogVolume: { size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5 } } }) },
           { label: 'Spot light', onSelect: () => void createLight('spot') },
           { label: 'Hemisphere light', disabled: entities.some((e) => e.light?.type === 'hemisphere'), reason: 'the scene already has a hemisphere light', onSelect: () => void createLight('hemisphere') },
+          ...(createMenu.into.get('Light') ?? []),
         ] },
-        'separator',
-        { label: 'Player spawn', onSelect: () => void createSpawn() },
-        { label: 'Zone', items: [
-          { label: 'Hazard zone', onSelect: () => void addZone('hazard', null) },
-          { label: 'Checkpoint zone', onSelect: () => void addZone('checkpoint', null) },
-          { label: 'Goal zone', onSelect: () => void addZone('goal', null) },
-          { label: 'Exit zone…', disabled: sceneHeaders === null, reason: 'exits load other scenes (a v4 project)', onSelect: () => {
-            setExitForm({ entityId: null, load: [], unload: [], spawnId: '', error: null });
-            setDialog('exit');
-          } },
-        ] },
-        // Phase 15.5: the gameplay blocks are placeholder boxes sized against the engine's default
-        // 1.8 m character and 1.25 m jump (a platform 2–3 m wide to land on, a 3 m door to walk
-        // through, a 0.4 m coin, a 0.8 m enemy it can jump on), each a colour of its own so they
-        // read apart; the one-way platform takes the Scene view's one-way outline green.
-        { label: 'Gameplay', items: [
-          { label: 'Moving platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create moving platform', { kind: 'box', name: 'Moving platform', box: { size: [2, 0.4, 2], material: { color: '#c9a36a' } }, components: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } }, mover: addValueOf('mover') } }) },
-          { label: 'One-way platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create one-way platform', { kind: 'box', name: 'One-way platform', box: { size: [3, 0.2, 2], material: { color: '#8fb573' } }, components: { collider: { shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true } } }) },
-          { label: 'Switch', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create switch', { kind: 'box', name: 'Switch', box: { size: [0.6, 0.2, 0.6], material: { color: '#d9534f' } }, components: { switch: addValueOf('switch') } }) },
-          { label: 'Door (opens on "open")', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create door', { kind: 'box', name: 'Door', box: { size: [0.6, 3, 2], material: { color: '#7a5230' } }, components: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5 } }, mover: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' } } }) },
-          { label: 'Coin', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create coin', { kind: 'box', name: 'Coin', box: { size: [0.4, 0.4, 0.1], material: { color: '#f2c230' } }, components: { pickup: addValueOf('pickup') } }) },
-          { label: 'Enemy', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create enemy', { kind: 'box', name: 'Enemy', box: { size: [0.8, 0.8, 0.8], material: { color: '#8e3fb0' } }, components: { enemy: addValueOf('enemy') } }) },
-          { label: 'Trigger', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create trigger', { kind: 'group', name: 'Trigger', components: { trigger: addValueOf('trigger') } }) },
-        ] },
+        // Phase 24.5: the create entries of the component descriptors (a submenu of the same name gains its entries).
+        ...createMenu.top,
         'separator',
         { label: 'Model from asset…', onSelect: () => setBottomTab('assets') },
         { label: 'Instance set…', onSelect: () => setDialog('instances') },
@@ -4313,6 +4139,7 @@ function EditorApp(): JSX.Element {
           onSelect={(ids, primary) => setSelection({ ids, primary })}
           onRename={(id, name) => void rename(id, name)}
           onMove={(ids, parentId, beforeId) => void move(ids, parentId, beforeId)}
+          icons={iconTable}
           onAssetDrop={(asset, parentId, sceneId) => {
             if (sceneId !== null) clientRef.current?.setActiveScene(sceneId);
             const focus = viewportRef.current?.focusPoint() ?? [0, 0, 0];
@@ -4704,19 +4531,10 @@ function EditorApp(): JSX.Element {
           {bottomTab === 'behaviors' && <BehaviorPanel {...behaviorProps} />}
           {bottomTab === 'gameplay' && (
             <GameplayPanel
-              v4={sceneHeaders !== null}
               entities={entities}
               gameConfig={gameConfig}
-              gameConfigLoaded={gameConfigLoaded}
               settings={settings}
-              tool={gameplayTool}
-              onArmTool={armZoneTool}
               onSaveGameConfig={(g) => void saveGameConfig(g)}
-              onAddZone={(r, s) => void addZone(r, s)}
-              onEditZone={(id, n) => void editZone(id, n)}
-              onDeleteZone={(id) => void deleteZone(id)}
-              onAddSpawn={() => void addSpawn()}
-              onDeleteSpawn={(id) => void deleteSpawn(id)}
               onSelectEntity={(id) => setSelection({ ids: [id], primary: id })}
               registry={registry}
               fieldContext={gameFieldContext}
@@ -4764,7 +4582,6 @@ function EditorApp(): JSX.Element {
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               gameSpawnId={gameConfig?.spawnId ?? null}
               uiDocuments={uiDocuments.map((d) => ({ id: d.uiDocumentId, name: d.name }))}
-              counters={scoreCounterNames(entities)}
               onSave={(next) => void saveFlow(next, flow)}
               onEditLook={(levelId) => {
                 setEnvLevelId(levelId);
@@ -4973,15 +4790,6 @@ function EditorApp(): JSX.Element {
           </div>
         ) : (
         <Inspector
-          {...(sceneHeaders !== null
-            ? {
-                onEditExit: (entityId: string) => {
-                  const z = clientRef.current?.projection.getEntity(entityId)?.gameZone;
-                  setExitForm({ entityId, load: [...(z?.load ?? [])], unload: [...(z?.unload ?? [])], spawnId: z?.spawnId ?? '', error: null });
-                  setDialog('exit');
-                },
-              }
-            : {})}
           entity={selected}
           gizmoMode={gizmoMode}
           onGizmoMode={setGizmoMode}
@@ -5315,47 +5123,6 @@ function EditorApp(): JSX.Element {
               ))}
             </tbody>
           </table>
-        </Dialog>
-      )}
-      {dialog === 'exit' && (
-        <Dialog title={exitForm.entityId === null ? 'New exit zone' : 'Edit exit zone'} onClose={() => setDialog(null)}>
-          <p>When the player enters the zone, these scenes load and unload; then the player can be moved to a spawn (in a scene that is loaded by then).</p>
-          <div className="tl-exit">
-            {(['load', 'unload'] as const).map((which) => (
-              <fieldset key={which} className="tl-exit__scenes">
-                <legend>{which === 'load' ? 'Load' : 'Unload'}</legend>
-                {[...(sceneHeaders ?? []), ...closedScenes].map((sc) => (
-                  <label key={sc.sceneId} className="tl-field tl-field--inline">
-                    <input
-                      type="checkbox"
-                      aria-label={`${which} ${sc.name}`}
-                      checked={exitForm[which].includes(sc.sceneId)}
-                      onChange={(e) =>
-                        setExitForm((f) => ({ ...f, error: null, [which]: e.target.checked ? [...f[which], sc.sceneId] : f[which].filter((id) => id !== sc.sceneId) }))
-                      }
-                    />
-                    <span>{sc.name}</span>
-                  </label>
-                ))}
-              </fieldset>
-            ))}
-            <label className="tl-field">
-              <span className="tl-field__label">Move the player to</span>
-              <select className="tl-input" aria-label="exit spawn" value={exitForm.spawnId} onChange={(e) => setExitForm((f) => ({ ...f, spawnId: e.target.value }))}>
-                <option value="">— stay —</option>
-                {(clientRef.current?.projection.listEntities() ?? []).filter((e) => e.playerSpawn === true).map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                    {e.sceneId !== undefined ? ` (${[...(sceneHeaders ?? []), ...closedScenes].find((sc) => sc.sceneId === e.sceneId)?.name ?? e.sceneId})` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {exitForm.error !== null && <p className="tl-dialog__error" role="alert">{exitForm.error}</p>}
-          <button className="tl-btn" onClick={() => void saveExit()}>
-            {exitForm.entityId === null ? 'Create exit zone' : 'Save exit'}
-          </button>
         </Dialog>
       )}
       {dialog === 'instances' && (

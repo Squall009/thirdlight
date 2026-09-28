@@ -63,8 +63,6 @@ interface Props {
   /** Phase 12 (b): the project tag registry. */
   tags: readonly { bit: number; name: string }[];
   onSetTags: (entityId: string, names: string[]) => void;
-  /** Phase 12 (c): open the exit-zone editor for this zone (absent: no scenes). */
-  onEditExit?: (entityId: string) => void;
   /** Phase 15.1: custom section bodies by component (e.g. the material mapping, which knows the model's material names). */
   bodies?: Partial<Record<string, ReactNode>>;
   /** Phase 15.1: extra widgets after a component's fields (e.g. surface presets). */
@@ -186,7 +184,7 @@ function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: (
   return (
     <>
       <p className="tl-inspector__hint">
-        A capsule {props.stored ? '' : '(the default: an adult human) '}that every system uses: physics, spawns, zones, pickups and stomps. Drag its top or side handle in the Scene view. Radius {L.minRadius}–{L.maxRadius} m, height {L.minHeight}–{L.maxHeight} m (at least twice the radius), offset up to ±{L.maxOffset} m.
+        A capsule {props.stored ? '' : '(the default: an adult human) '}that every system uses: physics, spawns, triggers, collectibles and hitboxes. Drag its top or side handle in the Scene view. Radius {L.minRadius}–{L.maxRadius} m, height {L.minHeight}–{L.maxHeight} m (at least twice the radius), offset up to ±{L.maxOffset} m.
       </p>
       <div className="tl-inspector__modes">
         <button className="tl-btn" onClick={props.onFit} title="Size the capsule to this object's models: their height, half the smaller of width and depth, feet at their lowest point">
@@ -200,7 +198,7 @@ function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: (
   );
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
+export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -307,27 +305,6 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
                   data={{ capsule: stored ? 'own' : 'default' }}
                   expandAbsent={['capsule']}
                   extension={<CapsuleExtras stored={stored} onFit={() => onFitCapsule?.(entity.id)} onDefault={() => onComponentEdit(entity.id, 'controller', { capsule: null })} />}
-                />
-              );
-            }
-            if (c.name === 'gameZone' && (value as { role?: string }).role === 'exit') {
-              return (
-                <ComponentSection
-                  key={c.name}
-                  {...common}
-                  extension={
-                    <div className="tl-inspector__exit">
-                      <p className="tl-inspector__hint">
-                        Exit: entering loads {entity.gameZone?.load?.length ? entity.gameZone.load.join(', ') : 'nothing'}, unloads {entity.gameZone?.unload?.length ? entity.gameZone.unload.join(', ') : 'nothing'}
-                        {entity.gameZone?.spawnId !== undefined ? `, then moves the player to ${entityName(entity.gameZone.spawnId)}` : ''}.
-                      </p>
-                      {onEditExit !== undefined && (
-                        <button className="tl-btn" onClick={() => onEditExit(entity.id)}>
-                          Edit exit…
-                        </button>
-                      )}
-                    </div>
-                  }
                 />
               );
             }

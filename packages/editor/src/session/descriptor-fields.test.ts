@@ -28,7 +28,10 @@ import {
   startValue,
   visibleFields,
   widgetFor,
+  createEntries,
+  withOtherScene,
 } from './descriptor-fields';
+import { iconKindFor, iconTableOf } from '../viewport/icons';
 
 const base = { label: 'L', tooltip: 't' };
 const f = <T extends FieldDescriptor = FieldDescriptor>(x: Record<string, unknown>): T => ({ ...base, ...x }) as unknown as T;
@@ -273,5 +276,44 @@ describe('+ Add component', () => {
     ];
     expect(entityChoices(f({ type: 'entityRef', key: 'x', component: 'playerSpawn' }), all, 's1').map((e) => e.id)).toEqual(['a']);
     expect(entityChoices(f({ type: 'entityRef', key: 'x', component: 'playerSpawn', anyScene: true }), all, 's1').map((e) => e.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('phase 24.5: create entries and icons from the descriptors', () => {
+  const obj = (key: string): ObjectFieldDescriptor => ({ type: 'object', key, label: key, tooltip: key, fields: [] });
+  const comp = (name: string, extra: Partial<ComponentDescriptor>): ComponentDescriptor =>
+    ({ name, label: name, tooltip: name, category: 'Gameplay', value: obj(name), add: { kind: 'menu', value: { a: 1 } }, handles: [], excludes: [], prefab: true, ...extra }) as ComponentDescriptor;
+  const reg = {
+    version: 1,
+    handleKinds: [],
+    handleRoles: {},
+    entity: obj('entity'),
+    content: [],
+    icons: ['spawn', 'patrol', 'hitbox'],
+    components: [
+      comp('hitbox', { icon: 'hitbox', create: [{ label: 'Hitbox', menu: 'Gameplay', dimension: 2 }, { label: 'Hitbox', menu: 'Gameplay', value: { a: 3 }, dimension: 3 }] }),
+      comp('patrol', { icon: 'patrol', create: [{ label: 'Walker', menu: 'Gameplay', box: { size: [1, 2, 1], color: '#123456' }, with: { hitbox: { a: 2 } } }] }),
+      comp('trigger', { create: [{ label: 'Go', value: { t: { scene: '' } }, otherScene: ['t/scene'] }] }),
+    ],
+  } as unknown as DescriptorRegistry;
+
+  it('lists the entries that fit the dimension, with the add value, a box and the extra components', () => {
+    const two = createEntries(reg, { dimension: 2 });
+    expect(two.map((e) => [e.label, e.menu])).toEqual([['Hitbox', 'Gameplay'], ['Walker', 'Gameplay'], ['Go', null]]);
+    expect(two[0]!.args).toEqual({ kind: 'group', name: 'Hitbox', components: { hitbox: { a: 1 } } });
+    expect(two[1]!.args).toEqual({ kind: 'box', name: 'Walker', box: { size: [1, 2, 1], material: { color: '#123456' } }, components: { hitbox: { a: 2 }, patrol: { a: 1 } } });
+    expect(createEntries(reg, { dimension: 3 })[0]!.args).toEqual({ kind: 'group', name: 'Hitbox', components: { hitbox: { a: 3 } } });
+    const go = two[2]!;
+    expect(withOtherScene(go, 'scene-b')).toEqual({ kind: 'group', name: 'Go', components: { trigger: { t: { scene: 'scene-b' } } } });
+    expect((go.args['components'] as Record<string, { t: { scene: string } }>)['trigger']!.t.scene).toBe('');
+  });
+
+  it('an object shows the most specific icon its components name', () => {
+    const table = iconTableOf(reg);
+    expect(table.map((r) => r.icon)).toEqual(['patrol', 'hitbox']);
+    expect(iconKindFor({ kind: 'group', components: { hitbox: {}, patrol: {} } }, table)).toBe('patrol');
+    expect(iconKindFor({ kind: 'group', components: { hitbox: {} } }, table)).toBe('hitbox');
+    expect(iconKindFor({ kind: 'group', components: {} }, table)).toBe('empty');
+    expect(iconKindFor({ kind: 'group', light: { type: 'spot' }, components: { hitbox: {} } }, table)).toBe('spot');
   });
 });

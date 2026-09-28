@@ -6,6 +6,7 @@
  * only change needed to use generated icons later.
  */
 import * as THREE from 'three';
+import type { DescriptorRegistry } from '@thirdlight/project-model';
 
 export type IconKind =
   | 'camera'
@@ -13,19 +14,21 @@ export type IconKind =
   | 'ambient'
   | 'spawn'
   | 'empty'
-  // Phase 9.12: lights by type, sound, gameplay pieces, fog, sky.
+  // Phase 9.12: lights by type, sound, fog, sky.
   | 'point'
   | 'spot'
   | 'hemisphere'
   | 'audio'
-  | 'pickup'
-  | 'enemy'
+  | 'fog'
+  | 'sky'
+  // Phase 24.5: the component icons the descriptors name (`ComponentDescriptor.icon`).
   | 'mover'
   | 'switch'
-  | 'door'
   | 'sensor'
-  | 'fog'
-  | 'sky';
+  | 'collectible'
+  | 'patrol'
+  | 'hitbox'
+  | 'health';
 
 const GLYPHS: Record<IconKind, { color: string; body: string }> = {
   camera: {
@@ -53,42 +56,56 @@ const GLYPHS: Record<IconKind, { color: string; body: string }> = {
   spot: { color: '#ffe27a', body: '<path d="M26 14h12l10 36H16z" fill="C" opacity=".8"/>' },
   hemisphere: { color: '#8fd3ff', body: '<path d="M14 32a18 18 0 0 1 36 0z" fill="C"/><path d="M14 34a18 18 0 0 0 36 0z" fill="#7cc26b"/>' },
   audio: { color: '#4fd1c5', body: '<path d="M16 26h8l10-8v28l-10-8h-8z" fill="C"/><path d="M40 24a10 10 0 0 1 0 16" fill="none" stroke="C" stroke-width="3"/>' },
-  pickup: { color: '#f2c230', body: '<circle cx="32" cy="32" r="14" fill="C"/>' },
-  enemy: { color: '#9b59e8', body: '<path d="M16 44a16 16 0 0 1 32 0z" fill="C"/>' },
+  collectible: { color: '#f2c230', body: '<circle cx="32" cy="32" r="14" fill="C"/>' },
   mover: { color: '#ffa53a', body: '<rect x="14" y="36" width="36" height="10" rx="2" fill="C"/><path d="M18 26h28M18 26l5-4M18 26l5 4M46 26l-5-4M46 26l-5 4" stroke="C" stroke-width="3" fill="none"/>' },
   switch: { color: '#ff5a5a', body: '<ellipse cx="32" cy="36" rx="16" ry="8" fill="C"/>' },
-  door: { color: '#c9824a', body: '<path d="M20 50V24a12 12 0 0 1 24 0v26z" fill="C"/>' },
   sensor: { color: '#3ad7ff', body: '<rect x="14" y="14" width="36" height="36" fill="none" stroke="C" stroke-width="3" stroke-dasharray="5 4"/>' },
   fog: { color: '#c8d6e5', body: '<path d="M16 26h32M12 34h40M18 42h28" stroke="C" stroke-width="4" stroke-linecap="round"/>' },
   sky: { color: '#8fd3ff', body: '<circle cx="36" cy="26" r="9" fill="#ffd54a"/><ellipse cx="28" cy="38" rx="14" ry="8" fill="#ffffff"/>' },
+  // Phase 24.5: a body walking back and forth; a burst in a box (contacts); a cross (health).
+  patrol: { color: '#b07cf2', body: '<rect x="22" y="24" width="20" height="18" rx="5" fill="C"/><path d="M12 48h40M12 48l5-4M12 48l5 4M52 48l-5-4M52 48l-5 4" stroke="C" stroke-width="3" fill="none"/>' },
+  hitbox: { color: '#ff7a59', body: '<rect x="14" y="14" width="36" height="36" rx="3" fill="none" stroke="C" stroke-width="3"/><path d="M32 20l3 8 8-3-5 7 7 4-8 1 1 8-6-6-6 6 1-8-8-1 7-4-5-7 8 3z" fill="C"/>' },
+  health: { color: '#5fd47a', body: '<path d="M26 14h12v12h12v12H38v12H26V38H14V26h12z" fill="C"/>' },
 };
+
+/** Phase 24.5: which component shows which icon, most specific first (from the descriptors). */
+export type IconTable = readonly { readonly component: string; readonly icon: IconKind }[];
+
+/** The icon table of a descriptor registry: components with an icon, in the registry's icon order. */
+export function iconTableOf(reg: DescriptorRegistry | null): IconTable {
+  if (reg === null) return [];
+  const order = reg.icons ?? [];
+  const rank = (icon: string): number => {
+    const i = order.indexOf(icon as (typeof order)[number]);
+    return i < 0 ? order.length : i;
+  };
+  return reg.components
+    .filter((c) => c.icon !== undefined && (GLYPHS as Record<string, unknown>)[c.icon] !== undefined)
+    .map((c) => ({ component: c.name, icon: c.icon as IconKind }))
+    .sort((a, b) => rank(a.icon) - rank(b.icon));
+}
 
 /**
  * Phase 9.12: the icon an entity shows (Scene view billboards, hierarchy
- * rows): lights by type, and for an empty entity what it is for — a fog
- * volume, an audio source, a gameplay piece or a player spawn.
+ * rows): lights by type, a camera, else (phase 24.5) the icon its
+ * components' descriptors name (the table's first match), else a plain
+ * empty object.
  */
-export function iconKindFor(e: {
-  kind: string;
-  light?: { type: string };
-  playerSpawn?: boolean;
-  fogVolume?: unknown;
-  blocks?: Partial<Record<string, unknown>>;
-}): IconKind {
+export function iconKindFor(
+  e: {
+    kind: string;
+    light?: { type: string };
+    components?: Readonly<Record<string, unknown>>;
+  },
+  table: IconTable,
+): IconKind {
   if (e.light !== undefined) {
     const t = e.light.type;
     return t === 'directional' ? 'sun' : t === 'ambient' ? 'ambient' : t === 'point' ? 'point' : t === 'spot' ? 'spot' : 'hemisphere';
   }
   if (e.kind === 'camera') return 'camera';
-  if (e.playerSpawn === true) return 'spawn';
-  if (e.fogVolume !== undefined) return 'fog';
-  const b = e.blocks ?? {};
-  if (b['audioSource'] !== undefined) return 'audio';
-  if (b['enemy'] !== undefined) return 'enemy';
-  if (b['pickup'] !== undefined) return 'pickup';
-  if (b['switch'] !== undefined) return 'switch';
-  if (b['mover'] !== undefined) return (b['mover'] as { startOn?: string }).startOn !== undefined ? 'door' : 'mover';
-  if (b['trigger'] !== undefined) return 'sensor';
+  const comps = e.components ?? {};
+  for (const row of table) if (comps[row.component] !== undefined) return row.icon;
   return 'empty';
 }
 
@@ -106,8 +123,8 @@ function svgFor(kind: IconKind, selected: boolean): string {
 
 const cache = new Map<string, THREE.Texture>();
 
-/** The icon artwork files (served next to the editor page); the SVG glyph is the fallback. */
-export const ICON_FILES: Record<IconKind, string> = {
+/** The icon artwork files (served next to the editor page); the SVG glyph is the fallback (and the only art of the newer kinds). */
+export const ICON_FILES: Partial<Record<IconKind, string>> = {
   camera: './icons/camera.png',
   sun: './icons/sun.png',
   ambient: './icons/ambient.png',
@@ -117,15 +134,18 @@ export const ICON_FILES: Record<IconKind, string> = {
   spot: './icons/light-spot.png',
   hemisphere: './icons/light-hemisphere.png',
   audio: './icons/audio-source.png',
-  pickup: './icons/pickup.png',
-  enemy: './icons/enemy.png',
+  collectible: './icons/collectible.png',
   mover: './icons/mover.png',
   switch: './icons/switch.png',
-  door: './icons/door.png',
   sensor: './icons/sensor.png',
   fog: './icons/fog.png',
   sky: './icons/sky.png',
 };
+
+/** Phase 24.5: an icon as an image source (its artwork file, else its SVG glyph). */
+export function iconSrc(kind: IconKind): string {
+  return ICON_FILES[kind] ?? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgFor(kind, false))}`;
+}
 
 /** Draw the disc, the artwork and (when selected) the ring onto a canvas. */
 function compose(size: number, art: HTMLImageElement | null, kind: IconKind, selected: boolean): HTMLCanvasElement {
@@ -163,7 +183,9 @@ function loadArt(kind: IconKind): Promise<HTMLImageElement | null> {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = ICON_FILES[kind];
+    const file = ICON_FILES[kind];
+    if (file === undefined) return resolve(null);
+    img.src = file;
   });
   artwork.set(kind, p);
   return p;

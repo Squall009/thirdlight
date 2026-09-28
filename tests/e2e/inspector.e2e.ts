@@ -5,8 +5,10 @@
  * controller or script), one of its fields is edited through the widget its
  * descriptor type gets, the stored value is read back from the backend, one
  * undo restores it, and "remove" takes the component off — each step one
- * command. Components that cannot be added say why; the game block (with
- * its sound cues as asset pickers) is built from its descriptor too.
+ * command. Components that cannot be added say why; an existing game block
+ * (with its sound cues as asset pickers) is built from its descriptor too
+ * (phase 24.5: the editor no longer creates one; the zone, pickup and enemy
+ * components are no longer offered).
  */
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -87,14 +89,14 @@ const MENU: { option: string; name: string; added: Record<string, unknown>; edit
   { option: 'Collider: Box', name: 'collider', added: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, edit: (p) => field(p, 'collider shape hx', '0.75'), after: { shape: { type: 'box', hx: 0.75, hy: 0.5 } } },
   { option: 'Player controller', name: 'controller', added: {}, edit: (p) => field(p, 'controller capsule radius', '0.4'), after: { capsule: { radius: 0.4, height: 1.8 } } },
   { option: 'Light: Point light', name: 'light', added: { type: 'point', range: 8 }, edit: (p) => field(p, 'light range', '5'), after: { type: 'point', range: 5 } },
-  { option: 'Zone: Hazard', name: 'gameZone', added: { role: 'hazard' }, edit: (p) => inspector(p).getByLabel('gameZone role', { exact: true }).selectOption('goal'), after: { role: 'goal' } },
   { option: 'Player spawn', name: 'playerSpawn', added: {} },
   { option: 'Mover', name: 'mover', added: { speed: 2 }, edit: (p) => field(p, 'mover waypoints 1 y', '3'), after: { waypoints: [[4, 3, 0]] } },
   { option: 'Trigger', name: 'trigger', added: { size: [2, 2] }, edit: (p) => inspector(p).getByLabel('trigger shape', { exact: true }).selectOption('circle'), after: { shape: 'circle', radius: 1 } },
   { option: 'Switch', name: 'switch', added: { mode: 'interact' }, edit: (p) => inspector(p).getByLabel('switch once', { exact: true }).click(), after: { once: true } },
   { option: 'Health', name: 'health', added: { max: 3 }, edit: (p) => field(p, 'health max', '5'), after: { max: 5 } },
-  { option: 'Pickup', name: 'pickup', added: { kind: 'coin' }, edit: (p) => inspector(p).getByLabel('pickup kind', { exact: true }).selectOption('custom'), after: { kind: 'custom', counter: 'counter' } },
-  { option: 'Enemy', name: 'enemy', added: { patrol: 'edges' }, edit: (p) => inspector(p).getByLabel('enemy patrol', { exact: true }).selectOption('points'), after: { patrol: 'points', range: [-2, 2] } },
+  { option: 'Collectible', name: 'collectible', added: { counter: 'items' }, edit: (p) => field(p, 'collectible amount', '5'), after: { amount: 5 } },
+  { option: 'Patrol: Edge to edge', name: 'patrol', added: { mode: 'edges' }, edit: (p) => field(p, 'patrol speed', '2.5'), after: { speed: 2.5 } },
+  { option: 'Hitbox: Box', name: 'hitbox', added: { size: [1, 1] }, edit: (p) => field(p, 'hitbox damage', '2'), after: { damage: 2 } },
   { option: 'Face movement: Two sides', name: 'faceMovement', added: { turnSeconds: 0.12 }, edit: (p) => field(p, 'faceMovement turnSeconds', '0.3'), after: { turnSeconds: 0.3 } },
 ];
 
@@ -247,13 +249,15 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await expect.poll(comp(id, 'health')).toBeUndefined();
 });
 
-test('the game block is built from its descriptor: create, texts, references and sound cues', async ({ page }) => {
+test('an existing game block is built from its descriptor: texts, references and sound cues', async ({ page }) => {
   test.setTimeout(180_000);
-  await cmd('createEntity', { kind: 'group', name: 'Player', components: { controller: {} } });
-  await cmd('createEntity', { kind: 'group', name: 'Start', components: { playerSpawn: {} } });
+  const player = String((await cmd('createEntity', { kind: 'group', name: 'Player', components: { controller: {} } }))['createdId']);
+  const start = String((await cmd('createEntity', { kind: 'group', name: 'Start', components: { playerSpawn: {} } }))['createdId']);
   await cmd('createEntity', { kind: 'group', name: 'Goal', transform: { position: [6, 0, 0] }, components: { gameZone: { role: 'goal', size: [2, 2] } } });
   // The game camera follows the player (the game block names a camera with camera follow).
   await cmd('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } });
+  // Phase 24.5: the editor edits a game block a project already has; it no longer creates one.
+  await cmd('setGameConfig', { game: { configVersion: 2, title: 'Untitled game', objective: 'Play', instructions: 'Move and jump.', playerId: player, cameraId: 'cam-main', spawnId: start, cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } } });
   // The title's result is held back (its HTTP ack below, its WS event here, in order) so the cue
   // is edited before the editor has seen it — what a busy page does.
   let holdTitle = false;
@@ -272,8 +276,9 @@ test('the game block is built from its descriptor: create, texts, references and
   const game = async () => (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['game'] as Record<string, unknown> | null;
 
   await page.getByRole('tab', { name: 'Gameplay' }).click();
+  await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'game session', exact: true }).click();
   const block = page.getByLabel('game block');
-  await block.getByRole('button', { name: 'Create game block' }).click();
+  await expect(block.getByRole('button', { name: 'Create game block' })).toHaveCount(0);
   await expect.poll(game).toMatchObject({ configVersion: 2, title: 'Untitled game', cameraId: 'cam-main', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } });
   const title = block.getByLabel('game title', { exact: true });
   // The second edit must be sent after the first and on top of it, not refused as a conflict.

@@ -9,8 +9,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   ANIMATION_PROFILE_BYTES_MAX,
-  ACTIVATION_INTENSITY_MAX,
-  CUE_SLOTS,
   LIGHT_DIRECTION_ABS_MAX,
   LIGHT_DIRECTION_MIN_NORM,
   LIGHT_INTENSITY_MAX,
@@ -21,17 +19,13 @@ import {
   SURFACE_ROUGHNESS_MAX,
   canonicalColor,
   lightCounts,
-  parseActivationForm,
   parseLightForm,
   parseModelAnimationForm,
   parseSurfaceForm,
   planAnimatedReimport,
-  planCueEdit,
-  planSetActivation,
   planSetLight,
   planSetModelAnimation,
   planSetSurface,
-  validateActivationCue,
   validateMediaDrop,
   type AnimationRoleKey,
   type LightForm,
@@ -105,53 +99,6 @@ describe('validateMediaDrop — the extension decides the kind before any networ
 
 // ---------------------------------------------------------------------------
 // planCueEdit (row 5) — the `setGameConfig` partial edit, `cues` replaces whole
-// ---------------------------------------------------------------------------
-
-describe('planCueEdit — the full merged block with only the picked slots changed', () => {
-  it('is a noop when the picks equal the stored block', () => {
-    const current = { cues: { start: 'asset-a', jump: null, checkpoint: null, death: null, goal: null } };
-    const r = planCueEdit(current, { start: 'asset-a' });
-    expect(r.kind).toBe('noop');
-  });
-
-  it('sends the full merged block (all five slots present) on a change', () => {
-    const current = { cues: { start: 'asset-a', jump: null, checkpoint: null, death: null, goal: null } };
-    const r = planCueEdit(current, { jump: 'asset-b' });
-    expect(r.kind).toBe('commit');
-    if (r.kind === 'commit') {
-      expect(Object.keys(r.args.cues).sort()).toEqual([...CUE_SLOTS].sort());
-      expect(r.args.cues.start).toBe('asset-a');
-      expect(r.args.cues.jump).toBe('asset-b');
-      expect(r.args.cues.goal).toBe(null);
-    }
-  });
-
-  it('clears a slot to null (the run then uses nothing for that cue)', () => {
-    const current = { cues: { start: 'asset-a', jump: null, checkpoint: null, death: null, goal: null } };
-    const r = planCueEdit(current, { start: null });
-    expect(r.kind).toBe('commit');
-    if (r.kind === 'commit') expect(r.args.cues.start).toBe(null);
-  });
-
-  it('treats an absent current block as all-null', () => {
-    const r = planCueEdit(null, { goal: 'asset-g' });
-    expect(r.kind).toBe('commit');
-    if (r.kind === 'commit') {
-      expect(r.args.cues.goal).toBe('asset-g');
-      expect(r.args.cues.start).toBe(null);
-    }
-  });
-
-  it('keeps slots absent from `picks`', () => {
-    const current = { cues: { start: 'asset-a', jump: 'asset-j', checkpoint: null, death: null, goal: null } };
-    const r = planCueEdit(current, { death: 'asset-d' });
-    if (r.kind !== 'commit') throw new Error('expected a commit');
-    expect(r.args.cues.jump).toBe('asset-j');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// canonicalColor + parseLightForm (rows 13/14)
 // ---------------------------------------------------------------------------
 
 describe('canonicalColor — #rrggbb to canonical lowercase', () => {
@@ -467,62 +414,3 @@ describe('planAnimatedReimport — the §8.5.1 all-or-nothing args', () => {
 // ---------------------------------------------------------------------------
 // Checkpoint activation appearance (row 11)
 // ---------------------------------------------------------------------------
-
-describe('parseActivationForm + planSetActivation — the §23.3.2 rules', () => {
-  it('parses a valid appearance (empty cue = null)', () => {
-    const r = parseActivationForm({ emissive: '#1BC8FF', emissiveIntensity: '1.2', cueAssetId: '' });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value).toEqual({ emissive: '#1bc8ff', emissiveIntensity: 1.2, cueAssetId: null });
-  });
-
-  it('enforces the 0..4 intensity bound', () => {
-    expect(parseActivationForm({ emissive: '#000000', emissiveIntensity: String(ACTIVATION_INTENSITY_MAX + 1), cueAssetId: '' }).ok).toBe(false);
-    expect(parseActivationForm({ emissive: '#000000', emissiveIntensity: String(ACTIVATION_INTENSITY_MAX), cueAssetId: '' }).ok).toBe(true);
-  });
-
-  it('refuses a malformed cue reference', () => {
-    expect(parseActivationForm({ emissive: '#000000', emissiveIntensity: '1', cueAssetId: 'BAD ID!' }).ok).toBe(false);
-  });
-});
-
-describe('validateActivationCue — the audio-kind preflight against the catalog', () => {
-  const assets = [
-    { assetId: 'asset-a', kind: 'audio' },
-    { assetId: 'asset-m', kind: 'model' },
-  ];
-  it('accepts null and an audio reference', () => {
-    expect(validateActivationCue(null, assets)).toEqual([]);
-    expect(validateActivationCue('asset-a', assets)).toEqual([]);
-  });
-  it('rejects a missing record and a non-audio kind', () => {
-    expect(validateActivationCue('asset-x', assets).length).toBe(1);
-    expect(validateActivationCue('asset-m', assets)[0]).toContain('audio');
-  });
-});
-
-describe('planSetActivation — the setComponent(gameZone, {activation}) partial edit', () => {
-  const form = { emissive: '#1bc8ff', emissiveIntensity: '1.2', cueAssetId: '' };
-
-  it('adds from an absent activation', () => {
-    const r = planSetActivation('zone-0001', null, form);
-    expect(r.kind).toBe('commit');
-    if (r.kind === 'commit') {
-      expect(r.args.component).toBe('gameZone');
-      expect(r.args.value).toEqual({ activation: { emissive: '#1bc8ff', emissiveIntensity: 1.2, cueAssetId: null } });
-    }
-  });
-
-  it('is a noop when equal', () => {
-    expect(planSetActivation('zone-0001', { emissive: '#1bc8ff', emissiveIntensity: 1.2, cueAssetId: null }, form).kind).toBe('noop');
-  });
-
-  it('commits the activation block on any change', () => {
-    const r = planSetActivation('zone-0001', { emissive: '#1bc8ff', emissiveIntensity: 1.2, cueAssetId: null }, { ...form, emissiveIntensity: '2' });
-    expect(r.kind).toBe('commit');
-    if (r.kind === 'commit') expect(r.args.value.activation.emissiveIntensity).toBe(2);
-  });
-
-  it('refuses to plan from an invalid form (noop, the panel explains)', () => {
-    expect(planSetActivation('zone-0001', null, { ...form, emissive: 'blue' }).kind).toBe('noop');
-  });
-});

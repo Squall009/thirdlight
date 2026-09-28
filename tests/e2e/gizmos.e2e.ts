@@ -19,7 +19,7 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-const ICONS = ['light-point', 'light-spot', 'light-hemisphere', 'audio-source', 'pickup', 'enemy', 'mover', 'switch', 'door', 'sensor', 'fog', 'sky'];
+const ICONS = ['light-point', 'light-spot', 'light-hemisphere', 'audio-source', 'collectible', 'mover', 'switch', 'sensor', 'fog', 'sky'];
 
 test('the new icons load, rows use them, collider outlines are drawn and the Gizmos menu toggles the helpers', async ({ page }) => {
   await page.goto(be.editorUrl);

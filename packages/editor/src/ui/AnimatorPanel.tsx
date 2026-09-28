@@ -3,7 +3,7 @@
  * controllers as a list. A controller opens as a centre tab
  * ("Animator: <controller>", the state-graph editor: AnimatorDocument) with
  * a double-click, Enter or **Open**; "New controller" and "New from clips:
- * Platformer" create one from the chosen model's clips and open it. Every
+ * Character locomotion" create one from the chosen model's clips and open it. Every
  * edit is one command (`setAnimator` / `deleteAnimator`; the graph itself
  * is edited with `graphEdit` in the tab).
  *
@@ -12,10 +12,10 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { AnimatorController } from '@thirdlight/project-model';
 
-import { newId, platformerController, type AnimatorModels, type BoneInfo, type ClipInfo, type StartPreview } from './animator/parts';
+import { newId, locomotionController, type AnimatorModels, type BoneInfo, type ClipInfo, type StartPreview } from './animator/parts';
 
 export type { AnimatorPreview, BoneInfo, ClipInfo } from './animator/parts';
-export { platformerController } from './animator/parts';
+export { locomotionController } from './animator/parts';
 
 export interface AnimatorPanelProps {
   controllers: AnimatorController[];
@@ -46,14 +46,14 @@ export function AnimatorPanel(p: AnimatorPanelProps): JSX.Element {
   }, [p.controllers.map((c) => c.controllerId).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   const selected = p.controllers.find((c) => c.controllerId === selectedId) ?? null;
 
-  const create = async (preset: 'empty' | 'platformer'): Promise<void> => {
+  const create = async (preset: 'empty' | 'locomotion'): Promise<void> => {
     setMessage(null);
     if (model === '') return setMessage('import a model with animation clips first');
     const list = await p.clipsOf(model);
     if (list.length === 0) return setMessage('this model has no animation clips');
     const id = newId('animator', p.controllers.map((c) => c.controllerId));
     let c: AnimatorController | string;
-    if (preset === 'platformer') c = platformerController(id, model, list);
+    if (preset === 'locomotion') c = locomotionController(id, model, list);
     else
       c = {
         controllerId: id,
@@ -85,8 +85,8 @@ export function AnimatorPanel(p: AnimatorPanelProps): JSX.Element {
         <button type="button" className="tl-button" onClick={() => void create('empty')}>
           New controller
         </button>
-        <button type="button" className="tl-button" onClick={() => void create('platformer')} title="States and transitions for clips named idle/run/jump/fall/land">
-          New from clips: Platformer
+        <button type="button" className="tl-button" onClick={() => void create('locomotion')} title="States and transitions for clips named idle/run/jump/fall/land">
+          New from clips: Character locomotion
         </button>
         {selected !== null && (
           <>
