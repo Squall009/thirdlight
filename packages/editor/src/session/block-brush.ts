@@ -14,6 +14,8 @@
  * - box: `fill` of the rectangle raised by the brush height;
  * - flood: `flood` from the pressed cell;
  * - raise / lower: `column` (+1 / −1) at every column the stroke crossed;
+ * - height / smooth / flatten (terrain): `sculpt` dabs along the drag, a
+ *   round brush over the ground's surface (`sculptEdit`);
  * - replace-all-of-type: `replace` of the pressed cell's block in the layer;
  * - metadata paint: `meta` at the crossed cells or over a rectangle;
  * - region paint: `region` add / remove of the rectangle;
@@ -29,7 +31,7 @@ export type Cell3 = [number, number, number];
 /** A box `[x0, y0, z0, x1, y1, z1]` (min inclusive, max exclusive), as edits take it. */
 export type CellBox = [number, number, number, number, number, number];
 
-export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region';
+export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'height' | 'smooth' | 'flatten' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region';
 
 /** The tools the Blocks panel offers (label, key, what it does). */
 export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: string }[] = [
@@ -39,6 +41,9 @@ export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: strin
   { id: 'box', label: 'Box', hint: 'Drag a rectangle; it is filled up to the box height.' },
   { id: 'flood', label: 'Flood', hint: 'Fill the connected cells equal to the clicked one.' },
   { id: 'column', label: 'Raise / lower', hint: 'Raise the columns you drag over by one cell (lower: Ctrl held or the Lower toggle).' },
+  { id: 'height', label: 'Height', hint: 'Terrain: raise the ground smoothly under a round brush as you drag (lower: Ctrl held or the Lower toggle); the tops slope.' },
+  { id: 'smooth', label: 'Smooth', hint: 'Terrain: even out the ground under the brush as you drag (slopes soften, cliffs wear down).' },
+  { id: 'flatten', label: 'Flatten', hint: 'Terrain: level the ground under the brush to the height where the drag starts.' },
   { id: 'erase', label: 'Erase', hint: 'Erase cells (drag).' },
   { id: 'eyedropper', label: 'Pick', hint: 'Take the clicked cell\'s block, rotation and variant as the brush.' },
   { id: 'replace', label: 'Replace all', hint: 'Replace every block of the clicked cell\'s type in the layer with the brush block.' },
@@ -52,6 +57,11 @@ export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: strin
 /** Tools that add cells (their target is the empty cell in front of the face under the pointer). */
 export function toolAdds(tool: BlockToolId): boolean {
   return tool === 'single' || tool === 'line' || tool === 'rect' || tool === 'box' || tool === 'paste' || tool === 'stamp';
+}
+
+/** The terrain brushes: round, over the ground's surface, sent as `sculpt` dabs. */
+export function toolSculpts(tool: BlockToolId): tool is 'height' | 'smooth' | 'flatten' {
+  return tool === 'height' || tool === 'smooth' || tool === 'flatten';
 }
 
 /** Tools whose stroke collects every cell the pointer crosses (the others use the press and the current cell). */
@@ -128,9 +138,26 @@ export interface BrushState {
   randomize: boolean;
   /** Box brush height in cells. */
   height: number;
+  /** Terrain brushes: the radius in cells. */
+  radius: number;
+  /** Terrain brushes: cells per dab at the centre (height), the blend toward the target per dab (smooth, flatten; at most 1). */
+  strength: number;
 }
 
-export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2 };
+/** A 3-cell brush raising a quarter cell per dab: a few drags make a hill, one pass a gentle bump. */
+export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, radius: 3, strength: 0.25 };
+
+/** One terrain brush dab at `at` (columns): the `sculpt` edit; `level` is the flatten height (rows). */
+export function sculptEdit(tool: 'height' | 'smooth' | 'flatten', at: readonly [number, number], brush: BrushState, invert: boolean, level: number, cell: BlockCell | null): BlockEdit {
+  const op = tool === 'height' ? (invert ? 'lower' : 'raise') : tool;
+  const strength = tool === 'height' ? brush.strength : Math.min(1, brush.strength);
+  return { kind: 'sculpt', op, at: [at[0], at[1]], radius: brush.radius, strength, ...(op === 'flatten' ? { height: level } : {}), ...(cell !== null && op !== 'lower' ? { cell } : {}) };
+}
+
+/** How far the brush centre moves (columns) before the next dab: a quarter of the radius, at least half a column. */
+export function dabSpacing(radius: number): number {
+  return Math.max(0.5, radius / 4);
+}
 
 /** The allowed rotations of a block type (absent: all four). */
 export function allowedRotations(t: Pick<BlockType, 'rotations'> | undefined): BlockRotation[] {
@@ -308,6 +335,10 @@ export function strokeEdits(s: Stroke, ctx: StrokeContext): BlockEdit[] | null {
     }
     case 'eyedropper':
     case 'select':
+    case 'height':
+    case 'smooth':
+    case 'flatten':
+      // The terrain brushes send the dabs they collected (`sculptEdit`), not cells.
       return null;
   }
 }

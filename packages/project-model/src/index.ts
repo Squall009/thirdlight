@@ -896,6 +896,7 @@ export {
   BLOCK_EDIT_KINDS,
   BLOCK_EDIT_MAX_CELLS,
   BLOCK_EDIT_MAX_EDITS,
+  SURFACE_EDIT_MAX_COLUMNS,
   blockEditsShapeError,
   BlockGrid,
   applyBlockEdits,
@@ -930,6 +931,7 @@ export {
   type ChunkMeshPart,
   type CollisionMeshPiece,
 } from './block-mesh';
+export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
 export {
   FLAT_CORNERS,
   blockTopAt,

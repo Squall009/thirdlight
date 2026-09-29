@@ -60,10 +60,10 @@ const collisionTris = (g: BlockGrid): number[][][] =>
   });
 
 describe('sloped cells: data rules', () => {
-  it('corners are four 1/64 steps in 0-2 on a block cell; all-1 is the flat top and is dropped', () => {
+  it('corners are four 1/64 steps in 0-4 on a block cell; all-1 is the flat top and is dropped', () => {
     expect(errs((e) => validateBlockCell({ block: 'soil', corners: [1, 0.5, 0.25, 0.015625] }, '', e))).toEqual([]);
     expect(errs((e) => validateBlockCell({ block: 'soil', corners: [2, 1.5, 0.25, 1] }, '', e))).toEqual([]);
-    expect(errs((e) => validateBlockCell({ block: 'soil', corners: [2.015625, 1, 1, 1] }, '', e)).map((x) => x.path)).toEqual(['/corners']);
+    expect(errs((e) => validateBlockCell({ block: 'soil', corners: [4.015625, 1, 1, 1] }, '', e)).map((x) => x.path)).toEqual(['/corners']);
     expect(errs((e) => validateBlockCell({ block: 'soil', corners: [1, 0.3, 1, 1] }, '', e)).map((x) => x.path)).toEqual(['/corners']);
     expect(errs((e) => validateBlockCell({ block: 'soil', corners: [1, 1, 1] }, '', e)).map((x) => x.path)).toEqual(['/corners']);
     expect(errs((e) => validateBlockCell({ block: 'soil', corners: [0, 0, 0, 0] }, '', e)).map((x) => x.path)).toEqual(['/corners']);

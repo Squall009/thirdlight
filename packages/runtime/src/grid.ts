@@ -69,7 +69,7 @@ export interface GridCell {
   /** For a cell covered by a larger block's footprint: that block's anchor cell (absent otherwise). */
   readonly anchor?: GridVec3;
   /**
-   * A sloped top: the heights of its corners (−x−z, +x−z, +x+z, −x+z) as fractions of the cell height (absent: a flat full top).
+   * A sloped top: the heights of its corners (−x−z, +x−z, +x+z, −x+z) in cell heights above its bottom, 0-4 (absent: a flat full top, all 1).
    * @graphType list
    */
   readonly corners?: readonly number[];
@@ -84,7 +84,7 @@ export interface GridCellInput {
   /** A variant index (absent: picked from the weights by position). */
   variant?: number;
   /**
-   * A sloped top (a single-cell full block): the heights of its corners −x−z, +x−z, +x+z, −x+z as fractions of the cell height, in steps of 1/64 (absent: flat).
+   * A sloped top (a single-cell full block): the heights of its corners −x−z, +x−z, +x+z, −x+z in cell heights above its bottom, 0-4 in steps of 1/64 (absent: flat).
    * @graphType list
    */
   corners?: readonly number[];

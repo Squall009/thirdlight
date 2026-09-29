@@ -267,13 +267,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'maxSlope? (degrees: characters do not walk up steeper parts of the layer; surface queries call them not walkable)} ' +
       '(its position is the min corner of cell 0; a root at identity rotation and unit scale). A prop may carry setComponent "blockFootprint" {layer?: layer entity id, size?: [x,z] cells, set: {field: value}} ' +
       '(the metadata the editor writes into the cells beneath it when it is placed or moved; via MCP write them with an editBlocks meta edit). editBlocks {entityId, edits: [...]} edits one layer as one undo step (cells are {block?, rot? 90|180|270, variant?, ' +
-      'corners? [h, h, h, h] (a sloped top of a single-cell full block: the corner heights −x−z, +x−z, +x+z, −x+z in cell heights 0-2, steps of 1/64; above 1 reaches into the empty cell above), meta?}; ' +
+      'corners? [h, h, h, h] (a sloped top of a single-cell full block: the corner heights −x−z, +x−z, +x+z, −x+z in cell heights 0-4, steps of 1/64; above 1 reaches into the empty cells above), meta?}; ' +
       'boxes are [x0,y0,z0,x1,y1,z1] max exclusive): {kind:"fill", box, cell|null, mode?: set|keep|replace}, {kind:"cells", at: [x,y,z,...], cell|null}, ' +
       '{kind:"array", origin, size: [w,h,d], palette: [cell|null,...], data: [count, index, ...] run-length, x fastest then z then y, index -1 leaves a cell}, ' +
       '{kind:"replace", match: {block: id|null, rot?, variant?}, cell|null, box?}, {kind:"meta", set: {field: value|null}, box?|at?, occupiedOnly?} (paint metadata; empty cells become metadata-only cells), ' +
       '{kind:"flood", at, cell|null, connectivity?: xz|xyz}, {kind:"column", at: [x,z,...], delta: ±n, cell?} (raise/lower), {kind:"stamp", stampId, at, rot?, mirror?: x|z, mode?}, ' +
       '{kind:"copy", box, to, rot?, mirror?, move?, mode?} (copy/move/mirror a selection), {kind:"region", regionId, op: set|add|remove|delete|rename, boxes?, to?} (named regions), ' +
-      '{kind:"heightmap", png: base64 greyscale PNG, origin: [x,z], y, scale (cells for white), cell, keepAbove?, colors?: {png, map: [{color, cell}]}} (import a heightmap; the colour map picks each column\'s cell). ' +
+      '{kind:"heightmap", png: base64 greyscale PNG, origin: [x,z], y, scale (cells for white), cell, keepAbove?, colors?: {png, map: [{color, cell}]}} (import a heightmap; the colour map picks each column\'s cell), ' +
+      '{kind:"surface", columns: [x, z, h, h, h, h, ...] (column top corner heights −x−z, +x−z, +x+z, −x+z in rows: 3.25 = a quarter cell over row 3\'s bottom), cell?} (sloped terrain: each column grows or shrinks to its corners), ' +
+      '{kind:"sculpt", op: raise|lower|smooth|flatten, at: [x, z] (columns; vertices at whole numbers), radius (0.5-32 cells), strength (raise/lower: cells at the centre; smooth/flatten: blend 0-1), height? (flatten: rows), cell? (grows empty columns)} (a terrain brush dab; the editor sends a stroke as its dabs). ' +
       'The change names the chunks [cx,cz] (16×16 columns) and regions touched; read cells back with tl_content_query target="blocks". Keep each request under 64 KiB (use boxes and runs). ' +
       'setBlockStamp {stamp} or {stampId, name, entityId, box} (save a selection) / deleteBlockStamp {stampId}. ' +
       'Project UI (drawn by the game host over the view, in Play and exports): setUiDocument {document: {uiDocumentId, name, layer? (-100..100), modal?, focus? (takes keyboard/gamepad focus; default modal), ' +

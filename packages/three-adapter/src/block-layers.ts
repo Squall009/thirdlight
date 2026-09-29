@@ -251,6 +251,14 @@ export class BlockLayerView {
     return { layers: this.layers.size, chunks, meshes, triangles };
   }
 
+  /** One layer's chunk meshes (what a pointer ray hits of it). */
+  layerMeshes(entityId: string): THREE.Mesh[] {
+    const layer = this.layers.get(entityId);
+    const out: THREE.Mesh[] = [];
+    if (layer !== undefined) for (const g of layer.chunks.values()) g.traverse((o) => ((o as THREE.Mesh).isMesh === true ? out.push(o as THREE.Mesh) : undefined));
+    return out;
+  }
+
   /** The chunk meshes (static geometry) — e.g. occluders for a light bake. */
   meshes(): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];

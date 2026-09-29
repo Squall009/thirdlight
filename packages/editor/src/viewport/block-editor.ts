@@ -17,23 +17,33 @@
  * never climbs onto the cells it has just painted; where no block is under
  * the pointer the target is the slice plane.
  *
+ * The terrain brushes (height, smooth, flatten) aim at the ground itself
+ * (the layer's drawn surface under the pointer) and drop `sculpt` dabs along
+ * the drag — each previewed on the layer copy as it lands, all of them sent
+ * as one `editBlocks` on release.
+ *
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
 import * as THREE from 'three';
-import { BlockGrid, applyBlockEdits, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
+import { BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
 import type { BlockCell, BlockChunk, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerView } from '@thirdlight/three-adapter';
 import {
+  DEFAULT_BRUSH,
   beginStroke,
   boxBetween,
+  brushCell,
   clipBox,
+  dabSpacing,
   extendStroke,
   lineCells,
   rectBetween,
+  sculptEdit,
   strokeEdits,
   toolAdds,
   toolFreehand,
   toolRect,
+  toolSculpts,
   type BlockToolId,
   type BrushState,
   type Cell3,
@@ -133,7 +143,7 @@ export class BlockEditor {
   private types = new Map<string, BlockType>();
   private fields: readonly CellField[] = [];
   private stamps = new Map<string, BlockStamp>();
-  private opts: BlockToolOptions = { tool: 'single', brush: { block: null, rot: 0, variant: null, randomize: true, height: 2 }, invert: false, meta: null, region: null, stamp: null, paste: null, pasteSize: null };
+  private opts: BlockToolOptions = { tool: 'single', brush: DEFAULT_BRUSH, invert: false, meta: null, region: null, stamp: null, paste: null, pasteSize: null };
   private slice = 0;
   private shownFields = new Set<string>();
   private showRegions = false;
@@ -156,6 +166,9 @@ export class BlockEditor {
   private previewChunks = new Set<string>();
   private previewMs = 0;
   private target: { cell: Cell3; value: BlockCell | null } | null = null;
+  /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
+  private sculpt: { tool: 'height' | 'smooth' | 'flatten'; dabs: BlockEdit[]; last: [number, number]; level: number; invert: boolean } | null = null;
+  private readonly ring: THREE.LineLoop;
   /** Measured stroke timings (tests read them from the canvas). */
   private lastStroke: { tool: BlockToolId; cells: number; previewMs: number; commitMs: number | null } | null = null;
 
@@ -170,7 +183,15 @@ export class BlockEditor {
     this.ghost = new THREE.Mesh(ghostGeo, ghostMat);
     this.ghost.renderOrder = 18;
     this.ghost.visible = false;
-    this.root.add(this.hover, this.ghost, this.ghostEdges, this.selectionBox);
+    // The terrain brush's footprint: a unit circle scaled to the radius, laid on the ground under the pointer.
+    const circle: number[] = [];
+    for (let i = 0; i < 48; i++) circle.push(Math.cos((i / 48) * Math.PI * 2), 0, Math.sin((i / 48) * Math.PI * 2));
+    const ringGeo = new THREE.BufferGeometry();
+    ringGeo.setAttribute('position', new THREE.Float32BufferAttribute(circle, 3));
+    this.ring = new THREE.LineLoop(ringGeo, new THREE.LineBasicMaterial({ color: HOVER_HIT, depthTest: false, transparent: true }));
+    this.ring.renderOrder = 20;
+    this.ring.visible = false;
+    this.root.add(this.hover, this.ghost, this.ghostEdges, this.selectionBox, this.ring);
     host.scene.add(this.root);
   }
 
@@ -227,6 +248,9 @@ export class BlockEditor {
 
   setOptions(o: BlockToolOptions): void {
     this.opts = o;
+    // The terrain brushes show their round footprint instead of a cell.
+    if (toolSculpts(o.tool)) this.placeBox(this.hover, null);
+    else this.ring.visible = false;
     if (this.active) this.host.canvas.setAttribute('data-block-tool', o.tool);
     this.rebuildRegions();
     this.host.requestRender();
@@ -304,6 +328,18 @@ export class BlockEditor {
       this.cb.onRefused('The layer is hidden (show it to edit it).');
       return true;
     }
+    if (toolSculpts(this.opts.tool)) {
+      const at = this.surfaceUnder(e.clientX, e.clientY);
+      if (at === null) return true;
+      this.strokeInvert = this.opts.invert !== (e.ctrlKey || e.metaKey);
+      this.previewMs = 0;
+      this.previewChunks.clear();
+      this.scratch = null;
+      this.sculpt = { tool: this.opts.tool, dabs: [], last: [at.x, at.z], level: at.rows, invert: this.strokeInvert };
+      this.addDab(at.x, at.z);
+      this.drawRing(at);
+      return true;
+    }
     const t = this.resolveTarget(e.clientX, e.clientY, null);
     if (t === null) return true;
     this.target = t;
@@ -319,6 +355,20 @@ export class BlockEditor {
 
   pointerMove(e: PointerEvent): boolean {
     if (!this.active) return false;
+    if (toolSculpts(this.opts.tool) || this.sculpt !== null) {
+      const at = this.surfaceUnder(e.clientX, e.clientY);
+      this.drawRing(at);
+      const k = this.sculpt;
+      if (k === null || at === null) return k !== null;
+      // Dabs every quarter radius along the drag (a fast drag leaves no gaps).
+      const step = dabSpacing(this.opts.brush.radius);
+      const dx = at.x - k.last[0];
+      const dz = at.z - k.last[1];
+      const n = Math.floor(Math.hypot(dx, dz) / step);
+      for (let i = 1; i <= n; i++) this.addDab(k.last[0] + (dx * i) / n, k.last[1] + (dz * i) / n);
+      if (n > 0) k.last = [at.x, at.z];
+      return true;
+    }
     const s = this.stroke;
     if (s === null) {
       // Hover: the target cell outline and the readout.
@@ -341,6 +391,12 @@ export class BlockEditor {
   }
 
   pointerUp(e: PointerEvent): boolean {
+    const k = this.sculpt;
+    if (k !== null) {
+      this.sculpt = null;
+      void this.finishSculpt(k.dabs);
+      return true;
+    }
     const s = this.stroke;
     if (s === null) return false;
     this.stroke = null;
@@ -351,6 +407,11 @@ export class BlockEditor {
 
   /** Esc: drop the stroke in flight (nothing is sent). */
   cancel(): boolean {
+    if (this.sculpt !== null) {
+      this.sculpt = null;
+      this.restorePreview();
+      return true;
+    }
     if (this.stroke === null) return false;
     this.stroke = null;
     this.restorePreview();
@@ -359,7 +420,73 @@ export class BlockEditor {
   }
 
   strokeInFlight(): boolean {
-    return this.stroke !== null;
+    return this.stroke !== null || this.sculpt !== null;
+  }
+
+  // ---- internals: terrain brushes ---------------------------------------------------
+
+  /**
+   * The ground under the pointer: where the ray meets the layer's drawn
+   * surface (its chunk meshes, so a sloped top is hit where it is), as layer
+   * columns and rows; with nothing drawn under it, the slice plane's top.
+   */
+  private surfaceUnder(clientX: number, clientY: number): { x: number; z: number; rows: number } | null {
+    const layer = this.layer;
+    if (layer === null) return null;
+    const ray = this.ray(clientX, clientY);
+    const o = { x: layer.origin[0] ?? 0, y: layer.origin[1] ?? 0, z: layer.origin[2] ?? 0 };
+    const cs = layer.component.cellSize;
+    const hits = this.raycaster.intersectObjects(this.host.view().layerMeshes(layer.entityId), false);
+    let p: THREE.Vector3 | null = hits[0]?.point ?? null;
+    if (p === null) p = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(o.y + (this.slice + 1) * cs[1])), new THREE.Vector3());
+    if (p === null) return null;
+    const x = (p.x - o.x) / cs[0];
+    const z = (p.z - o.z) / cs[2];
+    const b = layer.component.bounds;
+    if (x < b.min[0] || x > b.max[0] || z < b.min[2] || z > b.max[2]) return null;
+    return { x, z, rows: (p.y - o.y) / cs[1] };
+  }
+
+  private drawRing(at: { x: number; z: number; rows: number } | null): void {
+    const layer = this.layer;
+    this.host.canvas.setAttribute('data-block-brush', at === null ? '' : `${at.x.toFixed(3)},${at.z.toFixed(3)},${at.rows.toFixed(3)}`);
+    if (layer === null || at === null) {
+      this.ring.visible = false;
+    } else {
+      const cs = layer.component.cellSize;
+      this.ring.position.set(at.x * cs[0], at.rows * cs[1] + 0.02, at.z * cs[2]);
+      this.ring.scale.set(this.opts.brush.radius * cs[0], 1, this.opts.brush.radius * cs[2]);
+      this.ring.visible = true;
+      this.ring.updateMatrixWorld(true);
+    }
+    this.host.requestRender();
+  }
+
+  /** One dab of the terrain brush in flight: previewed on the layer copy at once, sent with the others on release. */
+  private addDab(x: number, z: number): void {
+    const k = this.sculpt;
+    if (k === null || k.dabs.length >= BLOCK_EDIT_MAX_EDITS) return;
+    const b = this.opts.brush;
+    // The brush block grows empty ground (raising where nothing stands yet).
+    const cell = brushCell(b, b.block !== null ? this.types.get(b.block) : undefined);
+    const dab = sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
+    k.dabs.push(dab);
+    this.previewEdits([dab]);
+  }
+
+  private async finishSculpt(dabs: BlockEdit[]): Promise<void> {
+    const layer = this.layer;
+    if (layer === null || dabs.length === 0) return;
+    const previewMs = this.previewMs;
+    const t0 = performance.now();
+    const ok = await this.cb.onCommit(layer.entityId, dabs);
+    this.lastStroke = { tool: this.opts.tool, cells: dabs.length, previewMs: Math.round(previewMs * 100) / 100, commitMs: Math.round((performance.now() - t0) * 100) / 100 };
+    this.host.canvas.setAttribute('data-block-stroke', JSON.stringify(this.lastStroke));
+    if (!ok) this.restorePreview();
+    else {
+      this.previewChunks.clear();
+      this.scratch = null;
+    }
   }
 
   // ---- internals: targets ------------------------------------------------------------
@@ -440,11 +567,18 @@ export class BlockEditor {
     const s = this.stroke;
     if (layer === null || s === null || layer.component.metadataOnly === true) return;
     if (s.tool === 'meta') return; // metadata changes no geometry: the overlay shows it after the commit
-    const t0 = performance.now();
-    if (this.scratch === null) this.scratch = BlockGrid.from(layer.component, { entityId: layer.entityId, chunks: [...layer.chunks.values()] });
     const part: Stroke = { ...s, cells: [...cells] };
     const edits = strokeEdits(part, this.context());
     if (edits === null) return;
+    this.previewEdits(edits);
+  }
+
+  /** Apply edits to the layer copy and re-mesh the chunks they touched (a stroke's local preview). */
+  private previewEdits(edits: readonly BlockEdit[]): void {
+    const layer = this.layer;
+    if (layer === null || layer.component.metadataOnly === true) return;
+    const t0 = performance.now();
+    if (this.scratch === null) this.scratch = BlockGrid.from(layer.component, { entityId: layer.entityId, chunks: [...layer.chunks.values()] });
     const res = applyBlockEdits(this.scratch, edits, { types: this.types, stamps: this.stamps });
     if (!res.ok) return;
     const dirty = this.scratch.takeDirty().chunks;

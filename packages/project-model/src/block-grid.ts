@@ -31,6 +31,7 @@ import {
   type CellMetaValue,
 } from './block-layers';
 import { decodeBase64, decodePngRgba } from './png-decode';
+import { SCULPT_LIMITS, SCULPT_OPS, sculptHeights, setColumnSurface, type SculptOp } from './block-sculpt';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -457,9 +458,24 @@ export type BlockEdit =
    * An optional colour PNG of the same size picks each column's cell by the
    * nearest colour of `colors.map`.
    */
-  | { kind: 'heightmap'; png: string; origin: number[]; y: number; scale: number; cell: BlockCell; keepAbove?: boolean; colors?: { png: string; map: { color: string; cell: BlockCell }[] } };
+  | { kind: 'heightmap'; png: string; origin: number[]; y: number; scale: number; cell: BlockCell; keepAbove?: boolean; colors?: { png: string; map: { color: string; cell: BlockCell }[] } }
+  /**
+   * Set column top surfaces: `columns` = x, z, then the four corner heights
+   * (−x−z, +x−z, +x+z, −x+z) in rows of the layer (3.25: a quarter cell over
+   * row 3's bottom), per column. The column grows (with `cell`, else its top
+   * block) or shrinks to it; its top cell holds the corners.
+   */
+  | { kind: 'surface'; columns: number[]; cell?: BlockCell }
+  /**
+   * A terrain brush dab: raise, lower, smooth or flatten (to `height`, rows)
+   * the column tops under a round brush at `at` (x, z in columns; vertices at
+   * whole numbers) of `radius` cells; `strength` is cells at the centre
+   * (raise/lower) or the blend toward the target (smooth/flatten, 0-1).
+   * Empty columns grow only with `cell`.
+   */
+  | { kind: 'sculpt'; op: SculptOp; at: number[]; radius: number; strength: number; height?: number; cell?: BlockCell };
 
-export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap'] as const;
+export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt'] as const;
 
 const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[]; optional: string[] }> = {
   fill: { required: ['box', 'cell'], optional: ['mode'] },
@@ -473,6 +489,8 @@ const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[];
   copy: { required: ['box', 'to'], optional: ['rot', 'mirror', 'move', 'mode'] },
   region: { required: ['regionId', 'op'], optional: ['boxes', 'to'] },
   heightmap: { required: ['png', 'origin', 'y', 'scale', 'cell'], optional: ['keepAbove', 'colors'] },
+  surface: { required: ['columns'], optional: ['cell'] },
+  sculpt: { required: ['op', 'at', 'radius', 'strength'], optional: ['height', 'cell'] },
 };
 
 /**
@@ -503,7 +521,7 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
     const bad = (k: string, message: string): { path: string; message: string; code: 'field_value' } => ({ path: `${p}/${k}`, message, code: 'field_value' });
     if (e['box'] !== undefined && !ints(e['box'], 6)) return bad('box', 'box is [x0, y0, z0, x1, y1, z1] integers (max exclusive)');
     if (e['cell'] !== undefined) {
-      const c = cellOk(e['cell'], kind !== 'column' && kind !== 'heightmap');
+      const c = cellOk(e['cell'], kind !== 'column' && kind !== 'heightmap' && kind !== 'surface' && kind !== 'sculpt');
       if (c !== null) return bad('cell', c);
     }
     if (e['mode'] !== undefined && !(kind === 'fill' ? ['set', 'keep', 'replace'] : ['set', 'keep']).includes(e['mode'] as string)) return bad('mode', kind === 'fill' ? 'mode is set, keep or replace' : 'mode is set or keep');
@@ -566,6 +584,27 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
         if (op === 'rename' && (typeof e['to'] !== 'string' || !REGION_ID_RE.test(e['to']))) return bad('to', 'to is the new region id');
         break;
       }
+      case 'surface': {
+        const cols = e['columns'];
+        if (!Array.isArray(cols) || cols.length === 0 || cols.length % 6 !== 0 || cols.length > 6 * SURFACE_EDIT_MAX_COLUMNS) return bad('columns', `columns is x, z and four corner heights per column (1-${SURFACE_EDIT_MAX_COLUMNS} columns)`);
+        for (let k = 0; k < cols.length; k += 6) {
+          if (!Number.isSafeInteger(cols[k]) || !Number.isSafeInteger(cols[k + 1])) return bad(`columns/${k}`, 'a column starts with its integer x and z');
+          for (let j = 2; j < 6; j++) if (typeof cols[k + j] !== 'number' || !Number.isFinite(cols[k + j]) || Math.abs(cols[k + j] as number) > BLOCK_LIMITS.coordinateY) return bad(`columns/${k + j}`, `a corner height is a finite number of rows within ±${BLOCK_LIMITS.coordinateY}`);
+        }
+        break;
+      }
+      case 'sculpt': {
+        if (!SCULPT_OPS.includes(e['op'] as SculptOp)) return bad('op', `op is ${SCULPT_OPS.join(', ')}`);
+        const at = e['at'];
+        if (!Array.isArray(at) || at.length !== 2 || !at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= BLOCK_LIMITS.coordinateXZ)) return bad('at', 'at is the brush centre [x, z] in columns');
+        const r = e['radius'];
+        if (typeof r !== 'number' || !Number.isFinite(r) || r < SCULPT_LIMITS.radiusMin || r > SCULPT_LIMITS.radiusMax) return bad('radius', `radius is ${SCULPT_LIMITS.radiusMin}-${SCULPT_LIMITS.radiusMax} cells`);
+        const st = e['strength'];
+        if (typeof st !== 'number' || !Number.isFinite(st) || st <= 0 || st > SCULPT_LIMITS.strengthMax) return bad('strength', `strength is in (0, ${SCULPT_LIMITS.strengthMax}] (cells for raise/lower, a 0-1 blend for smooth/flatten)`);
+        if (e['op'] === 'flatten' && (typeof e['height'] !== 'number' || !Number.isFinite(e['height']) || Math.abs(e['height']) > BLOCK_LIMITS.coordinateY)) return { path: `${p}/height`, message: 'a flatten dab needs height (rows)', code: 'field_missing' };
+        if (e['op'] !== 'flatten' && e['height'] !== undefined) return { path: `${p}/height`, message: 'height belongs to a flatten dab', code: 'field_unexpected' };
+        break;
+      }
       case 'heightmap': {
         if (typeof e['png'] !== 'string' || e['png'].length < 8) return bad('png', 'png is base64 PNG bytes');
         if (!ints(e['origin'], 2)) return bad('origin', 'origin is [x, z] integers');
@@ -587,6 +626,9 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
   }
   return null;
 }
+
+/** Most columns one `surface` edit sets (one command stays well under the 64 KiB request cap). */
+export const SURFACE_EDIT_MAX_COLUMNS = 4096;
 
 /** Most cells one command may visit (a box volume, a flood, an array). */
 export const BLOCK_EDIT_MAX_CELLS = 1_048_576;
@@ -1016,6 +1058,29 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
           else g.regions.set(e.regionId, next);
         }
         g.markRegionDirty(e.regionId);
+        break;
+      }
+      case 'surface': {
+        const cols = e.columns;
+        const over = budget(cols.length / 6, p);
+        if (over) return over;
+        for (let k = 0; k < cols.length; k += 6) {
+          const o = outside(g, cols[k]!, g.min[1], cols[k + 1]!, `${p}/columns/${k}`);
+          if (o) return o;
+          const n = setColumnSurface(g, ctx.types, cols[k]!, cols[k + 1]!, cols.slice(k + 2, k + 6), e.cell);
+          if (n > 0) changed += n;
+        }
+        break;
+      }
+      case 'sculpt': {
+        const next = sculptHeights(g, ctx.types, e, e.cell !== undefined);
+        const over = budget(next.size, p);
+        if (over) return over;
+        for (const k of [...next.keys()].sort()) {
+          const c = next.get(k)!;
+          const n = setColumnSurface(g, ctx.types, c.x, c.z, c.h, e.cell);
+          if (n > 0) changed += n;
+        }
         break;
       }
       case 'heightmap': {

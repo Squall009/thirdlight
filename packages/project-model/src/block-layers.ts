@@ -49,10 +49,10 @@ export interface BlockCell {
   /**
    * The heights of the block's top corners — −x−z, +x−z, +x+z, −x+z in the
    * layer's axes, whatever the rotation — in cell heights above the cell's
-   * bottom, 0–2 in steps of 1/64 (absent: a flat full top, all 1). A
-   * single-cell `full` block only: sloped terrain. Up to 2, so a slope that
-   * crosses a row boundary inside one column stays one smooth surface (the
-   * cell reaches into the cell above it, which then stays empty). The top is
+   * bottom, 0–4 in steps of 1/64 (absent: a flat full top, all 1). A
+   * single-cell `full` block only: sloped terrain. Above 1, so a slope that
+   * crosses row boundaries inside one column stays one smooth surface (the
+   * cell reaches into the cells above it, which then stay empty). The top is
    * two triangles split along one diagonal (`splitsMainDiagonal`); the sides
    * follow the corners.
    */
@@ -209,8 +209,14 @@ export const BLOCK_LIMITS = Object.freeze({
  * enough for smooth hills (1.6 cm on a 1 m cell).
  */
 export const BLOCK_CORNER_STEPS = 64;
-/** The highest corner of a sloped cell, in cell heights: one row into the cell above, so any slope up to one cell per column is smooth. */
-export const BLOCK_CORNER_MAX = 2;
+/**
+ * The highest corner of a sloped cell, in cell heights. A column's top cell is
+ * the row under its lowest corner, so a column whose corners differ by up to
+ * three rows is always one smooth surface (its cell reaches up to three rows
+ * into the cells above it, which stay empty); steeper columns keep a wall.
+ * Three rows covers 56° on half-height cells and 71° on cubes.
+ */
+export const BLOCK_CORNER_MAX = 4;
 
 /** The steepest and flattest `maxSlope` a layer may set (degrees). */
 export const BLOCK_MAX_SLOPE_RANGE = Object.freeze({ min: 1, max: 89 });

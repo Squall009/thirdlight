@@ -20,6 +20,7 @@
  */
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import { SCULPT_LIMITS } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { componentPatch } from '../session/descriptor-fields';
 import {
@@ -353,7 +354,17 @@ export function BlocksPanel(p: Props): JSX.Element {
         <label title="The box brush's height in cells.">
           Box height <input aria-label="box height" type="number" className="tl-blocks__num" min={1} max={256} value={brush.height} onChange={(e) => setBrush((b) => ({ ...b, height: Math.max(1, Math.min(256, Math.round(Number(e.target.value) || 1))) }))} />
         </label>
-        <label title="Lower columns (raise/lower) or remove from the region (region); Ctrl held flips it for one stroke.">
+        {(tool === 'height' || tool === 'smooth' || tool === 'flatten') && (
+          <>
+            <label title="The terrain brush's radius in cells.">
+              Radius <input aria-label="brush radius" type="number" className="tl-blocks__num" min={SCULPT_LIMITS.radiusMin} max={SCULPT_LIMITS.radiusMax} step={0.5} value={brush.radius} onChange={(e) => setBrush((b) => ({ ...b, radius: Math.max(SCULPT_LIMITS.radiusMin, Math.min(SCULPT_LIMITS.radiusMax, Number(e.target.value) || b.radius)) }))} />
+            </label>
+            <label title="Height: cells raised (or lowered) at the centre per dab. Smooth and flatten: how far toward the target per dab (0-1).">
+              Strength <input aria-label="brush strength" type="number" className="tl-blocks__num" min={0.015625} max={tool === 'height' ? SCULPT_LIMITS.strengthMax : 1} step={0.05} value={brush.strength} onChange={(e) => setBrush((b) => ({ ...b, strength: Math.max(0.015625, Math.min(SCULPT_LIMITS.strengthMax, Number(e.target.value) || b.strength)) }))} />
+            </label>
+          </>
+        )}
+        <label title="Lower columns (raise/lower), lower the ground (height) or remove from the region (region); Ctrl held flips it for one stroke.">
           <input type="checkbox" aria-label="lower or remove" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Lower / remove
         </label>
       </div>
