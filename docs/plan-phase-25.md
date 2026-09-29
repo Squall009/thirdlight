@@ -183,7 +183,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.15 | done 2026-09-29: relay frames `{stepOffset, steps?, actions?, pointer?, gamepad?, ui?}`: run length (≤ 7,200 steps a call, no overlap; the backend waits by the span), gaps neutral (tool text); `ui` edges drive menus, pause and resume (frames of a paused game take steps' places); the pointer through the UI hit test (a click on a UI button clicks it, the game never sees that press; `pointer().overUi`, real mouse too); `ui.elements` rectangles in `tl_game_observe`; a virtual standard gamepad read through the bindings on the page; unit tests, `relay-input.e2e.ts` (MCP stdio → HTTP relay → editor, worker and single thread) |
 | 25.16 | done 2026-09-29: `tl_game_observe` `run {stepIndex, runStep, digest, lastInput?}` — the run digest (steps from the run's start, a run's spawned copies by their number in it, loaded scenes instead of the set's revision) now and right after the last exercise's last step (a step observer in the simulation's realm); `tl_input_exercise {restart: true}` restarts the game and applies the frames from the new run's first step; `relay-input.e2e.ts`: the same frames after a restart give the same digest at the same run step, other frames another, and the worker and a single thread agree; unit tests |
 | 25.17 | done 2026-09-29: the headless play-test runner (`tools/playtest.mjs` and `tl_playtest`, one runner in `mcp-adapter/src/playtest.ts`): a game folder, a start (scene, mode, variables), an input script (relay frames up to an hour, sent as exercises that hold the game in between) or a driver module of the game folder (CLI), an observation spec (fields, steps); JSON per run (run digests, fields, script errors) and whether runs agree; `tl_input_exercise {hold}`, `tl_play_start {threads}`; start variables set again at every restart (replay, New game); D51 fixed (digests hashed interpolated transforms); `playtest.e2e.ts` (CLI headless against a real backend, both threading modes; MCP stdio), unit tests |
-| 25.18–25.22 | — |
+| 25.18 | done 2026-09-29: `GET /api/v1/engine` and `tl_inspect target="engine"` (version, commit and lockfile as the process started, the dist/ build stamp `dist/build-info.json` at start and now, `startedAt`, `dist.newerThanProcess` with its reason, the checkout's commit when it moved on); the backend runs `materialGraphProblems` when it loads a project and after every change (cached per compile input), a material whose problems appear is logged once (`material_graph_problems`), current ones in `tl_diagnostics` `materialProblems` and `tl_content_query target="materials"` (`GET …/content/materials`); backend and MCP tests |
+| 25.19–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1222,3 +1223,25 @@ boundary it changes (Playwright for any editor surface).
   0.6 mm in 2.9 m — a different start, not a different result for the same
   start. Looking at it found D51: the run digest hashed interpolated
   transforms, so equal runs gave different digests while something moved.
+- 2026-09-29 (25.18): **the engine info.** `tools/build.mjs` writes
+  `dist/build-info.json` {builtAt, commit, dirty, version}; the backend reads
+  it and the engine identity when it starts and answers both with its start
+  time; `dist.newerThanProcess` is "dist/ was built after this process
+  started" (the pages already load the newer bundles; the backend runs the
+  old one until restarted). Without a stamp the newest bundle's modification
+  time stands in. The backend still has no child_process for git (the
+  commit is read from `.git`).
+- 2026-09-29 (25.18): **material problems on the backend** are the compiler's
+  (`materialGraphProblems`, three-adapter: a graph built to TSL nodes
+  without a renderer, as the editor's worker runs it), so the backend gains
+  an edge to three-adapter (check-boundaries' backend row). The editor's
+  per-kind graph rules (`diagnoseGraph`) are editor code and stay there; the
+  model's own validation already refuses what they would. Checked when the
+  backend first reads a project (an editor attaching, a problems or
+  materials query) and 25 ms after each applied change (coalesced, off the
+  request's path), each material cached by the canonical text its compile
+  reads and the project's texture ids. The problems log gets one
+  `material_graph_problems` entry when a material's problems appear or
+  change (not again for unrelated edits; nothing when fixed); the current
+  problems are state, answered by `tl_diagnostics` (`materialProblems`) and
+  `tl_content_query target="materials"`.

@@ -105,6 +105,22 @@ export class BackendClient {
     return new BackendClient({ authoringOrigin: this.origin, token: this.token, timeoutMs });
   }
 
+  /** Phase 25.18: GET the engine the backend runs. */
+  engineInfo(): Promise<BackendResponse> {
+    return this.request('GET', '/api/v1/engine');
+  }
+
+  /** Phase 25.18: GET the materials and their graph problems (paged). */
+  contentMaterials(projectId: string, q: { limit?: number; offset?: number; materialId?: string; withProblems?: boolean }): Promise<BackendResponse> {
+    const qs = new URLSearchParams();
+    if (q.limit !== undefined) qs.set('limit', String(q.limit));
+    if (q.offset !== undefined) qs.set('offset', String(q.offset));
+    if (q.materialId !== undefined) qs.set('materialId', q.materialId);
+    if (q.withProblems === true) qs.set('problems', '1');
+    const t = qs.toString();
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/materials${t.length > 0 ? `?${t}` : ''}`);
+  }
+
   /** Phase 25.17: GET the projects (a folder project's `folder`). */
   listProjects(): Promise<BackendResponse> {
     return this.request('GET', '/api/v1/projects');

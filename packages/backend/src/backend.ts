@@ -18,7 +18,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { listTemplates } from './templates';
 import { isExportDirOf, listExports, zipDirectory } from './exports';
@@ -42,7 +42,8 @@ import { createPlayBuildCache } from './play-build';
 import { makeStaticRoutes } from './static-routes';
 import { makeAdminRoutes } from './admin-routes';
 import { makePlayRoutes } from './play-routes';
-import { comparePin, engineIdentity } from './engine';
+import { comparePin, engineIdentity, makeEngineInfo } from './engine';
+import { createMaterialProblemChecker, materialProblemLine, type MaterialRow } from './material-problems';
 
 import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, MAX_SCREENSHOT, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
 export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, MAX_SCREENSHOT, SESSION_LIST_MAX, STARTUP_LOG_RING };
@@ -386,6 +387,14 @@ export function createBackend(
     if (!q.ok) {
       return { ok: false, error: workspaceError(q.error), status: statusFor(q.error.cls) };
     }
+    // Phase 25.18: an editor loading the project: its materials are checked (once; after that, after each change).
+    if (materialChecker.last(projectId) === null) {
+      try {
+        checkMaterials(projectId);
+      } catch (e) {
+        logStartup(`material check of ${projectId} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     if (!('manifest' in q)) {
       // queryProject always yields the project shape; this is a defensive
       // guard so the code below narrows to `QueryProjectResult`.
@@ -510,6 +519,42 @@ export function createBackend(
     }
   };
 
+  // ---------- phase 25.18: graph materials' problems (checked on load and after every change) ----------
+  const materialChecker = createMaterialProblemChecker();
+  const materialCheckTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Check a project's materials now; problems that appeared or changed go to the problems log. Null: the project cannot be read. */
+  const checkMaterials = (projectId: string): MaterialRow[] | null => {
+    if (closed) return null;
+    const t = materialCheckTimers.get(projectId);
+    if (t !== undefined) {
+      clearTimeout(t);
+      materialCheckTimers.delete(projectId);
+    }
+    const captured = service.readCapturedV3(projectId);
+    if (!captured.ok) return null;
+    const { rows, changed } = materialChecker.update(projectId, captured.read.content);
+    for (const r of changed) recordProblem(projectId, 'compile', 'material_graph_problems', materialProblemLine(r));
+    return rows;
+  };
+  /** The project's material rows: the last check, else a check now (the load). */
+  const materialRows = (projectId: string): MaterialRow[] | null => (materialCheckTimers.has(projectId) ? null : materialChecker.last(projectId)) ?? checkMaterials(projectId);
+  /** After a change: check soon (coalesced; off the request's path). */
+  const scheduleMaterialCheck = (projectId: string): void => {
+    if (closed || materialCheckTimers.has(projectId)) return;
+    const t = setTimeout(() => {
+      materialCheckTimers.delete(projectId);
+      try {
+        checkMaterials(projectId);
+      } catch (e) {
+        logStartup(`material check of ${projectId} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }, 25);
+    (t as { unref?: () => void }).unref?.();
+    materialCheckTimers.set(projectId, t);
+  };
+  // ---------- phase 25.18: the engine this process runs ----------
+  const engineInfo = makeEngineInfo({ engineRoot: config.engineRoot, distDir: dirname(config.editorStaticDir), startedAtMs: Date.now() - process.uptime() * 1000 });
+
   const notifyMutationApplied = (
     projectId: string,
     requestId: string,
@@ -518,6 +563,8 @@ export function createBackend(
     change: unknown,
     sceneId?: string,
   ): void => {
+    // Phase 25.18: materials are checked again after every applied change.
+    scheduleMaterialCheck(projectId);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
     // §11.6/§17.6: a full-state/change frame never carries GLB or source bytes.
@@ -1307,6 +1354,44 @@ export function createBackend(
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
           return;
         }
+        // GET /api/v1/engine — phase 25.18: the engine this backend runs (commit, build, start, whether dist/ is newer)
+        if (parts.length === 3 && parts[2] === 'engine') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          if (tokenScope(bearerToken(req), req) === null) {
+            sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
+            return;
+          }
+          sendJson(res, 200, { ok: true, engine: engineInfo() });
+          return;
+        }
+        // GET /api/v1/projects/:projectId/content/materials — phase 25.18: the materials and their graph problems (paged)
+        if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'materials') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          const projectId = parts[3]!;
+          const authError = requireAuth(req, projectId, false);
+          if (authError !== null) {
+            sendError(res, authError);
+            return;
+          }
+          const rows = materialRows(projectId);
+          if (rows === null) {
+            sendError(res, sessionError('project_not_found', 'not_found', `project ${projectId} cannot be read`), 404);
+            return;
+          }
+          const limit = Math.min(128, Math.max(1, Number.parseInt(query.get('limit') ?? '50', 10) || 50));
+          const offset = Math.max(0, Number.parseInt(query.get('offset') ?? '0', 10) || 0);
+          const only = query.get('materialId') ?? null;
+          const withProblems = query.get('problems') === '1';
+          const picked = rows.filter((r) => (only === null || only === '' || r.materialId === only) && (!withProblems || r.problems.length > 0));
+          sendJson(res, 200, { ok: true, projectId, total: picked.length, withProblems: rows.filter((r) => r.problems.length > 0).length, materials: picked.slice(offset, offset + limit) });
+          return;
+        }
         // GET /api/v1/projects — every project directory in the data root
         if (parts.length === 3 && parts[2] === 'projects') {
           if (method !== 'GET') {
@@ -1456,8 +1541,10 @@ export function createBackend(
             sendError(res, authError);
             return;
           }
+          // Phase 25.18: the graph materials with problems now (checked at the project's load and after each change).
+          const rows = materialRows(projectId);
           const list = problems.get(projectId) ?? [];
-          sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50) });
+          sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50), ...(rows !== null ? { materialProblems: rows.filter((r) => r.problems.length > 0).slice(0, 64) } : {}) });
           return;
         }
         // POST /api/v1/projects/:projectId/external/(accept|discard)
@@ -1699,6 +1786,9 @@ export function createBackend(
           return;
         }
         closed = true;
+        // Phase 25.18: no material check after close (it would open the project again).
+        for (const t of materialCheckTimers.values()) clearTimeout(t);
+        materialCheckTimers.clear();
         void headless.dispose();
         if (sweepTimer !== undefined) clearInterval(sweepTimer);
         clearInterval(externalTimer);

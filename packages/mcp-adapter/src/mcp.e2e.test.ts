@@ -184,4 +184,28 @@ describe('MCP end-to-end (real client + real backend)', () => {
     expect(body.ok).toBe(true);
     expect(Array.isArray(body.sessions)).toBe(true);
   });
+
+  it('phase 25.18: tl_inspect target="engine" answers the engine the backend runs', async () => {
+    const res = await client.callTool({ name: 'tl_inspect', arguments: { target: 'engine' } });
+    expect(res.isError).toBeUndefined();
+    const engine = text(res).engine as { startedAt: string; dist: { newerThanProcess: boolean; reason: string } };
+    expect(Date.parse(engine.startedAt)).toBeLessThanOrEqual(Date.now());
+    expect(typeof engine.dist.newerThanProcess).toBe('boolean');
+    expect(engine.dist.reason.length).toBeGreaterThan(0);
+  });
+
+  it('phase 25.18: a graph material with problems shows in tl_content_query target="materials" and tl_diagnostics', async () => {
+    const rev = Number(text(await client.callTool({ name: 'tl_inspect', arguments: { target: 'project' } })).revision);
+    const graph = { nodes: [{ id: 'out', type: 'pbr', position: [400, 0] }, { id: 's', type: 'sampleTexture', position: [0, 0] }], edges: [{ id: 'e1', from: { node: 's', port: 'rgb' }, to: { node: 'out', port: 'baseColor' } }] };
+    const set = await client.callTool({ name: 'tl_command', arguments: { op: 'setMaterial', expectedRevision: rev, args: { material: { materialId: 'mat-graph', name: 'Graph', shader: 'standard', params: {}, textures: {}, graph } } } });
+    expect(set.isError, JSON.stringify(set).slice(0, 400)).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 80));
+    const listed = text(await client.callTool({ name: 'tl_content_query', arguments: { target: 'materials', withProblems: true } }));
+    const rows = listed.materials as { materialId: string; problems: { nodeId?: string; message: string }[] }[];
+    expect(rows.map((r) => r.materialId)).toEqual(['mat-graph']);
+    expect(rows[0]!.problems.some((p) => p.nodeId === 's')).toBe(true);
+    const diag = text(await client.callTool({ name: 'tl_diagnostics', arguments: {} }));
+    expect((diag.materialProblems as { materialId: string }[]).map((r) => r.materialId)).toEqual(['mat-graph']);
+    expect((diag.problems as { code: string }[]).some((p) => p.code === 'material_graph_problems')).toBe(true);
+  });
 });

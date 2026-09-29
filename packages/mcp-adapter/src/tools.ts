@@ -76,12 +76,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'target="entity" returns one entity (plus subtree only if includeSubtree=true); ' +
       'target="entities" returns a paged list (limit ≤ 1024, default 100; sceneId limits it to one scene, and ' +
       'each page names every entity\'s scene in entitySceneIds); ' +
-      'target="selection" returns the entities selected in the connected editor. A project has one or more scenes ' +
+      'target="selection" returns the entities selected in the connected editor. ' +
+      'target="engine" (phase 25.18) returns the engine the backend runs: version, commit and lockfileDigest (as it started), build (dist/build-info.json at start: builtAt, commit, dirty), ' +
+      'startedAt, dist {build (now), newerThanProcess, reason} - newerThanProcess true: dist/ was rebuilt after the backend started, so the pages load the newer bundles while the backend still runs the old one until restarted - and checkoutCommit when the checkout moved on. A project has one or more scenes ' +
       '(one file each; target="project" lists scenes and startScenes, target="entity" names its sceneId). Never mutates.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['project', 'entity', 'entities', 'selection'] },
+        target: { type: 'string', enum: ['project', 'entity', 'entities', 'selection', 'engine'] },
         entityId: { type: 'string' },
         includeSubtree: { type: 'boolean' },
         limit: { type: 'integer', minimum: 1, maximum: 1024 },
@@ -333,11 +335,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'files) for tl_content_upload projectPath; target="blocks" reads block layers: without entityId the layers ' +
       '(component, cell count, chunks, regions; sceneId optional), with entityId one layer — chunks [[cx,cz],…] in their stored ' +
       'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
-      'boxes and cells). Never returns bytes.',
+      'boxes and cells). target="materials" (phase 25.18) pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
+      'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
+      '(materialId: one; withProblems: only broken ones; total, withProblems counts). Never returns bytes.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks'] },
+        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials'] },
+        materialId: { type: 'string', description: 'target="materials": one material' },
+        withProblems: { type: 'boolean', description: 'target="materials": only materials whose graph has problems' },
         sceneId: { type: 'string', description: 'target="blocks": the scene whose layers are listed' },
         entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer)' },
         chunks: { type: 'array', items: { type: 'array', items: { type: 'integer' } }, description: 'target="blocks": [[cx, cz], …] chunks to read' },
@@ -611,7 +617,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     name: 'tl_diagnostics',
     description:
       'Without playSessionId: the project\'s recent problems (failed commands, import/compile/Play/' +
-      'export failures, external file edits) and whether editing is paused. With playSessionId: bounded ' +
+      'export failures, external file edits, phase 25.18: a material whose graph has new problems, code material_graph_problems) and whether editing is paused, ' +
+      'plus materialProblems [{materialId, name, problems: [{nodeId?, severity, message}]}] - the graph materials that have problems now (the backend compiles them at load and after each change). With playSessionId: bounded ' +
       'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview; its renderer block names the backend ' +
       'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason); renderer.effects is the ' +
       'visual-effect player: executor webgpu|cpu with its caps, what plays, refused plays, unknown effect ids, per-effect executor and why an effect runs on the CPU on WebGPU. ' +
@@ -756,8 +763,13 @@ export async function handleToolCall(
 async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const target = a.target;
   if (target === 'selection') return inspectSelection(ctx);
+  if (target === 'engine') {
+    // Phase 25.18: the engine the backend runs.
+    const res = await ctx.client.engineInfo();
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
   if (target !== 'project' && target !== 'entity' && target !== 'entities') {
-    return toolError('target must be "project", "entity", "entities", or "selection"');
+    return toolError('target must be "project", "entity", "entities", "selection" or "engine"');
   }
   let op: string;
   let argsOut: Record<string, unknown>;
@@ -878,7 +890,8 @@ async function diagnostics(ctx: McpContext, a: Record<string, unknown>): Promise
     if (!isObj(problems.body) || problems.body.ok !== true) return surfaceBackendError(problems);
     const project = await ctx.client.command(ctx.projectId, { op: 'queryProject', args: {} });
     const workspace = isObj(project.body) && project.body.ok === true ? project.body.workspace : null;
-    return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems });
+    // Phase 25.18: the graph materials with problems now.
+    return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems, ...(problems.body.materialProblems !== undefined ? { materialProblems: problems.body.materialProblems } : {}) });
   }
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId must be a non-empty string');
   const res = await ctx.client.diagnostics(ctx.projectId, a.playSessionId);
@@ -954,6 +967,15 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const dir = a.dir ?? '';
     if (typeof dir !== 'string') return toolError('dir must be a string');
     const res = await ctx.client.listProjectFiles(ctx.projectId, dir);
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  if (target === 'materials') {
+    // Phase 25.18: the materials and their graph problems (the backend checks them at load and after each change).
+    const paged = pageArgs(a);
+    if (!paged.ok) return paged.error;
+    if (a.materialId !== undefined && typeof a.materialId !== 'string') return toolError('materialId must be a string');
+    if (a.withProblems !== undefined && typeof a.withProblems !== 'boolean') return toolError('withProblems must be a boolean');
+    const res = await ctx.client.contentMaterials(ctx.projectId, { ...(paged.args as { limit?: number; offset?: number }), ...(typeof a.materialId === 'string' ? { materialId: a.materialId } : {}), ...(a.withProblems === true ? { withProblems: true } : {}) });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'integrity') {

@@ -205,7 +205,10 @@ export const NODE_SIDE_ALLOWED = {
   // §4.1 row: "… project-model (types only — the snapshot document,
   // sessions.md §10.1)".
   backend: {
-    packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build'],
+    // Phase 25.18: + three-adapter — the backend runs `materialGraphProblems`
+    // (a graph material built to TSL nodes without a renderer) on load and
+    // after each change, the same check as the editor's Problems tab.
+    packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build', 'three-adapter'],
     // playwright-core: the headless editor for MCP play (phase 11, headless.ts).
     external: ['ws', 'playwright-core'],
     // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead

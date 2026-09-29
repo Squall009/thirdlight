@@ -571,6 +571,18 @@ time between its calls. `tl_play_start {threads: "worker"|"single"}` picks
 where one play's simulation runs; start `variables` apply at the start and
 again at every restart (a replay, a shell's New game).
 
+**Which engine is running (phase 25.18).** `tl_inspect target="engine"` (or
+`GET /api/v1/engine` with any token) answers the version, commit and lockfile
+the backend started with, the build it started with (`dist/build-info.json`,
+written by `npm run build`), its start time, and `dist.newerThanProcess`: true
+when dist/ was rebuilt after the backend started — restart the service
+(`sudo systemctl restart thirdlight`) to run it. Graph materials are compiled
+by the backend when it loads a project and after every change:
+`tl_diagnostics` lists the broken ones in `materialProblems` (and logs a
+`material_graph_problems` entry when problems appear), and
+`tl_content_query target="materials"` pages every material with its
+problems (`withProblems: true` for the broken ones only).
+
 **Headless play-tests (phase 25.17).** `node tools/playtest.mjs <game folder>
 --input script.json` (or the MCP tool `tl_playtest {frames}`) plays the game
 from its start with an input script — `tl_input_exercise` frames counted from

@@ -22,6 +22,7 @@ import esbuild from 'esbuild';
 import { readdirSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
+import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
 
@@ -272,6 +273,18 @@ if (built === 0) {
     'build: no bundle entries present yet — nothing to build (editor/preview ' +
       'entries land in packet 10; the export bundle is built by the exporter in ' +
       'packet 12 — dependencies.md §4.2).',
+  );
+}
+if (built > 0) {
+  // Phase 25.18: the build stamp the backend reports (`GET /api/v1/engine`, tl_inspect target="engine"):
+  // when dist/ was built and from which commit, so a running backend can say it is older than dist/.
+  const git = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+  const dirty = spawnSync('git', ['-C', root, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' });
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  mkdirSync(join(root, 'dist'), { recursive: true });
+  writeFileSync(
+    join(root, 'dist', 'build-info.json'),
+    `${JSON.stringify({ builtAt: new Date().toISOString(), commit: git.status === 0 ? git.stdout.trim() : 'unknown', dirty: dirty.status === 0 ? dirty.stdout.trim().length > 0 : null, version: String(pkg.version) }, null, 2)}\n`,
   );
 }
 console.log(`build: done (${built} built, ${skipped} skipped).`);

@@ -25,7 +25,8 @@ export async function createTestBackend(
   const root = join(tempBase(), `tl-backend-${process.pid}-${hex(6)}`);
   const editorDir = join(root, 'editor');
   const previewDir = join(root, 'preview');
-  const dataRoot = join(root, 'data');
+  // A test may open an existing data root (a second backend over the first one's projects).
+  const dataRoot = typeof config['dataRoot'] === 'string' ? config['dataRoot'] : join(root, 'data');
   mkdirSync(editorDir, { recursive: true });
   mkdirSync(previewDir, { recursive: true });
   writeFileSync(join(editorDir, 'index.html'), '<!doctype html><html><body>editor</body></html>\n');
