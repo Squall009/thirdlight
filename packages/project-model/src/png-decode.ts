@@ -1,11 +1,11 @@
 /**
- * Phase 23.5: a small pure PNG decoder (zlib inflate included) for the
- * heightmap import edit — the command layer is pure (no Node zlib, no
- * browser image APIs), and an import must give the same cells everywhere.
+ * The one PNG decoder: pure (a zlib inflate included), so the command layer
+ * reads a heightmap to the same cells everywhere, and the backend decodes
+ * texture sources with the same code (optionally with Node's faster inflate).
  *
- * Non-interlaced PNGs of every colour type (grey, RGB, palette, grey+alpha,
- * RGBA) at bit depths 1-16 decode to 8-bit RGBA. An interlaced image, a bad
- * CRC-free structure or a stream that does not inflate is refused with a
+ * Every colour type at bit depths 1-16, tRNS, Adam7, decoded to 8-bit RGBA.
+ * The caller chooses the pixel limit; the inflated stream is capped at the
+ * exact size the header implies. What cannot be read is refused with a
  * message (never a throw to the caller).
  */
 
@@ -213,10 +213,52 @@ export function inflateZlib(data: Uint8Array, maxOut: number): Uint8Array {
 // ---- PNG -------------------------------------------------------------------------------
 
 const SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+/** Adam7 passes: x start, y start, x step, y step. */
+const ADAM7: readonly (readonly [number, number, number, number])[] = [
+  [0, 0, 8, 8],
+  [4, 0, 8, 8],
+  [0, 4, 4, 8],
+  [2, 0, 4, 4],
+  [0, 2, 2, 4],
+  [1, 0, 2, 2],
+  [0, 1, 1, 2],
+];
 
-/** Decode a PNG to 8-bit RGBA (or a reason it cannot be read). */
-export function decodePngRgba(bytes: Uint8Array): { ok: true; png: DecodedPng } | { ok: false; message: string } {
+export interface PngDecodeOptions {
+  /** The largest image accepted (width × height); the caller's own limit. Default `PNG_DECODE_MAX_PIXELS`. */
+  readonly maxPixels?: number;
+  /**
+   * The zlib inflate to use; it must refuse (throw) rather than produce more
+   * than `maxOut` bytes. Default: the pure `inflateZlib` here. A Node caller
+   * may pass `node:zlib` with `maxOutputLength` for speed.
+   */
+  readonly inflate?: (data: Uint8Array, maxOut: number) => Uint8Array;
+}
+
+/** The scanlines' sizes: per pass, its width, height and row stride (bytes, without the filter byte). */
+function passesOf(width: number, height: number, bitsPerPixel: number, interlaced: boolean): { x0: number; y0: number; dx: number; dy: number; w: number; h: number; stride: number }[] {
+  const layout = interlaced ? ADAM7 : [[0, 0, 1, 1] as const];
+  const out = [];
+  for (const [x0, y0, dx, dy] of layout) {
+    const w = Math.ceil((width - x0) / dx);
+    const h = Math.ceil((height - y0) / dy);
+    if (w > 0 && h > 0) out.push({ x0, y0, dx, dy, w, h, stride: Math.ceil((w * bitsPerPixel) / 8) });
+  }
+  return out;
+}
+
+/**
+ * Decode a PNG to 8-bit RGBA (or a reason it cannot be read). Every colour
+ * type (grey, RGB, palette, grey + alpha, RGBA) at bit depths 1–16, a tRNS
+ * transparent colour, Adam7 interlacing. The compressed stream may inflate to
+ * exactly the size the header implies and no more: a small file cannot claim
+ * a large allocation beyond its own pixel limit.
+ */
+export function decodePngRgba(bytes: Uint8Array, options: PngDecodeOptions = {}): { ok: true; png: DecodedPng } | { ok: false; message: string } {
+  const maxPixels = options.maxPixels ?? PNG_DECODE_MAX_PIXELS;
+  const inflate = options.inflate ?? inflateZlib;
   try {
+    if (bytes.length < 8) return { ok: false, message: 'not a PNG file' };
     for (let i = 0; i < 8; i++) if (bytes[i] !== SIGNATURE[i]) return { ok: false, message: 'not a PNG file' };
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let pos = 8;
@@ -224,6 +266,7 @@ export function decodePngRgba(bytes: Uint8Array): { ok: true; png: DecodedPng } 
     let height = 0;
     let depth = 0;
     let colorType = -1;
+    let interlace = 0;
     let palette: Uint8Array | null = null;
     let trns: Uint8Array | null = null;
     const idat: Uint8Array[] = [];
@@ -231,25 +274,33 @@ export function decodePngRgba(bytes: Uint8Array): { ok: true; png: DecodedPng } 
       const len = view.getUint32(pos);
       const type = String.fromCharCode(bytes[pos + 4]!, bytes[pos + 5]!, bytes[pos + 6]!, bytes[pos + 7]!);
       const body = bytes.subarray(pos + 8, pos + 8 + len);
-      if (body.length !== len) return { ok: false, message: 'the PNG ends early' };
+      if (body.length !== len) return { ok: false, message: `the PNG chunk ${type} is truncated` };
       pos += 12 + len;
       if (type === 'IHDR') {
-        width = view.getUint32(pos - 12 - len + 8);
-        height = view.getUint32(pos - 12 - len + 12);
+        if (len < 13) return { ok: false, message: 'the PNG header is too short' };
+        const h = new DataView(body.buffer, body.byteOffset, body.byteLength);
+        width = h.getUint32(0);
+        height = h.getUint32(4);
         depth = body[8]!;
         colorType = body[9]!;
-        if (body[12] !== 0) return { ok: false, message: 'interlaced PNGs are not supported (save it without interlacing)' };
+        if (body[10] !== 0 || body[11] !== 0) return { ok: false, message: 'the PNG uses an unknown compression or filter method' };
+        interlace = body[12]!;
       } else if (type === 'PLTE') palette = body;
       else if (type === 'tRNS') trns = body;
       else if (type === 'IDAT') idat.push(body);
       else if (type === 'IEND') break;
     }
     if (width < 1 || height < 1) return { ok: false, message: 'the PNG has no IHDR size' };
-    if (width * height > PNG_DECODE_MAX_PIXELS) return { ok: false, message: `the image is larger than ${PNG_DECODE_MAX_PIXELS} pixels` };
+    if (width * height > maxPixels) return { ok: false, message: `the image is larger than ${maxPixels} pixels (${width} × ${height})` };
     const channels = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 3 ? 1 : colorType === 4 ? 2 : colorType === 6 ? 4 : 0;
     if (channels === 0) return { ok: false, message: `unknown PNG colour type ${colorType}` };
     if (![1, 2, 4, 8, 16].includes(depth) || (colorType !== 0 && colorType !== 3 && depth < 8) || (colorType === 3 && depth > 8)) return { ok: false, message: `unsupported bit depth ${depth} for colour type ${colorType}` };
+    if (interlace !== 0 && interlace !== 1) return { ok: false, message: `unknown PNG interlace method ${interlace}` };
     if (colorType === 3 && palette === null) return { ok: false, message: 'a palette PNG without a palette' };
+    if (idat.length === 0) return { ok: false, message: 'the PNG has no image data' };
+    const passes = passesOf(width, height, channels * depth, interlace === 1);
+    // Every pass's rows, each with its filter byte: the exact inflated size.
+    const expected = passes.reduce((n, p) => n + p.h * (p.stride + 1), 0);
     const total = idat.reduce((n, c) => n + c.length, 0);
     const z = new Uint8Array(total);
     let zo = 0;
@@ -257,68 +308,79 @@ export function decodePngRgba(bytes: Uint8Array): { ok: true; png: DecodedPng } 
       z.set(c, zo);
       zo += c.length;
     }
+    const raw = inflate(z, expected);
+    if (raw.length < expected) return { ok: false, message: 'the PNG image data is short' };
     const bpp = Math.max(1, (channels * depth) >> 3);
-    const stride = Math.ceil((width * channels * depth) / 8);
-    const raw = inflateZlib(z, (stride + 1) * height);
-    if (raw.length < (stride + 1) * height) return { ok: false, message: 'the PNG image data is short' };
-    // Unfilter in place (row by row).
-    const cur = new Uint8Array(stride);
-    const prev = new Uint8Array(stride);
+    const maxSample = (1 << Math.min(depth, 8)) - 1;
+    // tRNS of a grey or RGB image: the one transparent sample value(s), at the file's depth.
+    const trnsKey = trns !== null && (colorType === 0 || colorType === 2) && trns.length >= (colorType === 0 ? 2 : 6) ? Array.from({ length: colorType === 0 ? 1 : 3 }, (_, i) => (trns![i * 2]! << 8) | trns![i * 2 + 1]!) : null;
+    const to8 = (v: number): number => (depth === 16 ? v >> 8 : depth === 8 ? v : Math.round((v * 255) / maxSample));
     const rgba = new Uint8Array(width * height * 4);
-    for (let y = 0; y < height; y++) {
-      const f = raw[y * (stride + 1)]!;
-      const row = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
-      for (let i = 0; i < stride; i++) {
-        const a = i >= bpp ? cur[i - bpp]! : 0;
-        const b = prev[i]!;
-        const c = i >= bpp ? prev[i - bpp]! : 0;
-        let v = row[i]!;
-        if (f === 1) v += a;
-        else if (f === 2) v += b;
-        else if (f === 3) v += (a + b) >> 1;
-        else if (f === 4) {
-          const p = a + b - c;
-          const pa = Math.abs(p - a);
-          const pb = Math.abs(p - b);
-          const pc = Math.abs(p - c);
-          v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
-        } else if (f !== 0) return { ok: false, message: `unknown PNG filter ${f}` };
-        cur[i] = v & 0xff;
-      }
-      for (let x = 0; x < width; x++) {
-        const o = (y * width + x) * 4;
-        const sample = (ch: number): number => {
-          if (depth === 8) return cur[x * channels + ch]!;
-          if (depth === 16) return cur[(x * channels + ch) * 2]!;
-          const bitPos = (x * channels + ch) * depth;
-          const v = (cur[bitPos >> 3]! >> (8 - depth - (bitPos & 7))) & ((1 << depth) - 1);
-          return colorType === 3 ? v : Math.round((v * 255) / ((1 << depth) - 1));
-        };
-        if (colorType === 0 || colorType === 4) {
-          const g = sample(0);
-          rgba[o] = g;
-          rgba[o + 1] = g;
-          rgba[o + 2] = g;
-          rgba[o + 3] = colorType === 4 ? sample(1) : 255;
-        } else if (colorType === 2 || colorType === 6) {
-          rgba[o] = sample(0);
-          rgba[o + 1] = sample(1);
-          rgba[o + 2] = sample(2);
-          rgba[o + 3] = colorType === 6 ? sample(3) : 255;
-        } else {
-          const idx = sample(0);
-          const pl = palette as Uint8Array;
-          if (idx * 3 + 2 >= pl.length) return { ok: false, message: 'a palette index outside the palette' };
-          rgba[o] = pl[idx * 3]!;
-          rgba[o + 1] = pl[idx * 3 + 1]!;
-          rgba[o + 2] = pl[idx * 3 + 2]!;
-          rgba[o + 3] = trns !== null && idx < trns.length ? trns[idx]! : 255;
+    let at = 0;
+    for (const { x0, y0, dx, dy, w, h, stride } of passes) {
+      let prev = new Uint8Array(stride);
+      let cur = new Uint8Array(stride);
+      for (let row = 0; row < h; row++) {
+        const f = raw[at]!;
+        const line = raw.subarray(at + 1, at + 1 + stride);
+        at += 1 + stride;
+        for (let i = 0; i < stride; i++) {
+          const a = i >= bpp ? cur[i - bpp]! : 0;
+          const b = prev[i]!;
+          const c = i >= bpp ? prev[i - bpp]! : 0;
+          let v = line[i]!;
+          if (f === 1) v += a;
+          else if (f === 2) v += b;
+          else if (f === 3) v += (a + b) >> 1;
+          else if (f === 4) {
+            const p = a + b - c;
+            const pa = Math.abs(p - a);
+            const pb = Math.abs(p - b);
+            const pc = Math.abs(p - c);
+            v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+          } else if (f !== 0) return { ok: false, message: `unknown PNG filter ${f}` };
+          cur[i] = v & 0xff;
         }
+        const sample = (i: number): number => {
+          if (depth === 8) return cur[i]!;
+          if (depth === 16) return (cur[i * 2]! << 8) | cur[i * 2 + 1]!;
+          const bit = i * depth;
+          return (cur[bit >> 3]! >> (8 - depth - (bit & 7))) & maxSample;
+        };
+        const y = y0 + row * dy;
+        for (let col = 0; col < w; col++) {
+          const o = (y * width + x0 + col * dx) * 4;
+          const s = col * channels;
+          if (colorType === 3) {
+            const idx = sample(s);
+            const pl = palette as Uint8Array;
+            if (idx * 3 + 2 >= pl.length) return { ok: false, message: 'a palette index outside the palette' };
+            rgba[o] = pl[idx * 3]!;
+            rgba[o + 1] = pl[idx * 3 + 1]!;
+            rgba[o + 2] = pl[idx * 3 + 2]!;
+            rgba[o + 3] = trns !== null && idx < trns.length ? trns[idx]! : 255;
+          } else if (colorType === 0 || colorType === 4) {
+            const g = sample(s);
+            rgba[o] = rgba[o + 1] = rgba[o + 2] = to8(g);
+            rgba[o + 3] = colorType === 4 ? to8(sample(s + 1)) : trnsKey !== null && g === trnsKey[0] ? 0 : 255;
+          } else {
+            const r = sample(s);
+            const g = sample(s + 1);
+            const b = sample(s + 2);
+            rgba[o] = to8(r);
+            rgba[o + 1] = to8(g);
+            rgba[o + 2] = to8(b);
+            rgba[o + 3] = colorType === 6 ? to8(sample(s + 3)) : trnsKey !== null && r === trnsKey[0] && g === trnsKey[1] && b === trnsKey[2] ? 0 : 255;
+          }
+        }
+        const t = prev;
+        prev = cur;
+        cur = t;
       }
-      prev.set(cur);
     }
     return { ok: true, png: { width, height, rgba } };
   } catch (e) {
-    return { ok: false, message: e instanceof InflateError ? `the PNG data does not inflate (${e.message})` : 'the PNG could not be read' };
+    if (e instanceof InflateError) return { ok: false, message: `the PNG data does not inflate (${e.message})` };
+    return { ok: false, message: `the PNG could not be read${e instanceof Error ? ` (${e.message})` : ''}` };
   }
 }

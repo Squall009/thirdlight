@@ -574,6 +574,21 @@ describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
     expect(vs[0].file).toBe('packages/backend/src/bad.ts');
   });
 
+  it('allows backend value imports of the project-model png subpath only', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { exports: { '.': './src/index.ts', './png': './src/png.ts', './other': './src/other.ts' }, files: { 'src/index.ts': 'export const a = 1;\n', 'src/png.ts': 'export const p = 1;\n', 'src/other.ts': 'export const o = 1;\n' } });
+    addPkg(root, 'backend', {
+      files: {
+        'src/good.ts': "import { p } from '@thirdlight/project-model/png';\nexport const y = p;\n",
+        'src/bad.ts': "import { o } from '@thirdlight/project-model/other';\nexport const x = o;\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('types-only-edge');
+    expect(vs[0].file).toBe('packages/backend/src/bad.ts');
+  });
+
   it('restricts exporter → workspace to types; permits model/protocol value imports', () => {
     const root = makeRoot();
     addPkg(root, 'project-model');

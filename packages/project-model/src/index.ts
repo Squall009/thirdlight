@@ -953,7 +953,7 @@ export {
   type SurfaceGrid,
   type SurfaceHit,
 } from './block-surface';
-export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng } from './png-decode';
+export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng, type PngDecodeOptions } from './png-decode';
 // Phase 23.19: the project save schema (save document, slots, sections, settings document).
 export {
   SAVE_LIMITS,

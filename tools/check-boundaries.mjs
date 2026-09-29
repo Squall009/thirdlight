@@ -114,7 +114,8 @@ export const UNITS = [
  * any other `three/examples/jsm/...` module is a reviewed addition).
  * `typesOnly`: allowed targets whose edge the
  * §4.1 table qualifies as types only — a value import of such a target
- * fails (`types-only-edge`).
+ * fails (`types-only-edge`). `valueSubpaths`: named subpaths of a types-only
+ * target that may be value-imported (pure code that cannot mutate a project).
  */
 export const NODE_SIDE_ALLOWED = {
   'project-model': { packages: [], external: [], node: [] },
@@ -218,6 +219,9 @@ export const NODE_SIDE_ALLOWED = {
     // zlib (the PNG decoder's inflate).
     node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib'],
     typesOnly: { 'project-model': true },
+    // The shared PNG decoder (pure; texture sources for KTX2 encoding and
+    // packing) is the one project-model value the backend runs.
+    valueSubpaths: { 'project-model': ['png'] },
   },
   // §4.1 explicitly reiterates "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.
@@ -919,7 +923,7 @@ export function checkWorkspace(root) {
           // §4.1 types-only qualifiers: a value import of these edges is an
           // executable import (for editor → commands/project-model this is the
           // second mutation path §4.3 forbids).
-          if (fileAllowed.typesOnly?.[unit] && !typeOnly) {
+          if (fileAllowed.typesOnly?.[unit] && !typeOnly && !fileAllowed.valueSubpaths?.[unit]?.includes(subpath)) {
             addV(
               rel,
               line,

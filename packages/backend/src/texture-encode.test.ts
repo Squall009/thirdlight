@@ -1,17 +1,17 @@
 /**
- * Phase 25.19: KTX2 encoding on import — the PNG decoder (colour types and
- * depths, palette with tRNS, Adam7) and the encoder's output (ETC1S sRGB for
+ * KTX2 encoding on import — the shared PNG decoder on texture sources (colour
+ * types and depths, tRNS, Adam7, the inflate cap) and the encoder's output (ETC1S sRGB for
  * colour, UASTC linear for normal maps, a full mip chain), in-process.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
 import { ktx2Info } from '@thirdlight/asset-pipeline';
+import { decodePngRgba } from '@thirdlight/project-model/png';
 
-import { decodePng } from './png-decode';
-import { encodeKtx2, KTX2_ENCODER } from './texture-encode';
+import { encodeKtx2, KTX2_ENCODER, packKtx2 } from './texture-encode';
 
 function crc32(bytes: Uint8Array): number {
   let c = ~0;
@@ -50,40 +50,113 @@ function rgbaPng(width: number, height: number, px: (x: number, y: number) => [n
   return png(width, height, 8, 6, rows);
 }
 
-describe('decodePng (phase 25.19)', () => {
-  it('reads RGBA, palette + tRNS, 1-bit grey and 16-bit RGB', () => {
-    const a = decodePng(rgbaPng(2, 1, (x) => (x === 0 ? [10, 20, 30, 40] : [250, 240, 230, 220])));
-    expect([...a.data]).toEqual([10, 20, 30, 40, 250, 240, 230, 220]);
-    const pal = decodePng(png(2, 1, 8, 3, [new Uint8Array([0, 1])], [chunk('PLTE', new Uint8Array([255, 0, 0, 0, 0, 255])), chunk('tRNS', new Uint8Array([0]))]));
-    expect([...pal.data]).toEqual([255, 0, 0, 0, 0, 0, 255, 255]);
-    const bits = decodePng(png(8, 1, 1, 0, [new Uint8Array([0b10100000])]));
-    expect([...bits.data].filter((_, i) => i % 4 === 0)).toEqual([255, 0, 255, 0, 0, 0, 0, 0]);
-    const deep = decodePng(png(1, 1, 16, 2, [new Uint8Array([0xff, 0x00, 0x80, 0x00, 0x00, 0xff])]));
-    expect([...deep.data]).toEqual([255, 128, 0, 255]);
-  });
+/** Node's inflate with the cap the backend uses, and the decoder's own pure one. */
+const INFLATERS = [
+  ['node:zlib', (d: Uint8Array, maxOut: number): Uint8Array => inflateSync(d, { maxOutputLength: maxOut })],
+  ['pure', undefined],
+] as const;
+function decode(bytes: Uint8Array, inflate?: (d: Uint8Array, maxOut: number) => Uint8Array): { width: number; height: number; data: Uint8Array } {
+  const r = decodePngRgba(bytes, { maxPixels: 4096 * 4096, ...(inflate ? { inflate } : {}) });
+  if (!r.ok) throw new Error(r.message);
+  return { width: r.png.width, height: r.png.height, data: r.png.rgba };
+}
 
-  it('reads an Adam7-interlaced image like the plain one', () => {
-    // 3 × 3 grey, interlaced: passes 1 (0,0), 4 (0,2)? — pass 1 (x0 y0), pass 6 (x1 y0 step 2), pass 7 (rows 1), …
-    const plain = [
-      [1, 2, 3],
-      [4, 5, 6],
-      [7, 8, 9],
-    ];
-    const passes: [number, number, number, number][] = [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]];
-    const rows: Uint8Array[] = [];
-    for (const [x0, y0, dx, dy] of passes) {
-      for (let y = y0; y < 3; y += dy) {
-        const row: number[] = [];
-        for (let x = x0; x < 3; x += dx) row.push(plain[y]![x]!);
-        if (row.length > 0) rows.push(new Uint8Array(row));
+/**
+ * A zlib stream of `repeats` × 258 zero bytes (+1) in about 13 bits per 258
+ * bytes: one fixed-Huffman block, a literal 0 then length-258 distance-1
+ * copies. The Adler-32 is left zero (a capped inflate stops long before it).
+ */
+function zeroBomb(repeats: number): Uint8Array {
+  const out = new Uint8Array(Math.ceil((3 + 8 + repeats * 13 + 7) / 8) + 8);
+  let bit = 0;
+  const put = (v: number, n: number): void => {
+    for (let i = 0; i < n; i++, bit++) if ((v >> i) & 1) out[2 + (bit >> 3)]! |= 1 << (bit & 7);
+  };
+  // Huffman codes go most significant bit first.
+  const code = (c: number, n: number): void => {
+    for (let i = n - 1; i >= 0; i--, bit++) if ((c >> i) & 1) out[2 + (bit >> 3)]! |= 1 << (bit & 7);
+  };
+  out[0] = 0x78;
+  out[1] = 0x9c;
+  put(1, 1); // last block
+  put(1, 2); // fixed Huffman
+  code(0x30, 8); // literal 0
+  for (let r = 0; r < repeats; r++) {
+    code(0xc5, 8); // length symbol 285: 258
+    code(0, 5); // distance code 0: 1
+  }
+  code(0, 7); // end of block
+  return out.subarray(0, 2 + Math.ceil(bit / 8) + 4);
+}
+
+describe('the shared PNG decoder on texture sources', () => {
+  for (const [name, inflate] of INFLATERS) {
+    it(`reads RGBA, palette + tRNS, 1-bit grey, 16-bit RGB and grey tRNS (${name} inflate)`, () => {
+      const a = decode(rgbaPng(2, 1, (x) => (x === 0 ? [10, 20, 30, 40] : [250, 240, 230, 220])), inflate);
+      expect([...a.data]).toEqual([10, 20, 30, 40, 250, 240, 230, 220]);
+      const pal = decode(png(2, 1, 8, 3, [new Uint8Array([0, 1])], [chunk('PLTE', new Uint8Array([255, 0, 0, 0, 0, 255])), chunk('tRNS', new Uint8Array([0]))]), inflate);
+      expect([...pal.data]).toEqual([255, 0, 0, 0, 0, 0, 255, 255]);
+      const bits = decode(png(8, 1, 1, 0, [new Uint8Array([0b10100000])]), inflate);
+      expect([...bits.data].filter((_, i) => i % 4 === 0)).toEqual([255, 0, 255, 0, 0, 0, 0, 0]);
+      const deep = decode(png(1, 1, 16, 2, [new Uint8Array([0xff, 0x00, 0x80, 0x00, 0x00, 0xff])]), inflate);
+      expect([...deep.data]).toEqual([255, 128, 0, 255]);
+      const key = decode(png(2, 1, 8, 0, [new Uint8Array([7, 9])], [chunk('tRNS', new Uint8Array([0, 7]))]), inflate);
+      expect([...key.data]).toEqual([7, 7, 7, 0, 9, 9, 9, 255]);
+    });
+
+    it(`reads an Adam7-interlaced image like the plain one (${name} inflate)`, () => {
+      const plain = [
+        [1, 2, 3],
+        [4, 5, 6],
+        [7, 8, 9],
+      ];
+      const passes: [number, number, number, number][] = [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]];
+      const rows: Uint8Array[] = [];
+      for (const [x0, y0, dx, dy] of passes) {
+        for (let y = y0; y < 3; y += dy) {
+          const row: number[] = [];
+          for (let x = x0; x < 3; x += dx) row.push(plain[y]![x]!);
+          if (row.length > 0) rows.push(new Uint8Array(row));
+        }
       }
-    }
-    const img = decodePng(png(3, 3, 8, 0, rows, [], 1));
-    expect([...img.data].filter((_, i) => i % 4 === 0)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  });
+      const img = decode(png(3, 3, 8, 0, rows, [], 1), inflate);
+      expect([...img.data].filter((_, i) => i % 4 === 0)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      // One byte more than every pass's rows is refused: the cap is exact.
+      expect(() => decode(png(3, 3, 8, 0, [...rows, new Uint8Array(0)], [], 1), inflate)).toThrow();
+    });
+  }
 
   it('refuses what it cannot read', () => {
-    expect(() => decodePng(new Uint8Array([1, 2, 3]))).toThrow(/not a PNG/);
+    expect(() => decode(new Uint8Array([1, 2, 3]))).toThrow(/not a PNG/);
+  });
+
+  // A 16 × 16 grey image (272 bytes of scanlines) whose 1.6 MB stream inflates
+  // to ~258 MB: refused at the header's size, without allocating the rest.
+  const bomb = (() => {
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(16, 0);
+    ihdr.writeUInt32BE(16, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 0;
+    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zeroBomb(1_000_000)), chunk('IEND', new Uint8Array(0))]));
+  })();
+
+  it('checks the crafted stream really expands (uncapped, in a bounded probe)', () => {
+    // 16 MiB of it inflates without error: the stream is valid deflate far past 272 bytes.
+    const zStart = 8 + 25 + 8;
+    const z = bomb.subarray(zStart, bomb.length - 12 - 4);
+    expect(() => inflateSync(z, { maxOutputLength: 16 << 20 })).toThrow(/larger than|too large/i);
+  });
+
+  it('refuses a high-ratio PNG in KTX2 encode and pack without a large allocation', async () => {
+    const before = process.memoryUsage().arrayBuffers;
+    const enc = await encodeKtx2(bomb, 'color');
+    expect(enc).toMatchObject({ ok: false, code: 'texture_encode_failed' });
+    const pack = await packKtx2([bomb], [[{ source: 0, channel: 0 }, { value: 0 }, { value: 0 }, { value: 255 }]], 'data');
+    expect(pack).toMatchObject({ ok: false, code: 'texture_encode_failed' });
+    const pure = decodePngRgba(bomb);
+    expect(pure).toMatchObject({ ok: false, message: expect.stringMatching(/larger than expected/) });
+    expect(process.memoryUsage().arrayBuffers - before).toBeLessThan(16 << 20);
   });
 });
 

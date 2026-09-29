@@ -27,11 +27,21 @@
  * refused (no WebP decoder on the server: export the source as PNG).
  */
 import { Worker } from 'node:worker_threads';
+import { inflateSync } from 'node:zlib';
 
+import { decodePngRgba } from '@thirdlight/project-model/png';
 import jpeg from 'jpeg-js';
 import * as ktx2Encoder from 'ktx2-encoder';
 
-import { decodePng, type DecodedImage } from './png-decode';
+interface DecodedImage {
+  readonly width: number;
+  readonly height: number;
+  /** width × height × 4 bytes, rows top to bottom. */
+  readonly data: Uint8Array;
+}
+
+/** Node's inflate, refusing to produce more than the PNG header implies. */
+const nodeInflate = (data: Uint8Array, maxOut: number): Uint8Array => inflateSync(data, { maxOutputLength: maxOut });
 
 export type Ktx2Mode = 'color' | 'normal' | 'data';
 export const KTX2_MODES: readonly Ktx2Mode[] = ['color', 'normal', 'data'];
@@ -68,9 +78,13 @@ function sourceFormat(bytes: Uint8Array): 'png' | 'jpeg' | 'webp' | 'ktx2' | nul
   return null;
 }
 
-function decodeSource(bytes: Uint8Array, format: 'png' | 'jpeg'): DecodedImage {
-  if (format === 'png') return decodePng(bytes, KTX2_SOURCE_PIXELS_MAX);
-  const img = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: KTX2_SOURCE_PIXELS_MAX / (1024 * 1024), maxMemoryUsageInMB: 512 });
+function decodeSource(bytes: Uint8Array, format: 'png' | 'jpeg', maxPixels = KTX2_SOURCE_PIXELS_MAX): DecodedImage {
+  if (format === 'png') {
+    const r = decodePngRgba(bytes, { maxPixels, inflate: nodeInflate });
+    if (!r.ok) throw new Error(r.message);
+    return { width: r.png.width, height: r.png.height, data: r.png.rgba };
+  }
+  const img = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: maxPixels / (1024 * 1024), maxMemoryUsageInMB: 512 });
   return { width: img.width, height: img.height, data: new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) };
 }
 
@@ -144,30 +158,36 @@ const SOURCE_RAW = 0;
  */
 export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult> {
   if (layers.length < 1 || layers.length > 256) return { ok: false, code: 'texture_encode_unsupported', message: 'a packed texture has 1-256 layers' };
-  const images: DecodedImage[] = [];
-  for (let i = 0; i < sources.length; i++) {
-    const bytes = sources[i]!;
-    const format = sourceFormat(bytes);
-    if (format !== 'png' && format !== 'jpeg') return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG or JPEG image (packing reads PNG/JPEG texture assets; a KTX2 or WebP cannot be unpacked)` };
-    try {
-      images.push(decodeSource(bytes, format));
-    } catch (e) {
-      return { ok: false, code: 'texture_encode_failed', message: `source ${i + 1} could not be decoded: ${e instanceof Error ? e.message : String(e)}` };
-    }
-  }
   const used = new Set<number>();
   for (const l of layers) for (const c of l) if ('source' in c) used.add(c.source);
   if (used.size === 0) return { ok: false, code: 'texture_encode_unsupported', message: 'a packed texture needs at least one source image (its size)' };
-  const first = images[[...used][0]!]!;
-  const width = first.width;
-  const height = first.height;
+  // Only the sources a channel reads are decoded; the first fixes the size and
+  // bounds the rest, so the decoded pixels never exceed the layers' budget.
+  const images = new Map<number, DecodedImage>();
+  let width = 0;
+  let height = 0;
   for (const i of used) {
-    const img = images[i];
-    if (img === undefined) return { ok: false, code: 'texture_encode_unsupported', message: `a channel names source ${i + 1}, which is not given` };
-    if (img.width !== width || img.height !== height) return { ok: false, code: 'texture_encode_unsupported', message: `every source of a packed texture has one size: source ${i + 1} is ${img.width}×${img.height}, another ${width}×${height}` };
-  }
-  if (width * height * layers.length > KTX2_SOURCE_PIXELS_MAX) {
-    return { ok: false, code: 'texture_encode_unsupported', message: `KTX2 encoding takes at most ${KTX2_SOURCE_PIXELS_MAX} pixels across the layers (${layers.length} × ${width}×${height} is more; e.g. 4 layers of 1024×1024 fit)` };
+    const bytes = sources[i];
+    if (bytes === undefined) return { ok: false, code: 'texture_encode_unsupported', message: `a channel names source ${i + 1}, which is not given` };
+    const format = sourceFormat(bytes);
+    if (format !== 'png' && format !== 'jpeg') return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG or JPEG image (packing reads PNG/JPEG texture assets; a KTX2 or WebP cannot be unpacked)` };
+    let img: DecodedImage;
+    try {
+      img = decodeSource(bytes, format, images.size === 0 ? KTX2_SOURCE_PIXELS_MAX : width * height);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      return { ok: false, code: 'texture_encode_failed', message: `source ${i + 1} could not be decoded: ${reason}${images.size > 0 ? ` (every source of a packed texture has one size, ${width}×${height})` : ''}` };
+    }
+    if (images.size === 0) {
+      width = img.width;
+      height = img.height;
+      if (width * height * layers.length > KTX2_SOURCE_PIXELS_MAX) {
+        return { ok: false, code: 'texture_encode_unsupported', message: `KTX2 encoding takes at most ${KTX2_SOURCE_PIXELS_MAX} pixels across the layers (${layers.length} × ${width}×${height} is more; e.g. 4 layers of 1024×1024 fit)` };
+      }
+    } else if (img.width !== width || img.height !== height) {
+      return { ok: false, code: 'texture_encode_unsupported', message: `every source of a packed texture has one size: source ${i + 1} is ${img.width}×${img.height}, another ${width}×${height}` };
+    }
+    images.set(i, img);
   }
   const n = width * height;
   const slices = layers.map((l) => {
@@ -178,7 +198,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
         const v = Math.max(0, Math.min(255, Math.round(src.value)));
         for (let i = 0; i < n; i++) out[i * 4 + c] = v;
       } else {
-        const d = images[src.source]!.data;
+        const d = images.get(src.source)!.data;
         for (let i = 0; i < n; i++) out[i * 4 + c] = d[i * 4 + src.channel]!;
       }
     }
@@ -233,6 +253,9 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
   }
 }
 
+/** The encoder worker's heap and stack limits (MB). */
+export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerationSizeMb: 64, stackSizeMb: 4 } as const;
+
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
   return { encode: encodeKtx2, pack: packKtx2 };
@@ -253,7 +276,11 @@ export function createWorkerTextureEncoder(workerUrl: URL): TextureEncoder {
   };
   const start = (): Worker => {
     if (worker !== null) return worker;
-    const w = new Worker(workerUrl);
+    // A bound on the worker's JS heap: a runaway decode or encode ends the
+    // worker (its job fails, the next starts a fresh one), not the backend.
+    // Pixel buffers and the encoder's WASM memory are bounded by the source
+    // pixel limit, not by these.
+    const w = new Worker(workerUrl, { resourceLimits: KTX2_WORKER_LIMITS });
     w.unref();
     w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult }) => {
       const done = pending.get(m.id);
