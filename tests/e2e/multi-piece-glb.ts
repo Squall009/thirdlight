@@ -17,6 +17,8 @@ export interface PieceSpec {
   lods: [number, number, number][];
   /** Collision box size (absent: no `_COL`). */
   col?: [number, number, number];
+  /** Per LOD: its own material of this base colour (linear RGB 0-1); absent: the shared material. */
+  colors?: [number, number, number][];
 }
 
 function box(size: [number, number, number]): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
@@ -64,7 +66,8 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     offset += data.length + pad;
     return bufferViews.length - 1;
   };
-  const addMesh = (name: string, size: [number, number, number], render: boolean): number => {
+  const extraMaterials: Record<string, unknown>[] = [];
+  const addMesh = (name: string, size: [number, number, number], render: boolean, color?: [number, number, number]): number => {
     const g = box(size);
     const count = g.positions.length / 3;
     const pos = addView(Buffer.from(new Float32Array(g.positions).buffer), 34962);
@@ -91,13 +94,18 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
         if (options.lightmapUv === true) attributes['TEXCOORD_1'] = accessors.length - 1;
       }
     }
-    meshes.push({ name, primitives: [{ attributes, indices: idxA, ...(render ? { material: 0 } : {}) }] });
+    let material = 0;
+    if (color !== undefined) {
+      extraMaterials.push({ name: `mat_${name}`, pbrMetallicRoughness: { baseColorFactor: [...color, 1], metallicFactor: 0, roughnessFactor: 0.8 } });
+      material = extraMaterials.length;
+    }
+    meshes.push({ name, primitives: [{ attributes, indices: idxA, ...(render ? { material } : {}) }] });
     return meshes.length - 1;
   };
   for (const p of pieces) {
     p.lods.forEach((size, i) => {
       const name = p.lods.length === 1 ? p.name : `${p.name}_LOD${i}`;
-      nodes.push({ name, mesh: addMesh(name, size, true) });
+      nodes.push({ name, mesh: addMesh(name, size, true, p.colors?.[i]) });
     });
     if (p.col !== undefined) nodes.push({ name: `${p.name}_COL`, mesh: addMesh(`${p.name}_COL`, p.col, false) });
   }
@@ -109,7 +117,7 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     scenes: [{ name: 'Scene', nodes: nodes.map((_, i) => i) }],
     nodes,
     meshes,
-    materials: [{ name: 'mat_kit', pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.8, ...(image !== null ? { baseColorTexture: { index: 0 } } : {}) } }],
+    materials: [{ name: 'mat_kit', pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.8, ...(image !== null ? { baseColorTexture: { index: 0 } } : {}) } }, ...extraMaterials],
     ...(image !== null ? { images: [{ bufferView: image, mimeType: 'image/png' }], samplers: [{ magFilter: 9728, minFilter: 9728 }], textures: [{ source: 0, sampler: 0 }] } : {}),
     accessors,
     bufferViews,

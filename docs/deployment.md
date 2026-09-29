@@ -3085,8 +3085,24 @@ brushes, overlays and stamp UI are below (23.6).
   writes), `diff` / `applyDiff` (plain data for a save). Writes are refused
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
-- **Lightmaps**: block layers shade baked objects (occluders) but keep
-  realtime lighting themselves.
+- **Lightmaps** (25.20): a block layer object marked **Static** is baked
+  like a static box or model — each chunk gets its own lightmap (one entry
+  per chunk in the bake, browser preview and Blender final alike); a chunk
+  changed after the bake is drawn without it (the bake shows stale); other
+  layers shade baked objects only.
+- **Sloped terrain** (25.20): a single-cell `full` block may carry
+  `corners` — the heights of its top corners (−x−z, +x−z, +x+z, −x+z) in cell
+  heights, 0–4 in steps of 1/64 — and is drawn and collides with that sloped
+  top (walls where neighbours differ, one smooth surface where their edges
+  meet; a slope may cross rows inside a column). `surface` edits set column
+  tops by corner heights, `sculpt` dabs raise, lower, smooth or flatten under
+  a round brush. The layer's **Max slope** (`maxSlope`, degrees) is the
+  steepest ground: characters do not walk up steeper parts, and
+  `ctx.grid.surface(layer, position)` / `columnSurface(layer, x, z)` report
+  the ground's height, normal, slope and whether it is walkable.
+- **Levels of detail** (25.20): blocks shown by a model with `_LOD1..n`
+  levels switch per chunk — each chunk's models at their coarser level past
+  the models' own distance plus the chunk's size; stand-ins stay detailed.
 
 ## Block layer editing (phase 23.6)
 
@@ -3103,7 +3119,11 @@ stroke or button is one undo step, and MCP can do the same.
 - **Tools** (the left button; Alt+drag or the right button orbits while
   "Edit cells" is on): Paint and Erase (drag, cell by cell), Line,
   Rectangle, Box (the rectangle raised to the box height), Flood, Raise /
-  lower (Ctrl held or "Lower / remove" lowers), Pick (the eyedropper takes a
+  lower (Ctrl held or "Lower / remove" lowers), Height, Smooth and Flatten
+  (terrain, 25.20: a round brush over the ground with Radius and Strength —
+  Height raises or, with Ctrl, lowers the ground with sloped tops, Smooth
+  evens it out, Flatten levels it to the height where the drag starts; a
+  drag is one undo step), Pick (the eyedropper takes a
   cell's block, rotation and look), Replace all (every block of the clicked
   type becomes the brush block), Metadata, Select, Paste, Stamp and Region.
   Adding tools place on the face under the pointer. A stroke previews at once

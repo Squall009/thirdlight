@@ -185,7 +185,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.17 | done 2026-09-29: the headless play-test runner (`tools/playtest.mjs` and `tl_playtest`, one runner in `mcp-adapter/src/playtest.ts`): a game folder, a start (scene, mode, variables), an input script (relay frames up to an hour, sent as exercises that hold the game in between) or a driver module of the game folder (CLI), an observation spec (fields, steps); JSON per run (run digests, fields, script errors) and whether runs agree; `tl_input_exercise {hold}`, `tl_play_start {threads}`; start variables set again at every restart (replay, New game); D51 fixed (digests hashed interpolated transforms); `playtest.e2e.ts` (CLI headless against a real backend, both threading modes; MCP stdio), unit tests |
 | 25.18 | done 2026-09-29: `GET /api/v1/engine` and `tl_inspect target="engine"` (version, commit and lockfile as the process started, the dist/ build stamp `dist/build-info.json` at start and now, `startedAt`, `dist.newerThanProcess` with its reason, the checkout's commit when it moved on); the backend runs `materialGraphProblems` when it loads a project and after every change (cached per compile input), a material whose problems appear is logged once (`material_graph_problems`), current ones in `tl_diagnostics` `materialProblems` and `tl_content_query target="materials"` (`GET …/content/materials`); backend and MCP tests |
 | 25.19 | done 2026-09-29: material instances (`instanceOf` + `params`/`textures` or graph `values`; chains ≤ 8, checked against the parent with the whole list; any mapping, override, effect or timeline names one; a used instance ships resolved, its parents only when named); KTX2 texture assets (Basis Universal ETC1S/UASTC with mip levels; metrics `codec`, `levels`; one shared KTX2Loader per page; the export ships the transcoder); KTX2 encoding on import (`ktx2: "color"` ETC1S sRGB, `"normal"` UASTC + Zstandard, linear, normal-map mips; PNG/JPEG sources, `convertedFrom` records the original; editor Assets option, MCP `tl_content_upload {ktx2}`); `material-instances.e2e.ts`, `ktx2-textures.e2e.ts` (pixels in the Scene view, Play and the export, auto/webgl2/webgpu), commands and encoder unit tests |
-| 25.20–25.22 | — |
+| 25.20 | done 2026-09-29: sloped terrain — cell `corners` (0–4 cell heights, 1/64 steps; single-cell `full` blocks), the look warped onto the corner surface (render and collision on it exactly; walls where edges differ), `blockLayer.maxSlope` enforced on the chunk colliders by the 3D port, `ctx.grid.surface`/`columnSurface`, `surface`/`sculpt` edits and the Height/Smooth/Flatten brushes; block-layer lightmaps (chunk UV1 layouts, chunk bake entries with a layout digest; browser and Blender bakes; Play, export, Scene view); chunk LOD from the models' own levels; unit tests, `m25-terrain` (page/worker), `terrain.e2e.ts`, `terrain-brushes.e2e.ts`, `block-lightmaps.e2e.ts`, `block-lod.e2e.ts` (auto/webgl2); D52 logged (open) |
+| 25.21–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1300,3 +1301,59 @@ boundary it changes (Playwright for any editor surface).
   change (not again for unrelated edits; nothing when fixed); the current
   problems are state, answered by `tl_diagnostics` (`materialProblems`) and
   `tl_content_query target="materials"`.
+- 2026-09-29 (25.20): **corner heights live on the cell** (`corners` of the
+  cell value, in the chunk palette), not in a separate heightfield: cliffs,
+  overhangs, runtime `ctx.grid.set`, saves (`diff`), stamps and copies all
+  carry them with no new storage; only single-cell `full` blocks slope (a
+  ramp or kit piece already has its own top). Values are multiples of 1/64
+  (exact in binary: stored bytes, diffs and replays never drift). A corner
+  may reach **4** cell heights (three rows into the empty cells above): a
+  column's top cell is the row under its lowest corner, so any column rising
+  up to three rows is one smooth surface; a steeper one keeps a wall. The
+  seam 25.21 needs (paint and wetness per cell or vertex) is the same place:
+  per-cell values in the palette or a per-chunk array beside the columns.
+- 2026-09-29 (25.20): **the sloped top is two planar triangles** split along
+  the diagonal whose ends differ least (the higher on a tie) — a rule of the
+  heights alone, so a turned or mirrored copy is the same surface turned or
+  mirrored. The mesher warps the look (stand-in or model) onto it, cutting
+  triangles along the diagonal so the render and collision meshes lie
+  exactly on the surface `ctx.grid.surface` reports (tested at every
+  rotation and cell size). A sloped look is stretched back to its cell when
+  turned in a non-square cell (flat cells keep the old behaviour: D52, open).
+- 2026-09-29 (25.20): **`maxSlope` is the layer's** (degrees, absent: no
+  change). The 3D port takes it as the chunk colliders' own limit: a sweep
+  that would climb a contact steeper than it (and gentler than the
+  character's own limit) is swept again with it, so the slope is a wall;
+  step-ups and the steep-slope contact read it too. Absent, nothing
+  re-sweeps and a flat layer's meshes are byte-identical to before (a pinned
+  digest), so recorded replays hold. Surface queries call ground walkable up
+  to the layer's maxSlope, else the project's `max_slope_climb_deg`.
+- 2026-09-29 (25.20): **brushes are dabs**: the editor sends a stroke as its
+  `sculpt` dabs (a quarter radius apart, at most 256, one `editBlocks`), the
+  backend runs the same pure function (`block-sculpt.ts`), so the preview is
+  the stored result; the falloff is (1 − d²/r²)² with no trigonometry (the
+  same cells in every engine). A brush moves each column corner by its
+  vertex's distance, so neighbouring columns stay joined and a cliff stays
+  until smoothed. `surface` edits (absolute corner heights per column) serve
+  MCP and imports. Flatten was added beside the requested height and smooth
+  brushes (levelling ground is the usual third terrain tool).
+- 2026-09-29 (25.20): **block-layer lightmaps** are per chunk: one square
+  layout per chunk by cell and facing (planar projection into a slot per
+  (cell, facing), a margin inside each), one bake entry per chunk
+  `{entityId, chunk, layout}`. The layout digest is stored with the entry: a
+  chunk whose geometry changed since the bake (a script's `ctx.grid` write,
+  a model not loaded yet) is drawn without its lightmap instead of with
+  wrong texels. A layer takes part when its object is Static (as boxes and
+  models); bake hashes include static layers with a digest of their cells,
+  so a cell edit marks the bake stale (bakes of projects whose layer objects
+  are already Static show stale once).
+- 2026-09-29 (25.20): **chunk LOD comes from the models' own levels**
+  (`<piece>_LOD1..n`): each chunk is meshed once per level and its model
+  meshes go into one `THREE.LOD` at the chunk's centre, switching at the
+  farthest of those models' own distances plus the chunk's radius (no cell
+  switches earlier than it would alone); stand-ins have one level and stay
+  out of it. A coarser level maps into the detailed level's lightmap slots
+  (the same projection), so baked chunks keep their light at every level.
+  No other terrain LOD was built (merged, hidden-face-culled chunks measured
+  cheap in 23.5; a coarser stand-in mesh would change silhouettes).
+

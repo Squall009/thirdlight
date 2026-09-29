@@ -31,6 +31,8 @@ export interface ChunkLightmapLayout {
   side: number;
   /** The mesh's surface area in square metres (the lightmap's size follows it). */
   area: number;
+  /** The slots by `x,y,z,facing` (another level of detail of the chunk maps into the same ones). */
+  slots: ReadonlyMap<string, Readonly<Slot>>;
 }
 
 /** 64-bit FNV-1a over a string, as 16 hex digits (two 32-bit lanes). */
@@ -46,7 +48,7 @@ function digest(text: string): string {
   return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
 }
 
-interface Slot {
+export interface Slot {
   key: string;
   cell: [number, number, number];
   dir: number;
@@ -67,8 +69,15 @@ const PLANE: readonly (readonly [number, number])[] = [
   [0, 1],
 ];
 
-/** The lightmap layout of a chunk's parts (layer-local metres, as the mesher gives them). */
-export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: readonly number[]): ChunkLightmapLayout {
+/**
+ * The lightmap layout of a chunk's parts (layer-local metres, as the mesher
+ * gives them). With `reference` (the layout of the chunk's most detailed
+ * level), the parts of a coarser level map into the reference's slots: the
+ * same planar projection, so a face of the coarse level reads the texels of
+ * the detailed faces at its place (a face whose cell and facing the detailed
+ * level lacks takes a slot of the same cell, else the first).
+ */
+export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: readonly number[], reference?: ChunkLightmapLayout): ChunkLightmapLayout {
   const slots = new Map<string, Slot>();
   const triSlot: Slot[][] = [];
   let area = 0;
@@ -87,6 +96,14 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
       const nudge = (k: number): number => (len > 0 ? (n[k]! / len) * 1e-4 * cellSize[k]! : 0);
       const cell: [number, number, number] = [0, 1, 2].map((k) => Math.floor(((p(part, i, k) + p(part, i + 1, k) + p(part, i + 2, k)) / 3 - nudge(k)) / cellSize[k]!)) as [number, number, number];
       const key = `${cell[0]},${cell[1]},${cell[2]},${dir}`;
+      if (reference !== undefined) {
+        const cellKey = `${cell[0]},${cell[1]},${cell[2]},`;
+        const ref = reference.slots.get(key) ?? [...reference.slots.values()].find((x) => x.key.startsWith(cellKey)) ?? reference.slots.values().next().value;
+        if (ref !== undefined) {
+          list.push(ref as Slot);
+          continue;
+        }
+      }
       let s = slots.get(key);
       if (s === undefined) {
         s = { key, cell, dir, minU: Infinity, minV: Infinity, maxU: -Infinity, maxV: -Infinity, index: -1 };
@@ -105,9 +122,9 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
   }
   const ordered = [...slots.values()].sort((a, b) => a.cell[1] - b.cell[1] || a.cell[2] - b.cell[2] || a.cell[0] - b.cell[0] || a.dir - b.dir);
   ordered.forEach((s, i) => (s.index = i));
-  const side = Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
+  const side = reference?.side ?? Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
   const round = (x: number): number => Math.round(x * 1e4);
-  const layout = digest(`${side}|${ordered.map((s) => `${s.key}:${round(s.minU)},${round(s.minV)},${round(s.maxU)},${round(s.maxV)}`).join(';')}`);
+  const layout = reference?.layout ?? digest(`${side}|${ordered.map((s) => `${s.key}:${round(s.minU)},${round(s.minV)},${round(s.maxU)},${round(s.maxV)}`).join(';')}`);
   const out = parts.map((part, pi) => {
     const positions: number[] = [];
     const normals: number[] = [];
@@ -133,8 +150,9 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
           positions.push(part.positions[vi * 3]!, part.positions[vi * 3 + 1]!, part.positions[vi * 3 + 2]!);
           normals.push(part.normals[vi * 3]!, part.normals[vi * 3 + 1]!, part.normals[vi * 3 + 2]!);
           uvs.push(part.uvs[vi * 2]!, part.uvs[vi * 2 + 1]!);
-          const fu = du > 0 ? (part.positions[vi * 3 + u]! - s.minU) / du : 0.5;
-          const fv = dv > 0 ? (part.positions[vi * 3 + v]! - s.minV) / dv : 0.5;
+          // Clamped: a coarser level's face reaching past the detailed extent stays inside the slot.
+          const fu = du > 0 ? Math.min(1, Math.max(0, (part.positions[vi * 3 + u]! - s.minU) / du)) : 0.5;
+          const fv = dv > 0 ? Math.min(1, Math.max(0, (part.positions[vi * 3 + v]! - s.minV) / dv)) : 0.5;
           uv1.push((col + SLOT_MARGIN + fu * (1 - 2 * SLOT_MARGIN)) / side, (row + SLOT_MARGIN + fv * (1 - 2 * SLOT_MARGIN)) / side);
         }
         indices.push(o);
@@ -142,5 +160,5 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
     }
     return { ...part, positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), uv1: new Float32Array(uv1), indices: new Uint32Array(indices) };
   });
-  return { parts: out, layout, side, area };
+  return { parts: out, layout, side, area, slots: reference?.slots ?? slots };
 }

@@ -96,7 +96,7 @@ export class SceneLightmaps {
     for (const layerId of this.chunkLayers) {
       for (const t of view?.lightmapTargets(layerId) ?? []) {
         const key = `${layerId}#${t.cx},${t.cz}`;
-        if (this.entries.get(key)?.layout === t.layout) chunkMeshes.set(key, t.meshes);
+        if (this.entries.get(key)?.layout === t.layout) chunkMeshes.set(key, [...t.meshes, ...t.coarse]);
       }
     }
     for (const [key, entry] of this.entries) {

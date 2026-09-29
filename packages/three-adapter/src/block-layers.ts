@@ -12,6 +12,12 @@
  * per cell, with its own materials (a material mapping applied by the host).
  * Model geometry arrives asynchronously: chunks re-mesh when it is ready.
  *
+ * Levels of detail: when a model look has coarser levels (`<piece>_LOD1..n`),
+ * the chunk is meshed once per level and its model meshes go into one
+ * `THREE.LOD` at the chunk's centre (each level shows every model at that
+ * level, or its last), switching at the farthest of those models' own
+ * distances plus the chunk's radius; stand-ins stay at full detail.
+ *
  * Baked lighting: the chunks of a layer a bake covers get lightmap UVs (one
  * square layout per chunk, `chunkLightmapLayout`), and the host puts each
  * chunk's lightmap on when the chunk's layout is the one the bake was made
@@ -37,6 +43,12 @@ import {
 export interface BlockModelLook {
   readonly source: BlockMeshSource;
   readonly materials: readonly THREE.Material[];
+  /**
+   * The model's coarser levels (`<piece>_LOD1..n`), each with the camera
+   * distance it takes over at (the model's own switch distance); absent or
+   * empty: one level. Their sources index the same `materials`.
+   */
+  readonly levels?: readonly { readonly source: BlockMeshSource; readonly distance: number }[];
 }
 
 export interface BlockLayerViewDeps {
@@ -67,7 +79,10 @@ export interface BlockChunkLightmapTarget {
   area: number;
   /** Slots per side of the chunk's square layout (one slot per cell face direction). */
   side: number;
+  /** The meshes at full detail (what a bake renders). */
   meshes: THREE.Mesh[];
+  /** The meshes of coarser levels of detail (they read the same lightmap). */
+  coarse: THREE.Mesh[];
 }
 
 interface LayerState {
@@ -83,28 +98,58 @@ interface LayerState {
 export interface BlockLayerViewDiagnostics {
   layers: number;
   chunks: number;
+  /** Meshes and triangles at full detail. */
   meshes: number;
   triangles: number;
+  /** Chunks with levels of detail, and how many show each level now (index = level). */
+  lods?: { chunks: number; shown: number[] };
 }
 
-/** A model's LOD0 meshes merged into one block look (positions in the model root's frame). */
+/**
+ * A model's meshes merged into one block look (positions in the model root's
+ * frame): its most detailed level, and each coarser level of its LOD groups
+ * (a group with fewer levels keeps its last one; meshes outside any group are
+ * in every level) with the farthest switch distance of the groups at that
+ * level.
+ */
 export function blockLookFromObject(root: THREE.Object3D): BlockModelLook | null {
   root.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
-  const meshes: THREE.Mesh[] = [];
-  const visit = (o: THREE.Object3D): void => {
-    if ((o as THREE.LOD).isLOD === true) {
-      const first = (o as THREE.LOD).levels[0]?.object;
-      if (first !== undefined) visit(first);
-      return;
-    }
-    if ((o as THREE.Mesh).isMesh === true && (o as THREE.SkinnedMesh).isSkinnedMesh !== true) meshes.push(o as THREE.Mesh);
-    for (const c of o.children) visit(c);
+  const lods: THREE.LOD[] = [];
+  const meshesAt = (level: number): THREE.Mesh[] => {
+    const meshes: THREE.Mesh[] = [];
+    const visit = (o: THREE.Object3D): void => {
+      if ((o as THREE.LOD).isLOD === true) {
+        const lod = o as THREE.LOD;
+        if (level === 0 && lod.levels.length > 1) lods.push(lod);
+        const pick = lod.levels[Math.min(level, lod.levels.length - 1)]?.object;
+        if (pick !== undefined) visit(pick);
+        return;
+      }
+      if ((o as THREE.Mesh).isMesh === true && (o as THREE.SkinnedMesh).isSkinnedMesh !== true) meshes.push(o as THREE.Mesh);
+      for (const c of o.children) visit(c);
+    };
+    visit(root);
+    return meshes;
   };
-  visit(root);
-  if (meshes.length === 0) return null;
+  const first = meshesAt(0);
+  if (first.length === 0) return null;
+  const count = Math.max(1, ...lods.map((l) => l.levels.length));
   const materials: THREE.Material[] = [];
   const matIndex = new Map<THREE.Material, number>();
+  const sources: BlockMeshSource[] = [mergeMeshes(first, inv, materials, matIndex)];
+  const levels: { source: BlockMeshSource; distance: number }[] = [];
+  for (let level = 1; level < count; level++) {
+    const distance = Math.max(...lods.filter((l) => l.levels.length > level).map((l) => l.levels[level]!.distance));
+    const source = mergeMeshes(meshesAt(level), inv, materials, matIndex);
+    sources.push(source);
+    levels.push({ source, distance });
+  }
+  return { source: sources[0]!, materials, ...(levels.length > 0 ? { levels } : {}) };
+}
+
+/** Merge meshes into one indexed source in `inv`'s frame, grouped by material (indices into `materials`, shared across calls). */
+function mergeMeshes(meshes: readonly THREE.Mesh[], inv: THREE.Matrix4, materials: THREE.Material[], matIndex: Map<THREE.Material, number>): BlockMeshSource {
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
@@ -155,7 +200,20 @@ export function blockLookFromObject(root: THREE.Object3D): BlockModelLook | null
     groups.push({ start: indices.length, count: list.length, material });
     indices.push(...list);
   }
-  return { source: { positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), indices: new Uint32Array(indices), groups }, materials };
+  return { positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), indices: new Uint32Array(indices), groups };
+}
+
+/** Marks a chunk mesh of a coarser level of detail (its level): bakes, picks and counts use the detailed ones. */
+const COARSE_LEVEL = 'tlBlockLodLevel';
+
+/** A chunk's meshes at full detail (the always-drawn ones and its detailed level). */
+function detailedMeshes(group: THREE.Object3D): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh === true && m.userData[COARSE_LEVEL] === undefined) out.push(m);
+  });
+  return out;
 }
 
 export class BlockLayerView {
@@ -265,18 +323,27 @@ export class BlockLayerView {
     let chunks = 0;
     let meshes = 0;
     let triangles = 0;
+    let lodChunks = 0;
+    const shown: number[] = [];
     for (const layer of this.layers.values()) {
       chunks += layer.chunks.size;
       for (const g of layer.chunks.values()) {
-        for (const c of g.children) {
-          const mesh = c as THREE.Mesh;
+        for (const mesh of detailedMeshes(g)) {
           meshes += 1;
           const index = (mesh.geometry as THREE.BufferGeometry).getIndex();
           triangles += index !== null ? index.count / 3 : 0;
         }
+        for (const c of g.children) {
+          const lod = c as THREE.LOD;
+          if (lod.isLOD !== true) continue;
+          lodChunks += 1;
+          const level = lod.getCurrentLevel();
+          while (shown.length <= level) shown.push(0);
+          shown[level] = shown[level]! + 1;
+        }
       }
     }
-    return { layers: this.layers.size, chunks, meshes, triangles };
+    return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}) };
   }
 
   /**
@@ -301,9 +368,10 @@ export class BlockLayerView {
       const lm = layer.lightmapLayouts.get(ck);
       if (lm === undefined) continue;
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
-      const meshes: THREE.Mesh[] = [];
-      g.traverse((o) => ((o as THREE.Mesh).isMesh === true && (o as THREE.Mesh).geometry.getAttribute('uv1') !== undefined ? meshes.push(o as THREE.Mesh) : undefined));
-      out.push({ cx, cz, layout: lm.layout, area: lm.area, side: lm.side, meshes });
+      const meshes = detailedMeshes(g).filter((m) => m.geometry.getAttribute('uv1') !== undefined);
+      const coarse: THREE.Mesh[] = [];
+      g.traverse((o) => ((o as THREE.Mesh).isMesh === true && o.userData[COARSE_LEVEL] !== undefined ? coarse.push(o as THREE.Mesh) : undefined));
+      out.push({ cx, cz, layout: lm.layout, area: lm.area, side: lm.side, meshes, coarse });
     }
     return out;
   }
@@ -312,14 +380,14 @@ export class BlockLayerView {
   layerMeshes(entityId: string): THREE.Mesh[] {
     const layer = this.layers.get(entityId);
     const out: THREE.Mesh[] = [];
-    if (layer !== undefined) for (const g of layer.chunks.values()) g.traverse((o) => ((o as THREE.Mesh).isMesh === true ? out.push(o as THREE.Mesh) : undefined));
+    if (layer !== undefined) for (const g of layer.chunks.values()) out.push(...detailedMeshes(g));
     return out;
   }
 
   /** The chunk meshes (static geometry) — e.g. occluders for a light bake. */
   meshes(): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
-    for (const layer of this.layers.values()) for (const g of layer.chunks.values()) for (const c of g.children) out.push(c as THREE.Mesh);
+    for (const layer of this.layers.values()) for (const g of layer.chunks.values()) out.push(...detailedMeshes(g));
     return out;
   }
 
@@ -367,42 +435,55 @@ export class BlockLayerView {
     if (old !== undefined) this.dropChunk(entityId, layer, ck, old);
     if (layer.component.metadataOnly === true) return;
     const [cx, cz] = ck.split(',').map(Number) as [number, number];
-    const looks = new Map<string, { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null }>();
-    let parts: ChunkMeshPart[] = meshBlockChunk(layer.grid, cx, cz, this.types, {
-      source: (type, variant, fm) => {
-        const model = this.modelOf(type, variant);
-        if (model !== null) {
-          const look = this.deps.modelLook?.(model.assetId, model.piece, () => {
-            if (this.disposed) return;
-            const l = this.layers.get(entityId);
-            if (l === undefined) return;
-            for (const k of l.grid.chunkKeys()) l.dirty.add(k);
-          });
-          if (look === null || look === undefined) return null;
-          const key = `m:${model.assetId}:${model.piece ?? ''}:${type.blockId}`;
-          looks.set(key, { materials: look.materials, type, assetId: model.assetId, color: null });
-          return { key, source: look.source };
-        }
-        const color = type.variants[variant]?.color ?? type.variants[0]?.color ?? '#b0b0b0';
-        const key = `c:${type.blockId}:${variant}`;
-        looks.set(key, { materials: [], type, assetId: null, color });
-        return { key, source: this.standIn(type, fm) };
-      },
-    });
+    const looks = new Map<string, { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null; levels: BlockModelLook['levels'] }>();
+    /** The chunk meshed at one level of detail: model looks at that level (or their last), stand-ins as they are. */
+    const mesh = (level: number): ChunkMeshPart[] =>
+      meshBlockChunk(layer.grid, cx, cz, this.types, {
+        source: (type, variant, fm) => {
+          const model = this.modelOf(type, variant);
+          if (model !== null) {
+            const look = this.deps.modelLook?.(model.assetId, model.piece, () => {
+              if (this.disposed) return;
+              const l = this.layers.get(entityId);
+              if (l === undefined) return;
+              for (const k of l.grid.chunkKeys()) l.dirty.add(k);
+            });
+            if (look === null || look === undefined) return null;
+            const key = `m:${model.assetId}:${model.piece ?? ''}:${type.blockId}`;
+            looks.set(key, { materials: look.materials, type, assetId: model.assetId, color: null, levels: look.levels });
+            const levels = look.levels ?? [];
+            return { key, source: level === 0 || levels.length === 0 ? look.source : levels[Math.min(level, levels.length) - 1]!.source };
+          }
+          const color = type.variants[variant]?.color ?? type.variants[0]?.color ?? '#b0b0b0';
+          const key = `c:${type.blockId}:${variant}`;
+          looks.set(key, { materials: [], type, assetId: null, color, levels: undefined });
+          return { key, source: this.standIn(type, fm) };
+        },
+      });
+    let parts = mesh(0);
     if (parts.length === 0) return;
-    // Lightmap UVs where a bake has (or is making) this layer's lightmaps: one square per chunk.
+    // Chunk levels of detail from the model looks' own levels: level L shows each model at its level L (or
+    // its last), switching where the farthest of those models would, plus the chunk's radius (no cell switches
+    // earlier than it would alone). Stand-ins have one level and stay out of the switch.
+    const levelCount = Math.max(0, ...[...looks.values()].map((l) => l.levels?.length ?? 0));
+    const coarse: { parts: ChunkMeshPart[]; distance: number }[] = [];
+    for (let level = 1; level <= levelCount; level++) {
+      const distance = Math.max(...[...looks.values()].filter((l) => (l.levels?.length ?? 0) >= level).map((l) => l.levels![level - 1]!.distance));
+      coarse.push({ parts: mesh(level).filter((p) => p.key.startsWith('m:')), distance });
+    }
+    // Lightmap UVs where a bake has (or is making) this layer's lightmaps: one square per chunk; coarser levels map into it.
     let lightmap: { layout: string; area: number; side: number } | null = null;
     if (this.forcedUv.has(entityId) || this.deps.lightmapped?.(entityId) === true) {
       const lm = chunkLightmapLayout(parts, layer.grid.cellSize);
       parts = lm.parts;
+      for (const c of coarse) c.parts = chunkLightmapLayout(c.parts, layer.grid.cellSize, lm).parts;
       lightmap = { layout: lm.layout, area: lm.area, side: lm.side };
     }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;
-    for (const p of parts) {
-      const lookKey = p.key.slice(0, p.key.lastIndexOf('#'));
-      const look = looks.get(lookKey);
-      if (look === undefined) continue;
+    const build = (p: ChunkMeshPart, level: number): THREE.Mesh | null => {
+      const look = looks.get(p.key.slice(0, p.key.lastIndexOf('#')));
+      if (look === undefined) return null;
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(p.normals, 3));
@@ -412,15 +493,51 @@ export class BlockLayerView {
       geometry.computeBoundingSphere();
       geometry.computeBoundingBox();
       const material = look.color !== null ? this.colorMaterial(look.color) : (look.materials[p.material] ?? look.materials[0] ?? this.colorMaterial('#b0b0b0'));
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.name = `block:${p.key}`;
-      mesh.castShadow = layer.component.castShadow !== false;
-      mesh.receiveShadow = layer.component.receiveShadow !== false;
-      mesh.matrixAutoUpdate = false;
-      mesh.updateMatrix();
-      if (look.assetId !== null) this.deps.applyMaterials?.(mesh, look.type, look.assetId);
-      group.add(mesh);
+      const m = new THREE.Mesh(geometry, material);
+      m.name = `block:${p.key}`;
+      m.castShadow = layer.component.castShadow !== false;
+      m.receiveShadow = layer.component.receiveShadow !== false;
+      m.matrixAutoUpdate = false;
+      m.updateMatrix();
+      if (level > 0) m.userData[COARSE_LEVEL] = level;
+      if (look.assetId !== null) this.deps.applyMaterials?.(m, look.type, look.assetId);
+      return m;
+    };
+    const detailed = new THREE.Group();
+    for (const p of parts) {
+      const m = build(p, 0);
+      if (m === null) continue;
+      if (coarse.length > 0 && p.key.startsWith('m:')) detailed.add(m);
+      else group.add(m);
     }
+    if (coarse.length > 0 && detailed.children.length > 0) {
+      // One THREE.LOD at the centre of the chunk's model geometry; each level's meshes offset back by it.
+      const box = new THREE.Box3();
+      for (const c of detailed.children) box.union((c as THREE.Mesh).geometry.boundingBox!);
+      const centre = box.getCenter(new THREE.Vector3());
+      const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+      const lod = new THREE.LOD();
+      lod.name = `block-chunk-lod:${entityId}:${ck}`;
+      lod.position.copy(centre);
+      const level = (g: THREE.Group): THREE.Group => {
+        g.position.copy(centre).negate();
+        g.matrixAutoUpdate = false;
+        g.updateMatrix();
+        return g;
+      };
+      lod.addLevel(level(detailed), 0);
+      coarse.forEach((c, i) => {
+        const g = new THREE.Group();
+        for (const p of c.parts) {
+          const m = build(p, i + 1);
+          if (m !== null) g.add(m);
+        }
+        lod.addLevel(level(g), c.distance + radius);
+      });
+      lod.matrixAutoUpdate = false;
+      lod.updateMatrix();
+      group.add(lod);
+    } else for (const c of [...detailed.children]) group.add(c);
     group.matrixAutoUpdate = false;
     group.updateMatrix();
     layer.group.add(group);
@@ -437,7 +554,7 @@ export class BlockLayerView {
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
       this.deps.chunkDropped?.(entityId, cx, cz);
     }
-    for (const c of group.children) (c as THREE.Mesh).geometry.dispose();
+    group.traverse((o) => ((o as THREE.Mesh).isMesh === true ? (o as THREE.Mesh).geometry.dispose() : undefined));
     group.removeFromParent();
     layer.chunks.delete(ck);
   }
