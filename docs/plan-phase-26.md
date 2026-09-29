@@ -186,7 +186,7 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.0 | done 2026-09-29; reconciled with phase 25 at `811c14c5` |
 | 26.1 | done 2026-09-29: limits once, splits (D57, D58); ESLint in the gates; three.js 0.186.1; history comments removed with a build check (D59) |
 | 26.2 | done 2026-09-29: scale bench (generator, harness, small-size tests in the fast gate); before numbers in §6; D61 |
-| 26.3 | A done 2026-09-29: files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B (folder import, drop into a folder, editor surfaces) next |
+| 26.3 | done 2026-09-29: A files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B folder import with labels (`importAssets`, one undo; editor and MCP), uploads into the folder named, a folder uploaded file by file, labels on records and sidecars, whole-folder moves, upgrade report in Problems |
 | 26.4–26.14 | — |
 
 ## 6. Measurements
@@ -269,6 +269,15 @@ assets as files with sidecars; 2026-09-29): backend's first read 58 ms
 content edit 9.8/14.7 ms. The editor's file check after the open hashes each
 asset file once per change (stat-keyed); its cost at full size is 26.8's to
 measure.
+
+After 26.3 B (1,000-file folder import, `--steps open,import`, the caps
+lifted on the scratch patch for the run only; GPU host; 2026-09-29): 1,000
+Opus voice files of 1–3 s, written into a new folder and imported with
+labels in one `importAssets` command, round trip: small preset (60 assets)
+0.65 s; ×0.1 (1,800 assets) 1.1 and 1.7 s — inspection 0.3 s, the command's
+content validation 0.44 s (grows with the catalog: D61, 26.4), sidecars
+0.2 s; one scene edit after it (2,800 assets) 175–227 ms. Before sidecars and
+import-cache headers skipped their per-file flush: 7–11 s at ×0.1.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -520,3 +529,63 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   each replay still passes byte for byte. Opening Sprout or Skyforge on this
   build upgrades them and writes their asset files and sidecars into their
   folders (the owner's open, as with earlier bumps).
+- 2026-09-29 (26.3 B): a folder import is one command, `importAssets
+  {folder, labels?, ktx2?}`. The request names only the folder; the backend's
+  command route inspects the folder's new files first (converting an FBX, or
+  a PNG/JPEG with `ktx2`), the workspace gives each its id at the command, and
+  the pure command reads only those prepared facts (`preparedAssetImport`, as
+  `publishBehavior` reads prepared sources), so a request stays under the
+  64 KiB request bound however many files the folder holds. One revision, one
+  undo (it forgets the assets; the files stay, as for any import), redo puts
+  the same records back. Files are walked recursively, a folder's own files
+  before its subfolders.
+- 2026-09-29 (26.3 B): names and collisions, as Unity's asset database: an
+  asset is named after its file without the extension, and two files of one
+  name in different folders are two assets of that name; the id is the name
+  made id-safe (lowercase, `-`, `_`), then `-2`, `-3`, … while taken (so
+  scripts can name a voice line by a readable id). A file whose sidecar names
+  an id no asset has keeps it (a folder copied from another project keeps its
+  references); a sidecar naming an asset whose file is elsewhere is a copy and
+  gets a new id. Files the catalog already imports are skipped and listed, so
+  importing a folder again brings only its new files; hidden files and
+  folders, sidecars and symlinks are not imported; files no importer takes and
+  files an importer refuses are listed next to the result, never fatal.
+- 2026-09-29 (26.3 B): the sound kind until 26.6 merges them: a WAV is taken
+  as `audio` when the short-sound profile accepts it and as `music` (any
+  length) otherwise; Ogg, Opus and MP3 are `music`. The most generic kind that
+  takes the file, so a folder of voice lines never fails on length.
+- 2026-09-29 (26.3 B): labels are on the catalog record (`labels`: ascending,
+  unique, a letter or digit then letters, digits, `_ - . /`, up to 64
+  characters; no count per asset) and in the sidecar; the record wins when it
+  has labels, otherwise a sidecar's own are kept. A folder import applies the
+  request's labels plus each file's sidecar labels. They show in the Assets
+  tab's side panel and in `queryAssets`/`tl_content_query`; editing them is
+  26.7's.
+- 2026-09-29 (26.3 B): uploads go into the folder the user names: the Assets
+  tab's "upload to" (default `assets`), `publishAsset {folder}` for MCP. The
+  workspace consumes `folder` before the pure command (as `sceneId`) and vets
+  it: relative, inside the game folder, no hidden folder, not the project's
+  own files; a re-import that names no folder keeps its own file. A folder
+  from the computer arrives file by file (`POST …/content/stages/:id/file
+  {path}`, MCP `tl_content_upload {writeTo}`; never over another file) under
+  its own name in the upload folder (`-2`, … when taken, never merged), then
+  `importAssets` imports it; a failed import leaves the uploaded files where
+  they are, as files the user copied there.
+- 2026-09-29 (26.3 B): sidecars and import-cache headers are written then
+  renamed but not flushed one by one: both are made again from the catalog or
+  the file when missing or stale, and 2,000 flushes made a 1,000-file import
+  take 7–11 s (now 1.1–1.7 s at ×0.1). The project's own files keep their
+  flushes.
+- 2026-09-29 (26.3 B): a whole folder moved outside the editor with its
+  sidecars keeps every asset: the file check re-points each (one
+  `setAssetOptions` per asset; 26.13's `moveResources` makes a move one
+  command). A project in the data root has the same layout in its own folder
+  (tested over HTTP and in the browser). The open's upgrade notes go to the
+  Problems log once (`project_upgraded`, naming `upgrade-report.json`), on the
+  editor's load and on the Problems query MCP reads.
+- 2026-09-29 (26.3 B): the editor's import flow left `App.tsx` (5,159 lines)
+  for `useAssetImport.ts` before it grew; the folder controls are
+  `FolderImportPanel.tsx`. The MCP adapter's v3 op list was a copy of the
+  protocol's and now is it. An import's change carries its records; one larger
+  than a WebSocket message (1 MiB) makes the editor re-read the project, as
+  any oversized change does.

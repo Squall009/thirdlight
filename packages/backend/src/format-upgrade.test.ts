@@ -216,6 +216,11 @@ describe('a schemaVersion 4 project with stored asset versions opened over HTTP'
     // The older version stays in sources/ (every blob untouched) and is listed in the report.
     for (const [name, bytes] of blobsBefore) expect(readFileSync(join(dir(), 'sources', 'sha256', name)).equals(bytes), name).toBe(true);
     const report = readJson('upgrade-report.json') as { from: number; to: number; files: unknown[]; olderVersions: unknown[]; notMoved: unknown[] };
+    // The upgrade is reported where the user and MCP look: the project's Problems, naming the report.
+    const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+    const upgraded = ((problems.json as { problems: { code: string; message: string }[] }).problems).filter((p) => p.code === 'project_upgraded');
+    expect(upgraded.map((p) => p.message).join('\n')).toContain('upgrade-report.json');
+    expect(upgraded.some((p) => p.message.includes('1 older asset versions'))).toBe(true);
     expect(report).toMatchObject({ from: 4, to: 5, notMoved: [] });
     expect(report.files).toHaveLength(3);
     const v1 = before.content.assets.find((a) => a.assetId === 'crate')!.versions[0]!;

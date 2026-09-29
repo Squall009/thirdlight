@@ -7,6 +7,7 @@
  * bake, asset uploads, project-file imports and content jobs.
  */
 
+import type { FolderImportView } from './folder-upload';
 import { makeRequestId, type MutationResponse } from './envelope';
 import { type AssetView } from './content-projection';
 import {
@@ -602,6 +603,39 @@ export class SessionClient extends SessionClientCore {
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
     }
+  }
+
+  /**
+   * Upload one file into the game folder at `path` (a folder dropped from the
+   * computer arrives file by file): the bounded stage upload, then the stage
+   * is written there. Another file already at the path is never replaced.
+   */
+  async uploadFileTo(path: string, bytes: Uint8Array): Promise<{ ok: true; path: string } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const stage = await this.request<{ ok: true; stageId: string }>(`/projects/${this.cfg.projectId}/content/stages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) });
+      for (const frame of planUploadFrames(bytes.length)) {
+        await this.request(`/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/bytes`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/octet-stream', 'x-thirdlight-offset': String(frame.offset), 'x-thirdlight-total': String(bytes.length) },
+          body: bytes.slice(frame.offset, frame.offset + frame.length),
+        });
+      }
+      const filed = await this.request<{ ok: true; path: string }>(`/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/file`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }) });
+      return { ok: true, path: filed.path };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** `importAssets`: every supported file of a game-folder folder as assets, with labels, in one command. */
+  async importFolder(folder: string, labels: readonly string[], ktx2?: 'color' | 'normal' | 'data'): Promise<{ ok: true; added: number; report?: FolderImportView } | { ok: false; error: { code: string; message: string }; report?: FolderImportView }> {
+    const res = await this.command('importAssets', { folder, ...(labels.length > 0 ? { labels: [...labels] } : {}), ...(ktx2 !== undefined ? { ktx2 } : {}) }, this.projection.revision);
+    if (!res.ok) {
+      const r = res.response;
+      return { ok: false, error: r.ok === false ? { code: r.code, message: r.message ?? r.code } : { code: 'network', message: 'the command response was lost' }, ...(r.folderImport !== undefined ? { report: r.folderImport } : {}) };
+    }
+    const added = (res.change as { added?: unknown[] } | undefined)?.added?.length ?? 0;
+    return { ok: true, added, ...(res.folderImport !== undefined ? { report: res.folderImport } : {}) };
   }
 
   /**

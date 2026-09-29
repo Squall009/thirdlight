@@ -126,3 +126,14 @@ export const ASSET_QUERY_PAGE_DEFAULT = 50;
 /** Open import stages per project, and their staged bytes together. */
 export const MAX_OPEN_STAGES = 8;
 export const MAX_STAGED_BYTES_PER_PROJECT = 134_217_728;
+
+/**
+ * An asset label (the name a script may load a group of assets by): a letter
+ * or digit, then letters, digits, `_`, `-`, `.` or `/`, at most this many
+ * characters. No spaces, so a search can say `l:voice`.
+ */
+export const ASSET_LABEL_MAX_LENGTH = 64;
+export const ASSET_LABEL_RE = new RegExp(`^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\\-/]{0,${ASSET_LABEL_MAX_LENGTH - 1}}$`, 'u');
+
+/** The folder of the game folder uploads land in when the user names none. */
+export const DEFAULT_ASSET_FOLDER = 'assets';

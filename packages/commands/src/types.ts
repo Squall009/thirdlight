@@ -63,6 +63,8 @@ import type {
 import type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, ModelArgs, CreateEntityArgs, UpdateEntityArgs } from './entity-types';
 
 export type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, ModelArgs, CreateEntityArgs, UpdateEntityArgs } from './entity-types';
+import type { ImportAssetsArgs, ImportAssetsChange, ImportAssetsInverse, PreparedAssetImport } from './import-assets';
+export type { ImportAssetsArgs, ImportAssetsChange, ImportAssetsInverse, PreparedAssetImport, PreparedAssetImportItem } from './import-assets';
 
 // ---- ops and origins --------------------------------------------------------
 
@@ -165,6 +167,8 @@ export type V3MutationOp =
   // Remove an asset record / a prefab definition (refused while anything references it)
   | 'deleteAsset'
   | 'deletePrefab'
+  // Every supported file of a folder as assets, with labels (one undo)
+  | 'importAssets'
   // Many entities in one transaction (one revision, one undo)
   | 'createEntities';
 
@@ -375,6 +379,8 @@ export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
   versions: CommandAssetVersion[];
   /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
+  /** The labels a script may load the asset by (ascending, unique). */
+  labels?: string[];
 };
 
 /**
@@ -991,7 +997,8 @@ export type ChangeData =
   | SetEventCuesChange
   | SetShellChange
   | SetUiChange
-  | SetTimelineChange;
+  | SetTimelineChange
+  | ImportAssetsChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -1038,7 +1045,8 @@ export type ForwardChange =
   | SetEventCuesChange
   | SetShellChange
   | SetUiChange
-  | SetTimelineChange;
+  | SetTimelineChange
+  | ImportAssetsChange;
 
 // ---- inverse specs --------------------------------------------------------
 
@@ -1255,6 +1263,7 @@ export type InverseSpec =
   | AcknowledgeBehaviorTrustInverse
   | RemovePrefabInverse
   | RestorePrefabInverse
+  | ImportAssetsInverse
 ;
 
 // ---- history model --------------------------------------------------------
@@ -1350,6 +1359,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   preparedBehaviorSources?: ReadonlyMap<string, PreparedBehaviorSourceFact>;
   /** The host's staged library edit sets by stageId (`commitScriptLibraryStage` reads only these). */
   scriptLibraryStages?: ReadonlyMap<string, ScriptLibraryStageFact>;
+  /** The host's prepared facts of a folder's files (`importAssets` reads only these). */
+  preparedAssetImport?: PreparedAssetImport;
 }
 
 /**
@@ -1784,6 +1795,7 @@ export type MutationArgs =
   | CreateEntitiesArgs
   | DeleteAssetArgs
   | DeletePrefabArgs
+  | ImportAssetsArgs
   | SetTransformArgs
   | DeleteEntityArgs
   | EmptyArgs
@@ -1881,6 +1893,8 @@ export interface AssetSummary {
   materials?: Record<string, string>;
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
+  /** The asset's labels (absent: none). */
+  labels?: string[];
   /** Present only with `includeVersions: true` (never bytes, never metrics). */
   versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number; sourcePath?: string }[];
 }

@@ -223,6 +223,11 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}/inspect`, body);
   }
 
+  /** POST write a fully uploaded stage into the game folder at `{ path }` (never over another file). */
+  fileStage(projectId: string, stageId: string, path: string): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}/file`, { path });
+  }
+
   /** GET one folder of the game folder (subfolders and importable files). */
   listProjectFiles(projectId: string, dir: string): Promise<BackendResponse> {
     const q = dir === '' ? '' : `?${new URLSearchParams({ dir }).toString()}`;

@@ -123,9 +123,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
    * what the importer made goes into the import cache. Returns the new
    * `convertedFrom` and the facts of the made bytes.
    */
-  const convertFile = async (projectId: string, e: AssetFileEntry): Promise<{ convertedFrom: Record<string, unknown>; facts: Facts } | { code: string; message: string }> => {
-    const file = e.file!;
-    const conv = e.converted!;
+  const convertFile = async (projectId: string, file: string, conv: { format: string; encoding?: string }, kind: Kind): Promise<{ convertedFrom: Record<string, unknown>; facts: Facts } | { code: string; message: string }> => {
     const src = service.conversionSource(projectId, file);
     if (!src.ok) return { code: src.error.code, message: src.error.message ?? src.error.code };
     let made: Uint8Array;
@@ -136,6 +134,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       const encoded = await encoder.encode(new Uint8Array(readFileSync(src.real)), conv.encoding as Ktx2Mode);
       if (!encoded.ok) return { code: 'conversion_failed', message: encoded.message };
       made = encoded.ktx2;
+      conv = { ...conv, format: encoded.source.format };
       converter = { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version };
     } else {
       const fbx = deps.fbx;
@@ -157,7 +156,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     };
     const stored = service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom as Parameters<typeof importKeyOfConverted>[0]), made);
     if (!stored.ok) return { code: stored.error.code, message: stored.error.message ?? stored.error.code };
-    const facts = inspectBytes(made, e.kind as Kind);
+    const facts = inspectBytes(made, kind);
     if ('code' in facts) return facts;
     return { convertedFrom, facts };
   };
@@ -169,7 +168,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     if (e.animated === true) return fail('animation_mapping_required', `${file} changed; the asset's animation roles must be chosen again: re-import it from the Assets tab`);
     let args: Record<string, unknown>;
     if (e.converted !== undefined) {
-      const c = await convertFile(projectId, e);
+      const c = await convertFile(projectId, file, e.converted, e.kind as Kind);
       if ('code' in c) return fail(c.code, c.message);
       args = { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) };
     } else {
@@ -185,7 +184,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
 
   /** Make a converted asset's cached data again; bytes that differ from the recorded ones are a re-import. */
   const rebuild = async (projectId: string, e: AssetFileEntry, report: AssetFileCheckReport): Promise<void> => {
-    const c = await convertFile(projectId, e);
+    const c = await convertFile(projectId, e.file!, e.converted!, e.kind as Kind);
     if ('code' in c) {
       report.failed.push({ assetId: e.assetId, file: e.file, code: c.code, message: `the imported data could not be made again: ${c.message}` });
       return;
@@ -245,7 +244,35 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     return next;
   };
 
+  /**
+   * Import a new file where it is: the facts a `publishAsset` create (or a
+   * folder import) records. An FBX is converted to GLB first, a PNG/JPEG with
+   * a KTX2 setting encoded; what the importer made goes into the import
+   * cache. A WAV the short-sound profile refuses is taken as the longer-audio
+   * kind, the one that takes any length.
+   */
+  const importFile = async (projectId: string, file: string, kind: Kind, options: { ktx2?: Ktx2Mode } = {}): Promise<{ kind: Kind; args: Record<string, unknown> } | { code: string; message: string }> => {
+    if (kind === 'model' && /\.fbx$/i.test(file)) {
+      const c = await convertFile(projectId, file, { format: 'fbx' }, 'model');
+      return 'code' in c ? c : { kind, args: { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) } };
+    }
+    if (kind === 'texture' && options.ktx2 !== undefined && /\.(png|jpe?g)$/i.test(file)) {
+      const c = await convertFile(projectId, file, { format: /\.png$/i.test(file) ? 'png' : 'jpeg', encoding: options.ktx2 }, 'texture');
+      return 'code' in c ? c : { kind, args: { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) } };
+    }
+    const f = inspectFile(projectId, file, kind, null);
+    if ('code' in f) {
+      if (kind === 'audio') {
+        const longer = inspectFile(projectId, file, 'music', null);
+        if (!('code' in longer)) return { kind: 'music', args: { sourcePath: file, ...factsArgs(longer) } };
+      }
+      return f;
+    }
+    return { kind, args: { sourcePath: file, ...factsArgs(f) } };
+  };
+
   return {
+    importFile,
     /** The whole check: moved files found by their sidecars, changed files imported again, the import cache made whole. */
     check: (projectId: string) => serialized(projectId, { reimport: true, relocate: true }),
     /** Before Play and export: only the import cache is made whole (the build reads what the catalog records). */

@@ -612,6 +612,12 @@ export class ContentRoutes {
       await this.inspect(req, res, projectId, parts[6] ?? '');
       return true;
     }
+    // POST /api/v1/projects/:projectId/content/stages/:stageId/file — write an uploaded file into the game folder
+    if (n === 8 && parts[5] === 'stages' && parts[7] === 'file') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.fileStage(req, res, projectId, parts[6] ?? '');
+      return true;
+    }
     // DELETE /api/v1/projects/:projectId/content/stages/:stageId
     if (n === 7 && parts[5] === 'stages') {
       if (method !== 'DELETE') return this.methodNotAllowed(res, 'DELETE');
@@ -912,6 +918,33 @@ export class ContentRoutes {
     }
     this.jobs.finish(job.jobId, { stageId: sid.stageId, proposalId: result.proposal.proposalId, status: result.proposal.status });
     this.deps.sendJson(res, 200, { ok: true, proposal: result.proposal, truncated: false, jobId: job.jobId });
+  }
+
+  /**
+   * Write an uploaded file into the game folder at `{path}` (its folders are
+   * made; a hidden folder, the project's own files and paths leading out are
+   * refused, and another file is never replaced). A folder dropped in the
+   * browser arrives file by file this way, and `importAssets` then brings it
+   * in; the stage is gone afterwards.
+   */
+  private async fileStage(req: IncomingMessage, res: ServerResponse, projectId: string, rawStageId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const sid = parseStageId(rawStageId);
+    if (!sid.ok) return this.deps.sendError(res, sid.error);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const b = body as Record<string, unknown>;
+    if (typeof b !== 'object' || b === null || Array.isArray(b) || typeof b['path'] !== 'string' || Object.keys(b).some((k) => k !== 'path')) {
+      return this.deps.sendError(res, sessionError('invalid_request', 'validation', 'the body is {path}: where in the game folder the file goes, e.g. assets/voice/line-001.ogg', { path: '/path' }));
+    }
+    const staged = this.deps.service.readStage(projectId, sid.stageId);
+    if (!staged.ok) return this.deps.sendError(res, commandErrorToSession(staged.error));
+    const written = this.deps.service.writeUploadedFile(projectId, b['path'], staged.bytes);
+    if (!written.ok) return this.deps.sendError(res, commandErrorToSession(written.error));
+    this.uploads.discard(sid.stageId);
+    this.deps.service.discardStage(projectId, sid.stageId);
+    this.deps.sendJson(res, 200, { ok: true, path: b['path'], byteLength: staged.bytes.length, written: written.written });
   }
 
   private discardStage(req: IncomingMessage, res: ServerResponse, projectId: string, rawStageId: string): void {

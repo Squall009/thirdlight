@@ -14,6 +14,7 @@
  *   `acceptExternalState`, `discardExternalState`).
  */
 
+import type { FolderImportScan, PreparedImportFile } from './folder-import';
 import type {
   CommandError,
   HistoryDepths,
@@ -409,6 +410,16 @@ export interface WorkspaceService {
   writeImportHeader(projectId: string, header: ImportHeader, toolchain: string): void;
   /** The project's import cache folder (null when the project cannot be opened). */
   importCacheDir(projectId: string): string | null;
+  /** Every file of a folder of the game folder, recursively: what a folder import would bring in, skip or report. */
+  scanAssetFolder(projectId: string, folder: string): { ok: true; scan: FolderImportScan } | { ok: false; error: CommandError };
+  /** Keep a folder's inspected files for the next `importAssets` of that folder (the command reads only these). */
+  prepareAssetImport(projectId: string, folder: string, files: readonly PreparedImportFile[]): { ok: true } | { ok: false; error: CommandError };
+  /** Write one uploaded file into a folder of the game folder (never over another file). */
+  writeUploadedFile(projectId: string, path: string, bytes: Uint8Array): { ok: true; written: boolean } | { ok: false; error: CommandError };
+  /** Whether files may be written into this folder of the game folder. */
+  checkAssetFolder(projectId: string, folder: string): { ok: true } | { ok: false; error: CommandError };
+  /** What the open's format upgrade did (each line once: the caller reports it). */
+  takeUpgradeNotes(projectId: string): string[];
   /** Write files into a new `assets/<stem>/` folder of the game folder (an asset tool's zip export); returns the folder. */
   writeAssetFolder(projectId: string, stem: string, files: readonly { path: string; bytes: Uint8Array }[]): { ok: true; folder: string } | { ok: false; error: CommandError };
   /** `readCapturedV3` — the single acknowledged project read (the merged

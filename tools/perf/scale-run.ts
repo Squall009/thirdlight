@@ -3,7 +3,8 @@
  *
  *   --preset full|caps|small|starter   the generated size (starter: the Starter template, no generation)
  *   --factor F                         the full size times F instead of a preset
- *   --steps open,commands,play,walk,dialogue,export
+ *   --steps open,commands,import,play,walk,dialogue,export   (import only when named)
+ *   --import N                         voice files the import step writes into a new folder and imports (1000)
  *   --walk N --lines N --commands N    scenes walked (50), dialogue lines played (500), command round trips (20)
  *   --seed N --gpu --renderer webgl2|webgpu --keep --out FILE
  *
@@ -19,7 +20,7 @@ import { join } from 'node:path';
 
 import { PERF_ROOT, REPO } from './backend';
 import type { RendererName } from './browser';
-import { ScaleBench, SCALE_STEPS, type ScaleReport, type ScaleStep } from './scale';
+import { ScaleBench, SCALE_DEFAULT_STEPS, SCALE_STEPS, type ScaleReport, type ScaleStep } from './scale';
 import { generateScaleProject, SCALE_DEFAULT_SEED, SCALE_GENERATOR_VERSION, SCALE_PRESETS, scaledSpec, type ScaleResult, type ScaleSpec } from './scale-generate';
 
 export async function runScaleCli(argv: readonly string[]): Promise<void> {
@@ -39,7 +40,7 @@ export async function runScaleCli(argv: readonly string[]): Promise<void> {
     spec = { ...p };
   }
   const name = factor !== undefined ? `x${factor}` : preset!;
-  const steps = (get('steps')?.split(',') ?? [...SCALE_STEPS]) as ScaleStep[];
+  const steps = (get('steps')?.split(',') ?? [...SCALE_DEFAULT_STEPS]) as ScaleStep[];
   for (const s of steps) if (!SCALE_STEPS.includes(s)) throw new Error(`--steps: unknown ${s}`);
   const base = join(PERF_ROOT, 'scale', name);
   const dataRoot = join(base, 'data');
@@ -79,6 +80,7 @@ export async function runScaleCli(argv: readonly string[]): Promise<void> {
     commands: Number(get('commands') ?? 20),
     walk: Number(get('walk') ?? 50),
     lines: Number(get('lines') ?? 500),
+    importFiles: Number(get('import') ?? 1000),
     steps,
     log,
   });

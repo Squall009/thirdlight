@@ -31,6 +31,7 @@ import { ID_RE_V2 } from './components';
 import type { AssetRecordV3, AssetVersionV3, PcmWavMetrics, PcmWavRecipe } from './types-v3';
 import { AUDIO_PCM_WAV_PROFILE } from './types-v3';
 import {
+  ASSET_LABEL_RE,
   ASSET_METRIC_CAPS,
   M2_GLTF_EXTENSION_ALLOWLIST,
   MAX_ASSET_VERSIONS,
@@ -101,7 +102,7 @@ const AUDIO_METRIC_ORDER = [
 
 /** A `pcm-wav` recipe has no `extensions` key (a WAV has no glTF extensions). */
 const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor', 'labels']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -744,6 +745,13 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
     if (!v3 || kind !== 'model') errors.push(unexpectedField(`${path}/clipsFor`, 'clipsFor', 'only a v4 model asset has clipsFor'));
     else if (typeof clipsFor !== 'string' || !ID_RE_V2.test(clipsFor)) errors.push(fieldValue(`${path}/clipsFor`, clipsFor, 'a model assetId', 'clipsFor names the model asset whose rig these clips are for'));
   }
+  const labels = a['labels'];
+  if (labels !== undefined) {
+    if (!v3) errors.push(unexpectedField(`${path}/labels`, 'labels', 'only a v3/v4 asset has labels'));
+    else if (!isCanonicalLabelList(labels)) {
+      errors.push(fieldValue(`${path}/labels`, labels, 'ascending unique labels (a letter or digit, then letters, digits, _ - . /; at most 64)', 'labels are a non-empty ascending list of unique labels'));
+    }
+  }
   for (const k of Object.keys(a)) {
     if (!KNOWN_ASSET_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_ASSET_FIELDS].join(', ')));
   }
@@ -892,5 +900,22 @@ export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+    ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
   };
+}
+
+/** Whether a value is one asset label. */
+export function isAssetLabel(v: unknown): v is string {
+  return typeof v === 'string' && ASSET_LABEL_RE.test(v);
+}
+
+/** A label list as records store it: ascending by code unit, without duplicates. */
+export function canonicalLabels(labels: readonly string[]): string[] {
+  return [...new Set(labels)].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+}
+
+function isCanonicalLabelList(v: unknown): boolean {
+  if (!Array.isArray(v) || v.length === 0 || !v.every(isAssetLabel)) return false;
+  for (let i = 1; i < v.length; i++) if (!((v[i - 1] as string) < (v[i] as string))) return false;
+  return true;
 }

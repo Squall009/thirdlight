@@ -141,7 +141,7 @@ export function upgradeAssetsToFiles(core: Core, ctx: ContentContext, content: C
   if (options.report !== false) writeAtomic({ dir: ctx.dir, target: join(ctx.dir, UPGRADE_REPORT_FILE), bytes: new TextEncoder().encode(`${JSON.stringify(report, null, 2)}\n`), allowedPreHashes: [], previousHash: null, ops: core.ops });
   const written = report.files.filter((f) => f.written).length;
   const notes = [
-    `project schemaVersion 4 → 5: every asset is a file in the game folder with a .tlasset sidecar (${written} written from sources/sha256, ${report.files.length - written} already in place)`,
+    `project schemaVersion 4 → 5: every asset is a file in the game folder with a .tlasset sidecar (${written} written from sources/sha256, ${report.files.length - written} already in place; ${UPGRADE_REPORT_FILE} in the project folder lists them)`,
     ...(report.olderVersions.length > 0 ? [`${report.olderVersions.length} older asset versions are no longer listed; their bytes stay in sources/sha256 (see ${UPGRADE_REPORT_FILE})`] : []),
     ...report.notMoved.map((n) => `asset ${n.assetId} stays stored: ${n.reason}`),
   ];

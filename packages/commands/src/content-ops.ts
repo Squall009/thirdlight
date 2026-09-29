@@ -146,6 +146,42 @@ function byId<T extends { assetId?: string; behaviorId?: string }>(a: T, b: T): 
 
 // ---- publishAsset ---------------------------------------------------------
 
+/** The per-kind record count a create is checked against, and its limit's name. */
+export function assetCountLimit(kind: string): { max: number; limit: 'audio_assets' | 'texture_assets' | 'music_assets' | 'font_assets' | 'assets' } {
+  if (kind === 'audio') return { max: MAX_AUDIO_ASSETS, limit: 'audio_assets' };
+  if (kind === 'texture') return { max: MAX_TEXTURE_ASSETS, limit: 'texture_assets' };
+  if (kind === 'music') return { max: MAX_MUSIC_ASSETS, limit: 'music_assets' };
+  if (kind === 'font') return { max: MAX_FONT_ASSETS, limit: 'font_assets' };
+  return { max: MAX_ASSETS, limit: 'assets' };
+}
+
+/** One version record from publish facts, published at `revision`. */
+function assetVersionRecord(args: PublishAssetArgs, version: number, revision: number): CommandAssetRecord['versions'][number] {
+  return {
+    version,
+    sourceDigest: args.sourceDigest,
+    sourceByteLength: args.sourceByteLength,
+    ...(args.sourcePath !== undefined ? { sourcePath: args.sourcePath } : {}),
+    ...(args.convertedFrom !== undefined ? { convertedFrom: deepClone(args.convertedFrom) } : {}),
+    ...(args.packedFrom !== undefined ? { packedFrom: deepClone(args.packedFrom) } : {}),
+    importRecipe: deepClone(args.importRecipe),
+    metrics: deepClone(args.metrics),
+    importedAt: args.importedAt,
+    publishedRevision: revision,
+  } as unknown as CommandAssetRecord['versions'][number];
+}
+
+/** The record a create makes: one version, the name defaulting to the id. */
+export function createdAssetRecord(args: PublishAssetArgs, revision: number): CommandAssetRecord {
+  return {
+    assetId: args.assetId,
+    kind: args.kind ?? 'model',
+    displayName: args.displayName ?? args.assetId,
+    currentVersion: 1,
+    versions: [assetVersionRecord(args, 1, revision)],
+  };
+}
+
 export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOutcome {
   const catalog = contentOf(input.content);
   const existing = catalog.assets.find((a) => a.assetId === args.assetId) ?? null;
@@ -161,14 +197,9 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
     const kind = args.kind;
-    const limit = kind === 'audio' ? MAX_AUDIO_ASSETS : kind === 'texture' ? MAX_TEXTURE_ASSETS : kind === 'music' ? MAX_MUSIC_ASSETS : kind === 'font' ? MAX_FONT_ASSETS : MAX_ASSETS;
+    const cap = assetCountLimit(kind);
     const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length;
-    if (count + 1 > limit) {
-      return {
-        ok: false,
-        error: limitsExceeded(kind === 'audio' ? 'audio_assets' : kind === 'texture' ? 'texture_assets' : kind === 'music' ? 'music_assets' : kind === 'font' ? 'font_assets' : 'assets', count + 1, limit),
-      };
-    }
+    if (count + 1 > cap.max) return { ok: false, error: limitsExceeded(cap.limit, count + 1, cap.max) };
   } else {
     if (existing === null) return { ok: false, error: assetNotFound(args.assetId) };
     if (args.kind !== undefined && args.kind !== existingKind) {
@@ -240,18 +271,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
   }
 
   const version = existing !== null ? existing.currentVersion + 1 : 1;
-  const versionRecord = {
-    version,
-    sourceDigest: args.sourceDigest,
-    sourceByteLength: args.sourceByteLength,
-    ...(args.sourcePath !== undefined ? { sourcePath: args.sourcePath } : {}),
-    ...(args.convertedFrom !== undefined ? { convertedFrom: deepClone(args.convertedFrom) } : {}),
-    ...(args.packedFrom !== undefined ? { packedFrom: deepClone(args.packedFrom) } : {}),
-    importRecipe: deepClone(args.importRecipe),
-    metrics: deepClone(args.metrics),
-    importedAt: args.importedAt,
-    publishedRevision: input.revision,
-  };
+  const versionRecord = assetVersionRecord(args, version, input.revision);
   const record: CommandAssetRecord =
     existing !== null
       ? {
@@ -260,13 +280,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
           currentVersion: version,
           versions: [...deepClone(keptVersions), versionRecord],
         }
-      : {
-          assetId: args.assetId,
-          kind: args.kind ?? 'model',
-          displayName: args.displayName ?? args.assetId,
-          currentVersion: 1,
-          versions: [versionRecord],
-        };
+      : createdAssetRecord(args, input.revision);
   const assets = [
     ...catalog.assets.filter((a) => a.assetId !== args.assetId),
     record,

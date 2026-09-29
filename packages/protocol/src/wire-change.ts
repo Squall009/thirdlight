@@ -56,6 +56,8 @@ export function toWireChange(change: ChangeData): Record<string, unknown> {
   if (out['order'] !== null && typeof out['order'] === 'object') out['order'] = withoutPrevious(out['order']);
   if (out['transform'] !== null && typeof out['transform'] === 'object' && type === 'updateEntity') out['transform'] = withoutPrevious(out['transform']);
   if (type === 'moveEntities' && Array.isArray(out['entities'])) out['entities'] = (out['entities'] as unknown[]).map(withoutPrevious);
+  // An undone folder import names the records it forgets; their ids are enough.
+  if (type === 'importAssets' && Array.isArray(out['removed'])) out['removed'] = (out['removed'] as { assetId: string }[]).map((r) => ({ assetId: r.assetId }));
   return out;
 }
 

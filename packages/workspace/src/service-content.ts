@@ -20,6 +20,7 @@ import {
   takenPaths,
   writeGameFile,
   assetRoot,
+  checkAssetFolder,
   currentVersionOf,
   fileFactsOfVersion,
   fileOfRecord,
@@ -71,6 +72,7 @@ import {
   type StageResult,
 } from './content-store';
 import { pathRejected, projectNotFound, projectUnavailable } from './errors';
+import { scanAssetFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
 import { deepFreeze } from './isolate';
 import { sha256Hex } from './digest';
 import { ensureSession, type Core, type ProjectSession } from './session';
@@ -266,6 +268,37 @@ export function contentOps(core: Core) {
     });
   }
 
+  /** Every file of a folder, recursively: new importable files, files already imported, unsupported ones. */
+  function scanFolder(projectId: string, folder: string): { ok: true; scan: FolderImportScan } | { ok: false; error: CommandError } {
+    return run(projectId, (s) => scanAssetFolder(contentCtx(s), folder));
+  }
+
+  /** Keep a folder's inspected files for its `importAssets` (the latest preparation of a folder wins). */
+  function prepareAssetImport(projectId: string, folder: string, files: readonly PreparedImportFile[]): { ok: true } | { ok: false; error: CommandError } {
+    return withOpenSession<{ ok: true } | { ok: false; error: CommandError }>(
+      projectId,
+      (s) => {
+        s.preparedImports ??= new Map();
+        s.preparedImports.set(folder, [...files]);
+        return { ok: true };
+      },
+      (error) => ({ ok: false, error }),
+    );
+  }
+
+  /** The upgrade notes of the project's open, once. */
+  function takeUpgradeNotes(projectId: string): string[] {
+    return withOpenSession(
+      projectId,
+      (s) => {
+        const notes = s.upgradeNotes ?? [];
+        s.upgradeNotes = [];
+        return notes;
+      },
+      () => [],
+    );
+  }
+
   /** The project's import cache folder (thumbnails are kept there too); null when the project cannot be opened. */
   function importCacheDir(projectId: string): string | null {
     return withOpenSession(projectId, (s) => join(s.dir, 'cache', 'imported'), () => null);
@@ -310,5 +343,10 @@ export function contentOps(core: Core) {
     writeImportHeader,
     importCacheDir,
     writeAssetFolder,
+    scanAssetFolder: scanFolder,
+    prepareAssetImport,
+    takeUpgradeNotes,
+    writeUploadedFile: (projectId: string, path: string, bytes: Uint8Array) => run(projectId, (s) => writeUploadedFile(core, contentCtx(s), path, bytes)),
+    checkAssetFolder: (projectId: string, folder: string) => run(projectId, (s) => checkAssetFolder(contentCtx(s), folder)),
   };
 }

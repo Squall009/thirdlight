@@ -15,7 +15,7 @@
  * diagnostics), and the backend's resident set.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Browser, BrowserContext, Frame, Page } from '@playwright/test';
@@ -25,10 +25,13 @@ import { startPerfBackend, type PerfBackend } from './backend';
 import { launch, poll, serveDir, splitOf, type PlayStartSplit, type RendererName } from './browser';
 import { installPerfInstrumentation, readSample, type PageSample } from './instrument';
 import type { ScaleResult } from './scale-generate';
+import { opusVoice } from './scale-media';
 import { summarize, type Summary } from './stats';
 
-export type ScaleStep = 'open' | 'commands' | 'play' | 'walk' | 'dialogue' | 'export';
-export const SCALE_STEPS: readonly ScaleStep[] = ['open', 'commands', 'play', 'walk', 'dialogue', 'export'];
+export type ScaleStep = 'open' | 'commands' | 'import' | 'play' | 'walk' | 'dialogue' | 'export';
+/** Every step; `import` (a folder of new files imported in one command) runs only when asked for. */
+export const SCALE_STEPS: readonly ScaleStep[] = ['open', 'commands', 'import', 'play', 'walk', 'dialogue', 'export'];
+export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['open', 'commands', 'play', 'walk', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
   dataRoot: string;
@@ -44,6 +47,8 @@ export interface ScaleBenchOptions {
   walk: number;
   /** Dialogue lines played through (at most the walkthrough's). */
   lines: number;
+  /** Voice files written into a new folder and imported in one command (the `import` step). */
+  importFiles?: number;
   steps: ScaleStep[];
   log: (s: string) => void;
 }
@@ -63,6 +68,8 @@ export interface ScaleReport {
   generated?: Omit<ScaleResult, 'dir' | 'sceneIds'>;
   open?: { backendMs: number; editorConnectedMs: number; editorFirstFrameMs: number | null; editorHeapMiB: number | null; backendRssMiB: number | null; assetsListed: number | null };
   commands?: { sceneEdit: Summary; contentEdit: Summary | null; contentBytes: number | null };
+  /** One `importAssets` of a folder of new voice files: the command's round trip (inspection included), and one scene edit after it. */
+  import?: { files: number; added: number; ms: number; sceneEditAfterMs: number; backendRssMiB: number | null };
   play?: { split: PlayStartSplit; memory: MemorySample };
   walk?: {
     scenes: number;
@@ -193,6 +200,7 @@ export class ScaleBench {
       const opened = await this.attempt('open', () => this.measureOpen());
       if (!opened) return this.report;
       if (want('commands')) await this.attempt('commands', () => this.measureCommands());
+      if (want('import')) await this.attempt('import', () => this.measureFolderImport());
       const needPlay = want('play') || want('walk') || want('dialogue');
       if (needPlay && (await this.attempt('play', () => this.measurePlayStart()))) {
         if (want('walk')) await this.attempt('walk', () => this.walkScenes());
@@ -296,6 +304,31 @@ export class ScaleBench {
   }
 
   /** Publish and attach the driver script (the same HTTP route the editor's script publish takes). */
+  /** Write a folder of new voice lines into the project and import it in one command, labelled. */
+  private async measureFolderImport(): Promise<void> {
+    const p = this.backend.project(this.opts.projectId);
+    const files = this.opts.importFiles ?? 1000;
+    const folder = 'assets/bench-import/voice';
+    const dir = join(this.opts.dataRoot, 'projects', this.opts.projectId, ...folder.split('/'));
+    mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < files; i++) writeFileSync(join(dir, `line-${String(i + 1).padStart(5, '0')}.opus`), opusVoice(9000 + i, 1000 + (i % 5) * 500, `bench line ${i + 1}`));
+    const t0 = performance.now();
+    const r = await p.command('importAssets', { folder: 'assets/bench-import', labels: ['bench', 'voice'] });
+    const ms = Math.round(performance.now() - t0);
+    const added = ((r['change'] as { added?: unknown[] } | undefined)?.added ?? []).length;
+    // A scene edit after it: the catalog is larger now.
+    const ents = ((await p.query('queryEntities', { limit: 50, offset: 0 }))['entities'] ?? []) as { id: string; components: Record<string, unknown> }[];
+    let sceneEditAfterMs = -1;
+    const target = ents.find((e) => e.components['transform'] !== undefined);
+    if (target !== undefined) {
+      const pos = (target.components['transform'] as { position: number[] }).position;
+      const t1 = performance.now();
+      await p.command('setTransform', { entityId: target.id, transform: { position: [pos[0]!, pos[1]! + 0.01, pos[2]!] } });
+      sceneEditAfterMs = Math.round(performance.now() - t1);
+    }
+    this.report.import = { files, added, ms, sceneEditAfterMs, backendRssMiB: backendRssMiB(this.backend.pid) };
+  }
+
   private async installDriver(): Promise<void> {
     const be = this.backend;
     const pid = this.opts.projectId;

@@ -617,8 +617,9 @@ export class Projection {
       case 'acknowledgeBehaviorTrust':
       case 'createPrefab':
       case 'removePrefab':
-      // A deleted asset record.
+      // A deleted asset record; a folder's files imported (or, undone, forgotten).
       case 'removeAsset':
+      case 'importAssets':
         return true;
       // A declared-property edit converges the projection
       // without a reload — an MCP-origin change is applied exactly like a

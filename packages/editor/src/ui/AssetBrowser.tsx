@@ -76,6 +76,8 @@ interface Props {
   onDelete?: (assetId: string) => void;
   /** Why the last delete was refused (the uses it names), or null. */
   deleteError?: string | null;
+  /** The folder controls (where uploads land, folder import) below the import buttons. */
+  importExtra?: ReactNode;
 }
 
 /** The tile-preview key of an asset (or one of its pieces). */
@@ -262,6 +264,8 @@ export function AssetBrowser(p: Props): JSX.Element {
         )}
       </div>
 
+      {p.importExtra}
+
       {packing && p.onPackTexture !== undefined && <TexturePackForm textures={p.assets} onPack={p.onPackTexture} onClose={() => setPacking(false)} />}
 
       <div className={`tl-assets__status tl-assets__status--${p.importState.phase}`}>
@@ -343,6 +347,11 @@ export function AssetBrowser(p: Props): JSX.Element {
               from {selected.convertedFrom.format === 'fbx' ? 'FBX' : selected.convertedFrom.format.toUpperCase()}
               {selected.convertedFrom.encoding !== undefined ? ` (${selected.convertedFrom.encoding === 'normal' ? 'normal map' : selected.convertedFrom.encoding === 'data' ? 'data' : 'colour'})` : ''}
               {selected.convertedFrom.sourcePath !== undefined ? `: ${selected.convertedFrom.sourcePath}` : ' (uploaded)'}
+            </div>
+          )}
+          {selected.labels !== undefined && (
+            <div className="tl-assets__source tl-assets__labels" data-testid="asset-labels" title="Labels a script may load this asset by, together with every other asset carrying them">
+              labels: {selected.labels.join(', ')}
             </div>
           )}
           {selected.packedFrom !== undefined && (

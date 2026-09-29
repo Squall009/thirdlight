@@ -10,7 +10,7 @@ import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
-import { M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
+import { ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import {
   CURSOR_MODES,
   DEFAULT_INPUT,
@@ -551,8 +551,9 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       enm('vertexColors', 'Vertex colours', 'Data: COLOR_0 feeds shaders (wind weights). Tint: multiplies the colour.', ['data', 'tint'], { when: when('kind', 'model'), default: 'data', omitDefault: true }),
       map('materials', 'Default materials', 'Material slot → project material, for every placement.', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { when: when('kind', 'model'), keyFormat: 'materialSlot', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS }),
       asset('clipsFor', 'Clips for', 'An animation-only file: its clips play on this model\'s rig.', ['model'], { when: when('kind', 'model') }),
+      list('labels', 'Labels', 'Names a script may load the asset by, with every other asset carrying them (ascending).', str('*', 'Label', 'A letter or digit, then letters, digits, _ - . /.', { minLength: 1, maxLength: ASSET_LABEL_MAX_LENGTH }), { minItems: 1, unique: true, readOnly: true }),
     ]), { required: true }),
-    ops: ['publishAsset', 'setAssetOptions', 'deleteAsset'],
+    ops: ['publishAsset', 'setAssetOptions', 'deleteAsset', 'importAssets'],
   },
   {
     key: 'prefabs',

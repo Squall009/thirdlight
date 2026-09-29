@@ -381,6 +381,8 @@ export interface AssetRecordV3 {
    * clips are for its own nodes.
    */
   clipsFor?: string;
+  /** The labels a script may load the asset by (ascending, unique; absent = none). */
+  labels?: string[];
 }
 
 /** The v3 content block: the accepted five keys plus the required `game`. */

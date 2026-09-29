@@ -29,6 +29,7 @@ import { publishBehaviorSource } from './behavior';
 import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { createAssetFileCheck } from './asset-files';
+import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
 
@@ -294,6 +295,8 @@ export function createBackend(
     now: nowMs,
     onApplied: (projectId, r) => notifyMutationApplied(projectId, r.requestId, r.revision, { kind: 'admin', clientId: 'file-check' }, r.change, (r as { sceneId?: string }).sceneId),
   });
+  // A folder's files are inspected before its importAssets command.
+  const folderImport = createFolderImport({ service, assetFiles, now: nowMs });
   const contentRoutes = new ContentRoutes({
     service,
     now: nowMs,
@@ -410,6 +413,7 @@ export function createBackend(
     if (!q.ok) {
       return { ok: false, error: workspaceError(q.error), status: statusFor(q.error.cls) };
     }
+    reportUpgradeNotes(projectId);
     // An editor loading the project: its materials are checked (once; after that, after each change).
     if (materialChecker.last(projectId) === null) {
       try {
@@ -539,6 +543,11 @@ export function createBackend(
         // the Problems query returns it anyway
       }
     }
+  };
+
+  /** What the open's format upgrade did (files written, older versions kept, the report's name) goes to the Problems log once. */
+  const reportUpgradeNotes = (projectId: string): void => {
+    for (const note of service.takeUpgradeNotes(projectId)) recordProblem(projectId, 'workspace', 'project_upgraded', note);
   };
 
   // ---------- Graph materials' problems (checked on load and after every change) ----------
@@ -1563,6 +1572,7 @@ export function createBackend(
           }
           // The graph materials with problems now (checked at the project's load and after each change).
           const rows = materialRows(projectId);
+          reportUpgradeNotes(projectId);
           const list = problems.get(projectId) ?? [];
           sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50), ...(rows !== null ? { materialProblems: rows.filter((r) => r.problems.length > 0).slice(0, 64) } : {}) });
           return;
@@ -1774,7 +1784,7 @@ export function createBackend(
   const externalAnnounced = new Set<string>();
 
 
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
 
   const backend: Backend = {
     config,

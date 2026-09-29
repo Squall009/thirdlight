@@ -46,6 +46,7 @@ import {
   parseRelayGamepad,
   parseRelayUiEdges,
   relayFrameEnd,
+  V3_MUTATION_OPS,
 } from '@thirdlight/protocol';
 import {
   AUDIO_VOICE_CAP,
@@ -99,7 +100,8 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The v3 game/presentation mutation ops. */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities', 'commitScriptLibraryStage'] as const;
+// The v3 op list is the protocol's (one list; a new op reaches MCP with it).
+const M3_MUTATION_OPS = V3_MUTATION_OPS;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /**
@@ -207,7 +209,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(one undo restores all of it). setAssetOptions {assetId, vertexColors: ' +
       '"data"|"tint"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour; setAssetOptions {assetId, sourcePath} ' +
       'moves the asset\'s file (with its sidecar) to that path of the game folder, or records a move already made there; the id and ' +
-      'every reference stay. Every imported file is kept in the game folder (uploads land in assets/) next to its .tlasset sidecar. pasteEntities {entities: [full entity ' +
+      'every reference stay. Every imported file is kept in the game folder next to its .tlasset sidecar; uploaded bytes land in assets/, or in ' +
+      'the folder publishAsset names with folder: "assets/props" (relative to the game folder; never a hidden folder or the project\'s own files). ' +
+      'importAssets {folder, labels?: [label], ktx2?: "color"|"normal"|"data"} imports every supported file of a game-folder folder, subfolders ' +
+      'included, in one command and one undo: each becomes an asset named after its file (assets/audio/voice/line-001.ogg → "line-001"; the id is the ' +
+      'name made id-safe, -2, -3 … when taken; a file whose sidecar names an unused id keeps it), with the labels on every one (a label: a letter or ' +
+      'digit, then letters, digits, _ - . /). A WAV longer than a short sound comes in as music. Files already imported are skipped, and the result\'s ' +
+      'folderImport lists them (skipped), files no importer takes (unsupported) and files an importer refused (rejected); undo forgets the assets, the files stay. ' +
+      'Asset records and tl_content_query assets carry their labels. pasteEntities {entities: [full entity ' +
       'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
       'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Materials: ' +
       'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water, params: {...overrides}, textures: {slot: ' +
@@ -445,11 +454,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       `kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most ${MAX_FONT_ASSETS} fonts per project) for the project UI; publish it with kind "font". ` +
       'jobExport (phase 25.22) imports an asset tool\'s job export: a folder or a .zip holding a GLB and manifest.json {name, files: [{path, role, digest (sha256 hex)}], triangles?, lods?} ' +
       '(exactly one file with role "model", a .glb; every listed file is checked against its digest; other roles are checked, not imported). jobExport {path} names a folder or .zip in the game folder; ' +
-      'jobExport {} with dataBase64 uploads a zip, whose listed files are written into a new assets/<name>/ folder. The result is the model\'s proposal (plus sourcePath: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model".',
+      'jobExport {} with dataBase64 uploads a zip, whose listed files are written into a new assets/<name>/ folder. The result is the model\'s proposal (plus sourcePath: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model". ' +
+      'writeTo "assets/voice/line-001.ogg" with dataBase64 writes the file into the game folder at that path instead of inspecting it (its folders are made; never over another file, ' +
+      'never into a hidden folder or the project\'s own files): upload a folder file by file this way, then import it with tl_command importAssets {folder}.',
     inputSchema: {
       type: 'object',
       properties: {
         dataBase64: { type: 'string', description: `base64 of the source bytes (≤ ${CONTENT_STAGE_MAX / 1_048_576} MiB decoded)` },
+        writeTo: { type: 'string', description: 'with dataBase64: write the file into the game folder at this path (relative, forward slashes), e.g. assets/voice/line-001.ogg; nothing is inspected or imported' },
         projectPath: {
           type: 'string',
           description: 'a .glb/.fbx/.wav/.png/.jpg/.webp/.ktx2/… file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
@@ -1212,6 +1224,10 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     if (a.dataBase64 !== undefined) return toolError('give either dataBase64 or projectPath, not both');
     return projectFileInspect(ctx, a);
   }
+  if (a.writeTo !== undefined) {
+    if (typeof a.writeTo !== 'string' || a.writeTo.length === 0) return toolError('writeTo must be a path relative to the game folder, e.g. assets/voice/line-001.ogg');
+    if (a.kind !== undefined || a.ktx2 !== undefined || a.animation !== undefined || a.displayName !== undefined) return toolError('writeTo goes with dataBase64 only (the file is written, not inspected)');
+  }
   if (typeof a.dataBase64 !== 'string' || a.dataBase64.length === 0) return toolError('dataBase64 or projectPath is required');
   const bytes = decodeBase64(a.dataBase64);
   if (bytes === null) return toolError('dataBase64 is not valid base64');
@@ -1233,6 +1249,10 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     const frame = bytes.subarray(offset, Math.min(offset + CONTENT_UPLOAD_FRAME_MAX, bytes.length));
     const put = await ctx.client.uploadFrame(ctx.projectId, stageId, offset, bytes.length, frame);
     if (!(isObj(put.body) && put.body.ok === true)) return surfaceBackendError(put);
+  }
+  if (typeof a.writeTo === 'string') {
+    const filed = await ctx.client.fileStage(ctx.projectId, stageId, a.writeTo);
+    return isObj(filed.body) && filed.body.ok === true ? toolOk(filed.body) : surfaceBackendError(filed);
   }
   // The additive inspect request selects the bounded PCM-WAV
   // inspector or the role-aware animated GLB profile.

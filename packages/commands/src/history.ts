@@ -45,6 +45,7 @@ import type {
 } from '@thirdlight/project-model';
 
 import { historyEmpty, historyInvalid, type CommandError } from './errors';
+import { redoImportAssets, undoImportAssets } from './import-assets';
 import {
   behaviorOf,
   componentsRecord,
@@ -330,6 +331,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     for (const b of inv.blocks ?? []) restored = withLayerData(restored, b.entityId, b);
     const result = { ...restored, revision: scene.revision + 1, entities: ents };
     return finish(state, result, state.content, change, entry.requestId);
+  }
+
+  if (inv.kind === 'importAssets') {
+    if (entry.change.type !== 'importAssets') return { ok: false, error: historyInvalid(entry.requestId) };
+    const r = undoImportAssets(scene, content, inv, entry.change);
+    if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    return finish(state, r.scene, r.content, r.change, entry.requestId);
   }
 
   if (inv.kind === 'publishAsset') {
@@ -826,6 +834,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       definition: deepClone(f.definition),
     };
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  if (f.type === 'importAssets') {
+    const r = redoImportAssets(scene, content, f);
+    if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    return finish(state, r.scene, r.content, r.change, entry.requestId);
   }
 
   if (f.type === 'removeAsset') {

@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, utimesSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 
-import { isValidSourcePath } from '@thirdlight/project-model';
+import { DEFAULT_ASSET_FOLDER, isValidSourcePath } from '@thirdlight/project-model';
 import type { ContentCatalogV4 } from '@thirdlight/project-model';
 import type { ChangeData, CommandError } from '@thirdlight/commands';
 
@@ -37,8 +37,8 @@ import { readBlobBytes, resolveProjectFile } from './content-store';
 export const SIDECAR_SUFFIX = '.tlasset';
 /** The sidecar format this build writes. */
 export const SIDECAR_FORMAT = 1;
-/** Where an upload lands when nothing names a folder. */
-export const DEFAULT_ASSET_FOLDER = 'assets';
+/** Where an upload lands when nothing names a folder (the model's constant, shared with the editor). */
+export { DEFAULT_ASSET_FOLDER };
 /** The import cache under the project folder (git-ignored). */
 export const IMPORT_CACHE_SEGMENTS = ['cache', 'imported'] as const;
 /** Held bytes keep for a day; later an undo that needs them reports the file as missing. */
@@ -183,8 +183,8 @@ export function sidecarOf(record: RecordLike, fileOfAsset: (assetId: string) => 
     id: record.assetId,
     kind: record.kind ?? 'model',
     importSettings: importSettingsOf(record, fileOfAsset),
-    // Labels and addresses are not in the catalog yet: a sidecar's own are kept.
-    labels: keep?.labels ?? [],
+    // The record's labels when it has any; else a sidecar's own are kept (the address is not in the catalog yet).
+    labels: (record as { labels?: string[] }).labels ?? keep?.labels ?? [],
     address: keep?.address ?? null,
   };
 }
@@ -213,6 +213,17 @@ export function parseSidecar(bytes: Uint8Array): SidecarDoc | null {
 
 type Core = { ops: WriteOps; content: ContentConfig };
 
+/**
+ * Writes of data made again when missing or stale (sidecars, which the file
+ * check rewrites from the catalog; the import cache): still write-then-rename,
+ * but not flushed to disk one by one, so importing a thousand files does not
+ * wait on two thousand flushes. A crash can lose such a write, never tear the
+ * project's own files.
+ */
+function rebuildable(core: Core): Core {
+  return { ...core, ops: { ...core.ops, fsyncFile: () => undefined, fsyncDir: () => undefined } };
+}
+
 function within(parent: string, child: string): boolean {
   return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
@@ -222,10 +233,12 @@ function within(parent: string, child: string): boolean {
  * inside the game folder, never the project's own files) and return the
  * absolute target, or why it cannot be written.
  */
-function prepareTarget(ctx: ContentContext, rel: string): { ok: true; abs: string; dir: string } | { ok: false; error: CommandError } {
+function prepareTarget(ctx: ContentContext, rel: string, create = true): { ok: true; abs: string; dir: string } | { ok: false; error: CommandError } {
   if (!isValidSourcePath(rel)) return { ok: false, error: pathRejected(rel, 'an asset path is relative to the game folder, with forward slashes') };
   const segs = rel.split('/');
   if (segs.includes('.git')) return { ok: false, error: pathRejected(rel, '.git/ is not an asset folder') };
+  // Hidden folders hold tools' state (.thirdlight, .git, editor settings), never assets.
+  if (segs.slice(0, -1).some((seg) => seg.startsWith('.'))) return { ok: false, error: pathRejected(rel, 'a hidden folder is not an asset folder') };
   const root = assetRoot(ctx);
   if (ctx.gameFolder == null ? PROJECT_OWN_ENTRIES.has(segs[0]!) : join(root, segs[0]!) === ctx.dir) {
     return { ok: false, error: pathRejected(rel, `${segs[0]!} holds the project's own files, not assets`) };
@@ -257,6 +270,7 @@ function prepareTarget(ctx: ContentContext, rel: string): { ok: true; abs: strin
         return { ok: false, error: pathRejected(rel, `${seg} is not a folder`) };
       }
     } catch {
+      if (!create) continue;
       try {
         mkdirSync(cur, { mode: 0o755 });
       } catch {
@@ -271,6 +285,18 @@ function prepareTarget(ctx: ContentContext, rel: string): { ok: true; abs: strin
     // absent: fine
   }
   return { ok: true, abs, dir: dirname(abs) };
+}
+
+/**
+ * Whether files may be written into a folder of the game folder: a relative
+ * path inside it (no `..`, no symlink leading out), not a hidden folder and
+ * not the project's own files. The folder need not exist yet.
+ */
+export function checkAssetFolder(ctx: ContentContext, folder: string): { ok: true } | { ok: false; error: CommandError } {
+  if (folder === '') return { ok: false, error: pathRejected(folder, 'name a folder inside the game folder, e.g. assets') };
+  const t = prepareTarget(ctx, `${folder}/file`, false);
+  if (!t.ok) return { ok: false, error: { ...t.error, message: t.error.message.split(`${folder}/file`).join(folder) } as CommandError };
+  return { ok: true };
 }
 
 /** Write one game-folder file (write then rename). */
@@ -513,7 +539,7 @@ export function writeHeader(core: Core, ctx: ContentContext, key: ImportKey, hea
   const dir = join(ctx.dir, ...segs);
   try {
     mkdirSync(dir, { recursive: true, mode: 0o755 });
-    writeAtomic({ dir, target: join(dir, 'header.json'), bytes: new TextEncoder().encode(`${JSON.stringify(header)}\n`), allowedPreHashes: [], previousHash: null, ops: core.ops });
+    writeAtomic({ dir, target: join(dir, 'header.json'), bytes: new TextEncoder().encode(`${JSON.stringify(header)}\n`), allowedPreHashes: [], previousHash: null, ops: rebuildable(core).ops });
   } catch {
     // a cache: a failed write is only a later re-inspection
   }
@@ -592,12 +618,23 @@ export function takenPaths(content: ContentCatalogV4 | null): Set<string> {
 
 // ---- keeping the game folder in step with the catalog ------------------------
 
-/** The asset records a change replaced (null: none before / none after), or null when the change is not about an asset. */
-export function assetChangeOf(change: ChangeData): { previous: RecordLike | null; next: RecordLike | null; removed: boolean } | null {
-  const c = change as unknown as { type: string; previous?: RecordLike | null; next?: RecordLike | null };
-  if (c.type === 'publishAsset' || c.type === 'setAssetOptions') return { previous: c.previous ?? null, next: c.next ?? null, removed: false };
-  if (c.type === 'removeAsset') return { previous: c.previous ?? null, next: null, removed: true };
-  return null;
+/** One asset record a change replaced (null: none before / none after); `removed`: a delete, which takes the file too. */
+export interface AssetRecordChange {
+  previous: RecordLike | null;
+  next: RecordLike | null;
+  removed: boolean;
+}
+
+/** The asset records a change replaced (empty when the change is not about assets). */
+export function assetChangesOf(change: ChangeData): AssetRecordChange[] {
+  const c = change as unknown as { type: string; previous?: RecordLike | null; next?: RecordLike | null; added?: RecordLike[]; removed?: RecordLike[] };
+  if (c.type === 'publishAsset' || c.type === 'setAssetOptions') return [{ previous: c.previous ?? null, next: c.next ?? null, removed: false }];
+  if (c.type === 'removeAsset') return [{ previous: c.previous ?? null, next: null, removed: true }];
+  // A folder import (and its undo, which only forgets the assets: their files stay).
+  if (c.type === 'importAssets') {
+    return [...(c.removed ?? []).map((r) => ({ previous: r, next: null, removed: false })), ...(c.added ?? []).map((r) => ({ previous: null, next: r, removed: false }))];
+  }
+  return [];
 }
 
 function sidecarAt(ctx: ContentContext, file: string): SidecarDoc | null {
@@ -606,20 +643,25 @@ function sidecarAt(ctx: ContentContext, file: string): SidecarDoc | null {
 }
 
 /** Write the sidecar of a record next to its file (only when it differs); returns an error text or null. */
-export function writeSidecar(core: Core, ctx: ContentContext, record: RecordLike, content: ContentCatalogV4 | null): string | null {
+export function writeSidecar(core: Core, ctx: ContentContext, record: RecordLike, content: ContentCatalogV4 | null, fileOfAsset: (assetId: string) => string | null = fileLookup(content)): string | null {
   const file = fileOfRecord(record);
   if (file === null) return null;
   const existingBytes = readGameFile(ctx, sidecarPath(file));
   const existing = existingBytes === null ? null : parseSidecar(existingBytes);
-  const byId = new Map(((content?.assets ?? []) as unknown as RecordLike[]).map((a) => [a.assetId, a]));
-  const doc = sidecarOf(record, (id) => {
-    const r = byId.get(id);
-    return r === undefined ? null : fileOfRecord(r);
-  }, existing !== null && existing.id === record.assetId ? existing : null);
+  const doc = sidecarOf(record, fileOfAsset, existing !== null && existing.id === record.assetId ? existing : null);
   const bytes = sidecarBytes(doc);
   if (existingBytes !== null && sha256Hex(existingBytes) === sha256Hex(bytes)) return null;
-  const w = writeGameFile(core, ctx, sidecarPath(file), bytes);
+  const w = writeGameFile(rebuildable(core), ctx, sidecarPath(file), bytes);
   return w.ok ? null : w.error.message;
+}
+
+/** Each asset's current file by id (built once for many sidecars). */
+export function fileLookup(content: ContentCatalogV4 | null): (assetId: string) => string | null {
+  const byId = new Map(((content?.assets ?? []) as unknown as RecordLike[]).map((a) => [a.assetId, a]));
+  return (id) => {
+    const r = byId.get(id);
+    return r === undefined ? null : fileOfRecord(r);
+  };
 }
 
 /** Remove a sidecar when it is this asset's. */
@@ -648,12 +690,19 @@ function removeSidecar(ctx: ContentContext, file: string, assetId: string): void
  * next file check repairs sidecars).
  */
 export function syncAssetFiles(core: Core, ctx: ContentContext, change: ChangeData, contentAfter: ContentCatalogV4 | null): string[] {
-  const c = assetChangeOf(change);
-  if (c === null) return [];
+  const changes = assetChangesOf(change);
+  if (changes.length === 0) return [];
   const problems: string[] = [];
+  const named = takenPaths(contentAfter);
+  const lookup = fileLookup(contentAfter);
+  for (const c of changes) syncOne(core, ctx, c, contentAfter, named, lookup, problems);
+  return problems;
+}
+
+function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, contentAfter: ContentCatalogV4 | null, named: ReadonlySet<string>, lookup: (assetId: string) => string | null, problems: string[]): string[] {
   const prevFile = c.previous === null ? null : fileOfRecord(c.previous);
   const nextFile = c.next === null ? null : fileOfRecord(c.next);
-  const stillNamed = (file: string): boolean => takenPaths(contentAfter).has(file.toLowerCase());
+  const stillNamed = (file: string): boolean => named.has(file.toLowerCase());
   if (c.next === null) {
     if (c.previous === null || prevFile === null) return problems;
     if (c.removed && !stillNamed(prevFile)) {
@@ -687,7 +736,7 @@ export function syncAssetFiles(core: Core, ctx: ContentContext, change: ChangeDa
       }
     }
   }
-  const s = writeSidecar(core, ctx, c.next, contentAfter);
+  const s = writeSidecar(core, ctx, c.next, contentAfter, lookup);
   if (s !== null) problems.push(`the sidecar of ${nextFile} could not be written: ${s}`);
   return problems;
 }
@@ -768,14 +817,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 /**
  * A `publishAsset` of bytes uploaded to the backend names no file: they are
  * held by digest (`holdBytes`) and filed into the game folder here, at
- * `assets/<name>.<ext>`, or over the asset's own file when a re-import has
- * the same kind of file. The chosen path goes into the command's args, so
+ * `<folder>/<name>.<ext>` (the folder the user dropped them in, `assets` when
+ * none is named; `checkAssetFolder` vets it first), or over the asset's own
+ * file when a re-import names no folder and has the same kind of file. The chosen path goes into the command's args, so
  * the change, the history and the retry record all carry it. A converted
  * version (FBX, or a PNG/JPEG encoded to KTX2) files its original; a packed
  * texture files its KTX2. Null: nothing to file (a file already in the game
  * folder, or args the command itself refuses).
  */
-export function planPlacement(core: Core, ctx: ContentContext, args: Record<string, unknown>, content: ContentCatalogV4 | null, readLegacyBlob: (digest: string) => Uint8Array | null): Placement | null {
+export function planPlacement(core: Core, ctx: ContentContext, args: Record<string, unknown>, content: ContentCatalogV4 | null, readLegacyBlob: (digest: string) => Uint8Array | null, folder?: string): Placement | null {
   const conv = isRecord(args['convertedFrom']) ? (args['convertedFrom'] as unknown as ConvertedLike) : undefined;
   if (conv !== undefined ? conv.sourcePath !== undefined : args['sourcePath'] !== undefined) return null;
   const fileDigest = conv !== undefined ? conv.sourceDigest : args['sourceDigest'];
@@ -789,9 +839,9 @@ export function planPlacement(core: Core, ctx: ContentContext, args: Record<stri
   const existingFile = existing !== null ? fileOfRecord(existing) : null;
   const name = typeof args['displayName'] === 'string' ? args['displayName'] : (existing?.displayName ?? assetId);
   const rel =
-    args['mode'] === 'reimport' && existingFile !== null && existingFile.toLowerCase().endsWith(`.${ext}`)
+    folder === undefined && args['mode'] === 'reimport' && existingFile !== null && existingFile.toLowerCase().endsWith(`.${ext}`)
       ? existingFile
-      : allocateAssetPath(ctx, takenPaths(content), DEFAULT_ASSET_FOLDER, fileStem(name, assetId), ext);
+      : allocateAssetPath(ctx, takenPaths(content), folder ?? DEFAULT_ASSET_FOLDER, fileStem(name, assetId), ext);
   const placed = conv !== undefined ? { ...args, convertedFrom: { ...conv, sourcePath: rel } } : { ...args, sourcePath: rel };
   let previous: Uint8Array | null = null;
   let wrote = false;

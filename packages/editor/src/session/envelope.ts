@@ -35,11 +35,13 @@ export interface CommandEnvelope {
  * browser needs to advance its projection and decide retries.
  */
 export type MutationResponse =
-  | { ok: true; revision: number; duplicated: boolean; change: unknown }
+  | { ok: true; revision: number; duplicated: boolean; change: unknown; folderImport?: import('./folder-upload').FolderImportView }
   | {
       ok: false;
       code: string;
       message?: string;
+      /** A folder import: what its folder held besides the refusal. */
+      folderImport?: import('./folder-upload').FolderImportView;
       currentRevision?: number;
       /** `limits_exceeded` detail: the declared bound that was exceeded. */
       limit?: string;

@@ -14,6 +14,7 @@
  * external change (when writes are paused).
  */
 
+import type { PreparedImportFile } from './folder-import';
 import { resolveEntry, type RegisteredProject } from './registry';
 import { mkdirSync, chmodSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
@@ -139,6 +140,8 @@ export interface ProjectSession {
   v4?: V4State | null;
   /** What the automatic v3 → v4 upgrade did at this open (for the problems log). */
   upgradeNotes?: string[];
+  /** A folder's files the backend inspected for the next `importAssets` of that folder (read once by the command). */
+  preparedImports?: Map<string, PreparedImportFile[]>;
   /** Game-folder files a committed command could not bring in step (the next file check reports and repairs them). */
   fileProblems?: string[];
   /** === scene.revision (0 while blocked). */

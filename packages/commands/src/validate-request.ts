@@ -63,6 +63,7 @@ import {
   validateSetComponentArgs,
   validateSetSettingsArgs,
 } from './validate-content-args';
+import { validateImportAssetsArgs, type ImportAssetsArgs } from './import-assets';
 import {
   validateCreatePrefabArgs,
   validateInstantiatePrefabArgs,
@@ -182,6 +183,8 @@ const OPS: readonly MutationOp[] = [
   // Asset and prefab deletion
   'deleteAsset',
   'deletePrefab',
+  // A folder's files as assets
+  'importAssets',
   // Bulk creation
   'createEntities',
   // Staged library edits (several patches, one commit)
@@ -240,7 +243,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, createEntities, commitScriptLibraryStage',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, createEntities, commitScriptLibraryStage',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1292,6 +1295,7 @@ export type ValidatedOpArgs =
   | { op: 'setTimeline'; args: { timeline: import('@thirdlight/project-model').TimelineAsset } }
   | { op: 'deleteTimeline'; args: { timelineId: string } }
   | { op: 'deleteAsset'; args: { assetId: string } }
+  | { op: 'importAssets'; args: ImportAssetsArgs }
   | { op: 'deletePrefab'; args: { prefabId: string } }
   | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } };
 
@@ -1410,6 +1414,11 @@ export function validateOpArgs(
         entities.push(ref !== undefined ? { ...r.args, ref: ref as string } : r.args);
       }
       return { ok: true, validated: { op: 'createEntities', args: { entities } } };
+    }
+    case 'importAssets': {
+      const r = validateImportAssetsArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'importAssets', args: r.args } };
     }
     case 'deleteAsset':
     case 'deletePrefab': {

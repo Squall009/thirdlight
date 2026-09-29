@@ -81,6 +81,13 @@ export class ContentProjection {
       // `deleteAsset` (and its redo) removes the record.
       case 'removeAsset':
         return this.assets.delete(change.assetId);
+      // A folder import adds its records; its undo names the ones it forgets.
+      case 'importAssets': {
+        let changed = false;
+        for (const r of change.removed) changed = this.assets.delete(r.assetId) || changed;
+        for (const r of change.added) changed = this.applyPublishAsset({ type: 'publishAsset', mode: 'create', assetId: r.assetId, previous: null, next: r } as PublishAssetChange) || changed;
+        return changed;
+      }
       // The whole next record (its options, and where its file is after a move).
       case 'setAssetOptions':
         if (!this.assets.has(change.assetId)) return false;
@@ -117,6 +124,7 @@ export class ContentProjection {
       ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...((next as { materials?: Record<string, string> }).materials !== undefined ? { materials: { ...(next as unknown as { materials: Record<string, string> }).materials } } : {}),
       ...(typeof (next as { clipsFor?: string }).clipsFor === 'string' ? { clipsFor: (next as unknown as { clipsFor: string }).clipsFor } : {}),
+      ...(next.labels !== undefined ? { labels: [...next.labels] } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
       ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}), ...(convertedFrom.encoding !== undefined ? { encoding: convertedFrom.encoding } : {}) } } : {}),
       // A texture's image facts (a KTX2's codec and mip levels).
@@ -130,7 +138,7 @@ export class ContentProjection {
       }),
     });
     if (!previous) return true;
-    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath;
+    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath || (previous.labels ?? []).join() !== (next.labels ?? []).join();
   }
 
   /** The `(version, digest, byteLength)` a placement resolves through now. */
@@ -176,6 +184,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+    ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.image !== undefined ? { image: { ...a.image } } : {}),

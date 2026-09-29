@@ -1,3 +1,4 @@
+import type { FolderImport, FolderImportReport } from './folder-import';
 import type { HeadlessEditors } from './headless';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, type SessionError } from '@thirdlight/protocol';
@@ -23,6 +24,8 @@ export interface SessionRoutesContext {
   readonly workspaceError: (e: CommandError) => SessionError;
   readonly sessionView: (s: SessionRecord) => SessionView;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
+  /** Inspects a folder's files before its `importAssets` command (absent: the command refuses an unprepared folder). */
+  readonly folderImport?: FolderImport;
   readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
   /** The backend's headless editors (the owner's browser evicts them). */
   readonly headless: HeadlessEditors;
@@ -31,7 +34,7 @@ export interface SessionRoutesContext {
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
-  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost } = ctx;
+  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport } = ctx;
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const scope = tokenScope(bearerToken(req), req);
@@ -223,7 +226,30 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         }
         if (prep.ok) stagePrep = { dependents: prep.dependents, compiled: prep.compiled };
       }
+      // A folder import: the backend inspects the folder's files first (the command reads only those facts).
+      let folderReport: FolderImportReport | null = null;
+      if (envelope.op === 'importAssets' && folderImport !== undefined) {
+        const prep = await folderImport.prepare(projectId, env.args);
+        if (!prep.ok) {
+          const error = { code: prep.code, cls: 'validation' as const, message: prep.message, ...(prep.path !== undefined ? { path: prep.path } : {}) };
+          recordProblem(projectId, 'import', prep.code, `importAssets: ${prep.message}`);
+          sendJson(res, 400, { ok: false, error });
+          return;
+        }
+        folderReport = prep.report;
+      }
       const result = service.runCommand(env);
+      if (!result.ok && folderReport !== null) {
+        // The refusal says what the folder held besides it.
+        sendJson(res, statusFor(result.error.cls), { ...result, folderImport: folderReport });
+        return;
+      }
+      if (result.ok && folderReport !== null && result.duplicated === false) {
+        if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
+        notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
+        sendJson(res, 200, { ...result, folderImport: folderReport });
+        return;
+      }
       if (result.ok && stagePrep !== null && result.duplicated === false) {
         if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
         notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);

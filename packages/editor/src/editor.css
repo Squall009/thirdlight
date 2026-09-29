@@ -251,6 +251,8 @@ button, input, select, textarea { font-family: inherit; }
 .tl-assets__paging { padding: 4px 10px; color: var(--muted); font-size: 11px; }
 .tl-assets__actions { display: flex; gap: 6px; padding: 6px 10px; flex-wrap: wrap; }
 .tl-assets__file { display: none; }
+.tl-assets__folders { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+.tl-assets__folder-import { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; }
 .tl-assets__status { padding: 6px 10px; border-top: 1px solid var(--border); font-size: 12px; }
 .tl-assets__status--failed, .tl-assets__status--stale { color: var(--err); }
 .tl-assets__status--committed { color: var(--ok); }

@@ -77,7 +77,8 @@ import {
   verifyReferencedBlob,
   type ContentContext,
 } from './content-store';
-import { planPlacement, syncAssetFiles, type ConvertedLike } from './asset-files';
+import { checkAssetFolder, planPlacement, syncAssetFiles, type ConvertedLike } from './asset-files';
+import { mintImportItems } from './folder-import';
 import { upgradeAssetsToFiles } from './upgrade-assets';
 import { contentCtx, contentOps } from './service-content';
 import { checkScriptLibraryDraft, discardScriptLibraryStage, libraryStageFacts, prepareBehaviorSource, prepareScriptLibraryDependents, prepareScriptLibraryStage, preparedFactsOf, projectScriptLibraryInputs, stageScriptLibraryPatch, type PrepareBehaviorSourceRequest } from './behavior';
@@ -97,6 +98,7 @@ import {
   workspaceClosed as workspaceClosedError,
   writeFailed,
   type LoadDetail,
+  pathRejected,
 } from './errors';
 import { requestDigest, sha256Hex } from './digest';
 import {
@@ -202,29 +204,33 @@ function scriptsNaming(read: (digest: string) => Uint8Array | null, content: Con
  * bytes it holds, a file changed since is reported by the file check, and
  * reads refuse it, but it never blocks the undo.
  */
-function publishedBlobRef(
+function publishedBlobRefs(
   result: MutationSuccess,
-): { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedLike } | null {
+): { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedLike }[] {
   const ch = result.change;
   if (ch.type === 'publishBehavior') {
     // A source publication references the immutable container blob
     // exactly like an asset version does.
     const src = ch.next === null ? null : ch.next.source;
-    if (src === null) return null;
-    return { digest: src.sourceDigest, byteLength: src.sourceByteLength };
+    if (src === null) return [];
+    return [{ digest: src.sourceDigest, byteLength: src.sourceByteLength }];
   }
-  if (ch.type !== 'publishAsset' || ch.next === null) return null;
-  if (result.op === 'undo' || result.op === 'redo') return null;
-  const last = ch.next.versions[ch.next.versions.length - 1];
-  if (last === undefined) return null;
-  const sourcePath = (last as { sourcePath?: string }).sourcePath;
-  const convertedFrom = (last as { convertedFrom?: ConvertedLike }).convertedFrom;
-  return {
-    digest: last.sourceDigest,
-    byteLength: last.sourceByteLength,
-    ...(sourcePath !== undefined ? { sourcePath } : {}),
-    ...(convertedFrom !== undefined ? { convertedFrom } : {}),
-  };
+  if (result.op === 'undo' || result.op === 'redo') return [];
+  const records = ch.type === 'publishAsset' ? (ch.next === null ? [] : [ch.next]) : ch.type === 'importAssets' ? ch.added : [];
+  const out: { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedLike }[] = [];
+  for (const record of records) {
+    const last = record.versions[record.versions.length - 1];
+    if (last === undefined) continue;
+    const sourcePath = (last as { sourcePath?: string }).sourcePath;
+    const convertedFrom = (last as { convertedFrom?: ConvertedLike }).convertedFrom;
+    out.push({
+      digest: last.sourceDigest,
+      byteLength: last.sourceByteLength,
+      ...(sourcePath !== undefined ? { sourcePath } : {}),
+      ...(convertedFrom !== undefined ? { convertedFrom } : {}),
+    });
+  }
+  return out;
 }
 
 export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceService {
@@ -446,12 +452,29 @@ function buildService(core: Core): WorkspaceService {
     const stages = libraryStageFacts(s);
     if (stages !== undefined) commandState.scriptLibraryStages = stages;
     // Bytes uploaded to the backend name no file yet: the workspace chooses
-    // where in the game folder they go, and the command records that path.
-    const placement = op === 'publishAsset' ? planPlacement(core, contentCtx(s), args, state.content, (digest) => {
+    // where in the game folder they go (`folder`: where the user dropped them),
+    // and the command records that path.
+    let folder: string | undefined;
+    if (op === 'publishAsset' && 'folder' in args) {
+      const { folder: f, ...rest } = args;
+      if (typeof f !== 'string') return failRequest(request, pathRejected(String(f), 'folder names a folder of the game folder, e.g. assets/props'));
+      const vetted = checkAssetFolder(contentCtx(s), f);
+      if (!vetted.ok) return failRequest(request, vetted.error);
+      folder = f;
+      pureRequest = { ...(pureRequest as object), args: rest };
+    }
+    const placement = op === 'publishAsset' ? planPlacement(core, contentCtx(s), (pureRequest as { args: Record<string, unknown> }).args, state.content, (digest) => {
       const r = readSourceBlob(core, contentCtx(s), { digest });
       return r.ok ? r.bytes : null;
-    }) : null;
+    }, folder) : null;
+    if (folder !== undefined && placement === null) return failRequest(request, pathRejected(folder, 'folder places uploaded bytes; this asset names its file already'));
     if (placement !== null) pureRequest = { ...(pureRequest as object), args: placement.args };
+    // A folder import reads the files the backend inspected for it (once), each given its id now.
+    if (op === 'importAssets' && typeof args['folder'] === 'string') {
+      const files = s.preparedImports?.get(args['folder']);
+      s.preparedImports?.delete(args['folder']);
+      if (files !== undefined) commandState.preparedAssetImport = { folder: args['folder'], items: mintImportItems(state.content, files) };
+    }
     const outcome = applyMutation(commandState, pureRequest);
     if (!outcome.ok) return outcome.result;
     // Remember which scene the new history entry edited (undo/redo route by it).
@@ -471,8 +494,7 @@ function buildService(core: Core): WorkspaceService {
       const placed = placement.write();
       if (placed !== null) return refuse(placed);
     }
-    const ref = publishedBlobRef(outcome.result);
-    if (ref !== null) {
+    for (const ref of publishedBlobRefs(outcome.result)) {
       // A converted version: its file first (the original), then what the importer made from it.
       if (ref.convertedFrom !== undefined) {
         const o = verifyConvertedOriginal(contentCtx(s), ref.convertedFrom);
@@ -480,6 +502,8 @@ function buildService(core: Core): WorkspaceService {
       }
       const v = ref.convertedFrom !== undefined ? verifyImported(contentCtx(s), ref.convertedFrom, ref.digest) : verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
       if (!v.ok) return refuse(v.error);
+    }
+    if (publishedBlobRefs(outcome.result).length > 0) {
       const used = authoritativeBytes(s.dir);
       if (used > core.content.maxSourceBytesPerProject) {
         return refuse(contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0));
