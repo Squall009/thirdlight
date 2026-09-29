@@ -1,16 +1,16 @@
-# Phase 27 — Documentation and AI onboarding
+# Phase 28 — Documentation and AI onboarding
 
 Goal: a person can learn Thirdlight and build a game from the documentation
 alone, in the editor or through the API. An AI agent in a game's folder learns
 what the running engine offers from the engine itself, not from reading the
-engine repo. Phase 27 starts after phase 26.
+engine repo. Phase 28 starts after phase 27.
 
 ## 1. Where things stand (checked 2026-09-28)
 
 - **Editor reach.** The editor sends all 62 command ops, so no op is API-only.
   The remaining gaps are elsewhere:
   - The API has no ops to delete prefabs, behaviors or assets. Phase 25
-    covers assets and prefabs (25.7c); behaviors are covered in 27.1.
+    covers assets and prefabs (25.7c); behaviors are covered in 28.1.
   - No panel shows or revokes script trust.
   - No one has built a level, prefab or material graph by hand yet. Only
     the Playwright tests have driven those panels.
@@ -48,15 +48,15 @@ engine repo. Phase 27 starts after phase 26.
 
 | Item | What |
 |---|---|
-| 27.0 | This plan, and its rows in `docs/STATUS.md` and `docs/roadmap.md`. |
-| 27.1 | **Editor reach, the rest.**<br>• A `deleteBehavior` op, refused while anything references the behavior.<br>• A trust panel that lists acknowledged sources and can revoke them.<br>• A test that fails when a new op has no editor sender, and names it. It reads the op list from the validator and the editor's `client.command` call sites. |
-| 27.2 | **Generated reference** (`docs/manual/reference/`, built by a tool and kept current by a test that regenerates it and diffs):<br>• components and their fields: type, unit, range, default, tooltip and Scene handle, from the descriptors<br>• the content documents (shell, eventCues, save schema, block types), with the descriptors extended where they are missing today<br>• every command op with its request shape, from the validator<br>• the script API: `ctx.*` with its doc comments, reusing `tools/gen-behavior-api.mjs`<br>• visual-script and material-graph nodes, from their catalogues<br>• engine limits and defaults |
-| 27.3 | **Manual: getting started and concepts** (`docs/manual/`):<br>• install, the first project from the starter template, the first Play, the first export<br>• concepts: projects and scenes, objects and components, prefabs, assets, scripts and the step model (intents, determinism, replays), the game shell, 2D vs 3D |
-| 27.4 | **Manual: how-to guides**, one per task. Each guide gives the editor path and the API path, and says which is recommended and why:<br>• build a level with block layers<br>• dress a scene with instance sets<br>• make and spawn a prefab<br>• write a script and a shared library<br>• visual scripts<br>• material graphs<br>• effects<br>• the animator<br>• cameras<br>• a HUD and menus with UI documents<br>• dialogue<br>• a cutscene with a timeline<br>• game modes<br>• saves<br>• input and rebinding<br>• audio<br>• lighting and baking<br>• play-testing with the headless runner (25.17)<br>• export<br>Also a "which tool for which job" page (block layers vs instance sets vs entities; scripts vs visual scripts) and a limits page. |
-| 27.5 | **`deployment.md` goes back to running the server**: requirements, service, proxy, token, backup, the MCP connection. Feature sections move to the manual. Phase notes and change history stay in the plans. |
-| 27.6 | **MCP onboarding:**<br>• server instructions: start with the getting-started topic, and look up an op or component before using it<br>• a `tl_docs {topic?}` tool (or MCP resources) that returns the manual and the generated reference from the running build<br>• tool descriptions shortened to a summary plus a pointer into `tl_docs`<br>• `tl_inspect target="engine"`: version and build (from 25.18), so an agent knows which manual it is reading |
-| 27.7 | **The skill:**<br>• `skills/thirdlight/SKILL.md` in the engine repo, stamped with the engine version.<br>• Its content: the workflow (build scripts vs editor), the recommended patterns, game rules living in project scripts (principle 1b), play-testing, and common traps.<br>• `tools/project.mjs` installs or updates it into `<game>/.claude/skills/thirdlight/`.<br>• `check` warns when the installed copy is older than the pinned engine.<br>• The starter template ships with it. |
-| 27.8 | **Dogfood.** A new project from the starter template is built **by hand in the editor, following only the manual**: a small 3D level made with block layers, a prefab, a material graph, a script with a shared library, a HUD, a title screen, a save and an export. No API calls, and no reading of engine source. Every stuck point is logged in the decision log and fixed in the manual or the editor, or listed as a follow-up. The owner does this pass, or watches it. |
+| 28.0 | This plan, and its rows in `docs/STATUS.md` and `docs/roadmap.md`. |
+| 28.1 | **Editor reach, the rest.**<br>• A `deleteBehavior` op, refused while anything references the behavior.<br>• A trust panel that lists acknowledged sources and can revoke them.<br>• A test that fails when a new op has no editor sender, and names it. It reads the op list from the validator and the editor's `client.command` call sites. |
+| 28.2 | **Generated reference** (`docs/manual/reference/`, built by a tool and kept current by a test that regenerates it and diffs):<br>• components and their fields: type, unit, range, default, tooltip and Scene handle, from the descriptors<br>• the content documents (shell, eventCues, save schema, block types), with the descriptors extended where they are missing today<br>• every command op with its request shape, from the validator<br>• the script API: `ctx.*` with its doc comments, reusing `tools/gen-behavior-api.mjs`<br>• visual-script and material-graph nodes, from their catalogues<br>• engine limits and defaults |
+| 28.3 | **Manual: getting started and concepts** (`docs/manual/`):<br>• install, the first project from the starter template, the first Play, the first export<br>• concepts: projects and scenes, objects and components, prefabs, assets, scripts and the step model (intents, determinism, replays), the game shell, 2D vs 3D |
+| 28.4 | **Manual: how-to guides**, one per task. Each guide gives the editor path and the API path, and says which is recommended and why:<br>• build a level with block layers<br>• dress a scene with instance sets<br>• make and spawn a prefab<br>• write a script and a shared library<br>• visual scripts<br>• material graphs<br>• effects<br>• the animator<br>• cameras<br>• a HUD and menus with UI documents<br>• dialogue<br>• a cutscene with a timeline<br>• game modes<br>• saves<br>• input and rebinding<br>• audio<br>• lighting and baking<br>• play-testing with the headless runner (25.17)<br>• export<br>Also a "which tool for which job" page (block layers vs instance sets vs entities; scripts vs visual scripts) and a limits page. |
+| 28.5 | **`deployment.md` goes back to running the server**: requirements, service, proxy, token, backup, the MCP connection. Feature sections move to the manual. Phase notes and change history stay in the plans. |
+| 28.6 | **MCP onboarding:**<br>• server instructions: start with the getting-started topic, and look up an op or component before using it<br>• a `tl_docs {topic?}` tool (or MCP resources) that returns the manual and the generated reference from the running build<br>• tool descriptions shortened to a summary plus a pointer into `tl_docs`<br>• `tl_inspect target="engine"`: version and build (from 25.18), so an agent knows which manual it is reading |
+| 28.7 | **The skill:**<br>• `skills/thirdlight/SKILL.md` in the engine repo, stamped with the engine version.<br>• Its content: the workflow (build scripts vs editor), the recommended patterns, game rules living in project scripts (principle 1b), play-testing, and common traps.<br>• `tools/project.mjs` installs or updates it into `<game>/.claude/skills/thirdlight/`.<br>• `check` warns when the installed copy is older than the pinned engine.<br>• The starter template ships with it. |
+| 28.8 | **Dogfood.** A new project from the starter template is built **by hand in the editor, following only the manual**: a small 3D level made with block layers, a prefab, a material graph, a script with a shared library, a HUD, a title screen, a save and an export. No API calls, and no reading of engine source. Every stuck point is logged in the decision log and fixed in the manual or the editor, or listed as a follow-up. The owner does this pass, or watches it. |
 
 **Done when:**
 - The reference regenerates with no diff, and the op-reach test passes.
@@ -72,8 +72,8 @@ engine repo. Phase 27 starts after phase 26.
 
 | Item | Status |
 |---|---|
-| 27.0 | done 2026-09-28 |
-| 27.1–27.8 | — |
+| 28.0 | done 2026-09-28 |
+| 28.1–28.8 | — |
 
 ## 5. Decision log
 
@@ -81,10 +81,12 @@ engine repo. Phase 27 starts after phase 26.
   engine's MCP answers "what exists", so a game folder pinned to an older or
   newer engine never reads a stale catalogue.
 - 2026-09-28: documentation comes after phase 25 (owner). Phase 25 items
-  still update `deployment.md` as they land. 27.5 then moves those sections
+  still update `deployment.md` as they land. 28.5 then moves those sections
   into the manual.
 - 2026-09-28: this plan was phase 26; it became phase 27 when the owner put
   asset scale and streaming (`docs/plan-phase-26.md`) ahead of it, so the
   manual documents the engine without per-project asset caps. The limits page
-  (27.4) describes the per-file sizes and runtime memory budgets phase 26
+  (28.4) describes the per-file sizes and runtime memory budgets phase 26
   leaves.
+- 2026-09-29: renumbered again, 27 → 28: scalable lighting (Skyforge E45,
+  owner) is phase 27, so the manual also describes the lighting after it.
